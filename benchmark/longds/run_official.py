@@ -51,7 +51,7 @@ KB_ROOT = _WORKTREE_KB_ROOT if (_WORKTREE_KB_ROOT / "code_agent.py").exists() el
 from official_protocol import build_prompts, extract_answer, selftest, write_records
 
 WORKTREE = Path(__file__).resolve().parents[2]
-SCRIPT_ARMS = {"code"}
+SCRIPT_ARMS = {"code", "smolagents-custom"}
 DSGYM_ARMS = {"dsgym", "dsgym-functions", "dsgym-shared", "dsgym-shared-cs", "dsgym-shared-ci"}
 # The context-budget arms: DSGym with our task text and compaction (a running
 # summary; plus the live kernel inventory), and the dataflow arm's budgeted
@@ -105,7 +105,7 @@ HERE = Path(__file__).resolve().parent
 DSGYM_PYTHON = HERE / ".dsgym-venv/bin/python"  # litellm; see dsgym_agent.py
 
 
-def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
+def run_script_arm(prompts, out_dir, model, env_file, turn_timeout, *, custom=False, manifest=None):
     """smolagents CodeAgent over a persistent interpreter: the agent is reset only
     on turn 1, so its conversation and its Python variables both carry forward.
     That is the paper's own baseline shape (ReAct over a persistent kernel)."""
@@ -118,17 +118,44 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
     wrapper = CodeAgentWrapper(
         model_type=model,
         max_steps=40,
-        max_print_outputs_length=2000,
-        use_custom_prompt=False,
+        max_print_outputs_length=5000 if custom else 2000,
+        use_custom_prompt=custom,
         use_fine_grained_prompt=False,
         use_pitfalls_prompt=False,
         verbosity_level=0,
         api_base=os.getenv("CODE_AGENT_API_BASE", "http://localhost:4000"),
         api_key=os.getenv("LITELLM_MASTER_KEY", "dummy"),
     ).setup()
+    if custom:
+        wrapper._model.kwargs['max_tokens'] = 8192
+        wrapper._model.kwargs['reasoning_effort'] = 'medium'
+        from smolagents_executor import IsolatedSmolExecutor
+        wrapper._agent.python_executor = IsolatedSmolExecutor(
+            (WORKTREE / manifest['data_dir']).resolve(), manifest['data_dir'],
+            out_dir / 'python-workspace', wrapper.authorized_imports, 5000,
+            timeout=min(turn_timeout, 600),
+        )
+    (out_dir / 'system_prompt.txt').write_text(wrapper._agent.system_prompt)
+    original_generate = wrapper._model.generate
+    active_turn = 0
+
+    def capture_generate(*args, **kwargs):
+        message = original_generate(*args, **kwargs)
+        raw = getattr(message, 'raw', None)
+        usage = getattr(raw, 'usage', None)
+        choices = getattr(raw, 'choices', []) or []
+        call = {'turn_id': active_turn, 'model': getattr(raw, 'model', model),
+                'finish_reason': getattr(choices[0], 'finish_reason', None) if choices else None,
+                'usage': usage.model_dump() if hasattr(usage, 'model_dump') else str(usage)}
+        with (out_dir / 'calls.jsonl').open('a') as stream:
+            stream.write(json.dumps(call, default=str) + '\n')
+        return message
+
+    wrapper._model.generate = capture_generate
     os.chdir(KB_ROOT)  # data/... paths in the prompts resolve from here, as upstream's runner does
     answers, prior = [], 0
     for index, turn in enumerate(prompts, 1):
+        active_turn = turn['turn_id']
         directory = out_dir / f"t{index:02}"
         directory.mkdir(parents=True)
         (directory / "prompt.json").write_text(json.dumps(turn, indent=2))
@@ -175,7 +202,9 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
         answer = extract_answer(raw)
         (directory / "answer.json").write_text(json.dumps({"raw": raw, "answer": answer, "error": error}, indent=2))
         answers.append({"turn_id": turn["turn_id"], "answer": answer, "error": error, "steps": len(steps), "stats": stats})
-        print(json.dumps({"arm": "code", "model": model, "turn": turn["turn_id"], **stats}), flush=True)
+        print(json.dumps({"arm": "smolagents-custom" if custom else "code", "model": model, "turn": turn["turn_id"], **stats}), flush=True)
+    if custom:
+        wrapper._agent.python_executor.cleanup()
     return answers
 
 
@@ -289,6 +318,8 @@ def main() -> int:
     ap.add_argument("--turn-limit", type=int)
     ap.add_argument("--turn-timeout", type=int, default=1200)
     ap.add_argument("--env-file", type=Path, default=WORKTREE.parents[2] / ".env")
+    ap.add_argument("--prepared-root", type=Path, default=PREPARED,
+                    help="separate prepared specifications for a pinned dataset version")
     args = ap.parse_args()
     # The script agent's interpreter is KramaBench's venv: its sandbox authorizes
     # imports (fiona, geopandas, ...) that only that environment installs. Re-exec
@@ -299,11 +330,11 @@ def main() -> int:
             os.execv(str(wanted), [str(wanted), str(Path(__file__).resolve()), *sys.argv[1:]])
     selftest()
 
-    prepared = PREPARED / args.task
+    prepared = args.prepared_root / args.task
     manifest = json.loads((prepared / "manifest.json").read_text())
     gold = json.loads((prepared / "gold.json").read_text())
     kind = "script" if args.arm in SCRIPT_ARMS | DSGYM_ARMS else "dataflow"
-    prompts = build_prompts(manifest, kind)[: args.turn_limit]
+    prompts = build_prompts(manifest, "smolagents" if args.arm == "smolagents-custom" else kind)[: args.turn_limit]
     reset = reset_turn(len(prompts))
     refresh = refresh_plan(manifest, len(prompts))
     if refresh:
@@ -341,6 +372,17 @@ def main() -> int:
                 "manifest_sha256": hashlib.sha256((prepared / "manifest.json").read_bytes()).hexdigest(),
                 "functions_guidance": args.arm == "dsgym-functions",
                 "shared_task_text": args.arm.startswith("dsgym-shared"),
+                "custom_prompt": args.arm == "smolagents-custom",
+                "answer_tool_prompt": args.arm == "smolagents-custom",
+                "python_execution_timeout_seconds": (
+                    600 if args.arm in DSGYM_ARMS else min(args.turn_timeout, 600)
+                    if args.arm == "smolagents-custom" else None
+                ),
+                "prepared_root": str(args.prepared_root.resolve()),
+                "dataset_version": manifest.get('dataset_version', 'v1'),
+                "dataset_revision": manifest.get('dataset_revision'),
+                "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+                "judge": os.environ.get('LONGDS_JUDGE_MODEL', 'deepseek/deepseek-v4-pro'),
                 **({"environment_reset_before_turn": reset, "reset_notice": RESET_NOTICE} if reset else {}),
                 **({"data_refresh_before_turn": refresh["turn"], "refresh_extract": refresh["name"],
                     "refresh_notice": refresh["notice"], "refreshed_gold": "reference notebook on the corrected data"}
@@ -351,7 +393,9 @@ def main() -> int:
                    if args.arm in COMPACTION or args.arm == "react-lean2-budget" else {}),
                 "execution_isolation": (
                     "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network"
-                    if args.arm in DSGYM_ARMS else os.environ.get("LONGDS_NATIVE_ISOLATION", "not recorded")
+                    if args.arm in DSGYM_ARMS else
+                    "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials"
+                    if args.arm == "smolagents-custom" else os.environ.get("LONGDS_NATIVE_ISOLATION", "not recorded")
                 ),
                 "protocol": (
                     "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; "
@@ -359,7 +403,6 @@ def main() -> int:
                     if args.arm in DSGYM_ARMS
                     else "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
                 ),
-                "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro",
             },
             indent=2,
         )
@@ -397,7 +440,9 @@ def run_arm(args, prepared, run_dir, prompts, kind, reset, refresh):
             # final-answer marker the shared answer contract asks for.
             answers = [dict(a, answer=extract_answer(a.get("answer") or "")) for a in answers]
     elif kind == "script":
-        answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout)
+        answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout,
+                                 custom=args.arm == 'smolagents-custom',
+                                 manifest=json.loads((prepared / 'manifest.json').read_text()))
     else:
         answers = run_dataflow_arm(prompts, run_dir, args.arm, args.model, args.turn_timeout)
     return answers

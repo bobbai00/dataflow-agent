@@ -1,0 +1,236 @@
+{
+  "date": "2026-09-30",
+  "selected_before_runs": true,
+  "design": "One exploratory complete-session trial per agent on a purposive subset; no dataflow run and no engine changes. Outcome-dependent retries are not part of this diagnostic pilot.",
+  "dataset_version": "v1.1",
+  "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+  "subset": "custom 8 sessions drawn from official Lite",
+  "model": "gpt-5.6-terra",
+  "reasoning_effort": "medium",
+  "judge_model": "deepseek/deepseek-v4-pro",
+  "judge_base": "https://openrouter.ai/api/v1",
+  "judge_note": "DeepSeek-V4-Pro matches the judge family specified in LongDS paper v3, section 3.4. OpenRouter model ID is pinned explicitly.",
+  "arms": [
+    "dsgym",
+    "smolagents-custom"
+  ],
+  "custom_prompt": {
+    "enabled": true,
+    "final_answer_tool_fix": true,
+    "source": "evidence-only-context/benchmark/Kramabench/systems/code_agent_system.py uncommitted final_answer_tool_prompt change",
+    "stdout_char_limit": 5000,
+    "max_steps_per_turn": 40
+  },
+  "tasks": [
+    {
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "path": "business/netflix_movies_and_tv_shows/task3",
+      "rationale": "The paper illustrates this evolving market-score analysis; composition of historical components and current screens.",
+      "turns": 36,
+      "state_patterns": {
+        "Initial": 18,
+        "Update": 14,
+        "Rollback": 12,
+        "Counterfactual": 13
+      },
+      "source_sha256": {
+        "task.json": "3df0afb9bbce7e7f1c9a47070eeca2cb09820b324169ece10cfac09b995e14f3",
+        "metadata.json": "546351330c3f6c1cf893fcd899b533e869aade5db36297e80a8136ff71fe6971"
+      },
+      "manifest_sha256": "f5b4d285e74f1ac5414ac880c9f622bcbe4f1dd08d031a30abf6cee7d4fa3243",
+      "original_manifest_sha256": "934c9a2bcb702c3e80b236f437dd2f4a0c23ba8e40fe2011d9e757288a3db520"
+    },
+    {
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "path": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "rationale": "Restaurant and brand populations, revised commercial rules, and attribution across decision versions.",
+      "turns": 33,
+      "state_patterns": {
+        "Initial": 13,
+        "Counterfactual": 5,
+        "Update": 11,
+        "Rollback": 8
+      },
+      "source_sha256": {
+        "task.json": "71fc64cc812b1405abc0c2c40c06f87386fd4c58ba4102bafe0de7f7800b9001",
+        "metadata.json": "1cb2d28fec20fd02687e3ded3ca366c3ee5828144f2154666e94e8dc1e491451"
+      },
+      "manifest_sha256": "85a498ff0bfc9faec2270c01b0f49fbe97764b41e4ce264b3a313098fb5bf854",
+      "original_manifest_sha256": "7151ddfa36aa38e9af15ba9acc41b9903e99ac7ffa943f82d5dc30914c64a5c2"
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "path": "community/kaggle-survey-2022/task2",
+      "rationale": "Persistent adopter definitions change from narrow to broad; earlier populations are reused for comparisons.",
+      "turns": 30,
+      "state_patterns": {
+        "Initial": 19,
+        "Counterfactual": 7,
+        "Update": 8,
+        "Rollback": 3
+      },
+      "source_sha256": {
+        "task.json": "5d3e9518f1f3135e7bf24e06cd7e08660690a9d7db332362e03b13139a66eebf",
+        "metadata.json": "f84240fcb1b34287f99da3e48db2c67fa79cd6fbff487b2bc456b16cbb83d665"
+      },
+      "manifest_sha256": "b26c5a0a419e78b4e79bba4cb07fb6211591ac1b9188bd758711778678b8c1d8",
+      "original_manifest_sha256": "84fd208acf186156ea4a9fd8972fc1c154eb541fea8071ab6e655a7c23feb2b5"
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "path": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task2",
+      "rationale": "Joined working data, different temporal populations, and reuse of derived state-level features.",
+      "turns": 30,
+      "state_patterns": {
+        "Initial": 30,
+        "Update": 7,
+        "Rollback": 1
+      },
+      "source_sha256": {
+        "task.json": "c1a1790ad118b7200f0c7c9e8d416055e729ff031bce42e6760459b8ffd5a8a3",
+        "metadata.json": "3b59278a9448421da9c74081f605d4eb934dcbda39ef9b6cf73a38777e36a2aa"
+      },
+      "manifest_sha256": "18be10ac202725e68c0f3c0b36d47e44715eb79d7229fbe349ca73901a584036",
+      "original_manifest_sha256": "60942a020e7f38b265e856ea37c5674fcb5edb26d930e0385c9d63d3df286bde"
+    },
+    {
+      "task": "education__world_university_rankings__task3",
+      "path": "education/world_university_rankings/task3",
+      "rationale": "Ranking conventions, revised score definitions, and counterfactual indicator comparisons.",
+      "turns": 23,
+      "state_patterns": {
+        "Initial": 18,
+        "Rollback": 1,
+        "Counterfactual": 5,
+        "Update": 4
+      },
+      "source_sha256": {
+        "task.json": "8f136ce6de833edd697a870dfe3ebb861c1eaf06f92c8bf53cae1f854016bddb",
+        "metadata.json": "71f7814f7650c2138da72b933a8aaf7959278f40b8f05f5c1568c53f7f008d03"
+      },
+      "manifest_sha256": "acd3123e7027c9239a83c768677b7193ef4067f6706c610a6afecf8bafec945d"
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "path": "geoscience/phase-ii-widsdatathon2022/task1",
+      "rationale": "Changing working samples, persistent weights, and local perturbations of multicomponent scores.",
+      "turns": 40,
+      "state_patterns": {
+        "Initial": 23,
+        "Counterfactual": 5,
+        "Update": 9,
+        "Rollback": 4
+      },
+      "source_sha256": {
+        "task.json": "dd0d2f56a3029ef16916c09968e7e563cc262427fcdef13eed1eb679e4f63ade",
+        "metadata.json": "aea7f41bfa29ead8af4d6fbc0e5bc5e9f0bbc52072c96672a8e16dbf1fb462d4"
+      },
+      "manifest_sha256": "975c66e09a1d9c080575749cb09ef7063d2c1fbd47e20e27548f9f741aa583b4",
+      "original_manifest_sha256": "8119a356ef076557cfff13ef0873c3cf089735ade245e56d93aafb9d03d2ffcc"
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "path": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "rationale": "Evolving poverty and partner definitions; combined stress tests must preserve the default recommendation state.",
+      "turns": 37,
+      "state_patterns": {
+        "Initial": 11,
+        "Update": 11,
+        "Counterfactual": 13,
+        "Rollback": 12
+      },
+      "source_sha256": {
+        "task.json": "112c5d5dda8e9829c1582a0ebf352c6d299c80bd11421dc704a8aa84792b343d",
+        "metadata.json": "2dfc8af2739994a7af70a390fc70206743ad7f23c0e4588d0f0c0ca18c329c4c"
+      },
+      "manifest_sha256": "6e28ee68bdc650919ad70d47f6efd0993dea8a2cf159e7b09f2b908a467d0f90",
+      "original_manifest_sha256": "72b3603b31425029fbb631a7b1eda47c08b818b90778e534a7373a4bb52e7c1d"
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "path": "sports/nfl_big_data_bowl_2023/task1",
+      "rationale": "Long chains of player and team views, historical speed definitions, pool changes, and late composition.",
+      "turns": 42,
+      "state_patterns": {
+        "Initial": 14,
+        "Counterfactual": 12,
+        "Rollback": 13,
+        "Update": 11
+      },
+      "source_sha256": {
+        "task.json": "ae47261da2a47eeabe1e35a3311b4fb731bbb0eddeba71f74ce4f46a00ae43b7",
+        "metadata.json": "75fd94d5617035c3ab4f496289c05310c85e1baadc223a81ca68badb8f664212"
+      },
+      "manifest_sha256": "7e1bf69ee855f51c2c23c921016196eb86ff91eb3d62366c254bf191352fd1b1",
+      "original_manifest_sha256": "4ec68e3e1cf0ec247edb81a33a629a003f503e90804f7ab5f31ca5f29e2f64a4"
+    }
+  ],
+  "total_turns_per_arm": 271,
+  "total_sessions": 16,
+  "status": "Complete: 16 runs, 542 turn judgments, all verdicts present.",
+  "questions_to_audit": [
+    "Was the required working state materialized and retained after its defining request?",
+    "Did the current request consume the intended population and current or historical definition?",
+    "Did a temporary scenario preserve the ongoing default?",
+    "Did a correction update all dependent calculations, or only the latest report?",
+    "Did recomputation introduce a new interpretation or precision drift?",
+    "Did failures arise from analytical reasoning, execution restrictions, context limits, or state handling?",
+    "Would explicit lineage or another dataflow representation have prevented the observed first divergence?"
+  ],
+  "interpretation_limits": [
+    "A single exploratory trial is diagnostic, not a reliable model or framework ranking.",
+    "The smolagents custom prompt is deliberately enabled; results compare these configured agents, not only execution runtimes.",
+    "State-pattern metadata and references are used only for offline selection, judging and audit, never agent prompts or code execution.",
+    "This purposive v1.1 subset, model, and smolagents configuration differ from the published v1 experiment; scores are not a direct reproduction.",
+    "The current runner dollar fields are Luna-equivalent accounting; actual agent-provider charges are unavailable from zero-rate gateway metadata."
+  ],
+  "input_hygiene": "Every listed source file and its content hash verified against pinned HF revision. University directory had no extras. Remaining tasks use private copies of only official files.",
+  "invalid_attempts": "Initial Netflix pair aborted after shared-directory leftovers were discovered; preserved separately and excluded. Both arms then used clean inputs. No other task session was restarted.",
+  "agent_endpoint": "http://localhost:4000/v1",
+  "infrastructure_recovery": "The clean-input smolagents Netflix attempt returned no model response; preserved separately and repeated over /v1. Its endpoint diagnostic response was never executed or supplied. All other completed runs were preserved.",
+  "completed_at": "2026-09-30T18:35:26.878196+00:00",
+  "judge_format_recoveries": [
+    {
+      "arm": "dsgym",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 28,
+      "attempts": [
+        {
+          "previous_error": "unparsable judge reply",
+          "previous_raw": "",
+          "new_max_tokens": 16384
+        }
+      ]
+    },
+    {
+      "arm": "smolagents-custom",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 28,
+      "attempts": [
+        {
+          "previous_error": "unparsable judge reply",
+          "previous_raw": "",
+          "new_max_tokens": 8192
+        },
+        {
+          "previous_error": "unparsable judge reply",
+          "previous_raw": "",
+          "new_max_tokens": 16384
+        }
+      ]
+    },
+    {
+      "arm": "smolagents-custom",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 33,
+      "attempts": [
+        {
+          "previous_error": "unparsable judge reply",
+          "previous_raw": "",
+          "new_max_tokens": 8192
+        }
+      ]
+    }
+  ],
+  "sampling_note": "DSGym requests temperature 0; the smolagents GPT-5 wrapper omits a non-default temperature. Both request medium reasoning. This compares configured systems, not a matched executor-only intervention."
+}

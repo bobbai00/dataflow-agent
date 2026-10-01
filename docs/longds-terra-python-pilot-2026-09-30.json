@@ -1,0 +1,5226 @@
+{
+  "generated_at": "2026-09-30T18:37:00.530289+00:00",
+  "complete": true,
+  "selection": {
+    "date": "2026-09-30",
+    "selected_before_runs": true,
+    "design": "One exploratory complete-session trial per agent on a purposive subset; no dataflow run and no engine changes. Outcome-dependent retries are not part of this diagnostic pilot.",
+    "dataset_version": "v1.1",
+    "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+    "subset": "custom 8 sessions drawn from official Lite",
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "medium",
+    "judge_model": "deepseek/deepseek-v4-pro",
+    "judge_base": "https://openrouter.ai/api/v1",
+    "judge_note": "DeepSeek-V4-Pro matches the judge family specified in LongDS paper v3, section 3.4. OpenRouter model ID is pinned explicitly.",
+    "arms": [
+      "dsgym",
+      "smolagents-custom"
+    ],
+    "custom_prompt": {
+      "enabled": true,
+      "final_answer_tool_fix": true,
+      "source": "evidence-only-context/benchmark/Kramabench/systems/code_agent_system.py uncommitted final_answer_tool_prompt change",
+      "stdout_char_limit": 5000,
+      "max_steps_per_turn": 40
+    },
+    "tasks": [
+      {
+        "task": "business__netflix_movies_and_tv_shows__task3",
+        "path": "business/netflix_movies_and_tv_shows/task3",
+        "rationale": "The paper illustrates this evolving market-score analysis; composition of historical components and current screens.",
+        "turns": 36,
+        "state_patterns": {
+          "Initial": 18,
+          "Update": 14,
+          "Rollback": 12,
+          "Counterfactual": 13
+        },
+        "source_sha256": {
+          "task.json": "3df0afb9bbce7e7f1c9a47070eeca2cb09820b324169ece10cfac09b995e14f3",
+          "metadata.json": "546351330c3f6c1cf893fcd899b533e869aade5db36297e80a8136ff71fe6971"
+        },
+        "manifest_sha256": "f5b4d285e74f1ac5414ac880c9f622bcbe4f1dd08d031a30abf6cee7d4fa3243",
+        "original_manifest_sha256": "934c9a2bcb702c3e80b236f437dd2f4a0c23ba8e40fe2011d9e757288a3db520"
+      },
+      {
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "path": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+        "rationale": "Restaurant and brand populations, revised commercial rules, and attribution across decision versions.",
+        "turns": 33,
+        "state_patterns": {
+          "Initial": 13,
+          "Counterfactual": 5,
+          "Update": 11,
+          "Rollback": 8
+        },
+        "source_sha256": {
+          "task.json": "71fc64cc812b1405abc0c2c40c06f87386fd4c58ba4102bafe0de7f7800b9001",
+          "metadata.json": "1cb2d28fec20fd02687e3ded3ca366c3ee5828144f2154666e94e8dc1e491451"
+        },
+        "manifest_sha256": "85a498ff0bfc9faec2270c01b0f49fbe97764b41e4ce264b3a313098fb5bf854",
+        "original_manifest_sha256": "7151ddfa36aa38e9af15ba9acc41b9903e99ac7ffa943f82d5dc30914c64a5c2"
+      },
+      {
+        "task": "community__kaggle-survey-2022__task2",
+        "path": "community/kaggle-survey-2022/task2",
+        "rationale": "Persistent adopter definitions change from narrow to broad; earlier populations are reused for comparisons.",
+        "turns": 30,
+        "state_patterns": {
+          "Initial": 19,
+          "Counterfactual": 7,
+          "Update": 8,
+          "Rollback": 3
+        },
+        "source_sha256": {
+          "task.json": "5d3e9518f1f3135e7bf24e06cd7e08660690a9d7db332362e03b13139a66eebf",
+          "metadata.json": "f84240fcb1b34287f99da3e48db2c67fa79cd6fbff487b2bc456b16cbb83d665"
+        },
+        "manifest_sha256": "b26c5a0a419e78b4e79bba4cb07fb6211591ac1b9188bd758711778678b8c1d8",
+        "original_manifest_sha256": "84fd208acf186156ea4a9fd8972fc1c154eb541fea8071ab6e655a7c23feb2b5"
+      },
+      {
+        "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+        "path": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task2",
+        "rationale": "Joined working data, different temporal populations, and reuse of derived state-level features.",
+        "turns": 30,
+        "state_patterns": {
+          "Initial": 30,
+          "Update": 7,
+          "Rollback": 1
+        },
+        "source_sha256": {
+          "task.json": "c1a1790ad118b7200f0c7c9e8d416055e729ff031bce42e6760459b8ffd5a8a3",
+          "metadata.json": "3b59278a9448421da9c74081f605d4eb934dcbda39ef9b6cf73a38777e36a2aa"
+        },
+        "manifest_sha256": "18be10ac202725e68c0f3c0b36d47e44715eb79d7229fbe349ca73901a584036",
+        "original_manifest_sha256": "60942a020e7f38b265e856ea37c5674fcb5edb26d930e0385c9d63d3df286bde"
+      },
+      {
+        "task": "education__world_university_rankings__task3",
+        "path": "education/world_university_rankings/task3",
+        "rationale": "Ranking conventions, revised score definitions, and counterfactual indicator comparisons.",
+        "turns": 23,
+        "state_patterns": {
+          "Initial": 18,
+          "Rollback": 1,
+          "Counterfactual": 5,
+          "Update": 4
+        },
+        "source_sha256": {
+          "task.json": "8f136ce6de833edd697a870dfe3ebb861c1eaf06f92c8bf53cae1f854016bddb",
+          "metadata.json": "71f7814f7650c2138da72b933a8aaf7959278f40b8f05f5c1568c53f7f008d03"
+        },
+        "manifest_sha256": "acd3123e7027c9239a83c768677b7193ef4067f6706c610a6afecf8bafec945d"
+      },
+      {
+        "task": "geoscience__phase-ii-widsdatathon2022__task1",
+        "path": "geoscience/phase-ii-widsdatathon2022/task1",
+        "rationale": "Changing working samples, persistent weights, and local perturbations of multicomponent scores.",
+        "turns": 40,
+        "state_patterns": {
+          "Initial": 23,
+          "Counterfactual": 5,
+          "Update": 9,
+          "Rollback": 4
+        },
+        "source_sha256": {
+          "task.json": "dd0d2f56a3029ef16916c09968e7e563cc262427fcdef13eed1eb679e4f63ade",
+          "metadata.json": "aea7f41bfa29ead8af4d6fbc0e5bc5e9f0bbc52072c96672a8e16dbf1fb462d4"
+        },
+        "manifest_sha256": "975c66e09a1d9c080575749cb09ef7063d2c1fbd47e20e27548f9f741aa583b4",
+        "original_manifest_sha256": "8119a356ef076557cfff13ef0873c3cf089735ade245e56d93aafb9d03d2ffcc"
+      },
+      {
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "path": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+        "rationale": "Evolving poverty and partner definitions; combined stress tests must preserve the default recommendation state.",
+        "turns": 37,
+        "state_patterns": {
+          "Initial": 11,
+          "Update": 11,
+          "Counterfactual": 13,
+          "Rollback": 12
+        },
+        "source_sha256": {
+          "task.json": "112c5d5dda8e9829c1582a0ebf352c6d299c80bd11421dc704a8aa84792b343d",
+          "metadata.json": "2dfc8af2739994a7af70a390fc70206743ad7f23c0e4588d0f0c0ca18c329c4c"
+        },
+        "manifest_sha256": "6e28ee68bdc650919ad70d47f6efd0993dea8a2cf159e7b09f2b908a467d0f90",
+        "original_manifest_sha256": "72b3603b31425029fbb631a7b1eda47c08b818b90778e534a7373a4bb52e7c1d"
+      },
+      {
+        "task": "sports__nfl_big_data_bowl_2023__task1",
+        "path": "sports/nfl_big_data_bowl_2023/task1",
+        "rationale": "Long chains of player and team views, historical speed definitions, pool changes, and late composition.",
+        "turns": 42,
+        "state_patterns": {
+          "Initial": 14,
+          "Counterfactual": 12,
+          "Rollback": 13,
+          "Update": 11
+        },
+        "source_sha256": {
+          "task.json": "ae47261da2a47eeabe1e35a3311b4fb731bbb0eddeba71f74ce4f46a00ae43b7",
+          "metadata.json": "75fd94d5617035c3ab4f496289c05310c85e1baadc223a81ca68badb8f664212"
+        },
+        "manifest_sha256": "7e1bf69ee855f51c2c23c921016196eb86ff91eb3d62366c254bf191352fd1b1",
+        "original_manifest_sha256": "4ec68e3e1cf0ec247edb81a33a629a003f503e90804f7ab5f31ca5f29e2f64a4"
+      }
+    ],
+    "total_turns_per_arm": 271,
+    "total_sessions": 16,
+    "status": "Complete: 16 runs, 542 turn judgments, all verdicts present.",
+    "questions_to_audit": [
+      "Was the required working state materialized and retained after its defining request?",
+      "Did the current request consume the intended population and current or historical definition?",
+      "Did a temporary scenario preserve the ongoing default?",
+      "Did a correction update all dependent calculations, or only the latest report?",
+      "Did recomputation introduce a new interpretation or precision drift?",
+      "Did failures arise from analytical reasoning, execution restrictions, context limits, or state handling?",
+      "Would explicit lineage or another dataflow representation have prevented the observed first divergence?"
+    ],
+    "interpretation_limits": [
+      "A single exploratory trial is diagnostic, not a reliable model or framework ranking.",
+      "The smolagents custom prompt is deliberately enabled; results compare these configured agents, not only execution runtimes.",
+      "State-pattern metadata and references are used only for offline selection, judging and audit, never agent prompts or code execution.",
+      "This purposive v1.1 subset, model, and smolagents configuration differ from the published v1 experiment; scores are not a direct reproduction.",
+      "The current runner dollar fields are Luna-equivalent accounting; actual agent-provider charges are unavailable from zero-rate gateway metadata."
+    ],
+    "input_hygiene": "Every listed source file and its content hash verified against pinned HF revision. University directory had no extras. Remaining tasks use private copies of only official files.",
+    "invalid_attempts": "Initial Netflix pair aborted after shared-directory leftovers were discovered; preserved separately and excluded. Both arms then used clean inputs. No other task session was restarted.",
+    "agent_endpoint": "http://localhost:4000/v1",
+    "infrastructure_recovery": "The clean-input smolagents Netflix attempt returned no model response; preserved separately and repeated over /v1. Its endpoint diagnostic response was never executed or supplied. All other completed runs were preserved.",
+    "completed_at": "2026-09-30T18:35:26.878196+00:00",
+    "judge_format_recoveries": [
+      {
+        "arm": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "turn": 28,
+        "attempts": [
+          {
+            "previous_error": "unparsable judge reply",
+            "previous_raw": "",
+            "new_max_tokens": 16384
+          }
+        ]
+      },
+      {
+        "arm": "smolagents-custom",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "turn": 28,
+        "attempts": [
+          {
+            "previous_error": "unparsable judge reply",
+            "previous_raw": "",
+            "new_max_tokens": 8192
+          },
+          {
+            "previous_error": "unparsable judge reply",
+            "previous_raw": "",
+            "new_max_tokens": 16384
+          }
+        ]
+      },
+      {
+        "arm": "smolagents-custom",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "turn": 33,
+        "attempts": [
+          {
+            "previous_error": "unparsable judge reply",
+            "previous_raw": "",
+            "new_max_tokens": 8192
+          }
+        ]
+      }
+    ],
+    "sampling_note": "DSGym requests temperature 0; the smolagents GPT-5 wrapper omits a non-default temperature. Both request medium reasoning. This compares configured systems, not a matched executor-only intervention."
+  },
+  "runs": [
+    {
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "arm": "dsgym",
+      "expected_turns": 36,
+      "correct": 36,
+      "turns": 36,
+      "accuracy": 1,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 18,
+          "turns": 18,
+          "accuracy": 1
+        },
+        "(none)": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "Update": {
+          "correct": 14,
+          "turns": 14,
+          "accuracy": 1
+        },
+        "Rollback": {
+          "correct": 12,
+          "turns": 12,
+          "accuracy": 1
+        },
+        "Counterfactual": {
+          "correct": 13,
+          "turns": 13,
+          "accuracy": 1
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "2": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "3": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "4": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 3,
+          "turns": 3,
+          "accuracy": 1
+        },
+        "2-3": {
+          "correct": 22,
+          "turns": 22,
+          "accuracy": 1
+        },
+        "4+": {
+          "correct": 10,
+          "turns": 10,
+          "accuracy": 1
+        }
+      },
+      "llm_calls": 96,
+      "tokens": {
+        "input_tokens": 3438411,
+        "cached_tokens": 3316564,
+        "cache_write_tokens": 121559,
+        "output_tokens": 58194,
+        "reasoning_tokens": 9603
+      },
+      "max_call_input_tokens": 63013,
+      "judge_calls_with_usage": 37,
+      "judge_reported_cost_usd": 0.09778095456,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [
+        {
+          "turn": 24,
+          "score": 1
+        },
+        {
+          "turn": 27,
+          "score": 1
+        },
+        {
+          "turn": 33,
+          "score": 1
+        },
+        {
+          "turn": 36,
+          "score": 1
+        }
+      ],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3",
+      "artifact_sha256": {
+        "results_eval.json": "4e8b536a87d9f4ce55677f39d4a8222285fb8800330b4dbbec81a11888e4568e",
+        "protocol.json": "a2cc74002a447d6068cd61b0e7eebe5e0b849d316d252780783bf785fab3e37d",
+        "agent/calls.jsonl": "4e39f93f63f75dcea0a4e6c59c142046f7cfe7330cf6edd3ff8141fb345e8dfa"
+      }
+    },
+    {
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "arm": "smolagents-custom",
+      "expected_turns": 36,
+      "correct": 35,
+      "turns": 36,
+      "accuracy": 0.9722222222222222,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        3
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 18,
+          "turns": 18,
+          "accuracy": 1
+        },
+        "(none)": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        },
+        "Update": {
+          "correct": 14,
+          "turns": 14,
+          "accuracy": 1
+        },
+        "Rollback": {
+          "correct": 12,
+          "turns": 12,
+          "accuracy": 1
+        },
+        "Counterfactual": {
+          "correct": 13,
+          "turns": 13,
+          "accuracy": 1
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 8,
+          "turns": 9,
+          "accuracy": 0.8888888888888888
+        },
+        "2": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "3": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "4": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 2,
+          "turns": 3,
+          "accuracy": 0.6666666666666666
+        },
+        "2-3": {
+          "correct": 22,
+          "turns": 22,
+          "accuracy": 1
+        },
+        "4+": {
+          "correct": 10,
+          "turns": 10,
+          "accuracy": 1
+        }
+      },
+      "llm_calls": 45,
+      "tokens": {
+        "input_tokens": 1734281,
+        "cached_tokens": 1669859,
+        "cache_write_tokens": 64287,
+        "output_tokens": 36522,
+        "reasoning_tokens": 9146
+      },
+      "max_call_input_tokens": 68521,
+      "judge_calls_with_usage": 36,
+      "judge_reported_cost_usd": 0.11166651272000001,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3",
+      "artifact_sha256": {
+        "results_eval.json": "799d732faa1983ec506c3842b5d8c576f2594354543bcb2e0dfeabdbcac7bd8b",
+        "protocol.json": "80359acba731dcfc0288447c60da8318fff1a59a791b27688c5627ed3e78b13a",
+        "calls.jsonl": "9a1babfd44936f0d6924f20eab0cacca01feca4fd7228da9c57b1019bdc11603"
+      }
+    },
+    {
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "arm": "dsgym",
+      "expected_turns": 33,
+      "correct": 23,
+      "turns": 33,
+      "accuracy": 0.696969696969697,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        10,
+        14,
+        15,
+        16,
+        20,
+        22,
+        26,
+        29,
+        31,
+        32
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 11,
+          "turns": 13,
+          "accuracy": 0.8461538461538461
+        },
+        "Counterfactual": {
+          "correct": 2,
+          "turns": 5,
+          "accuracy": 0.4
+        },
+        "Update": {
+          "correct": 7,
+          "turns": 11,
+          "accuracy": 0.6363636363636364
+        },
+        "Rollback": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "2": {
+          "correct": 4,
+          "turns": 8,
+          "accuracy": 0.5
+        },
+        "3": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        },
+        "4": {
+          "correct": 4,
+          "turns": 8,
+          "accuracy": 0.5
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "2-3": {
+          "correct": 11,
+          "turns": 12,
+          "accuracy": 0.9166666666666666
+        },
+        "4+": {
+          "correct": 10,
+          "turns": 19,
+          "accuracy": 0.5263157894736842
+        }
+      },
+      "llm_calls": 109,
+      "tokens": {
+        "input_tokens": 5071004,
+        "cached_tokens": 4982405,
+        "cache_write_tokens": 88272,
+        "output_tokens": 93099,
+        "reasoning_tokens": 13023
+      },
+      "max_call_input_tokens": 88275,
+      "judge_calls_with_usage": 36,
+      "judge_reported_cost_usd": 0.15119588953,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [
+        {
+          "turn": 10,
+          "score": 0
+        },
+        {
+          "turn": 16,
+          "score": 0
+        },
+        {
+          "turn": 19,
+          "score": 1
+        },
+        {
+          "turn": 30,
+          "score": 1
+        },
+        {
+          "turn": 32,
+          "score": 0
+        }
+      ],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "artifact_sha256": {
+        "results_eval.json": "f10d97a41391a87c0d4449526306e2f98dd639f616d4e5f65626799ebcf863f6",
+        "protocol.json": "d98aaafa888e7c6b2cd3e31beda227e6cad8aed4c1bfc44a746de8113b9792d8",
+        "agent/calls.jsonl": "129fc369bae17970d94346108c868d8af9c5afc661ac3ffdd0624c862830ab06"
+      }
+    },
+    {
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "arm": "smolagents-custom",
+      "expected_turns": 33,
+      "correct": 24,
+      "turns": 33,
+      "accuracy": 0.7272727272727273,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        8,
+        14,
+        15,
+        16,
+        22,
+        26,
+        29,
+        31,
+        32
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 11,
+          "turns": 13,
+          "accuracy": 0.8461538461538461
+        },
+        "Counterfactual": {
+          "correct": 3,
+          "turns": 5,
+          "accuracy": 0.6
+        },
+        "Update": {
+          "correct": 8,
+          "turns": 11,
+          "accuracy": 0.7272727272727273
+        },
+        "Rollback": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 8,
+          "turns": 9,
+          "accuracy": 0.8888888888888888
+        },
+        "2": {
+          "correct": 5,
+          "turns": 8,
+          "accuracy": 0.625
+        },
+        "3": {
+          "correct": 7,
+          "turns": 8,
+          "accuracy": 0.875
+        },
+        "4": {
+          "correct": 4,
+          "turns": 8,
+          "accuracy": 0.5
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "2-3": {
+          "correct": 10,
+          "turns": 12,
+          "accuracy": 0.8333333333333334
+        },
+        "4+": {
+          "correct": 12,
+          "turns": 19,
+          "accuracy": 0.631578947368421
+        }
+      },
+      "llm_calls": 103,
+      "tokens": {
+        "input_tokens": 5088784,
+        "cached_tokens": 4994626,
+        "cache_write_tokens": 93849,
+        "output_tokens": 59751,
+        "reasoning_tokens": 13333
+      },
+      "max_call_input_tokens": 97010,
+      "judge_calls_with_usage": 37,
+      "judge_reported_cost_usd": 0.16558377368999996,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "artifact_sha256": {
+        "results_eval.json": "b3173ae4da283821f3a31840660438b4681640f61bb04805dfef629736c16663",
+        "protocol.json": "bc3463d8661f84972864b854ab530d7b74eb54740fe93566994e7fd525cede43",
+        "calls.jsonl": "516001e3af305a11ffe0c7fd834e11d7eb3d41e405a8f4114ad2e8c9b8bcead6"
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "dsgym",
+      "expected_turns": 30,
+      "correct": 21,
+      "turns": 30,
+      "accuracy": 0.7,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        1,
+        7,
+        13,
+        14,
+        18,
+        23,
+        24,
+        29,
+        30
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 13,
+          "turns": 19,
+          "accuracy": 0.6842105263157895
+        },
+        "Counterfactual": {
+          "correct": 3,
+          "turns": 7,
+          "accuracy": 0.42857142857142855
+        },
+        "Update": {
+          "correct": 7,
+          "turns": 8,
+          "accuracy": 0.875
+        },
+        "Rollback": {
+          "correct": 0,
+          "turns": 3,
+          "accuracy": 0
+        },
+        "(none)": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        },
+        "2": {
+          "correct": 5,
+          "turns": 7,
+          "accuracy": 0.7142857142857143
+        },
+        "3": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        },
+        "4": {
+          "correct": 4,
+          "turns": 7,
+          "accuracy": 0.5714285714285714
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 2,
+          "accuracy": 0.5
+        },
+        "1": {
+          "correct": 8,
+          "turns": 9,
+          "accuracy": 0.8888888888888888
+        },
+        "2-3": {
+          "correct": 12,
+          "turns": 18,
+          "accuracy": 0.6666666666666666
+        },
+        "4+": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        }
+      },
+      "llm_calls": 87,
+      "tokens": {
+        "input_tokens": 2102007,
+        "cached_tokens": 2050801,
+        "cache_write_tokens": 50035,
+        "output_tokens": 44407,
+        "reasoning_tokens": 3765
+      },
+      "max_call_input_tokens": 50038,
+      "judge_calls_with_usage": 31,
+      "judge_reported_cost_usd": 0.11971289495000001,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2",
+      "artifact_sha256": {
+        "results_eval.json": "fed1f90247c6c130f8b5d29119aef871a18b1d729224ab51745ebe099df80560",
+        "protocol.json": "77e67b5db0f9599d2b0b494a66f1f75ea10b026ced81b20855e50e3efed64178",
+        "agent/calls.jsonl": "eab738e731f3a1ad652b33f6fabbfe8722bcf74bbe19185f206e01de0c91af8b"
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "smolagents-custom",
+      "expected_turns": 30,
+      "correct": 19,
+      "turns": 30,
+      "accuracy": 0.6333333333333333,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        1,
+        7,
+        11,
+        13,
+        14,
+        18,
+        23,
+        24,
+        27,
+        29,
+        30
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 13,
+          "turns": 19,
+          "accuracy": 0.6842105263157895
+        },
+        "Counterfactual": {
+          "correct": 2,
+          "turns": 7,
+          "accuracy": 0.2857142857142857
+        },
+        "Update": {
+          "correct": 5,
+          "turns": 8,
+          "accuracy": 0.625
+        },
+        "Rollback": {
+          "correct": 0,
+          "turns": 3,
+          "accuracy": 0
+        },
+        "(none)": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        },
+        "2": {
+          "correct": 4,
+          "turns": 7,
+          "accuracy": 0.5714285714285714
+        },
+        "3": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        },
+        "4": {
+          "correct": 3,
+          "turns": 7,
+          "accuracy": 0.42857142857142855
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 2,
+          "accuracy": 0.5
+        },
+        "1": {
+          "correct": 8,
+          "turns": 9,
+          "accuracy": 0.8888888888888888
+        },
+        "2-3": {
+          "correct": 10,
+          "turns": 18,
+          "accuracy": 0.5555555555555556
+        },
+        "4+": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        }
+      },
+      "llm_calls": 44,
+      "tokens": {
+        "input_tokens": 1126826,
+        "cached_tokens": 1081103,
+        "cache_write_tokens": 45591,
+        "output_tokens": 17591,
+        "reasoning_tokens": 2874
+      },
+      "max_call_input_tokens": 48752,
+      "judge_calls_with_usage": 30,
+      "judge_reported_cost_usd": 0.12686690609999998,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2",
+      "artifact_sha256": {
+        "results_eval.json": "e3d3f5e2d6d2487c7f3724e90e2eea2af20fbafe0ccdc1c2fd8039b65d837f24",
+        "protocol.json": "1100e543d689659dd47ad65711e4599b6e74f7a23ac9cac82f56f657b4c21f86",
+        "calls.jsonl": "6023f53b1a69c893b91fa921ab71565d41e4450577a2718bc9bfdcd2b14fd680"
+      }
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "arm": "dsgym",
+      "expected_turns": 30,
+      "correct": 21,
+      "turns": 30,
+      "accuracy": 0.7,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        1,
+        4,
+        5,
+        7,
+        9,
+        11,
+        24,
+        27,
+        28
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 21,
+          "turns": 30,
+          "accuracy": 0.7
+        },
+        "Update": {
+          "correct": 4,
+          "turns": 7,
+          "accuracy": 0.5714285714285714
+        },
+        "Rollback": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 4,
+          "turns": 8,
+          "accuracy": 0.5
+        },
+        "2": {
+          "correct": 5,
+          "turns": 7,
+          "accuracy": 0.7142857142857143
+        },
+        "3": {
+          "correct": 8,
+          "turns": 8,
+          "accuracy": 1
+        },
+        "4": {
+          "correct": 4,
+          "turns": 7,
+          "accuracy": 0.5714285714285714
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        },
+        "1": {
+          "correct": 6,
+          "turns": 7,
+          "accuracy": 0.8571428571428571
+        },
+        "2-3": {
+          "correct": 6,
+          "turns": 9,
+          "accuracy": 0.6666666666666666
+        },
+        "4+": {
+          "correct": 9,
+          "turns": 13,
+          "accuracy": 0.6923076923076923
+        }
+      },
+      "llm_calls": 83,
+      "tokens": {
+        "input_tokens": 2129165,
+        "cached_tokens": 2070219,
+        "cache_write_tokens": 57680,
+        "output_tokens": 50953,
+        "reasoning_tokens": 10735
+      },
+      "max_call_input_tokens": 57683,
+      "judge_calls_with_usage": 31,
+      "judge_reported_cost_usd": 0.10276063204000001,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [
+        {
+          "turn": 5,
+          "score": 0
+        },
+        {
+          "turn": 7,
+          "score": 0
+        },
+        {
+          "turn": 11,
+          "score": 0
+        }
+      ],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "artifact_sha256": {
+        "results_eval.json": "6c583326c0bc131fd9904d0a195089cdcc4aacde55ab0f5aac6b20af9cf6b9a1",
+        "protocol.json": "c3c6040faa22c215dbc7d8df76f2a2395200b9e97c90293e7e1b73d83ffbfff1",
+        "agent/calls.jsonl": "ca77672331efa6720c59059fef40703f6b5c04d79dafaa8e4246f9d36c5149b2"
+      }
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "arm": "smolagents-custom",
+      "expected_turns": 30,
+      "correct": 26.0,
+      "turns": 30,
+      "accuracy": 0.8666666666666667,
+      "unjudged_turns": [],
+      "empty_solutions": [
+        1
+      ],
+      "failed_turns": [
+        1,
+        4,
+        24,
+        27
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 26.0,
+          "turns": 30,
+          "accuracy": 0.8666666666666667
+        },
+        "Update": {
+          "correct": 6,
+          "turns": 7,
+          "accuracy": 0.8571428571428571
+        },
+        "Rollback": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 6.0,
+          "turns": 8,
+          "accuracy": 0.75
+        },
+        "2": {
+          "correct": 7,
+          "turns": 7,
+          "accuracy": 1
+        },
+        "3": {
+          "correct": 8,
+          "turns": 8,
+          "accuracy": 1
+        },
+        "4": {
+          "correct": 5,
+          "turns": 7,
+          "accuracy": 0.7142857142857143
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 0.0,
+          "turns": 1,
+          "accuracy": 0.0
+        },
+        "1": {
+          "correct": 6,
+          "turns": 7,
+          "accuracy": 0.8571428571428571
+        },
+        "2-3": {
+          "correct": 9,
+          "turns": 9,
+          "accuracy": 1
+        },
+        "4+": {
+          "correct": 11,
+          "turns": 13,
+          "accuracy": 0.8461538461538461
+        }
+      },
+      "llm_calls": 105,
+      "tokens": {
+        "input_tokens": 4148263,
+        "cached_tokens": 4072301,
+        "cache_write_tokens": 75647,
+        "output_tokens": 40529,
+        "reasoning_tokens": 5031
+      },
+      "max_call_input_tokens": 78808,
+      "judge_calls_with_usage": 29,
+      "judge_reported_cost_usd": 0.08981174955,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "artifact_sha256": {
+        "results_eval.json": "fd81d1ed95c4886594b91d8c326deaa8234cfdd2fc6dc2a2f1b5a4a3c2de7c4a",
+        "protocol.json": "125bda399686ee82aa6e2f3901221bfb628ee8f0e3061727f564f18b579d7c8d",
+        "calls.jsonl": "042e476d95308f028086045d56e8f88428e992dfe8003f62c60f19a4916fa4b0"
+      }
+    },
+    {
+      "task": "education__world_university_rankings__task3",
+      "arm": "dsgym",
+      "expected_turns": 23,
+      "correct": 17,
+      "turns": 23,
+      "accuracy": 0.7391304347826086,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        7,
+        9,
+        16,
+        19,
+        20,
+        23
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 13,
+          "turns": 18,
+          "accuracy": 0.7222222222222222
+        },
+        "Rollback": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "Counterfactual": {
+          "correct": 3,
+          "turns": 5,
+          "accuracy": 0.6
+        },
+        "Update": {
+          "correct": 3,
+          "turns": 4,
+          "accuracy": 0.75
+        },
+        "(none)": {
+          "correct": 3,
+          "turns": 4,
+          "accuracy": 0.75
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 6,
+          "turns": 6,
+          "accuracy": 1
+        },
+        "2": {
+          "correct": 4,
+          "turns": 6,
+          "accuracy": 0.6666666666666666
+        },
+        "3": {
+          "correct": 5,
+          "turns": 6,
+          "accuracy": 0.8333333333333334
+        },
+        "4": {
+          "correct": 2,
+          "turns": 5,
+          "accuracy": 0.4
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 6,
+          "turns": 7,
+          "accuracy": 0.8571428571428571
+        },
+        "2-3": {
+          "correct": 8,
+          "turns": 13,
+          "accuracy": 0.6153846153846154
+        },
+        "4+": {
+          "correct": 2,
+          "turns": 2,
+          "accuracy": 1
+        }
+      },
+      "llm_calls": 60,
+      "tokens": {
+        "input_tokens": 924285,
+        "cached_tokens": 890898,
+        "cache_write_tokens": 32289,
+        "output_tokens": 34745,
+        "reasoning_tokens": 9730
+      },
+      "max_call_input_tokens": 32292,
+      "judge_calls_with_usage": 23,
+      "judge_reported_cost_usd": 0.06606766334,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [
+        {
+          "turn": 2,
+          "score": 1
+        },
+        {
+          "turn": 7,
+          "score": 0
+        },
+        {
+          "turn": 9,
+          "score": 0
+        },
+        {
+          "turn": 20,
+          "score": 0
+        },
+        {
+          "turn": 23,
+          "score": 0
+        }
+      ],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3",
+      "artifact_sha256": {
+        "results_eval.json": "422f9a79be39f361a8d5a7492611c76c5d999a1df7f7eeaae2b7f47cfe7b6ac2",
+        "protocol.json": "4717936d7fec0f703e3ee22b665b2df8544daebd673f31f000363cdde51f7f3f",
+        "agent/calls.jsonl": "f3bccd2582a422f32feed5b15da685f4895d7076277d1c602c81b664ecf0113a"
+      }
+    },
+    {
+      "task": "education__world_university_rankings__task3",
+      "arm": "smolagents-custom",
+      "expected_turns": 23,
+      "correct": 19,
+      "turns": 23,
+      "accuracy": 0.8260869565217391,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        16,
+        19,
+        20,
+        23
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 14,
+          "turns": 18,
+          "accuracy": 0.7777777777777778
+        },
+        "Rollback": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "Counterfactual": {
+          "correct": 4,
+          "turns": 5,
+          "accuracy": 0.8
+        },
+        "Update": {
+          "correct": 3,
+          "turns": 4,
+          "accuracy": 0.75
+        },
+        "(none)": {
+          "correct": 4,
+          "turns": 4,
+          "accuracy": 1
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 6,
+          "turns": 6,
+          "accuracy": 1
+        },
+        "2": {
+          "correct": 6,
+          "turns": 6,
+          "accuracy": 1
+        },
+        "3": {
+          "correct": 5,
+          "turns": 6,
+          "accuracy": 0.8333333333333334
+        },
+        "4": {
+          "correct": 2,
+          "turns": 5,
+          "accuracy": 0.4
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 6,
+          "turns": 7,
+          "accuracy": 0.8571428571428571
+        },
+        "2-3": {
+          "correct": 10,
+          "turns": 13,
+          "accuracy": 0.7692307692307693
+        },
+        "4+": {
+          "correct": 2,
+          "turns": 2,
+          "accuracy": 1
+        }
+      },
+      "llm_calls": 60,
+      "tokens": {
+        "input_tokens": 1345193,
+        "cached_tokens": 1299778,
+        "cache_write_tokens": 45235,
+        "output_tokens": 20647,
+        "reasoning_tokens": 4907
+      },
+      "max_call_input_tokens": 45238,
+      "judge_calls_with_usage": 25,
+      "judge_reported_cost_usd": 0.10099527817000002,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3",
+      "artifact_sha256": {
+        "results_eval.json": "d1faa3436d25814936c594f06f4d677a499d77e935ababb84dc4bcaffe4183e4",
+        "protocol.json": "013453189a690ec08399287c687853bfaa315012af07a111d23c36d1c6833492",
+        "calls.jsonl": "81a320e1576d4304a88b8d971cd62208a3ad85b5ce0b25664d236226c8de75f8"
+      }
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "arm": "dsgym",
+      "expected_turns": 40,
+      "correct": 34,
+      "turns": 40,
+      "accuracy": 0.85,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        7,
+        10,
+        11,
+        23,
+        30,
+        37
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 19,
+          "turns": 23,
+          "accuracy": 0.8260869565217391
+        },
+        "Counterfactual": {
+          "correct": 5,
+          "turns": 5,
+          "accuracy": 1
+        },
+        "Update": {
+          "correct": 7,
+          "turns": 9,
+          "accuracy": 0.7777777777777778
+        },
+        "Rollback": {
+          "correct": 3,
+          "turns": 4,
+          "accuracy": 0.75
+        },
+        "(none)": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 8,
+          "turns": 10,
+          "accuracy": 0.8
+        },
+        "2": {
+          "correct": 9,
+          "turns": 10,
+          "accuracy": 0.9
+        },
+        "3": {
+          "correct": 8,
+          "turns": 10,
+          "accuracy": 0.8
+        },
+        "4": {
+          "correct": 9,
+          "turns": 10,
+          "accuracy": 0.9
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 2,
+          "turns": 2,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 3,
+          "turns": 3,
+          "accuracy": 1
+        },
+        "2-3": {
+          "correct": 23,
+          "turns": 27,
+          "accuracy": 0.8518518518518519
+        },
+        "4+": {
+          "correct": 6,
+          "turns": 8,
+          "accuracy": 0.75
+        }
+      },
+      "llm_calls": 145,
+      "tokens": {
+        "input_tokens": 8662285,
+        "cached_tokens": 8537560,
+        "cache_write_tokens": 123438,
+        "output_tokens": 100628,
+        "reasoning_tokens": 5615
+      },
+      "max_call_input_tokens": 123441,
+      "judge_calls_with_usage": 42,
+      "judge_reported_cost_usd": 0.25270033162,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1",
+      "artifact_sha256": {
+        "results_eval.json": "aeb8d90bde8aa9e201125769ebcd06d54ea6fe2ce3f105ba896c98973bf87da2",
+        "protocol.json": "2309718323724a1a94fd8b5bf7dcc6f73203b2e908c08177994e494a61064038",
+        "agent/calls.jsonl": "60d9451318385747996afff3181b33bc0bdb0be276d853a953b3c686fa4c8568"
+      }
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "arm": "smolagents-custom",
+      "expected_turns": 40,
+      "correct": 16,
+      "turns": 40,
+      "accuracy": 0.4,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        37,
+        38,
+        39,
+        40
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 8,
+          "turns": 23,
+          "accuracy": 0.34782608695652173
+        },
+        "Counterfactual": {
+          "correct": 2,
+          "turns": 5,
+          "accuracy": 0.4
+        },
+        "Update": {
+          "correct": 5,
+          "turns": 9,
+          "accuracy": 0.5555555555555556
+        },
+        "Rollback": {
+          "correct": 2,
+          "turns": 4,
+          "accuracy": 0.5
+        },
+        "(none)": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 0,
+          "turns": 10,
+          "accuracy": 0
+        },
+        "2": {
+          "correct": 0,
+          "turns": 10,
+          "accuracy": 0
+        },
+        "3": {
+          "correct": 10,
+          "turns": 10,
+          "accuracy": 1
+        },
+        "4": {
+          "correct": 6,
+          "turns": 10,
+          "accuracy": 0.6
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 2,
+          "accuracy": 0.5
+        },
+        "1": {
+          "correct": 1,
+          "turns": 3,
+          "accuracy": 0.3333333333333333
+        },
+        "2-3": {
+          "correct": 11,
+          "turns": 27,
+          "accuracy": 0.4074074074074074
+        },
+        "4+": {
+          "correct": 3,
+          "turns": 8,
+          "accuracy": 0.375
+        }
+      },
+      "llm_calls": 61,
+      "tokens": {
+        "input_tokens": 2426345,
+        "cached_tokens": 2341878,
+        "cache_write_tokens": 84284,
+        "output_tokens": 38778,
+        "reasoning_tokens": 4325
+      },
+      "max_call_input_tokens": 87445,
+      "judge_calls_with_usage": 42,
+      "judge_reported_cost_usd": 0.22762508642000004,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1",
+      "artifact_sha256": {
+        "results_eval.json": "be6c3853ddfc12db3262fcaebaef7e9a39dca7f48d5c150e8c59906b9ff20541",
+        "protocol.json": "397ea19eefac7b5f6838a52ddfd69bb92ea6b433abdc4161cb20e27b79abeef9",
+        "calls.jsonl": "2f50774fbc3008df3dd21c275fc87ee11b06116131706a7b38a03e46f754112e"
+      }
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "arm": "dsgym",
+      "expected_turns": 37,
+      "correct": 24,
+      "turns": 37,
+      "accuracy": 0.6486486486486487,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        14,
+        16,
+        17,
+        19,
+        20,
+        25,
+        26,
+        28,
+        30,
+        32,
+        33,
+        36,
+        37
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 7,
+          "turns": 11,
+          "accuracy": 0.6363636363636364
+        },
+        "Update": {
+          "correct": 10,
+          "turns": 11,
+          "accuracy": 0.9090909090909091
+        },
+        "Counterfactual": {
+          "correct": 9,
+          "turns": 13,
+          "accuracy": 0.6923076923076923
+        },
+        "Rollback": {
+          "correct": 6,
+          "turns": 12,
+          "accuracy": 0.5
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 10,
+          "turns": 10,
+          "accuracy": 1
+        },
+        "2": {
+          "correct": 5,
+          "turns": 9,
+          "accuracy": 0.5555555555555556
+        },
+        "3": {
+          "correct": 5,
+          "turns": 9,
+          "accuracy": 0.5555555555555556
+        },
+        "4": {
+          "correct": 4,
+          "turns": 9,
+          "accuracy": 0.4444444444444444
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 2,
+          "turns": 4,
+          "accuracy": 0.5
+        },
+        "2-3": {
+          "correct": 17,
+          "turns": 23,
+          "accuracy": 0.7391304347826086
+        },
+        "4+": {
+          "correct": 4,
+          "turns": 9,
+          "accuracy": 0.4444444444444444
+        }
+      },
+      "llm_calls": 114,
+      "tokens": {
+        "input_tokens": 5039663,
+        "cached_tokens": 4960042,
+        "cache_write_tokens": 79279,
+        "output_tokens": 64277,
+        "reasoning_tokens": 11383
+      },
+      "max_call_input_tokens": 79282,
+      "judge_calls_with_usage": 45,
+      "judge_reported_cost_usd": 0.28300716011,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [
+        {
+          "turn": 15,
+          "score": 1
+        },
+        {
+          "turn": 17,
+          "score": 0
+        },
+        {
+          "turn": 20,
+          "score": 0
+        },
+        {
+          "turn": 33,
+          "score": 0
+        }
+      ],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "artifact_sha256": {
+        "results_eval.json": "0b41c8e869f31a7d19dfca861ff9bd3e0868b1437e0d96095f1fba70cb5fa68a",
+        "protocol.json": "c85e2e93597ea8111d7ba2bb78002dd9662b5003a9a14383ba44e2792561dedb",
+        "agent/calls.jsonl": "b254c8cef55fac67d278a0e064fa6dbfd5f280004bad3288da9ad6239c48358d"
+      }
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "arm": "smolagents-custom",
+      "expected_turns": 37,
+      "correct": 19,
+      "turns": 37,
+      "accuracy": 0.5135135135135135,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        1,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        22,
+        23,
+        25,
+        30,
+        31,
+        32,
+        35,
+        36,
+        37
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 4,
+          "turns": 11,
+          "accuracy": 0.36363636363636365
+        },
+        "Update": {
+          "correct": 6,
+          "turns": 11,
+          "accuracy": 0.5454545454545454
+        },
+        "Counterfactual": {
+          "correct": 7,
+          "turns": 13,
+          "accuracy": 0.5384615384615384
+        },
+        "Rollback": {
+          "correct": 9,
+          "turns": 12,
+          "accuracy": 0.75
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 9,
+          "turns": 10,
+          "accuracy": 0.9
+        },
+        "2": {
+          "correct": 2,
+          "turns": 9,
+          "accuracy": 0.2222222222222222
+        },
+        "3": {
+          "correct": 5,
+          "turns": 9,
+          "accuracy": 0.5555555555555556
+        },
+        "4": {
+          "correct": 3,
+          "turns": 9,
+          "accuracy": 0.3333333333333333
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 0,
+          "turns": 1,
+          "accuracy": 0
+        },
+        "1": {
+          "correct": 2,
+          "turns": 4,
+          "accuracy": 0.5
+        },
+        "2-3": {
+          "correct": 14,
+          "turns": 23,
+          "accuracy": 0.6086956521739131
+        },
+        "4+": {
+          "correct": 3,
+          "turns": 9,
+          "accuracy": 0.3333333333333333
+        }
+      },
+      "llm_calls": 99,
+      "tokens": {
+        "input_tokens": 4823459,
+        "cached_tokens": 4558304,
+        "cache_write_tokens": 180014,
+        "output_tokens": 55008,
+        "reasoning_tokens": 10900
+      },
+      "max_call_input_tokens": 96378,
+      "judge_calls_with_usage": 46,
+      "judge_reported_cost_usd": 0.29400166565999997,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "artifact_sha256": {
+        "results_eval.json": "63edb01599a96d6bf662c9fbaa892d06c935f07259d0774644caba676b2c18a7",
+        "protocol.json": "29d66ac646c67284142de8271c148ac3badbc271b95ac201dd63a77083f11bcb",
+        "calls.jsonl": "2fea647316542bcdf06fc91b9e401cbce3c4fce91bcc27e81d1101b9f927aeed"
+      }
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "arm": "dsgym",
+      "expected_turns": 42,
+      "correct": 4,
+      "turns": 42,
+      "accuracy": 0.09523809523809523,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        18,
+        19,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 2,
+          "turns": 14,
+          "accuracy": 0.14285714285714285
+        },
+        "Counterfactual": {
+          "correct": 1,
+          "turns": 12,
+          "accuracy": 0.08333333333333333
+        },
+        "Rollback": {
+          "correct": 1,
+          "turns": 13,
+          "accuracy": 0.07692307692307693
+        },
+        "Update": {
+          "correct": 1,
+          "turns": 11,
+          "accuracy": 0.09090909090909091
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 1,
+          "turns": 11,
+          "accuracy": 0.09090909090909091
+        },
+        "2": {
+          "correct": 2,
+          "turns": 10,
+          "accuracy": 0.2
+        },
+        "3": {
+          "correct": 1,
+          "turns": 11,
+          "accuracy": 0.09090909090909091
+        },
+        "4": {
+          "correct": 0,
+          "turns": 10,
+          "accuracy": 0
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 0,
+          "turns": 2,
+          "accuracy": 0
+        },
+        "2-3": {
+          "correct": 2,
+          "turns": 26,
+          "accuracy": 0.07692307692307693
+        },
+        "4+": {
+          "correct": 1,
+          "turns": 13,
+          "accuracy": 0.07692307692307693
+        }
+      },
+      "llm_calls": 117,
+      "tokens": {
+        "input_tokens": 5082507,
+        "cached_tokens": 4977261,
+        "cache_write_tokens": 74881,
+        "output_tokens": 58953,
+        "reasoning_tokens": 9127
+      },
+      "max_call_input_tokens": 73075,
+      "judge_calls_with_usage": 42,
+      "judge_reported_cost_usd": 0.1757476688,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [
+        {
+          "turn": 22,
+          "score": 0
+        },
+        {
+          "turn": 24,
+          "score": 0
+        },
+        {
+          "turn": 25,
+          "score": 0
+        },
+        {
+          "turn": 28,
+          "score": 0
+        },
+        {
+          "turn": 29,
+          "score": 0
+        },
+        {
+          "turn": 30,
+          "score": 0
+        },
+        {
+          "turn": 31,
+          "score": 0
+        },
+        {
+          "turn": 32,
+          "score": 0
+        },
+        {
+          "turn": 33,
+          "score": 0
+        },
+        {
+          "turn": 34,
+          "score": 0
+        },
+        {
+          "turn": 35,
+          "score": 0
+        },
+        {
+          "turn": 36,
+          "score": 0
+        },
+        {
+          "turn": 40,
+          "score": 0
+        }
+      ],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1",
+      "artifact_sha256": {
+        "results_eval.json": "f5fe84fe4c13de76e293d37500f6261fa9d873d172ef019ae8caf6e95a3c8b41",
+        "protocol.json": "f68b04451c72d1f2cc9e93e0ef83d28f5fe6778c72d9656cf3142af522c88758",
+        "agent/calls.jsonl": "d75c1ee85a9006c9fb8bbf9b18cd41aef78918f062eb41d2099b0d4860393a43"
+      }
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "arm": "smolagents-custom",
+      "expected_turns": 42,
+      "correct": 26,
+      "turns": 42,
+      "accuracy": 0.6190476190476191,
+      "unjudged_turns": [],
+      "empty_solutions": [],
+      "failed_turns": [
+        12,
+        24,
+        25,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 7,
+          "turns": 14,
+          "accuracy": 0.5
+        },
+        "Counterfactual": {
+          "correct": 7,
+          "turns": 12,
+          "accuracy": 0.5833333333333334
+        },
+        "Rollback": {
+          "correct": 10,
+          "turns": 13,
+          "accuracy": 0.7692307692307693
+        },
+        "Update": {
+          "correct": 7,
+          "turns": 11,
+          "accuracy": 0.6363636363636364
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 11,
+          "turns": 11,
+          "accuracy": 1
+        },
+        "2": {
+          "correct": 9,
+          "turns": 10,
+          "accuracy": 0.9
+        },
+        "3": {
+          "correct": 4,
+          "turns": 11,
+          "accuracy": 0.36363636363636365
+        },
+        "4": {
+          "correct": 2,
+          "turns": 10,
+          "accuracy": 0.2
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 1,
+          "turns": 1,
+          "accuracy": 1
+        },
+        "1": {
+          "correct": 2,
+          "turns": 2,
+          "accuracy": 1
+        },
+        "2-3": {
+          "correct": 17,
+          "turns": 26,
+          "accuracy": 0.6538461538461539
+        },
+        "4+": {
+          "correct": 6,
+          "turns": 13,
+          "accuracy": 0.46153846153846156
+        }
+      },
+      "llm_calls": 120,
+      "tokens": {
+        "input_tokens": 8198404,
+        "cached_tokens": 8065296,
+        "cache_write_tokens": 132748,
+        "output_tokens": 80630,
+        "reasoning_tokens": 20009
+      },
+      "max_call_input_tokens": 135909,
+      "judge_calls_with_usage": 42,
+      "judge_reported_cost_usd": 0.16510009489,
+      "judge_calls_without_cost": 0,
+      "dsgym_turns_without_python": [],
+      "artifact_directory": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1",
+      "artifact_sha256": {
+        "results_eval.json": "bb0a53cc08ff222f157080eeee6342ba1b35a492679f67546903a9795c2e82da",
+        "protocol.json": "6b53ef33a9c1b807bdc7d9f637a869deb4970e0733f26721453f91f228e8d4cf",
+        "calls.jsonl": "37e9c5e340ca4e5059f68aff3c8ae4d924e213791eb2dd2900dfc6f761c56517"
+      }
+    }
+  ],
+  "totals": {
+    "dsgym": {
+      "sessions_judged": 8,
+      "correct": 180,
+      "turns": 271,
+      "task_macro_accuracy": 0.6787483594548812,
+      "llm_calls": 811,
+      "tokens": {
+        "input_tokens": 32449327,
+        "cached_tokens": 31785750,
+        "cache_write_tokens": 627433,
+        "output_tokens": 505256,
+        "reasoning_tokens": 72981
+      },
+      "judge_reported_cost_usd": 1.2489731949499998,
+      "turn_weighted_accuracy": 0.6642066420664207,
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 104,
+          "turns": 146,
+          "accuracy": 0.7123287671232876
+        },
+        "(none)": {
+          "correct": 6,
+          "turns": 7,
+          "accuracy": 0.8571428571428571
+        },
+        "Update": {
+          "correct": 53,
+          "turns": 75,
+          "accuracy": 0.7066666666666667
+        },
+        "Rollback": {
+          "correct": 29,
+          "turns": 54,
+          "accuracy": 0.5370370370370371
+        },
+        "Counterfactual": {
+          "correct": 36,
+          "turns": 60,
+          "accuracy": 0.6
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 53,
+          "turns": 71,
+          "accuracy": 0.7464788732394366
+        },
+        "2": {
+          "correct": 43,
+          "turns": 66,
+          "accuracy": 0.6515151515151515
+        },
+        "3": {
+          "correct": 48,
+          "turns": 69,
+          "accuracy": 0.6956521739130435
+        },
+        "4": {
+          "correct": 36,
+          "turns": 65,
+          "accuracy": 0.5538461538461539
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 8,
+          "turns": 10,
+          "accuracy": 0.8
+        },
+        "1": {
+          "correct": 29,
+          "turns": 36,
+          "accuracy": 0.8055555555555556
+        },
+        "2-3": {
+          "correct": 101,
+          "turns": 150,
+          "accuracy": 0.6733333333333333
+        },
+        "4+": {
+          "correct": 42,
+          "turns": 75,
+          "accuracy": 0.56
+        }
+      }
+    },
+    "smolagents-custom": {
+      "sessions_judged": 8,
+      "correct": 184.0,
+      "turns": 271,
+      "task_macro_accuracy": 0.6947678798222277,
+      "llm_calls": 637,
+      "tokens": {
+        "input_tokens": 28891555,
+        "cached_tokens": 28083145,
+        "cache_write_tokens": 721655,
+        "output_tokens": 349456,
+        "reasoning_tokens": 70525
+      },
+      "judge_reported_cost_usd": 1.2816510671999999,
+      "turn_weighted_accuracy": 0.6789667896678967,
+      "state_patterns_overlapping": {
+        "Initial": {
+          "correct": 101.0,
+          "turns": 146,
+          "accuracy": 0.6917808219178082
+        },
+        "(none)": {
+          "correct": 5,
+          "turns": 7,
+          "accuracy": 0.7142857142857143
+        },
+        "Update": {
+          "correct": 54,
+          "turns": 75,
+          "accuracy": 0.72
+        },
+        "Rollback": {
+          "correct": 40,
+          "turns": 54,
+          "accuracy": 0.7407407407407407
+        },
+        "Counterfactual": {
+          "correct": 38,
+          "turns": 60,
+          "accuracy": 0.6333333333333333
+        }
+      },
+      "quarters": {
+        "1": {
+          "correct": 54.0,
+          "turns": 71,
+          "accuracy": 0.7605633802816901
+        },
+        "2": {
+          "correct": 42,
+          "turns": 66,
+          "accuracy": 0.6363636363636364
+        },
+        "3": {
+          "correct": 54,
+          "turns": 69,
+          "accuracy": 0.782608695652174
+        },
+        "4": {
+          "correct": 34,
+          "turns": 65,
+          "accuracy": 0.5230769230769231
+        }
+      },
+      "dependency_breadth": {
+        "0": {
+          "correct": 6.0,
+          "turns": 10,
+          "accuracy": 0.6
+        },
+        "1": {
+          "correct": 28,
+          "turns": 36,
+          "accuracy": 0.7777777777777778
+        },
+        "2-3": {
+          "correct": 103,
+          "turns": 150,
+          "accuracy": 0.6866666666666666
+        },
+        "4+": {
+          "correct": 47,
+          "turns": 75,
+          "accuracy": 0.6266666666666667
+        }
+      }
+    }
+  },
+  "paired_turn_outcomes": {
+    "(0, 0)": 55,
+    "(0, 1)": 36,
+    "(1, 0)": 32,
+    "(1, 1)": 148
+  },
+  "paired_flips": [
+    {
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "turn": 3,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turn": 8,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turn": 10,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turn": 20,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 11,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 27,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turn": 5,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turn": 7,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turn": 9,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turn": 11,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turn": 28,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "education__world_university_rankings__task3",
+      "turn": 7,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "education__world_university_rankings__task3",
+      "turn": 9,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 1,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 2,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 3,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 4,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 5,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 6,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 8,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 9,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 12,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 13,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 14,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 15,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 16,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 17,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 18,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 19,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 20,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 23,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 30,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 38,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 39,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turn": 40,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 1,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 13,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 15,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 18,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 22,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 23,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 26,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 28,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 31,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 33,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turn": 35,
+      "scores": [
+        1,
+        0
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 2,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 3,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 4,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 5,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 6,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 7,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 8,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 9,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 10,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 11,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 13,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 14,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 15,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 16,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 18,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 19,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 21,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 22,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 23,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 26,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 33,
+      "scores": [
+        0,
+        1
+      ]
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 42,
+      "scores": [
+        0,
+        1
+      ]
+    }
+  ],
+  "manual_audit_cases": [
+    {
+      "id": "university_mapping_control",
+      "task": "education__world_university_rankings__task3",
+      "turns": [
+        3,
+        4,
+        18
+      ],
+      "mechanism": "successful_persistent_state",
+      "finding": "Both agents map all 500 universities in 2015 through exact names then aliases. Smolagents keeps full mapped working data and reuses count/mean/max tables; historical comparison at 18 extends mapping to all years. Full-precision results are retained.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 3,
+          "steps": [
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/t03/react_steps.json",
+          "sha256": "542c52c2362e88248717df00b82d3df3bfaa5b9a2f6416f56af269424daab882"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 18,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/t18/react_steps.json",
+          "sha256": "fd5611d4a5a7a72e426bf24d58648f8fd6ad926b94669f9b902ee6d175026803"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 3,
+          "messages": [
+            16,
+            18,
+            19
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_3_result.json",
+          "sha256": "3e104c992dcb1cc7165036b32008bdff27b6797e6c6f990b6701b591926ecc1a"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A persistent Python namespace already supports useful multitask state. Catalog benefits must be demonstrated beyond this baseline."
+    },
+    {
+      "id": "university_berkeley_alias",
+      "task": "education__world_university_rankings__task3",
+      "turns": [
+        16
+      ],
+      "mechanism": "verification_and_entity_resolution",
+      "finding": "Smolagents searches for the full comma-containing Berkeley name, declares names consistent, sees a missing 2014 value and omits that year. DSGym checks per-university coverage, searches Berkeley broadly, finds University of California-Berkeley and harmonizes it. DSGym nevertheless scores 0 because its final answer names both tied most-improved universities while the reference selects MIT; this is not evidence that its alias correction failed.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 16,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/t16/react_steps.json",
+          "sha256": "31fed37c4bf4b2e4d852152a1579ff69ec53ff50e25dbf4c13c04f98c03a3f95"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 16,
+          "messages": [
+            78,
+            79,
+            80,
+            81,
+            82,
+            83,
+            84
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_16_result.json",
+          "sha256": "098bd9f4dcba80b2fb409d15ca3efbc60c922411589913e0cdb47270b19df5c8"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Coverage checks help; the first error does not require historical lineage to explain. Both report the actual improvement tie, which the judge may handle differently."
+    },
+    {
+      "id": "university_composite_scope",
+      "task": "education__world_university_rankings__task3",
+      "turns": [
+        19
+      ],
+      "mechanism": "scope_ambiguity_and_metric_interpretation",
+      "finding": "Smolagents correctly joins and ranks all historical component tables. It chooses Argentina as the largest benefit across all countries (11.0); reference chooses Denmark within the top ten (10.67). DSGym additionally ranks the averaged positions again and reports positions 1..10 rather than average ranks.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 19,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/t19/react_steps.json",
+          "sha256": "b0b1a3499d1be178f77c0af2e50a918602bf2be9087ae5694dec1df454353d4f"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 19,
+          "messages": [
+            100,
+            102,
+            103,
+            104
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_19_result.json",
+          "sha256": "cb8efa79e8e744742666d14005b2ae542a5c624077526f6f6b53195537fe0d6e"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Do not count this as lost state. A lineage catalog cannot resolve unstated scope or an incorrectly interpreted metric by itself."
+    },
+    {
+      "id": "university_missing_score_denominator",
+      "task": "education__world_university_rankings__task3",
+      "turns": [
+        20
+      ],
+      "mechanism": "missing_value_denominator",
+      "finding": "Smolagents uses the correct stored 2015 score series but calculates the boolean mean including NaN scores as false. There are 500 rows, 498 defined scores and 412 scores below MSU: 82.40% versus reference 82.73%.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 20,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/t20/react_steps.json",
+          "sha256": "36e3c653b693dde86aaa7ae672edb2f13d8530648b2437308a8325faffa24e2c"
+        },
+        {
+          "offline_artifact": "university-offline-checks.json",
+          "path": "logs/longds-terra-20260930/university-offline-checks.json",
+          "sha256": "aa64bb7e0cfb8759cc07dd41ce1bacebe68df8f11bf765c5e2ee986e8f70562f"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Null counts and an explicit denominator check are useful. State retrieval itself succeeded."
+    },
+    {
+      "id": "university_unsupported_late_answers",
+      "task": "education__world_university_rankings__task3",
+      "turns": [
+        7,
+        9,
+        19,
+        20,
+        23
+      ],
+      "mechanism": "answer_bypasses_executable_state",
+      "finding": "DSGym executes correct country component calculations at 19. At 20 and 23 it issues only answer text with no Python execution. At 23 Germany average is reported as 14.68 although the turn-19 computed table contains 15.557179. Smolagents at 23 joins retained count and mean tables and computes the correct .33 and .67 correlations, but omits an explicit correlation-changed statement and receives score 0. Earlier turns 7 and 9 also return new numerical answers without executing Python, and both fail. Turn 2 also has no Python but its rounded correlation happens to match.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 19,
+          "messages": [
+            100,
+            101
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_19_result.json",
+          "sha256": "cb8efa79e8e744742666d14005b2ae542a5c624077526f6f6b53195537fe0d6e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 20,
+          "messages": [
+            106
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_20_result.json",
+          "sha256": "8d0f1303111f379f2154615ef2853c35a02f70dcb7c7367cbe617605b6ff338e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 23,
+          "messages": [
+            120
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_23_result.json",
+          "sha256": "c98d952e82ac22d82cb1624745de0472925c9af33231f123e3a6606d681f54e5"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 23,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/t23/react_steps.json",
+          "sha256": "4fb43766384430135d91bf82a64759aba69410ce8b3da6a604e40cc124ea47fb"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 7,
+          "messages": [
+            40
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_7_result.json",
+          "sha256": "981f40c868f27748960316fc46ecfb1941a77317ccfef8c61c1881e0e636a119"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 9,
+          "messages": [
+            48
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/agent/bak/turn_9_result.json",
+          "sha256": "7b633640f8433aceae4dfb9e8f885d6fa177695db94cfa168c1e7ac93c26f366"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Require an answer to name its executed result or exact historical result. Correct state can exist without being used. Official binary score alone hides this distinction."
+    },
+    {
+      "id": "netflix_local_comparison_does_not_overwrite_default",
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "turns": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "mechanism": "successful_local_branch_and_historical_reuse",
+      "finding": "DSGym computes full-market direct and decade-adjusted scores at 17. At 18 it derives separate direct_100 tables for the local test. At 19 it correctly returns to decade_long_ranked and the original >110 comparison, preserving the active default despite the intervening >100 test. All requested numbers checked against references.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 17,
+          "messages": [
+            108,
+            110,
+            111
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_17_result.json",
+          "sha256": "3214bd768b710aae472a5197216ecd3e21f0bbef571f90a1c576f70c545dd1e7"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 18,
+          "messages": [
+            114,
+            115
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_18_result.json",
+          "sha256": "cd21857dece1e92ce860ca5b3c5dae06217fae82c6c011c9d5fd034cf7078ec1"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 19,
+          "messages": [
+            118,
+            119,
+            120
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_19_result.json",
+          "sha256": "fc1c9dc63817be0db987a1272b1a142117e246550a895c6b07617383c214240b"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Ordinary named Python objects can implement branch isolation. A dataflow proposal must improve reliability or cost beyond this successful baseline."
+    },
+    {
+      "id": "netflix_mixed_lineage_and_thirteen_state_audit",
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "turns": [
+        28,
+        29,
+        32,
+        34,
+        35,
+        36
+      ],
+      "mechanism": "successful_historical_composition",
+      "finding": "DSGym composes the old full-claim core with current fractional maturity and eight later adjustments at 29. At 32 it joins 13 retained rank tables and correctly obtains Hong Kong worst rank 10 and six top-five appearances. At 34 it composes continuation-era scores, direct >110 film gaps and the current screen. At 35 it changes only freshness and rare-category reward, preserving mismatch and penalties. Final recommendation uses the current shortlist, not the temporary sensitivity order. Smolagents independently performs the same historical component composition and thirteen-state audit correctly, deriving final answers from retained variables through final_answer.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 29,
+          "messages": [
+            162,
+            163,
+            166
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_29_result.json",
+          "sha256": "b23339b0190b41fcc28b4993b6a858e29fc089d06d9db10f54a0a710991ebb0c"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 32,
+          "messages": [
+            176,
+            177,
+            178
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_32_result.json",
+          "sha256": "325136ec4f4d83bd023297f1846c2a27819fe79848ecacba3e520b4046e3445a"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 34,
+          "messages": [
+            184,
+            185,
+            186
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_34_result.json",
+          "sha256": "6e46db55431a93119a7d4d5aa31a4f888aeb0c8f79dec1e9d283634c016dd59d"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 35,
+          "messages": [
+            188,
+            189,
+            190
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_35_result.json",
+          "sha256": "87ebeca08de03573ca6a3f65e4d1ce8d8b542c1ca938c554d304b44bfdfbc718"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 36,
+          "messages": [
+            192
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/agent/bak/turn_36_result.json",
+          "sha256": "d4594949b69be53e9f860b16f50cef8da4f4a9fe1d0d2df6fdebac6eed5b3764"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 28,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t28/react_steps.json",
+          "sha256": "febaa854dece99991ad0b992e83a37ebb589ee37f4744cbee017ef2d8c69eb2f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t29/react_steps.json",
+          "sha256": "41ca3e802c507e6d0b39ebd0c01ea0a852b4118a23745cec2cf47f2f8a17c6ae"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 32,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t32/react_steps.json",
+          "sha256": "6f301ea027cff1bf654e7a659e814ae3cdf3e786ae60dbde26363ba9ec4edfa1"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 34,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t34/react_steps.json",
+          "sha256": "b15e02ef4f3955feb8226dbc8b5cc23c64ed1ef9fc60a3daac2e66cd5c226c97"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 35,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t35/react_steps.json",
+          "sha256": "68b292f8d8ce02c70258754f2434f9a80dd7967a5d6772af45290344e61f3b18"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 36,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t36/react_steps.json",
+          "sha256": "f1e2acd637b76d21f2d9092330dd7210dbe307aa4f3d4b6de153ca62c6177d37"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Terra already performs the paper illustrative lineage workload in persistent Python. Coarse reusable component tables and stable names are a strong baseline; extra version machinery needs an ablation to justify it."
+    },
+    {
+      "id": "restaurants_reconstructing_retained_state",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        1,
+        4,
+        5,
+        9,
+        11
+      ],
+      "mechanism": "recomputation_without_observed_state_failure",
+      "finding": "DSGym repeatedly reads the unchanged food_order.csv and reconstructs the early ledger, pressure rules, decision pool and family aggregation at turns 4, 5, 9 and 11. The checked decisions and first commissions agree with references at 4, 5 and 11. Reloading overwrites ledger and removes task-1 cost_band and day_type_key columns at turn 4; no resulting failure has yet been established.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 1,
+          "messages": [
+            8,
+            9
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_1_result.json",
+          "sha256": "af6d3cfcac62d58d27e6084f0c3a22b215110c1956e5fa383fe5949b44a9779c"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 4,
+          "messages": [
+            26,
+            28,
+            29
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_4_result.json",
+          "sha256": "56fa4e3e2ffbb7571cf53f0c24a87ba3931dc7e17bb0cc5f95b7a23cdda282b6"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 5,
+          "messages": [
+            34,
+            36,
+            37
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_5_result.json",
+          "sha256": "44b8912b318a34e7209b52d7dce67cb9c2bc5b6698d757d44dba0d08defc53dd"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 9,
+          "messages": [
+            66,
+            68,
+            70,
+            71
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_9_result.json",
+          "sha256": "2872ec5b37e3bf5d78f448218363487f3951f4894deb88d1f67c7f132075d8fd"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 11,
+          "messages": [
+            78,
+            80,
+            82,
+            83
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_11_result.json",
+          "sha256": "d592e1d142364cfc821dc88059de5fbea831b29fc1c783d4cc06bde2c4afae22"
+        }
+      ],
+      "confidence": "high for repeated reconstruction; downstream impact not established",
+      "implication": "Measure reuse and regeneration cost, but do not assume recomputation is an accuracy failure. A compact inventory and retained component tables may be sufficient."
+    },
+    {
+      "id": "restaurants_unexecuted_problem_count",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        9,
+        10,
+        11
+      ],
+      "mechanism": "answer_bypasses_executable_state",
+      "finding": "At turn 9 DSGym constructs all 84 management-discussion families and retains the underlying order-level data. At turn 10 it claims to have evaluated each restaurant but emits only answer text, reporting 55 problem rows instead of 59 and omitting The Meatball Shop from the commission-ranked list. At 11 it executes the commission calculation and recovers the correct 84-family candidate pool and ranking. This is an unsupported calculation rather than demonstrated corruption of that pool.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 9,
+          "messages": [
+            70,
+            71
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_9_result.json",
+          "sha256": "2872ec5b37e3bf5d78f448218363487f3951f4894deb88d1f67c7f132075d8fd"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 10,
+          "messages": [
+            76
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_10_result.json",
+          "sha256": "5ae9c64d492dab764752abfda2008a942821bfa299ddcc149e0f944f9a141ecb"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 11,
+          "messages": [
+            82,
+            83
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_11_result.json",
+          "sha256": "d592e1d142364cfc821dc88059de5fbea831b29fc1c783d4cc06bde2c4afae22"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Ground new numerical answers in an executed result before adding more retrieval or version features."
+    },
+    {
+      "id": "restaurants_rating_coverage_cascade",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        14,
+        15
+      ],
+      "mechanism": "general_metric_error_then_cascade",
+      "finding": "At 14 DSGym interprets rating coverage as valid-rating count rather than valid-rating share. It uses median count 4.5 and gets eight downgrades/nine upgrades instead of fourteen/fourteen. At 15 it computes the new weighted score and its 4.152246 cutoff correctly, but reconstructs the same wrong prior credible-quality flags. The new comparison consequently reports five downgrades and 27 upgrades instead of zero and 23. This is a concrete cascade from a misdefined upstream metric, not evidence of failed recall. Smolagents independently makes the same count-versus-share error at 14 and consumes the retained incorrect credibility flags at 15. Its median differs slightly too (4.153849), with valid_rating_sum derived as average times count; the additional cause is not yet checked.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 14,
+          "messages": [
+            106,
+            107,
+            108,
+            109
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_14_result.json",
+          "sha256": "220281ed42e79bd52fd7b566b380db7790a0ffef3f759688ab299c547b91544a"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 15,
+          "messages": [
+            116,
+            117,
+            118,
+            119
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_15_result.json",
+          "sha256": "f10b52a1765c01739a2bf2a2e91a98f358ac6847dd45038eeaffa1b4e170c8d3"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 14,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t14/react_steps.json",
+          "sha256": "4343d29e018b4c334f2cf479fe4c2d1d2134a8ea5e9f56a4bdd9e6dbb2e3bf4a"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 15,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t15/react_steps.json",
+          "sha256": "1a0500a6660b05cbe586ae3d7f109b2479a8d92439ba5be380aab6ac89242aae"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Lineage could identify and propagate a later correction, but preserving and replaying the original graph alone would preserve this error. The definition needs a rate/denominator check."
+    },
+    {
+      "id": "netflix_component_grouping",
+      "task": "business__netflix_movies_and_tv_shows__task3",
+      "turns": [
+        2,
+        3
+      ],
+      "mechanism": "metric_interpretation_not_missing_state",
+      "finding": "Smolagents retains the correct early market table from 2. At 3 it combines adult maturity and movie orientation into a new mature-movie-profile contribution, reporting Spain 23.7255 and France 18.6076 rather than the largest individual component values 16.2745 and 12.6582. The obsolete pandas lookup call fails and is repaired, but the semantic grouping remains. DSGym reports the correct individual components.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 2,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t02/react_steps.json",
+          "sha256": "7b661b42e0931911f10ded9025e459445fae57b852f8311b0648df0f38b992da"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 3,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/t03/react_steps.json",
+          "sha256": "048c287b7e9da024e2622129650a252701c54a9502a3f8783e0abab033e33777"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Retaining correct components does not ensure that the agent answers the requested comparison. A catalog alone would not fix the misinterpreted aggregation."
+    },
+    {
+      "id": "restaurants_lost_voucher_gate_in_local_stress",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        27,
+        28,
+        29,
+        30
+      ],
+      "mechanism": "reinterpreting_existing_state_during_reconstruction",
+      "finding": "At 27 DSGym correctly materializes voucher_results.positive_after_voucher_pass = positive net commission AND stricter quality, selecting only the two Meatball Shop details. At 29 its stress calculations and stressed rating cutoff are numerically correct, but it replaces that established baseline with baseline_voucher_adjusted_net > 0, dropping the quality condition. It therefore claims two Blue Ribbon stress-only failures even though they already failed the baseline gate; the reference has zero. At 30 it returns to the correct combined gate and stable set. Smolagents makes the same error: at 27 it materializes positive_after_voucher_gate_pass correctly. At 29 step 2 it even carries that flag into combined_stress_review; step 3 ignores it and filters on voucher_adjusted_net_commission > 0. Correct state was available and retrieved. Both therefore invent the same two stress-only failures. Smolagents turn30 returns to the saved joint gate and correctly finds the two stable Meatball recommendations and no sensitive recommendations.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 27,
+          "messages": [
+            190,
+            191,
+            192
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_27_result.json",
+          "sha256": "4b9af49ebda81d602129123889d266b470a7d0a87916dccbb19a7fe3042e1c3b"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 28,
+          "messages": [
+            194,
+            195,
+            196
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_28_result.json",
+          "sha256": "8fcf0df41c90bd2566dc4447a1db52658cc9e71e742fa26226779e6772fec07e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 29,
+          "messages": [
+            198,
+            200,
+            201,
+            202
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_29_result.json",
+          "sha256": "050398531f4b2933fdefae31c6a73160325422305d6ab037177070f794773ec6"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 30,
+          "messages": [
+            204
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_30_result.json",
+          "sha256": "586174aed9400be6f991e0045803176ea3264c4c00e659eb0b919ddd3614b8d2"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t27/react_steps.json",
+          "sha256": "acfef7e2f5591bfa6b0d5f75c99602eab92d59ddad177baa0fa42bed5993e8cf"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t29/react_steps.json",
+          "sha256": "59fbf569fc8e4c92400609430e4fbcf75be38da4b549c8288083fbd1d320a5e8"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 30,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t30/react_steps.json",
+          "sha256": "15ad82b62bf7df10f23e1da9aa4f5a99ca5e60ebba9f4a6888d1009195f00461"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A compact catalog alone is insufficient: smolagents already retrieved the correct gate. Test a reuse policy that treats an established eligibility output as the input population, preserving all its predicates. Explicit lineage can make that consumption checkable; prevention remains an untested hypothesis."
+    },
+    {
+      "id": "restaurants_correct_result_reinterpreted_after_execution",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        22
+      ],
+      "mechanism": "metric_reinterpretation_after_correct_computation",
+      "finding": "At 22 DSGym correctly computes global minus quality-space customer shares: 50, 47 and 3.5714 percentage points for three details. It then decides to subtract the difference in overall customer shares as well, changing the values to 21.3382 and 18.3382 and dropping the third detail. Both customer groups and the review population were correct.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 22,
+          "messages": [
+            150,
+            151,
+            152,
+            153,
+            154,
+            155,
+            156
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_22_result.json",
+          "sha256": "7a7187afef639e64372d195fb473c1063ba6b7c318c47f000c99c3c9cada2bbe"
+        }
+      ],
+      "confidence": "high",
+      "implication": "This failure happens after a correct result is available. More retained history or graph state does not resolve an incorrectly expanded interpretation of the current question."
+    },
+    {
+      "id": "survey_redefines_global_experience_anchors",
+      "task": "community__kaggle-survey-2022__task2",
+      "turns": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        24,
+        29,
+        30
+      ],
+      "mechanism": "reinterpreted_metric_then_cascade",
+      "finding": "Smolagents computes the correct strict composition table and global coding/ML share tables at 10-12. At 13 it recomputes coding and ML skew within each role rather than consuming the established global anchors (4.2502 and 6.3519). The first-ranked role changes from Data Architect (3.4375) to Developer Advocate (6.3873). Later it correctly preserves the old strict role table, uses the local AutoML rollback only for that comparison, selects expanded size and asked-base industry components, and mixes strict/broader role versions as requested. Those operations still produce incorrect totals because they inherit the wrongly defined role-specific anchors. At 24 the percentage change -10.4626 is correct while both absolute resilience scores inherit the earlier error. DSGym independently redefines the anchors at 13: role-specific adopter shares versus global all-employed shares, producing Developer Advocate 7.1372. At 14 it reconstructs those same wrong strict ML anchors for the requested partial rollback. The two agents implement different wrong role-specific metrics from the same already-established global components. DSGym at29 and30 correctly chooses strict experience anchors alongside broad lift, and strict/broad role tables alongside expanded size and asked-industry definitions, but reproduces its wrong role-specific anchor formula. Recomputing from raw data to improve precision at30 does not repair that definition.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 10,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t10/react_steps.json",
+          "sha256": "7972449b1e4d4f4de279b818985820521265b0802b49d52a2b25f02ad06ec8b8"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 11,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t11/react_steps.json",
+          "sha256": "0554177334851274650a02043c60870948e25ae82669d5da4b7072eb64a469aa"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 12,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t12/react_steps.json",
+          "sha256": "c7dad2b6a6c1203574ebf75ca9912c23902bc650b846b47a0cf3cdc0926050bf"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t13/react_steps.json",
+          "sha256": "0dad74cd5ce8f0d124b00b37f2bc911e5f8e6d98ed89b108519203ef0897af5c"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 14,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t14/react_steps.json",
+          "sha256": "b089b6ea2ed4e735328373b7a3c7a0abba65fa113589189cb544c682b1cb5877"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t24/react_steps.json",
+          "sha256": "c331f0f145972544fb2ade0cef39bb72000cfb47dc506698541cdb7fc62a386f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t29/react_steps.json",
+          "sha256": "133dc5982bd88bb9a771351236e715a424133c72bd2bf449a34905cf03141a45"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 30,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t30/react_steps.json",
+          "sha256": "0ea9b6ff8937bd60af9ea48b44cda5644885429c0bca29e2b24113e885b8cd34"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 13,
+          "messages": [
+            80,
+            81,
+            82,
+            83,
+            84
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2/agent/bak/turn_13_result.json",
+          "sha256": "e1dabba78e66914a90ed7b40c19691021028aa96281eb82f670fe6bb44a85ffb"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 14,
+          "messages": [
+            86,
+            88,
+            90,
+            91,
+            92
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2/agent/bak/turn_14_result.json",
+          "sha256": "167db9affbd792ce1e29e58a405d456bd085cdc9953a642977c75dd13e4f2a0a"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 24,
+          "messages": [
+            140,
+            141,
+            142
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2/agent/bak/turn_24_result.json",
+          "sha256": "d9ad5ac16fce3754eaca93c8dc187e320e8f6edecd76182866051f7932047149"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 29,
+          "messages": [
+            162,
+            164,
+            166,
+            167,
+            168
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2/agent/bak/turn_29_result.json",
+          "sha256": "508dbc8e8960a2c6a9eec1fc1aaed141aed06d850c332565bed8bdceace91d26"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 30,
+          "messages": [
+            170,
+            172,
+            173,
+            174
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2/agent/bak/turn_30_result.json",
+          "sha256": "d70db07f31f66e36e990a2e5b3f8f2a1cf63db649e98b0b8455ab5dde9dea67a"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Catalog entries should expose the scope and grain of reusable metrics, and the agent should select an existing component when asked to reuse it. Simply persisting or replaying the incorrect turn-13 graph would preserve the cascade."
+    },
+    {
+      "id": "survey_preserves_independent_state_changes",
+      "task": "community__kaggle-survey-2022__task2",
+      "turns": [
+        8,
+        16,
+        21,
+        24,
+        27,
+        30
+      ],
+      "mechanism": "successful_component_selection_with_wrong_upstream_metric",
+      "finding": "Smolagents correctly establishes 896 strict adopters in a 4672-person union working sample at 8, changes only the industry denominator at 16, computes narrow .8334 and expanded .9308 size composites at 21, uses narrow only for the temporary comparison at 24, creates 1878 broader adopters at 27, and at 30 returns to strict role scores while keeping expanded size and asked-base industry. The final scores fail due to the separately identified turn-13 metric redefinition, not lost versions or promotion of the temporary narrow boundary.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 8,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t08/react_steps.json",
+          "sha256": "0ef5f3f4eb9a16665cd55f10216e4fc84d3854bdf3ec132aaa513e30928dc436"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 16,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t16/react_steps.json",
+          "sha256": "cb9bacf20121681da0c7bfe123acf10b54c4c6f09b4062084cf89da3f4e4f1ef"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 21,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t21/react_steps.json",
+          "sha256": "ee394c81cd817a8f563326970a22917a160b5ef35c3b3a980017b59b854f94fc"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t24/react_steps.json",
+          "sha256": "c331f0f145972544fb2ade0cef39bb72000cfb47dc506698541cdb7fc62a386f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t27/react_steps.json",
+          "sha256": "a163d6cf0de2571717419e0458cc256fc9a63e00d36cd2b31aee849206dda836"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 30,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t30/react_steps.json",
+          "sha256": "0ea9b6ff8937bd60af9ea48b44cda5644885429c0bca29e2b24113e885b8cd34"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Do not classify every late incorrect answer as failed state restoration. State selection can be correct even when inherited calculations are wrong."
+    },
+    {
+      "id": "survey_judge_comparison_reversed",
+      "task": "community__kaggle-survey-2022__task2",
+      "turns": [
+        6,
+        11,
+        27
+      ],
+      "mechanism": "judgment_concern",
+      "finding": "Smolagents turn 27 calculates 1878 broad adopters, 1118 original AutoML and 896 strict, then correctly reports +760 versus AutoML and +982 versus strict. The saved judge assigns 0 while asserting those labeled differences should be reversed. Preserve its score, but this is not an agent state error. Turn 11 is rejected for order despite using the same alphabetical Q11 order established at 6 (which passed); its numerical mapping is correct. The user asks for the established order, while the reference uses a different experience order.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 6,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t06/react_steps.json",
+          "sha256": "bdae16c68c046a2295d548b3fc358b0cf405ec56f33b86bcf3456cfd26f45d73"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 11,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t11/react_steps.json",
+          "sha256": "0554177334851274650a02043c60870948e25ae82669d5da4b7072eb64a469aa"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t27/react_steps.json",
+          "sha256": "a163d6cf0de2571717419e0458cc256fc9a63e00d36cd2b31aee849206dda836"
+        }
+      ],
+      "confidence": "high for reversed comparison judgment; ordering convention is a separate concern",
+      "implication": "Keep official scores and manual correctness concerns separate. Do not infer state-failure counts from binary judgments alone."
+    },
+    {
+      "id": "restaurants_correct_pressure_filtered_out",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        16
+      ],
+      "mechanism": "report_projection_drops_required_rows",
+      "finding": "Smolagents correctly selects the two safe-promotion families, fixes a missing family-label join, and computes Tamarind TriBeCa 7.4074% and The Smile 5.5556%, both below the 9.2202% risk cutoff. Although the context explicitly asks to keep pressure visible even if none crosses the threshold, the final reporting projection filters to risky families and returns an empty list. The full correct working table exists.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 16,
+          "steps": [
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t16/react_steps.json",
+          "sha256": "66a956dd18d220e7e821eedbd60fe6ff3a75139f881dba46acad1df986a944e7"
+        }
+      ],
+      "confidence": "high",
+      "implication": "An answer checklist or explicit report projection can prevent omissions; extra historical state is not the missing ingredient."
+    },
+    {
+      "id": "learnplatform_unexecuted_join_then_recovery",
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turns": [
+        1,
+        2,
+        3
+      ],
+      "mechanism": "answer_claims_unexecuted_transformations",
+      "finding": "DSGym turn 1 reads and concatenates 233 engagement files into 22324190 rows, then claims to have completed metadata joins and summary statistics without executing those operations. It reports 11267431 joined rows and mean18.5786 instead of11691587 and257.3893. At turn2 it actually builds the inner-joined merged table, computes correct category/provider means, and at3 consumes that table for the correct three weekly-phase means. There is no evidence that the false turn1 report became the working data.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 1,
+          "messages": [
+            8,
+            9,
+            10
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_1_result.json",
+          "sha256": "317e39c04953f7ce0a0012fc6bc26996bc11160b324e070c1ac71c4d1cd3763c"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 2,
+          "messages": [
+            12,
+            13,
+            14
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_2_result.json",
+          "sha256": "a0336283753db729fb18a9f3bd074eddc24c3111a2d2e7aea80568e274c26017"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 3,
+          "messages": [
+            16,
+            17,
+            18
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_3_result.json",
+          "sha256": "c3cd371290ab06bf37a7dd358838532c3a904542b6128bfaa9148c61d54b6816"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Count an executed calculation only if the required transformation ran, not merely if the turn contained any Python. Answer provenance should refer to a concrete executed result; the agent can later recover through actual computation."
+    },
+    {
+      "id": "learnplatform_phase_and_population_controls",
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turns": [
+        3,
+        10,
+        16
+      ],
+      "mechanism": "successful_scope_and_aggregation_selection_with_recomputation",
+      "finding": "DSGym correctly uses 7-day mean-of-daily means at3; a distinct raw-row cutoff through February10 for product comparisons at10; and row-weighted phase means with the original April23/September3 boundaries for the triple-disadvantaged district comparison at16. It selects18districts and all six group/national phase means match. At10 and16 it rescans all233sourceCSV files despite having a joined working table; this is regeneration overhead but not an observed accuracy failure.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 3,
+          "messages": [
+            16,
+            17,
+            18
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_3_result.json",
+          "sha256": "c3cd371290ab06bf37a7dd358838532c3a904542b6128bfaa9148c61d54b6816"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 10,
+          "messages": [
+            48,
+            49,
+            50
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_10_result.json",
+          "sha256": "6494704c515489a8b5c2c37a02040485292a1e12e4055bd2a57147bda9eca9fd"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 16,
+          "messages": [
+            74,
+            75,
+            76,
+            77,
+            78
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_16_result.json",
+          "sha256": "fac33a888fb2a8a6f3bedbc5d43f375bd06eafdb03b5d7aaefdea6ebd5e950b3"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Preserving named populations and time conventions is feasible in ordinary Python. Reuse might reduce repeated scans, but requires measuring actual compute/call cost and the memory tradeoff."
+    },
+    {
+      "id": "restaurants_customer_view_selection",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        5,
+        13,
+        22
+      ],
+      "mechanism": "wrong_historical_component_selected",
+      "finding": "Smolagents builds frequency-led customer flags at5 and the correct spend-led flags at13 (302 customers), retaining both. At22 it correctly computes the new quality-space customers, but explicitly joins high_value_customer_first from the old frequency-led view as the global comparator. It reports gaps40.1042/34.0 instead of50/47 and drops the3.5714MeatballItalian gap. The reference uses the spend-led view; offline metadata marks13an Update and22depends on13. The public text at13 says check/compare rather than explicitly declaring a persistent default, so the intended current-view inference is less explicit than in other cases.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 5,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t05/react_steps.json",
+          "sha256": "625c33d221f8b3f99d4c849b768d7cff81cea07898aa96f09869554021281aef"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t13/react_steps.json",
+          "sha256": "5732143d5a1adba3eef41bb5fb3e0ee502cc14516566769845a6e84693bcb74e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 22,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t22/react_steps.json",
+          "sha256": "3b9bd4c7ace8e2004632a640b088518a19b741f79064f2684e4e97d17a37fc5e"
+        }
+      ],
+      "confidence": "high for wrong comparator relative to reference; public update wording is implicit",
+      "implication": "Use a compact current-definition map backed by executed outputs, while exposing the inferred scope of an update. Never use benchmark state labels as an online oracle. More historical storage would not help because both versions already exist."
+    },
+    {
+      "id": "restaurants_fallback_scope_errors",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        8,
+        26
+      ],
+      "mechanism": "fallback_interpretation",
+      "finding": "Smolagents8 correctly finds zero risk-boundary crossings, then restricts fallback diagnostics to three changed service flags and measures relative-slow minus overall benchmark rather than old-minus-new slow rates over all review units. At26 both agents apply method-driven eligibility criteria even after zero formal downgrades trigger the fallback; each returns only MeatballItalian rather than ranking allfourpressurecases by penaltygap. Required working populations and numeric components are available.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 8,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t08/react_steps.json",
+          "sha256": "999a4806698a7c4dc68a86a72810b28f3b1b4e40b604251eabf40bc1e841b3f5"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 26,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t26/react_steps.json",
+          "sha256": "5dae312b79274e28b968b1569b08e5faffb723294d33fdb8b1058f9479786456"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 26,
+          "messages": [
+            182
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_26_result.json",
+          "sha256": "f524ddec3f1a2d4a3ac2e69ccdfa85c27fb498422c310f5bf18417cc2d128bce"
+        }
+      ],
+      "confidence": "high for executed filters; fallback wording leaves some interpretation",
+      "implication": "These are current-instruction/fallback scope errors, not demonstrated missing-state failures. A graph can reproduce either interpretation."
+    },
+    {
+      "id": "restaurants_attribution_answer_completeness",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        31,
+        32
+      ],
+      "mechanism": "answer_completeness_and_judgment_boundary",
+      "finding": "Both agents recover the correct historical flags, current decisions, importance ordering, and attribution labels for allfourreviewedunits. The final answers use stricter_quality_failure and stable_across_all_decision_views rather than explicit business-reason sentences. Both31and32score0for missing or nonmatching business reasons. Retained historical state and decision attribution calculations succeed.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 31,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t31/react_steps.json",
+          "sha256": "d49d7d5fe9190df7f4b4df12cc7ae30c5560da08862198ba552dd205a04a6594"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 31,
+          "messages": [
+            206,
+            208,
+            210,
+            211
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_31_result.json",
+          "sha256": "0a82bf74695ac7b7d932f1a8a0efb698ce98055a79bf96137aa01d829c99ce85"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 32,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t32/react_steps.json",
+          "sha256": "83e96081ef8280621ae22a43111cba4ec6d01d00cf1f5d9e242ae9d6dafc9f00"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Require each requested conclusion to be stated explicitly; do not interpret the official zeros as evidence of failed historical recovery."
+    },
+    {
+      "id": "survey_literal_None_is_not_missing",
+      "task": "community__kaggle-survey-2022__task2",
+      "turns": [
+        2,
+        7
+      ],
+      "mechanism": "input_null_policy",
+      "finding": "Both agents use pandas default read_csv missing-value rules. At7 their shown-count formulas are correct, but literal opt-out text None has already become NaN. The shown counts become3127and1321instead of5177and4641. Offline reading with keep_default_na=False, na_values=[empty string] restores2050BusinessIntelligence and3320MLServing opt-outs and exactly reproduces the reference shown counts. Other categories use No / None and are unaffected.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 2,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t02/react_steps.json",
+          "sha256": "98581d2051721c2053530551061e56fa06ba6d4efda95eb016f7c91335a50830"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 7,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/t07/react_steps.json",
+          "sha256": "74d2f86f6e69bb9c766636fadbe42dc5bc86aaf5bf51f4617dab88946c7d86e0"
+        },
+        {
+          "offline_artifact": "survey-offline-checks.json",
+          "path": "logs/longds-terra-20260930/survey-offline-checks.json",
+          "sha256": "2d14e52afb67d9fe2c6a393c598abc6ae411a6630b00a1b3fa4ba35d836cc77d"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Schema/null-policy checks can prevent this general data-ingestion error. Keeping more history or replaying the same loader would preserve it."
+    },
+    {
+      "id": "learnplatform_reuses_wrong_aggregation_winner",
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turns": [
+        8,
+        27
+      ],
+      "mechanism": "stored_result_used_for_different_metric",
+      "finding": "DSGym correctly ranks CM sub-functions by mean weekly engagement at turn 8, with Assessment & Classroom Response first. Turn 27 asks for the leader by overall mean engagement, but the agent hardcodes the earlier weekly winner, then correctly computes product and weekly-phase statistics inside that wrong category. Google Docs comparison values match; Google Forms should instead be Meet. The old result was correct for its original metric, so this is inappropriate reuse rather than an inherited incorrect calculation. Smolagents27 makes the same mistake explicitly by selecting cm_subfunction_scores.index[0] from the saved mean-weekly ranking.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 8,
+          "messages": [
+            40,
+            41,
+            42
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_8_result.json",
+          "sha256": "7f7b5c9c214332b3fd680f2fd49c64e44fbaf8ee3382eb7055cb4856bbfd3d3c"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 27,
+          "messages": [
+            148,
+            149,
+            150,
+            151,
+            152
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_27_result.json",
+          "sha256": "a572ef8bc8e5eae6543d4e7fa087b1aac9db588950e996526d94280fbeb06112"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/t27/react_steps.json",
+          "sha256": "33b2f405c5b48c08041ed3687b87f078787b6cf86e7f3b34d0b366b767a2582e"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Catalog entries need an explicit aggregation definition and population. Reuse an existing result only when its metric answers the current request; a reuse-only prompt can otherwise amplify this error."
+    },
+    {
+      "id": "learnplatform_skips_available_execution",
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turns": [
+        5,
+        7,
+        11,
+        28
+      ],
+      "mechanism": "answer_bypasses_or_declines_available_execution",
+      "finding": "DSGym turn 5 emits unexecuted weekly COVID correlations. Turns 7 and 11 explicitly say the requested calculation must be executed but end the turn instead of using the available Python executor. At 28 it executes only the top-COVID-state lookup and then reports new composite z-scores without calculating them; all four composite scores are wrong although reused engagement values are correct. Smolagents28 is a positive control: it executes the requested z-score computation over22complete states and produces allfourcorrectscores and bothcorrectengagementaverages.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 5,
+          "messages": [
+            30
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_5_result.json",
+          "sha256": "2e41c1fb77fc3ddfd0845b5a9b38fee729c505b18833860ec5adb1de85b6c350"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 7,
+          "messages": [
+            38
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_7_result.json",
+          "sha256": "a817b9e148a46d90641027ce6e5d3a041668d4410328af80306db1ab6f44f277"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 11,
+          "messages": [
+            52
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_11_result.json",
+          "sha256": "95f0e3f21e63b7615f971109a485d8f9a13c0871714e01d19387907324e45a9e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 28,
+          "messages": [
+            154,
+            155,
+            156
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_28_result.json",
+          "sha256": "4dfd2218b38b3f1535d17a3760bb315f59745fcb06da1c93e83318403ad5ea8a"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 28,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/t28/react_steps.json",
+          "sha256": "93db4f7cef92bff638e50b8b5f1fa0c6323f86eb0e51043bf91b042384d383c0"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Require executable support for new numerical claims and continue to the available tool when a calculation is needed. A claim of having computed something is not an execution receipt."
+    },
+    {
+      "id": "learnplatform_dual_burden_scope",
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turns": [
+        23,
+        24
+      ],
+      "mechanism": "cohort_and_aggregation_scope_changes",
+      "finding": "DSGym correctly builds the 22-state joined homelessness/engagement result at 23. At 24 it computes burden medians only within those 22 engagement states, producing AZ/MA/MO, whereas the reference uses six states from broader state burden medians. It also computes national means after dropping districts with missing state, producing 245.3545/188.2308/329.1389 rather than 241.3013/182.1562/322.8279. Correct row-weighted arithmetic is applied to different populations. Public wording does not fully specify the median base; retain that ambiguity separately. Smolagents24 uses the same incorrect22-state median base but correctly retains the full national phase means241.3013/182.1562/322.8279. The denominator mistake therefore affects one component in smolagents and two in DSGym.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 23,
+          "messages": [
+            124,
+            125,
+            126
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_23_result.json",
+          "sha256": "2ab6ecde9b80119d436b4bd910bd493f614085bee4a1c942483c7bc019caa74e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 24,
+          "messages": [
+            128,
+            129,
+            130,
+            131,
+            132
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_24_result.json",
+          "sha256": "c2d777ad4a8439a287effbc759278aef239ae0e4202e79383d2a3a4b7f929dc5"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/t24/react_steps.json",
+          "sha256": "b66837223390eea8b66873ca3d3e9513d303da0d6e7fd05e906a22b9072966ef"
+        }
+      ],
+      "confidence": "high for executed scopes; intended median population is partly implicit",
+      "implication": "Record cohort and denominator alongside a metric. Do not reuse a joined subset as the default population for unrelated thresholds or national summaries."
+    },
+    {
+      "id": "learnplatform_covid_source_selection",
+      "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+      "turns": [
+        4
+      ],
+      "mechanism": "different_available_source_selected",
+      "finding": "DSGym turn 4 selects latest records from the supplied daily States.csv, reporting California 104277 deaths and 12169158 cases. Offline inspection of the separate supplied USA Covid Data.csv finds the reference values 104634 and 12393361 exactly. The selected state sets agree. This is a choice between two available source snapshots, not lost session state or a demonstrated corrupt reference; the question does not name a source file.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 4,
+          "messages": [
+            20,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/agent/bak/turn_4_result.json",
+          "sha256": "4726f872ba8e3c05e23309c2345f2b15a4758a6b742ddb2cacb055d8eb59f09f"
+        },
+        {
+          "offline_artifact": "learnplatform-source-check.json",
+          "path": "logs/longds-terra-20260930/learnplatform-source-check.json",
+          "sha256": "37487726fdb5186defada0f3ea1785b0d468d0048e576788dfd76d5ab6f3526a"
+        }
+      ],
+      "confidence": "high for source/value correspondence; source choice is implicit in the question",
+      "implication": "An input catalog can expose overlapping source tables and their dates/grains. Operator lineage alone cannot decide an underspecified source choice."
+    },
+    {
+      "id": "wids_wrong_gas_field_cascades",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        1,
+        2,
+        13,
+        14,
+        38,
+        40
+      ],
+      "mechanism": "wrong_source_metric_then_cascade",
+      "finding": "Smolagents initially emits unsupported raw-summary JSON, then recovers through parsing/tool feedback and reads the actual table. It defines annual_gas_use as the sum of qq_dict values rather than consumption. At 2 the retained sample is correct but its mean is43736.0026 instead of78.0605. At13 it correctly updates the city-median connection denominator while retaining this wrong numerator. At14 it correctly restores the original unprotected intensity and the fixed city cohort, again built on the wrong metric. The required versions are retained; the root metric is wrong. At38 the structured sample receives newly fitted city medians and a new OLS fit as requested, but the response still uses the wrong gas field and area with holes; at40 that upstream error reaches the final building panel while the separate county panel is exactly correct.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 1,
+          "steps": [
+            1,
+            3,
+            4,
+            5,
+            6
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t01/react_steps.json",
+          "sha256": "0aae6bf3537efb465283ebfc0c2ce17a5acadcf9d230bbf30d1cc3c2ebd57673"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 2,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t02/react_steps.json",
+          "sha256": "283263f02693ddebd76c3873734c1a0f20ee3c5097ad37c3a04c941bf67e0ab9"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t13/react_steps.json",
+          "sha256": "5990189173f6b18c67ff94620a733b4fdaa17890aeb42ba083aaaeca0cbda7b5"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 14,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t14/react_steps.json",
+          "sha256": "5f6b56244c12409c09cef9593dbf9bea0643873a3eab438793a1b9417abb8813"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 38,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t38/react_steps.json",
+          "sha256": "eb4eb2577823eaa6cc0c45da12fc3c48ef2dc8984722c32f8d2baf4c349ba021"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 40,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t40/react_steps.json",
+          "sha256": "d046082f1d32f3a5c31fe5e2d1a56c81f8c3cffcf8acb8eb5e2acfb974f1fda7"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Distinguish wrong input meaning from state loss. A profile and source-description check may help validate the initial metric. Lineage is useful for locating affected downstream results after that metric is corrected."
+    },
+    {
+      "id": "wids_weights_and_historical_composition_succeed",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        27,
+        28,
+        29,
+        30,
+        35,
+        36,
+        40
+      ],
+      "mechanism": "successful_updates_and_historical_composition",
+      "finding": "Smolagents retains all404eligiblecounties and component z-scores. At28 it correctly moves from equal weights to race.20/income.35/language.10/education.35. At29 it redistributes race to income.45/language.20 while retaining education.35, producing cutoff1.1284 and correct leader overlaps9and3. At30 it correctly joins equal-weight social with old fixed burden and reduced social with current state-relative burden, standardizes each restricted41-county set independently, and obtains the correct historical top10 and overlap7. At35 pollution weights are correctly .50/.30/.20; at36 dropping carbon monoxide correctly produces .60/.40 and expands eligibility to405counties; at40 allfivefinalcountylabels and scores match the reference. DSGym28and29 also uses the correct weights, denominator and pairwise overlaps; it reconstructs the social and PM tables from Excel on each turn instead of directly consuming the retained tables. DSGym36 correctly expands to405counties and changes weights to.60/.40, obtaining the correct score cutoff.7450 and top-ten overlap6.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t27/react_steps.json",
+          "sha256": "4e93d97f96f261695c543ba27d6d32bcf4ae290715dcb087975731880b0802e8"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 28,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t28/react_steps.json",
+          "sha256": "7e2f4c9c8f05460a711a27703330f202c1f3d5531c902ce96fd757d94428267e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t29/react_steps.json",
+          "sha256": "5fb315f1b155ee407b17e7288521996f81feaaa83ce692f46b868b14b0ec59aa"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 30,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t30/react_steps.json",
+          "sha256": "7abf4b7924d8bca5f9622847c3041559db6a5b05043cd854d90636dc5528457a"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 35,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t35/react_steps.json",
+          "sha256": "2fc73de17d728a8151b566a65c491d47f53011139d24885ae0a22344c005b1e4"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 36,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t36/react_steps.json",
+          "sha256": "eeec0a6d8ca5d833377504b0cd38dc20a7bbeb7ab6bffc01ac32097b32ed483f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 40,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t40/react_steps.json",
+          "sha256": "d046082f1d32f3a5c31fe5e2d1a56c81f8c3cffcf8acb8eb5e2acfb974f1fda7"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 28,
+          "messages": [
+            192,
+            193,
+            194,
+            195,
+            196
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_28_result.json",
+          "sha256": "da237aa5456e747721bf9a420de1a0ea61d2cd10ea7ce4e58e3ae8e0bc955278"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 29,
+          "messages": [
+            198,
+            199,
+            200,
+            201,
+            202,
+            203,
+            204
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_29_result.json",
+          "sha256": "00ce9883b53470652ff3aca5baab563acefaa293450ae0965e99d223c5b6ab98"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 36,
+          "messages": [
+            258,
+            259,
+            260,
+            261,
+            262
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_36_result.json",
+          "sha256": "2bd9f670a324097725cf4ed8a6c48a16e7484ff91352bc2288a3f2cfb3887f4d"
+        }
+      ],
+      "confidence": "high",
+      "implication": "This Python control succeeds on the precise incremental-weight and historical/current mixtures that motivated earlier catalog work. Judge the intervention against that capability, rather than assuming a graph is required."
+    },
+    {
+      "id": "wids_geometry_fallback_and_precision",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        7,
+        11
+      ],
+      "mechanism": "executor_limit_semantic_fallback_and_numeric_sensitivity",
+      "finding": "Smolagents7 exceeds its interpreter 10million-operation cap while parsing polygons, then substitutes Shapely total polygon area, which subtracts interior holes although the task asks for exterior area. Its top footprints and later volumes therefore change substantially. DSGym7 computes the exterior correctly but ordinary numpy dot arithmetic on large coordinates differs from reference at four-decimal precision. Offline exact Decimal exterior area for B021943 is19438.675; DSGym gives19438.6875, reference19438.5938, and Shapely area with holes16439.25. The reference itself is not an exact exterior-area value at the requested precision.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 7,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t07/react_steps.json",
+          "sha256": "add5ac14147b029fad953bb72284c273f8159039d278c3dcda0568750818f28d"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 11,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t11/react_steps.json",
+          "sha256": "d134f3a1548ecbda317e5c7a88169bd8eb8e12bdc69295bda682c9b143b8f3d7"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 7,
+          "messages": [
+            48,
+            50,
+            51,
+            52,
+            53,
+            54
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_7_result.json",
+          "sha256": "09efba320eb757c3c0ac15a8e7bb9b4268f4880c582e734c208b9e90dce4a57b"
+        },
+        {
+          "offline_artifact": "wids-geometry-check.json",
+          "path": "logs/longds-terra-20260930/wids-geometry-check.json",
+          "sha256": "58806d01dad773b78305ab997f999113b8a481ff16d7bf18af02c618f0e3b00c"
+        }
+      ],
+      "confidence": "high for hole semantics and numerical reproduction; do not replace official scores",
+      "implication": "Executor constraints can cause a semantic fallback. Geometric precision and reference sensitivity need a separate annotation; neither is evidence that historical state disappeared."
+    },
+    {
+      "id": "wids_structured_scope_and_final_reuse",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        38,
+        40
+      ],
+      "mechanism": "successful_population_refit_and_observed_answer_reuse",
+      "finding": "DSGym38 recomputes city medians inside the41595-building structured sample and fits the requested OLS there, preserving the distinction from the53656-row broader model. Its ten anomaly leaders and overlap6match. At40 it copies already observed building/county values and stability outcomes into a final panel; this is valid reuse, unlike unsupported new calculations. It uses literals copied from observations rather than direct variable references, so a Python call itself does not establish a dependency receipt.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 38,
+          "messages": [
+            272,
+            273,
+            274,
+            275,
+            276,
+            277,
+            278
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_38_result.json",
+          "sha256": "13d6c620c4a25b72839f78a29cb1cb3c198b1e2c81ca15fc8b79167d32d5be1e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 40,
+          "messages": [
+            288,
+            289,
+            290
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_40_result.json",
+          "sha256": "3caf4c558d811e5f73c85ebe6c29c96643d83f67b8ce7bb8a573998e70206829"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Allow final answers from exact saved outputs and preserve their source IDs. Do not force recomputation when observed values already support the answer, and do not infer lineage merely because an answer was printed by Python."
+    },
+    {
+      "id": "wids_dsgym_answer_protocol_loss",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        30,
+        37
+      ],
+      "mechanism": "answer_protocol_and_completeness",
+      "finding": "DSGym computes the old fixed-threshold joint-risk list and the current state-relative list, including correct overlap 7. Its first detailed answer lacks the closing answer tag; after parser feedback the accepted answer lists only three counties. Turn 37 likewise computes all requested category and marker shifts, emits a detailed unclosed answer, then replaces it with an incomplete accepted summary. Official scores are zero for omitted fields, not missing calculations or historical-state loss.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 30,
+          "messages": [
+            206,
+            208,
+            210,
+            211,
+            212,
+            213,
+            214,
+            215,
+            216
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_30_result.json",
+          "sha256": "6d3d07faaf8514401e4b144839d070309b9f4adef5fc257dc795dcda6fda00f9"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 37,
+          "messages": [
+            264,
+            265,
+            266,
+            267,
+            268,
+            269,
+            270
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_37_result.json",
+          "sha256": "4a2be8986ff4158d1b54c019e4de9a7d4009ba8008fe20c4f97fd75829ec88d8"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Preserve the computed answer payload across protocol repair; exact executed answer references and completeness checks should precede more catalog machinery."
+    },
+    {
+      "id": "kiva_population_update_not_materialized",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": [
+        7,
+        12,
+        13,
+        16
+      ],
+      "mechanism": "working_population_update_not_consumed",
+      "finding": "Smolagents correctly builds strict social priority at turn 7 and finds the five removed pairs at turn 12, but only saves an all-rows left join with a support flag and the removed top-five answer. At turn 13 it joins poverty evidence to the earlier full social table (411 rows), omitting the new specialized-partner support restriction. DSGym applies the restriction before joining: 21 full-support rows, 17 with MPI, and the four expected risers. Smolagents turn 16 continues from the broad poverty view.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 7,
+          "steps": [
+            3,
+            4,
+            5
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t07/react_steps.json",
+          "sha256": "7e13a712156b87aa4aa344bdc13e10000f688cf1d12600febbbffed955f0367f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 12,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t12/react_steps.json",
+          "sha256": "5b99bb8586760eb66464d2f141d58c38acf262a900be2588247cea613bd62bc4"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            3,
+            4,
+            5
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t13/react_steps.json",
+          "sha256": "9c13d4cc3c0c1f263ad3147082f33814a34f7071031698026238df47f6bb7abb"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 16,
+          "steps": [
+            6,
+            7
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t16/react_steps.json",
+          "sha256": "cbd664bf5d513e1120ca742006d334309d7df67b6a95b9de617b1648ade8f605"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 13,
+          "messages": [
+            84,
+            85,
+            86
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/bak/turn_13_result.json",
+          "sha256": "a7a283a8bb8d82b2bf9bc89eb624c0327eb57328bd0879d2b468296b507aae10"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A correct answer about excluded rows does not establish a new reusable surviving population. Keep explicit population outputs and make later computations consume the current one."
+    },
+    {
+      "id": "kiva_premature_completeness_and_later_recovery",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": [
+        18,
+        23,
+        24
+      ],
+      "mechanism": "population_scope_and_metric_selection",
+      "finding": "Smolagents turn 18 applies the at-least-ten-MPI-region and complete-development filter before that population restriction is requested at turn 23. Turn 23 identifies 16 complete matches and missing-evidence reasons but ranks losses by social priority instead of the current final score. Turn 24 correctly restores the relaxed population and finds the three correct relaxed-only recommendations with correct exclusion reasons, although final scores inherit an earlier development-rank offset.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 18,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t18/react_steps.json",
+          "sha256": "2ccc22360d761b705ec2322b4716313d5934d7c4e9c750ec5740c86fdeb17191"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 23,
+          "steps": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t23/react_steps.json",
+          "sha256": "9925922c243b1b458d4194dc8f5b57e189d5ecf773120535f893b0e604b5efd3"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t24/react_steps.json",
+          "sha256": "4707becccaa33ed19ccc7ed8cfcf4d4156503c69c09eb7e27455b11338d01e2b"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Separate available definitions in a session-wide preamble from currently active population choices. Preserve both complete and relaxed populations; validate the ranking metric independently."
+    },
+    {
+      "id": "kiva_development_rank_first_divergence",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": [
+        16,
+        18,
+        24
+      ],
+      "mechanism": "arithmetic_and_dtype_dependent_rank_cascade",
+      "finding": "Both arms parse the correct rural service columns after inspecting shifted headers. Smolagents computes low-GDP/water/sanitation ranks as 100 minus ascending percentile instead of ranking the negated values, omitting 100/nonmissing_count. DSGym uses the intended rank direction but converts GDP/agriculture/unemployment through nullable String/Float64 and divides rank by nonmissing count; installed pandas 2.2.3 yields agriculture rank 100 and unemployment rank 20 for Sierra Leone, versus 97.6190476 and 18.8235294 from the reference float64 path. Offline reproduction matches all three country profiles exactly: Sierra Leone reference79.940476, DSGym80.593137, smolagents79.170868. Later expanded/final scores inherit these offsets even where chosen populations and formulas are otherwise correct.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 16,
+          "steps": [
+            4,
+            5,
+            6
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t16/react_steps.json",
+          "sha256": "cbd664bf5d513e1120ca742006d334309d7df67b6a95b9de617b1648ade8f605"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 16,
+          "messages": [
+            98,
+            99,
+            102,
+            103,
+            104
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/bak/turn_16_result.json",
+          "sha256": "f7216484db7260e9d3ab9eff590fad85e44f3755c6ddb4b82ae5fcc809fdb122"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 18,
+          "steps": [
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t18/react_steps.json",
+          "sha256": "2ccc22360d761b705ec2322b4716313d5934d7c4e9c750ec5740c86fdeb17191"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t24/react_steps.json",
+          "sha256": "4707becccaa33ed19ccc7ed8cfcf4d4156503c69c09eb7e27455b11338d01e2b"
+        },
+        {
+          "offline_artifact": "kiva-development-check.json",
+          "path": "logs/longds-terra-20260930/kiva-development-check.json",
+          "sha256": "69a6c5f781143f6885c74cb9b2b47bcd6ed983e3bcc197fbeb01eafa5f25b7c8"
+        }
+      ],
+      "confidence": "high for saved calculations and local reproduction; no broader pandas-version claim",
+      "implication": "Audit component values and missing-value handling before blaming historical state. Explicit dependencies may support later repair propagation but cannot discover the correct rank calculation."
+    },
+    {
+      "id": "kiva_mixed_history_correct_despite_cascade",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": [
+        29,
+        35
+      ],
+      "mechanism": "successful_component_composition_with_upstream_numeric_error",
+      "finding": "Smolagents combines old no-wait funding and inclusive partner inputs with current complete-data population, expanded vulnerability, and concentration at turn 29. It finds no new top-ten members and all five correct fallback candidates with correct raw input gaps; absolute scores retain the development-rank error. At turn 35 it correctly propagates median MPI through both expanded-priority and direct vulnerability terms, combines borrower caution, and finds the correct CAPTN-out/PAC-in replacement. A missing development column is repaired from the saved country table. Correct historical composition does not erase the earlier numeric error. DSGym turn 35 also applies both vulnerability substitutions and gets the correct replacement; its scores retain its own earlier rank offset.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t29/react_steps.json",
+          "sha256": "d24d6e29b7df14e03926eaa2861aa119b76da26ad4268524e634a74853d04308"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 35,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t35/react_steps.json",
+          "sha256": "c59c1ee5bfb88039c086e9802961dca33ebc13606f180eeec3fc25a07b775321"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 35,
+          "messages": [
+            210,
+            211,
+            212,
+            213,
+            214
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/bak/turn_35_result.json",
+          "sha256": "b34af3efa9808146cf03df9e5c17d96e35369493527e9789001cc30aae26e043"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Late failure scores cannot be counted as independent state failures. Persistent Python can execute difficult old/current component mixtures."
+    },
+    {
+      "id": "nfl_pressure_definitions_collapsed",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turns": [
+        1,
+        6,
+        8,
+        23,
+        24,
+        26,
+        32,
+        35
+      ],
+      "mechanism": "upstream_definition_and_distinct_state_overwrite",
+      "finding": "DSGym inspects that source pressureRate equals hit+hurry+sack and imposes that source convention on the four-component event-ledger view. It excludes beat from pressure reconstruction and overwrites the player workspace pressureRate with the reconstructed value at turn 1. The task needs source total pressure and four-component reconstructed pressure as separate views. Subsequent zero accounting gaps lead to all players being flagged at an inclusive zero cutoff and 35 reliable candidates instead of 42; all ten matched published-list players are removed at turn 6. Turn 8 rebuilds from raw inputs but retains the three-component interpretation and wrong reliable population. At turn 23 the inherited mismatch flag removes all 35 remaining players, leaving an empty current pool instead of 33. Turns 24 and 26 cannot fit current caps or recover current scores; late 32 and 35 decline the mixed-state comparisons because the inherited current pool is empty. Official turn 1 is scored correct because its requested identity/ledger-size summary is correct; that score does not validate the pressure state it leaves behind.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 1,
+          "messages": [
+            6,
+            8,
+            10,
+            12
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_1_result.json",
+          "sha256": "48dbb06bea35a14b9ba701dccad08c4387092cae059c4f4f1c325807fbf0dc7a"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 6,
+          "messages": [
+            46,
+            47,
+            48,
+            49,
+            50
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_6_result.json",
+          "sha256": "7e3cbb748711a4116f45098d279faad4ffb6028c85e76a74f98bf393600d0945"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 8,
+          "messages": [
+            56,
+            58,
+            59,
+            60,
+            62,
+            63,
+            64
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_8_result.json",
+          "sha256": "134fa2eb985a5cdd504e11debc44a99e9265be4333afa80cbb08f9fcd25a98b8"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 23,
+          "messages": [
+            142,
+            143,
+            144
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_23_result.json",
+          "sha256": "b1c178cdfe2e5b491feb2aa665835d8714ecbb1adcd358b88dcea268b81af345"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 24,
+          "messages": [
+            146
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_24_result.json",
+          "sha256": "099b003e8fce515cdc9dfed632b68972b81ce80e2ebc65fcaff02cba9eab3f5e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 26,
+          "messages": [
+            152,
+            153,
+            154
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_26_result.json",
+          "sha256": "9c623f93a853b1046bbdd0305e34f13c3853ca5f3ae6ec12c8a42431381caf5b"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 32,
+          "messages": [
+            174
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_32_result.json",
+          "sha256": "227eef57aeb163f02b6702e6819b00ec37dae57bef97e7f7ad1eeefb6fb8061a"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 35,
+          "messages": [
+            182
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_35_result.json",
+          "sha256": "3cc4a5a3eed2e6e388e8920f9317265319212bad3ae69e55f120e6933798d347"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Preserve separately named source and derived pressure definitions. A dependency graph using the wrong definition will propagate the error; profiles or assertions need to compare against the requested semantics."
+    },
+    {
+      "id": "nfl_smol_early_correction",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turns": [
+        1,
+        2,
+        6
+      ],
+      "mechanism": "successful_early_definition_correction_and_protocol_recovery",
+      "finding": "Smolagents first response exhausts 8192 completion tokens in reasoning, then emits two malformed code responses. Normal tool feedback recovers within turn 1. It builds the correct four-component ledger but initially replaces the source total pressure with reconstructed pressure. At turn 2 it explicitly repairs the workspace from saved normalized source rows, preserves source total_pressure and four-component ledger_pressure_rate separately, and computes all five expected mismatch gaps and weak-support leaders. This is autonomous early correction before the later score chain, with no external hint or rerun. At turn 6 it retains the expected 42-player pool and identifies the four correct published-list exclusions.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 1,
+          "steps": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t01/react_steps.json",
+          "sha256": "07b03d27ebc027c794a587605615a49075ff4809958d6ecfb459a5af71dd883e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 2,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t02/react_steps.json",
+          "sha256": "2c9a3f9e583496a0cb78013a0d1f3d0b04252f503a94ccefdfa207787320d150"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 6,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t06/react_steps.json",
+          "sha256": "abdf9218a44ecec81544ff55cc0e630fe6ce8a2f5413fa6ce9acbb63dfadef39"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Terra can notice and repair a definition collision in persistent Python. Test later correction propagation separately; this early repair does not require a lineage engine."
+    },
+    {
+      "id": "nfl_fit_rank_and_reporting_populations",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turns": [
+        8,
+        13,
+        18,
+        23,
+        24,
+        26,
+        32
+      ],
+      "mechanism": "different_population_roles_collapsed",
+      "finding": "Smolagents correctly preserves/refines full-table scores at turn 8, restores severity weighting at turn 13, repairs a duplicate snap-coordinate join and gets the expected play-conflict values at turn 18, and materializes the correct 33-player current pool at turn 23. Turn 24 explicitly requires fitting clipping caps on those current candidates, applying them to every player, ranking across every player on each side, then reporting current candidates. The agent fits caps and also applies/ranks only the 33-player candidate copy. The first thought explicitly conflates these populations. The largest gain becomes Jawaan Taylor0.2563 instead of Ryan Ramczyk0.2230, and later current scores start from a wrong percentile scale. This error occurs with the correct wider table still available and the exact population instruction in the current request. At turn 26 it correctly restores only old eligibility but constructs out-of-pool percentiles against the incorrect 33-player ladders because full-table current scores were never materialized. The five player identities are right but their current scores differ (Riley Reiff1.0587 versus1.1063). At turn 32 it selects the requested old severity-pressure component and old team aggregation recipe with current speed, play adjustment, and cohort. The historical composition is correct, while mixed team differences inherit the wrong current speed values.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 8,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t08/react_steps.json",
+          "sha256": "10d7acec4afddea28348cb960584c23a99d3acbbd9746f10348b9d96a74e3a3e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t13/react_steps.json",
+          "sha256": "033b48169cbfdaa09ae051fc5f3f67f0e524a4e2efc863d2120131e3845fd244"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 18,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t18/react_steps.json",
+          "sha256": "d55b86d785072ba3b1434d1565004da5e7c7767b27fdeab1d3249e4f6f3d0368"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 23,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t23/react_steps.json",
+          "sha256": "03b704eab391f178c88c8baea9db2774f16910511c469537bd8cee9277ccba5b"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t24/react_steps.json",
+          "sha256": "38954fb0cefb5fb4d57312f642a8089d52c1f98079d557bb49ab79099b664d63"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 26,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t26/react_steps.json",
+          "sha256": "18b0cfc1e5476bd8ee40f049c62e1ba46601eda6c4868fc071b16d99f7c24dbf"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 32,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t32/react_steps.json",
+          "sha256": "fc40868ac27298ae5c8eac469a1c9b786c0d8ef4745e4e314253ab197a879c28"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A single current-population slot is insufficient. Preserve fit population, full scored population, and reporting cohort as separate inputs/results. Catalog visibility alone does not resolve a misread current instruction."
+    },
+    {
+      "id": "nfl_late_saved_choice_audit",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turns": [
+        42
+      ],
+      "mechanism": "successful_historical_availability_with_output_membership_discrepancy",
+      "finding": "At turn 42, smolagents retrieves twelve saved leader-set choices (seven player and five team choices), computes one minus Jaccard overlap against its final consensus sets, and sorts by distance, scope, and label. The top-five choices and all five distances match the reference. The first four added/missed sets also match. For the fifth choice, older reliable pool with current scoring, it reports Tristan Wirfs as missed, whereas the reference reports Rashawn Slater. The saved official judge assigns 1 despite this membership discrepancy. The trace establishes that the long history remains available and is used; it does not establish that every historical object or value is correct. The fifth choice reads reentry_team_players, and this audit does not isolate whether its discrepancy arises from the selected historical object or an inherited scoring error.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 42,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t42/react_steps.json",
+          "sha256": "d2aef57e490255a5c7c61e82a5be8824a028cf82adb358702bec59a28a692c80"
+        }
+      ],
+      "confidence": "high for observed availability and answer discrepancy; cause of fifth-set discrepancy unresolved",
+      "implication": "Do not equate a late answer failure with forgotten history, or an official pass with complete correctness. Test actual historical-result selection and consumption while retaining the official score."
+    }
+  ],
+  "manual_audit_coverage": {
+    "cases": 40,
+    "unique_saved_turn_traces": 147,
+    "selection_method": "Manual review of selected failures, successes, paired differences and upstream/downstream chains; not a census of error causes."
+  },
+  "caveats": [
+    "Task state labels overlap; their counts do not form disjoint groups.",
+    "Saved official judgments are unchanged, including documented manual concerns.",
+    "Agent token data comes from raw call logs; reasoning is reported separately and not added to completion tokens.",
+    "Token and model-call totals cover returned responses; provider failures without usage are not counted.",
+    "Agent dollar fields use Luna accounting rates and are not actual Terra charges.",
+    "Judge cost sums reported charges, including saved formatting retries; interrupted and diagnostic requests are separate.",
+    "Single purposive trial on eight v1.1 sessions; no statistical or paper-reproduction claim."
+  ]
+}

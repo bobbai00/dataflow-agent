@@ -1,0 +1,1184 @@
+{
+  "date": "2026-09-30",
+  "reviewed_head": "96afcbd16",
+  "scope": "Purposively selected saved trace segments, source inspection and deterministic score aggregation. Not an exhaustive manual error census or a causal experiment.",
+  "new_model_or_judge_calls": 0,
+  "runtime_changes": false,
+  "cost_note": "Recorded model costs use repository accounting rates. LongDS currently applies Luna rates to every model, so Terra dollar figures are not verified provider spend. Judge and engine costs are outside these sums.",
+  "full_luna": {
+    "native": {
+      "runs": [
+        "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "LongDS_PlanB_20260927_react-lean2_luna_t1"
+      ],
+      "sessions": 68,
+      "turns": 2225,
+      "correct": 732,
+      "unjudged": 0,
+      "turn_micro": 0.3289887640449438,
+      "task_macro": 0.34572711911650206,
+      "recorded_model_cost_usd": 15.609050829999974
+    },
+    "dsgym": {
+      "runs": [
+        "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1"
+      ],
+      "sessions": 68,
+      "turns": 2225,
+      "correct": 723,
+      "unjudged": 0,
+      "turn_micro": 0.3249438202247191,
+      "task_macro": 0.33911207344198735,
+      "recorded_model_cost_usd": 9.182391459999996
+    }
+  },
+  "recent_checks": [
+    {
+      "runs": [
+        "LongDS_Check_20260929_react-lean2_luna_t1"
+      ],
+      "sessions": 8,
+      "turns": 235,
+      "correct": 87,
+      "unjudged": 0,
+      "turn_micro": 0.3702127659574468,
+      "task_macro": 0.37798032407407406,
+      "recorded_model_cost_usd": 1.56298793
+    },
+    {
+      "runs": [
+        "LongDS_Check_20260929_react-lean2_luna_t2"
+      ],
+      "sessions": 8,
+      "turns": 235,
+      "correct": 56,
+      "unjudged": 0,
+      "turn_micro": 0.23829787234042554,
+      "task_macro": 0.23754629629629628,
+      "recorded_model_cost_usd": 1.5277936600000002
+    },
+    {
+      "runs": [
+        "LongDS_Check_20260929_react-lean2_luna_t3"
+      ],
+      "sessions": 7,
+      "turns": 203,
+      "correct": 50,
+      "unjudged": 0,
+      "turn_micro": 0.24630541871921183,
+      "task_macro": 0.2477248677248677,
+      "recorded_model_cost_usd": 1.3476576499999997
+    }
+  ],
+  "older_terra": {
+    "native_catalog_trial4": {
+      "runs": [
+        "LongDS_Official_react-catalog_terra_t4"
+      ],
+      "sessions": 3,
+      "turns": 72,
+      "correct": 26,
+      "unjudged": 0,
+      "turn_micro": 0.3611111111111111,
+      "task_macro": 0.44841269841269843,
+      "recorded_model_cost_usd": 0.40689094
+    },
+    "dsgym_trial3": {
+      "runs": [
+        "LongDS_Official_dsgym_terra_t3"
+      ],
+      "sessions": 3,
+      "turns": 72,
+      "correct": 28,
+      "unjudged": 0,
+      "turn_micro": 0.3888888888888889,
+      "task_macro": 0.4735449735449735,
+      "recorded_model_cost_usd": 0.3395322399999999
+    }
+  },
+  "cases": [
+    {
+      "id": "bi_update",
+      "finding": "A correct answer did not preserve the requested updated data.",
+      "observed": "Native t10 returned an age-outlier summary only; t19 correlated imputed_students with unchanged ages. DSGym t10 updated student_df and t19 reused it.",
+      "interpretation_or_proposal": "Materialize the updated student table and derive the answer summary from it. This is a proposed intervention, not a measured treatment effect.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task1",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/results_eval.json",
+            "sha256": "fd0a18c18010185424f7565da17818c06cb15b52216ba72e7ac4a82e57cb58ae"
+          },
+          "turns": [
+            {
+              "turn": 10,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.00481938,
+                "input_tokens": 90235,
+                "output_tokens": 1697,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/turns/t10/react_steps.json",
+                "sha256": "ec86d552bccf4595a3c3abdba8024b30a9964523b19665b78ca6e03e8c4973c4"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-33-41-1790558609038",
+                "step-agent-yl7oft-33-42-1790558615957",
+                "step-agent-yl7oft-33-43-1790558619896"
+              ]
+            },
+            {
+              "turn": 19,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 1,
+                "cost_usd": 0.0023051,
+                "input_tokens": 28479,
+                "output_tokens": 885,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/turns/t19/react_steps.json",
+                "sha256": "5465ddc39e39f923349711affe877a4ed9eeccc441d39a28db9d78a8a746330c"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-33-74-1790558712274"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__bi__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task1/results_eval.json",
+            "sha256": "83c7f17d6e77bf3292124d7d6df7c1c8c8e473f10308156a4d428ad01ae4ed87"
+          },
+          "turns": [
+            {
+              "turn": 10,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00165294,
+                "input_tokens": 14703,
+                "output_tokens": 936,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                47,
+                48,
+                49,
+                50
+              ]
+            },
+            {
+              "turn": 19,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0020666400000000002,
+                "input_tokens": 30180,
+                "output_tokens": 986,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                83,
+                84,
+                85,
+                86
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task1/agent/traj.json",
+            "sha256": "48a17e30f387ec51576c2ce8c2b866f85ae31111866be4128a5c58b80df797d3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "restaurant_subset",
+      "finding": "The agent chose a five-row answer view instead of the visible ten-row working table.",
+      "observed": "Native t1 created first_pressure_scan with ten rows and first_pressure_leaders with five. At t2 it passed first_pressure_leaders into review_fixed_pressure despite the ten-row request. Both tables and row counts were in task-start context.",
+      "interpretation_or_proposal": "Present the working table beside its answer projection and require the selected population to match the current request.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task3",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/results_eval.json",
+            "sha256": "0d60c2f5e6e90c5f97eafd75148c041ed4929c8a31ea2793682dfef70b25f1b5"
+          },
+          "turns": [
+            {
+              "turn": 1,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.007174649999999999,
+                "input_tokens": 45993,
+                "output_tokens": 1903,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/turns/t01/react_steps.json",
+                "sha256": "19325399ba4a1c76f44a9e5d863b63f27ba36e4cb3a896aa10e16455f8f23547"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-27-3-1790557212716",
+                "step-agent-yl7oft-27-4-1790557228558",
+                "step-agent-yl7oft-27-5-1790557237525"
+              ]
+            },
+            {
+              "turn": 2,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0030791499999999997,
+                "input_tokens": 34755,
+                "output_tokens": 1089,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/turns/t02/react_steps.json",
+                "sha256": "f9705f3f176587b171617df376bfd47f03ca6c2a88cf8de0061aa76faea53f1e"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-27-8-1790557247907",
+                "step-agent-yl7oft-27-9-1790557252897"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task3",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/results_eval.json",
+            "sha256": "8e300d6827a68aa79573020c48c1a39786754b29429f624332b1affe594118e1"
+          },
+          "turns": [
+            {
+              "turn": 2,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0026592799999999995,
+                "input_tokens": 10010,
+                "output_tokens": 1711,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                11,
+                12,
+                13,
+                14
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/agent/traj.json",
+            "sha256": "b89dc52094575d7271c57c4509d30e38ae05b15200833493abd7d6d7d68f4e51"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wids_weights",
+      "finding": "A local weight change used the original weights instead of the latest persistent weights.",
+      "observed": "Native t28 used weights .20/.35/.10/.35. At t29 it used .375/.375/.25 and the t27 social_justice_result; the intended remaining weights were .45/.20/.35. DSGym used those values. Both arms passing t28 does not establish every intermediate state was correct.",
+      "interpretation_or_proposal": "Keep county components and the evolving weight choice separately addressable. A small parameter table is justified by this actual update.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+            "sha256": "5ae4a47b52a572e01f6c8dcd476509d46154566e3e71f2a1f4ba311ea7a4f8b3"
+          },
+          "turns": [
+            {
+              "turn": 27,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.010698319999999999,
+                "input_tokens": 259271,
+                "output_tokens": 2837,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t27/react_steps.json",
+                "sha256": "6054489ae7bec7077d0a1bbd71a8928f10b62109f9cb8c606607f87291e3b0f0"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-1-107-1790551475287",
+                "step-agent-yl7oft-1-108-1790551484357",
+                "step-agent-yl7oft-1-109-1790551490028"
+              ]
+            },
+            {
+              "turn": 28,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.006693279999999999,
+                "input_tokens": 131675,
+                "output_tokens": 1801,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t28/react_steps.json",
+                "sha256": "426f88345a774517961ce0787b6072234b79e84756e1d59010ae56d3fd341180"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-1-112-1790551505783",
+                "step-agent-yl7oft-1-113-1790551515955"
+              ]
+            },
+            {
+              "turn": 29,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.012335579999999999,
+                "input_tokens": 275764,
+                "output_tokens": 3662,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t29/react_steps.json",
+                "sha256": "3bce6d4a3c16ad35b2dd573f24da74517b662fc99ace153fbe706c184933f25b"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-1-116-1790551528751",
+                "step-agent-yl7oft-1-117-1790551541069",
+                "step-agent-yl7oft-1-118-1790551549875"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+            "sha256": "6580d8d88f06dd48a6efc6e7ee98191c45b8244792678a276037ca8b8ac0bc60"
+          },
+          "turns": [
+            {
+              "turn": 27,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.01008887,
+                "input_tokens": 333285,
+                "output_tokens": 2211,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                107,
+                108,
+                109,
+                110
+              ]
+            },
+            {
+              "turn": 28,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00919907,
+                "input_tokens": 338513,
+                "output_tokens": 1630,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                111,
+                112,
+                113,
+                114
+              ]
+            },
+            {
+              "turn": 29,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00971789,
+                "input_tokens": 343062,
+                "output_tokens": 1916,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                115,
+                116,
+                117,
+                118
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/traj.json",
+            "sha256": "839016ff27bbeadf5d6eaaca5d0c1b82137187044a8f11a3edce0c64b084c457"
+          }
+        }
+      ]
+    },
+    {
+      "id": "netflix_order",
+      "finding": "Reusing the stored numerical slate avoided reconstruction from presentation order.",
+      "observed": "Native t3 sorted split_market_slate by its stored score. DSGym t3 enumerated a hardcoded list copied in the grouped presentation order, shifting the prior ranks and rank losses.",
+      "interpretation_or_proposal": "Use exact tables for downstream calculations; this behavior is also possible in a persistent Python kernel.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+          "task": "business__netflix_movies_and_tv_shows__task1",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/business__netflix_movies_and_tv_shows__task1/results_eval.json",
+            "sha256": "3728e4c2274777382b823a5522320919ffb1a110c1fba8529cb4b33a742c9b79"
+          },
+          "turns": [
+            {
+              "turn": 2,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00321106,
+                "input_tokens": 34277,
+                "output_tokens": 1255,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/business__netflix_movies_and_tv_shows__task1/turns/t02/react_steps.json",
+                "sha256": "65424e4190c2d0381710dd7083c844b843cbb36f0b382a0a24c79a08c951bfd9"
+              },
+              "tool_step_ids": [
+                "step-agent-7u6hd8-14-10-1790554047833",
+                "step-agent-7u6hd8-14-11-1790554053697"
+              ]
+            },
+            {
+              "turn": 3,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0050673,
+                "input_tokens": 38502,
+                "output_tokens": 3188,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/business__netflix_movies_and_tv_shows__task1/turns/t03/react_steps.json",
+                "sha256": "cfd4fa1119f80b7939ae992bffdc990ecb5b0680156f178cbea43d709ab4f456"
+              },
+              "tool_step_ids": [
+                "step-agent-7u6hd8-14-14-1790554257883"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "business__netflix_movies_and_tv_shows__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__netflix_movies_and_tv_shows__task1/results_eval.json",
+            "sha256": "0b313aaf1e1c33bc32bc732671e32560ceb97c9d17e961b06437ac5e59a76da0"
+          },
+          "turns": [
+            {
+              "turn": 2,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.0027947999999999996,
+                "input_tokens": 16761,
+                "output_tokens": 1724,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                11,
+                12,
+                13,
+                14,
+                15,
+                16
+              ]
+            },
+            {
+              "turn": 3,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0038517599999999996,
+                "input_tokens": 15604,
+                "output_tokens": 2439,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                17,
+                18,
+                19,
+                20
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__netflix_movies_and_tv_shows__task1/agent/traj.json",
+            "sha256": "019dafb5042801f2b509def60c33829358d9d610f348b570a19ce09309cbe1c2"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bi_exact_baseline",
+      "finding": "Binding an earlier definition preserved the precision needed for a comparison.",
+      "observed": "Native t19 bound the earlier equal-weight composite and calculated the shift from computed values. DSGym typed four-decimal old coefficients into code; the largest shift became .0350 rather than .0351.",
+      "interpretation_or_proposal": "Keep historical values and existing bind support; low usage alone is not evidence that the capability is useless.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__bi__task2/results_eval.json",
+            "sha256": "a7790cd788fdd29a9dfb97e7eb18366da85fb3f9fceef5cc487ae32fe167ca67"
+          },
+          "turns": [
+            {
+              "turn": 19,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.00383255,
+                "input_tokens": 86510,
+                "output_tokens": 840,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 1
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__bi__task2/turns/t19/react_steps.json",
+                "sha256": "b78d3db622b8bde07234930634f37610253620ba2343b3ce38ea2ee5b42adafe"
+              },
+              "tool_step_ids": [
+                "step-agent-7u6hd8-33-68-1790558477854",
+                "step-agent-7u6hd8-33-69-1790558485888",
+                "step-agent-7u6hd8-33-70-1790558488143"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__bi__task2",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task2/results_eval.json",
+            "sha256": "a65782409a79f7393e7a55ca5667bf66ff6cb36a851ffb0565f7d2419dbe44a4"
+          },
+          "turns": [
+            {
+              "turn": 19,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00147723,
+                "input_tokens": 27164,
+                "output_tokens": 607,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                75,
+                76,
+                77,
+                78
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task2/agent/traj.json",
+            "sha256": "18b99c4362ff38a184833bf217c36b14ac67ca70a8c252f76ea90764d30dcb40"
+          }
+        }
+      ]
+    },
+    {
+      "id": "learnplatform_scope",
+      "finding": "A native win came from rebuilding the analysis from files, not catalog reuse.",
+      "observed": "DSGym t2 made phase_weekly from Virtual Classroom rows and reused it for the all-products t3 question. Native t3 loaded files inside a zero-input custom function and reconstructed the calculation, including repairs for an unused function and a missing function.",
+      "interpretation_or_proposal": "Retain the full weekly table and name the classroom view explicitly. Do not credit this observed native win to lineage.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task1",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task1/results_eval.json",
+            "sha256": "4c18bf05b88bdc29cda9b0b0f0f938f31c4cc66d88459c82d12b6d5880841b5e"
+          },
+          "turns": [
+            {
+              "turn": 3,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.00496245,
+                "input_tokens": 71983,
+                "output_tokens": 2121,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task1/turns/t03/react_steps.json",
+                "sha256": "bf93a25eb2d561617b8c13973f4b36869471e3d5e598b0088b54c7aec1e4a1e5"
+              },
+              "tool_step_ids": [
+                "step-agent-7u6hd8-19-17-1790555518388",
+                "step-agent-7u6hd8-19-18-1790555520573",
+                "step-agent-7u6hd8-19-19-1790555526185",
+                "step-agent-7u6hd8-19-20-1790555545806"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task1/results_eval.json",
+            "sha256": "780dd76bff23d48322bd7aba4197b87682a80fe42cbfa256d86a0ed98fe3f6f2"
+          },
+          "turns": [
+            {
+              "turn": 2,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00203563,
+                "input_tokens": 19486,
+                "output_tokens": 1152,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                11,
+                12,
+                13,
+                14
+              ]
+            },
+            {
+              "turn": 3,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00171472,
+                "input_tokens": 21493,
+                "output_tokens": 900,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                15,
+                16,
+                17,
+                18
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task1/agent/traj.json",
+            "sha256": "c7eda2718a42a2924374bb005b54b84ed3ec4cf5bb66ce0ac0487f39fd11cbdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": "university_repair",
+      "finding": "A correction included the dependent distance calculation in native, but only the downstream screen in DSGym.",
+      "observed": "Native t5 changed mahalanobis_all from a quotient to the female-side percentage and recomputed distances plus the cleaning chain, yielding 721. DSGym corrected the screening values while retaining squared_mahalanobis_distance, yielding 718. The original ratio wording is ambiguous; this is a mechanism example from v1, not an oracle rule for agents.",
+      "interpretation_or_proposal": "When public evidence contradicts a convention, repair its earliest shared definition and refresh the affected consumers. Detection and correct interpretation remain model responsibilities.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__world_university_rankings__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__world_university_rankings__task2/results_eval.json",
+            "sha256": "54ab14436a999d445b7edc914956d97dc044d7844498a8f11f654013bc83b556"
+          },
+          "turns": [
+            {
+              "turn": 5,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.0062945,
+                "input_tokens": 63441,
+                "output_tokens": 3090,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__world_university_rankings__task2/turns/t05/react_steps.json",
+                "sha256": "f0decc2c439756b6b280ccdc2abd1c03c35c11e02918771ab37ed14977531314"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-32-20-1790558257787",
+                "step-agent-yl7oft-32-21-1790558268406",
+                "step-agent-yl7oft-32-22-1790558280971"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__world_university_rankings__task2",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__world_university_rankings__task2/results_eval.json",
+            "sha256": "266e544c85150acbd6febf5e2cb51541653809aa130a3417e713ae9fc25f507f"
+          },
+          "turns": [
+            {
+              "turn": 5,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.00389577,
+                "input_tokens": 31744,
+                "output_tokens": 2265,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__world_university_rankings__task2/agent/traj.json",
+            "sha256": "00c8468400501ed01018a1de921c59127cf8267e0ad9d7f207d9553bd8546c2f"
+          }
+        }
+      ]
+    },
+    {
+      "id": "budgeted_water",
+      "finding": "A score-1 turn used expensive retrieval and did not compute a required counterfactual comparison.",
+      "observed": "The budgeted native t38 made 12 model calls, seven inspection calls and two recall calls. Its final function assigned r2_top = default_top without computing the R-squared ranking; signed_top was also assigned default_top. The top labels matched the reference and the saved judge passed the answer.",
+      "interpretation_or_proposal": "Measure whether requested comparisons were actually computed or supported, separately from the unchanged official answer score. More retrieval and more state-tool calls are not success metrics.",
+      "evidence": [
+        {
+          "run": "LongDS_Bud32B_20260927_react-lean2-budget_luna_t1",
+          "task": "geoscience__acea_water_prediction__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_Bud32B_20260927_react-lean2-budget_luna_t1/geoscience__acea_water_prediction__task2/results_eval.json",
+            "sha256": "13256da2cb08018b4263c1b8005c5be249d4019698f804c08fc770594d242433"
+          },
+          "turns": [
+            {
+              "turn": 38,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 12,
+                "cost_usd": 0.02708175,
+                "input_tokens": 370668,
+                "output_tokens": 4161,
+                "inspection_calls": 7,
+                "recall_calls": 2,
+                "bind_requests": 4
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Bud32B_20260927_react-lean2-budget_luna_t1/geoscience__acea_water_prediction__task2/turns/t38/react_steps.json",
+                "sha256": "96b85664621f281d5c57c02d3b46b482c7820960bfcb4c46828b2ad9b2087940"
+              },
+              "tool_step_ids": [
+                "step-agent-2d6vt6-3-188-1790579073873",
+                "step-agent-2d6vt6-3-189-1790579077556",
+                "step-agent-2d6vt6-3-190-1790579082751",
+                "step-agent-2d6vt6-3-191-1790579088621",
+                "step-agent-2d6vt6-3-192-1790579094793",
+                "step-agent-2d6vt6-3-193-1790579097119",
+                "step-agent-2d6vt6-3-194-1790579100780",
+                "step-agent-2d6vt6-3-195-1790579106458",
+                "step-agent-2d6vt6-3-196-1790579111980",
+                "step-agent-2d6vt6-3-197-1790579122348",
+                "step-agent-2d6vt6-3-198-1790579127639",
+                "step-agent-2d6vt6-3-199-1790579137322"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_bi",
+      "finding": "Existing graph edits and binds can work without separate parameter tables.",
+      "observed": "September 29 check trial 1: t18 redefined the active composite and its descendants; t19 bound the earlier version; t30 bound the earlier composite and age bands. These judged turns passed. There were still additional answer-formatting calls and hardcoded comparison text elsewhere.",
+      "interpretation_or_proposal": "Use parameter tables for a demonstrated need, and assess correct state transitions rather than parameter-operator adoption.",
+      "evidence": [
+        {
+          "run": "LongDS_Check_20260929_react-lean2_luna_t1",
+          "task": "education__bi__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_Check_20260929_react-lean2_luna_t1/education__bi__task2/results_eval.json",
+            "sha256": "81d132bb05ab7fd2610b7596fba979cfb0830877278a7b06bf487499f1cb3e8e"
+          },
+          "turns": [
+            {
+              "turn": 17,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 1,
+                "cost_usd": 0.00145459,
+                "input_tokens": 26242,
+                "output_tokens": 359,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Check_20260929_react-lean2_luna_t1/education__bi__task2/turns/t17/react_steps.json",
+                "sha256": "01c8d0b9ee5237e70eb25fd530c8e1baf20126de6b411b20b29894f4b46a41d9"
+              },
+              "tool_step_ids": [
+                "step-agent-czsbmo-6-60-1790672716043"
+              ]
+            },
+            {
+              "turn": 18,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00244249,
+                "input_tokens": 54458,
+                "output_tokens": 549,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Check_20260929_react-lean2_luna_t1/education__bi__task2/turns/t18/react_steps.json",
+                "sha256": "0aa0f316c99d126afc7fc5ed428a37290bfa42674f71cdab8a85d2bc7742d520"
+              },
+              "tool_step_ids": [
+                "step-agent-czsbmo-6-63-1790672723959"
+              ]
+            },
+            {
+              "turn": 19,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.0036505600000000006,
+                "input_tokens": 86252,
+                "output_tokens": 689,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 1
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Check_20260929_react-lean2_luna_t1/education__bi__task2/turns/t19/react_steps.json",
+                "sha256": "68bdd355eec388ee6e1ede7b222cd235f71b457008cca3bb55c93e48a2e218af"
+              },
+              "tool_step_ids": [
+                "step-agent-czsbmo-6-66-1790672746697",
+                "step-agent-czsbmo-6-67-1790672757127",
+                "step-agent-czsbmo-6-68-1790672759503"
+              ]
+            },
+            {
+              "turn": 21,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0029828000000000003,
+                "input_tokens": 59522,
+                "output_tokens": 815,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Check_20260929_react-lean2_luna_t1/education__bi__task2/turns/t21/react_steps.json",
+                "sha256": "38696b7af5f0a2553bd121c098d9b659bcef02e5476230f4c4cf84c7b92325f2"
+              },
+              "tool_step_ids": [
+                "step-agent-czsbmo-6-74-1790672785728",
+                "step-agent-czsbmo-6-75-1790672794515"
+              ]
+            },
+            {
+              "turn": 30,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0038401000000000004,
+                "input_tokens": 73048,
+                "output_tokens": 1046,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 1
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Check_20260929_react-lean2_luna_t1/education__bi__task2/turns/t30/react_steps.json",
+                "sha256": "e9c5c894601f36f5ae3367257b2d6512f3fa14adf1335c37367935c178413d82"
+              },
+              "tool_step_ids": [
+                "step-agent-czsbmo-6-108-1790672912594",
+                "step-agent-czsbmo-6-109-1790672925668"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "terra_university",
+      "finding": "Terra retained an interpretation error in both older arms.",
+      "observed": "Native catalog trial 4 t5 multiplied the quotient by 100 only downstream; DSGym trial 3 t5 explicitly used females per 100 males and kept prior distances. Both returned 717 rather than the reference 721.",
+      "interpretation_or_proposal": "Terra is useful as a diagnostic model, but these older traces do not establish reliable state reasoning or a dataflow advantage.",
+      "evidence": [
+        {
+          "run": "LongDS_Official_react-catalog_terra_t4",
+          "task": "education__world_university_rankings__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_Official_react-catalog_terra_t4/education__world_university_rankings__task2/results_eval.json",
+            "sha256": "93f6d0076e849b482be5c0da8f01b88294387510322f869df4c04019b5cc408f"
+          },
+          "turns": [
+            {
+              "turn": 5,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.003963319999999999,
+                "input_tokens": 42823,
+                "output_tokens": 1607,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_Official_react-catalog_terra_t4/education__world_university_rankings__task2/turns/t05/react_steps.json",
+                "sha256": "13fe71d27acb056e1c337a6e058bc6656057c4c474703c90f0f08051a0ca1cfa"
+              },
+              "tool_step_ids": [
+                "step-agent-rp5nrm-13-19-1790155222851",
+                "step-agent-rp5nrm-13-20-1790155233631",
+                "step-agent-rp5nrm-13-21-1790155250591"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_Official_dsgym_terra_t3",
+          "task": "education__world_university_rankings__task2",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_Official_dsgym_terra_t3/education__world_university_rankings__task2/results_eval.json",
+            "sha256": "ca2b92bca91149ff09087c74e77dcba5d582614588e72d66913636579a298cf1"
+          },
+          "turns": [
+            {
+              "turn": 5,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.0038184399999999998,
+                "input_tokens": 24822,
+                "output_tokens": 2486,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                27,
+                28,
+                29,
+                30,
+                31,
+                32
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_Official_dsgym_terra_t3/education__world_university_rankings__task2/agent/traj.json",
+            "sha256": "06de82f1135bc9c0d6f54a5346573ea812711483d998374a02ec5ad060aaf993"
+          }
+        }
+      ]
+    },
+    {
+      "id": "terra_github",
+      "finding": "The older Terra Python baseline actively executed the analysis.",
+      "observed": "DSGym Terra GitHub t1 inspected, cleaned and aggregated the files; t10 reloaded and recomputed the relevant scopes. All 15 answers in that session passed. Reading and executing are clearly present in these focal turns.",
+      "interpretation_or_proposal": "A stronger acting baseline is useful for distinguishing state-management effects from Luna refusals. Rebuilding can still be correct.",
+      "evidence": [
+        {
+          "run": "LongDS_Official_dsgym_terra_t3",
+          "task": "community__github_programming_languages_data__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_Official_dsgym_terra_t3/community__github_programming_languages_data__task1/results_eval.json",
+            "sha256": "92962511989ecd5c33e3d1fb4c3c5ac8a991e7edb4a44d8db0497ad35540e276"
+          },
+          "turns": [
+            {
+              "turn": 1,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 5,
+                "cost_usd": 0.0034706399999999997,
+                "input_tokens": 7244,
+                "output_tokens": 2246,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10
+              ]
+            },
+            {
+              "turn": 10,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.0024421800000000004,
+                "input_tokens": 38878,
+                "output_tokens": 1106,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                59,
+                60,
+                61,
+                62,
+                63,
+                64
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_Official_dsgym_terra_t3/community__github_programming_languages_data__task1/agent/traj.json",
+            "sha256": "c38bd3c12241451e7399bf62fc36e31576dda038f5274a0c1ccf9e1d87cd70ae"
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_evidence": [
+    {
+      "path": "agent-service/src/agent/native/task-entries.ts",
+      "sha256": "95518c4784f7effc7e1af3295d05384b87663daee47810666c347ce184dcf771"
+    },
+    {
+      "path": "agent-service/src/agent/native/definition-registry.ts",
+      "sha256": "f6b10d674e7de9214df2653c387bb766ff796d21779087ce82581c9466e235b5"
+    },
+    {
+      "path": "agent-service/src/agent/native/analysis-state.ts",
+      "sha256": "e7cd6bb0e00596c8f7af72cba0139c29cbe8e2cb3cc1276cd6ad68cf6039413e"
+    },
+    {
+      "path": "agent-service/src/agent/tools/native-batch-tools.ts",
+      "sha256": "5a862c22b106dd872e3c050fb23a05c8c6b1190d64938c37be0d99f3f4f4532d"
+    },
+    {
+      "path": "agent-service/src/agent/prompts.ts",
+      "sha256": "7d6b9e00562e3450729b37bdec06d8702c11406b5ed3b51c5c307847b6c38846"
+    },
+    {
+      "path": "benchmark/longds/official_table.py",
+      "sha256": "54bb29a4a7de5f319b5ef3a81d235f32b2661c6f8a592739f06f1780cfa16526"
+    },
+    {
+      "path": "agent-service/benchmark/multiturn/run-longds-turns.ts",
+      "sha256": "d87c0b7cebf324e4863acbbd92890c7d6ee415afe76eccf1c2318572f22625d5"
+    }
+  ],
+  "external_sources": [
+    "https://arxiv.org/html/2605.30434v3",
+    "https://huggingface.co/datasets/zjunlp/LongDS"
+  ]
+}

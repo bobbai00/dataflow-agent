@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """The official LongDS protocol, shared by every arm of the comparison.
 
 Contexts and questions come from the prepared upstream task unchanged. The only
@@ -96,8 +113,20 @@ SHARED_RULES = (
 def build_prompts(manifest: dict, arm_kind: str) -> list[dict]:
     """Every turn's prompt. Turn 1 carries the session frame; later turns are
     context and question only, exactly as upstream presents them."""
+    smolagents = arm_kind == "smolagents"
+    if smolagents:
+        arm_kind = "script"
     if arm_kind not in PERSISTENCE:
         raise ValueError(f"arm_kind must be one of {sorted(PERSISTENCE)}")
+    answer_contract = ANSWER_CONTRACT
+    if smolagents:
+        # Port the evidence-only-context branch's final_answer_tool_prompt fix:
+        # a plain-text closing marker contradicts CodeAgent's tool protocol.
+        answer_contract = answer_contract.replace(
+            "Your last line MUST BE: **Final Answer: <single-line JSON>**",
+            "When you have the answer, call final_answer(<value>) inside your code, "
+            "with the value in the answer format above.",
+        )
     heading, files, summarized = inventory(manifest)
     rules = PERSISTENCE[arm_kind] + (f"\n{LISTING_HINT[arm_kind]}" if summarized else "")
     prompts = []
@@ -111,7 +140,7 @@ def build_prompts(manifest: dict, arm_kind: str) -> list[dict]:
                 f"{files}\n\n"
                 "How this session works:\n"
                 f"{rules}\n{SHARED_RULES}\n\n"
-                f"{ANSWER_CONTRACT}\n\n"
+                f"{answer_contract}\n\n"
             ) + body
         prompts.append({"turn_id": turn["turn_id"], "prompt": body})
     return prompts

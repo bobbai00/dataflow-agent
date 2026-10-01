@@ -1,0 +1,4390 @@
+{
+  "date": "2026-09-30",
+  "generated_at": "2026-09-30T19:20:35.540304+00:00",
+  "scope": "Manual diagnostic comparison. DS-1000/DSGene interpreted as the existing Luna DSGym/LongDS runs; no separate DS-1000 run was used.",
+  "new_agent_runs": 0,
+  "new_judge_calls": 0,
+  "repo": {
+    "url": "https://github.com/zjunlp/DataMind",
+    "commit": "a814927159470ad1624602d233f57b7c0be5882e",
+    "text_files_scanned": 170,
+    "tree_truncated": false,
+    "classification_implementation_found": false,
+    "longds_skill": "longds/runners/agent_agnostic/longds_bench/SKILL.md",
+    "skill_role": "Run the current agent as the benchmark subject and score its answers; not error taxonomy annotation.",
+    "search_artifact": "logs/longds-classification-review-20260930/upstream-content-search.json"
+  },
+  "paper": {
+    "url": "https://arxiv.org/pdf/2605.30434v3",
+    "sha256": "2b500def9bfb3bcc1133ed477be1661791bbe59717819e956079b666b0935a2e",
+    "annotation_sections": [
+      "C.5",
+      "E.3"
+    ],
+    "prompt_pdf_pages": [
+      27,
+      33
+    ],
+    "correctness_judge": "DeepSeek-V4-Pro",
+    "annotation_agent": "Codex / GPT-5.5 / x-high",
+    "category_count": 7,
+    "statistical_domain_combined": true,
+    "prompt_output_filename": "error_ana.json"
+  },
+  "comparison": {
+    "scope": "Same eight session IDs; historical release and protocol differences prevent a controlled model or system comparison.",
+    "rows": [
+      {
+        "arm": "luna_dsgym",
+        "task": "business__netflix_movies_and_tv_shows__task3",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 36,
+        "correct": 0,
+        "task_accuracy": 0,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 36,
+          "context": 36,
+          "ground_truth": 36
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 36,
+          "runtime": {
+            "head": "318764f9418ba1fa39a42c87aeeb39e1566f426f",
+            "source_sha256": "7fde744b61ec8262aed5823b4b7c6dc1aebcaa1ff85b849012fb6bc17eaf518d"
+          },
+          "manifest_sha256": "0736d26301a0de53d33b46d1ebbe886c55031549a928309459683d115be94654",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/business__netflix_movies_and_tv_shows__task3/results_eval.json",
+        "evaluation_sha256": "d462032e822c562750092f5aa9eec0e73fc68225e5341db3744ad433ff8cbb18",
+        "budget": {
+          "started": 1790449702.3699334,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "business__netflix_movies_and_tv_shows__task3",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 36,
+        "correct": 5,
+        "task_accuracy": 0.1388888888888889,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          7,
+          9,
+          10,
+          11,
+          12,
+          13,
+          15,
+          17,
+          18,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 36,
+          "context": 36,
+          "ground_truth": 36
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 36,
+          "runtime": {
+            "head": "a663a077c7e8161509b31cbc910a1bbaae15f258",
+            "source_sha256": "3c8ea388ddeb91b26e2939a6c5badaf2ab4b5d3b20b252954d6d9c2ab0d59605"
+          },
+          "manifest_sha256": "0736d26301a0de53d33b46d1ebbe886c55031549a928309459683d115be94654",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__netflix_movies_and_tv_shows__task3/results_eval.json",
+        "evaluation_sha256": "f21f8f50f2066bc076524a431fb463529791dba07cc54ca6ec82091253305eab",
+        "budget": {
+          "started": 1790501469.1147838,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "business__netflix_movies_and_tv_shows__task3",
+        "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "turns": 36,
+        "correct": 1,
+        "task_accuracy": 0.027777777777777776,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 36,
+          "context": 36,
+          "ground_truth": 36
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 36,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "0736d26301a0de53d33b46d1ebbe886c55031549a928309459683d115be94654",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/business__netflix_movies_and_tv_shows__task3/results_eval.json",
+        "evaluation_sha256": "2af88a6d78d16f2b18ab5c9bcdff885a9014002beb05f23b6a440e9a90e63494",
+        "budget": {
+          "started": 1790552926.8578935,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "business__netflix_movies_and_tv_shows__task3",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 36,
+        "correct": 36,
+        "task_accuracy": 1,
+        "failed_turns": [],
+        "identical_to_terra_turn_counts": {
+          "question": 36,
+          "context": 36,
+          "ground_truth": 36
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 36,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "f5b4d285e74f1ac5414ac880c9f622bcbe4f1dd08d031a30abf6cee7d4fa3243",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__netflix_movies_and_tv_shows__task3/results_eval.json",
+        "evaluation_sha256": "4e8b536a87d9f4ce55677f39d4a8222285fb8800330b4dbbec81a11888e4568e"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "business__netflix_movies_and_tv_shows__task3",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 36,
+        "correct": 35,
+        "task_accuracy": 0.9722222222222222,
+        "failed_turns": [
+          3
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 36,
+          "context": 36,
+          "ground_truth": 36
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 36,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "f5b4d285e74f1ac5414ac880c9f622bcbe4f1dd08d031a30abf6cee7d4fa3243",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__netflix_movies_and_tv_shows__task3/results_eval.json",
+        "evaluation_sha256": "799d732faa1983ec506c3842b5d8c576f2594354543bcb2e0dfeabdbcac7bd8b"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 33,
+        "correct": 11,
+        "task_accuracy": 0.3333333333333333,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          8,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          20,
+          21,
+          22,
+          25,
+          26,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 31,
+          "context": 25,
+          "ground_truth": 31
+        },
+        "different_from_terra_turns": {
+          "question": [
+            14,
+            15
+          ],
+          "context": [
+            1,
+            2,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "ground_truth": [
+            2,
+            12
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 33,
+          "runtime": {
+            "head": "cc16aedf4e91a03482d2e41892005e4ac6481135",
+            "source_sha256": "59f5bedd04846f74e5f6ce9cacf998a64b4ce39e9fd7e08631796a494ed49e00"
+          },
+          "manifest_sha256": "0f1e805a7da6edde27f7bdc297d86098c8d0935cf0df102aa6a472a06222a1e5",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/results_eval.json",
+        "evaluation_sha256": "dc2fab5462dabdd1b17d6d726b2a47174f492bc9eab0668f8c877d40d0e9e938",
+        "budget": {
+          "started": 1790450155.7393646,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 33,
+        "correct": 7,
+        "task_accuracy": 0.21212121212121213,
+        "failed_turns": [
+          1,
+          4,
+          6,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          20,
+          21,
+          22,
+          23,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 31,
+          "context": 25,
+          "ground_truth": 31
+        },
+        "different_from_terra_turns": {
+          "question": [
+            14,
+            15
+          ],
+          "context": [
+            1,
+            2,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "ground_truth": [
+            2,
+            12
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 33,
+          "runtime": {
+            "head": "df93f4973f7dee7149427f1907d2ed338ec83032",
+            "source_sha256": "412a1a72ca82f7803b879b7bdb7c6599eb962983f0294a63719e1e64f24b3e83"
+          },
+          "manifest_sha256": "0f1e805a7da6edde27f7bdc297d86098c8d0935cf0df102aa6a472a06222a1e5",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/results_eval.json",
+        "evaluation_sha256": "8bdd37ff1edab1e859c17767804f765c48da4ff05cbe27cacd45a59d8011430f",
+        "budget": {
+          "started": 1790503626.4791198,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "turns": 33,
+        "correct": 5,
+        "task_accuracy": 0.15151515151515152,
+        "failed_turns": [
+          3,
+          4,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 31,
+          "context": 25,
+          "ground_truth": 31
+        },
+        "different_from_terra_turns": {
+          "question": [
+            14,
+            15
+          ],
+          "context": [
+            1,
+            2,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "ground_truth": [
+            2,
+            12
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 33,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "0f1e805a7da6edde27f7bdc297d86098c8d0935cf0df102aa6a472a06222a1e5",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/results_eval.json",
+        "evaluation_sha256": "04bd7db67a6a3d460506cae4065343f22f11fbde7caa27e837aa7db07dad34a0",
+        "budget": {
+          "started": 1790556590.7460546,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 33,
+        "correct": 23,
+        "task_accuracy": 0.696969696969697,
+        "failed_turns": [
+          10,
+          14,
+          15,
+          16,
+          20,
+          22,
+          26,
+          29,
+          31,
+          32
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 33,
+          "context": 33,
+          "ground_truth": 33
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 33,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "85a498ff0bfc9faec2270c01b0f49fbe97764b41e4ce264b3a313098fb5bf854",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/results_eval.json",
+        "evaluation_sha256": "f10d97a41391a87c0d4449526306e2f98dd639f616d4e5f65626799ebcf863f6"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 33,
+        "correct": 24,
+        "task_accuracy": 0.7272727272727273,
+        "failed_turns": [
+          8,
+          14,
+          15,
+          16,
+          22,
+          26,
+          29,
+          31,
+          32
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 33,
+          "context": 33,
+          "ground_truth": 33
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 33,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "85a498ff0bfc9faec2270c01b0f49fbe97764b41e4ce264b3a313098fb5bf854",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/results_eval.json",
+        "evaluation_sha256": "b3173ae4da283821f3a31840660438b4681640f61bb04805dfef629736c16663"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "community__kaggle-survey-2022__task2",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 30,
+        "correct": 18,
+        "task_accuracy": 0.6,
+        "failed_turns": [
+          1,
+          3,
+          4,
+          7,
+          13,
+          14,
+          17,
+          18,
+          23,
+          24,
+          29,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 28,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [
+            2,
+            4
+          ],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "community__kaggle-survey-2022__task2",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 30,
+          "runtime": {
+            "head": "fd0e5d0316eca06ebb8e30767f45aa3627a26af8",
+            "source_sha256": "f12653bb148242696cf12e634a97486d14b247d4b7afe73cf87bb106f8251b8c"
+          },
+          "manifest_sha256": "a18d0288ab2b58e57d9299ad51d3bf25784a8e4153fc03140dfd9dd01b198c56",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+        "evaluation_sha256": "3c8821152f45c561f31320b4b3afcbdff87e9a5b9973c45de97e95e9459d77ba",
+        "budget": {
+          "started": 1790447987.5173852,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "community__kaggle-survey-2022__task2",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 30,
+        "correct": 20,
+        "task_accuracy": 0.6666666666666666,
+        "failed_turns": [
+          2,
+          4,
+          7,
+          13,
+          14,
+          18,
+          23,
+          24,
+          29,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 28,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [
+            2,
+            4
+          ],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "community__kaggle-survey-2022__task2",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 30,
+          "runtime": {
+            "head": "df93f4973f7dee7149427f1907d2ed338ec83032",
+            "source_sha256": "412a1a72ca82f7803b879b7bdb7c6599eb962983f0294a63719e1e64f24b3e83"
+          },
+          "manifest_sha256": "a18d0288ab2b58e57d9299ad51d3bf25784a8e4153fc03140dfd9dd01b198c56",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+        "evaluation_sha256": "2e295fa3381f0faa0dfac9dd0ba5d75abf801f075d93c3d1de77cf3167b934e8",
+        "budget": {
+          "started": 1790506060.6893592,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "community__kaggle-survey-2022__task2",
+        "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "turns": 30,
+        "correct": 17,
+        "task_accuracy": 0.5666666666666667,
+        "failed_turns": [
+          2,
+          3,
+          4,
+          8,
+          11,
+          13,
+          14,
+          18,
+          23,
+          24,
+          27,
+          29,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 28,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [
+            2,
+            4
+          ],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "community__kaggle-survey-2022__task2",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 30,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "a18d0288ab2b58e57d9299ad51d3bf25784a8e4153fc03140dfd9dd01b198c56",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+        "evaluation_sha256": "6fda7445d9a96d6ea8add1822a7dedbc4a25a64d4d070d54430b225cd23674c1",
+        "budget": {
+          "started": 1790550836.0396445,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "community__kaggle-survey-2022__task2",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 30,
+        "correct": 21,
+        "task_accuracy": 0.7,
+        "failed_turns": [
+          1,
+          7,
+          13,
+          14,
+          18,
+          23,
+          24,
+          29,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 30,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "community__kaggle-survey-2022__task2",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 30,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "b26c5a0a419e78b4e79bba4cb07fb6211591ac1b9188bd758711778678b8c1d8",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/community__kaggle-survey-2022__task2/results_eval.json",
+        "evaluation_sha256": "fed1f90247c6c130f8b5d29119aef871a18b1d729224ab51745ebe099df80560"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "community__kaggle-survey-2022__task2",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 30,
+        "correct": 19,
+        "task_accuracy": 0.6333333333333333,
+        "failed_turns": [
+          1,
+          7,
+          11,
+          13,
+          14,
+          18,
+          23,
+          24,
+          27,
+          29,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 30,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "community__kaggle-survey-2022__task2",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 30,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "b26c5a0a419e78b4e79bba4cb07fb6211591ac1b9188bd758711778678b8c1d8",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/community__kaggle-survey-2022__task2/results_eval.json",
+        "evaluation_sha256": "e3d3f5e2d6d2487c7f3724e90e2eea2af20fbafe0ccdc1c2fd8039b65d837f24"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 30,
+        "correct": 6,
+        "task_accuracy": 0.2,
+        "failed_turns": [
+          1,
+          2,
+          4,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 29,
+          "context": 29,
+          "ground_truth": 26
+        },
+        "different_from_terra_turns": {
+          "question": [
+            28
+          ],
+          "context": [
+            3
+          ],
+          "ground_truth": [
+            4,
+            23,
+            25,
+            27
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 30,
+          "runtime": {
+            "head": "4fbff96b5211a0f7b431eb9242ea462913363a42",
+            "source_sha256": "0cb8eeb438f534999a80c7f120593e5e06833a7f140e6246ad9998ce607b92dd"
+          },
+          "manifest_sha256": "996333a5bfbe7bd5b54b6d37adac96f72256cc640af53c6ddf97808c4536a507",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/results_eval.json",
+        "evaluation_sha256": "a23bf6980471352333ca91dc31949185b9d01d53046d9c09d38294145e042fbe",
+        "budget": {
+          "started": 1790453563.0413232,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 30,
+        "correct": 17,
+        "task_accuracy": 0.5666666666666667,
+        "failed_turns": [
+          2,
+          8,
+          9,
+          12,
+          17,
+          19,
+          20,
+          24,
+          25,
+          26,
+          27,
+          28,
+          30
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 29,
+          "context": 29,
+          "ground_truth": 26
+        },
+        "different_from_terra_turns": {
+          "question": [
+            28
+          ],
+          "context": [
+            3
+          ],
+          "ground_truth": [
+            4,
+            23,
+            25,
+            27
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 30,
+          "runtime": {
+            "head": "df93f4973f7dee7149427f1907d2ed338ec83032",
+            "source_sha256": "412a1a72ca82f7803b879b7bdb7c6599eb962983f0294a63719e1e64f24b3e83"
+          },
+          "manifest_sha256": "996333a5bfbe7bd5b54b6d37adac96f72256cc640af53c6ddf97808c4536a507",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/results_eval.json",
+        "evaluation_sha256": "0edf83690ef1189d90086b5a7e174c579b9716287859cfb7b5b4b436fb5c540b",
+        "budget": {
+          "started": 1790506383.2480624,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+        "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+        "turns": 30,
+        "correct": 16,
+        "task_accuracy": 0.5333333333333333,
+        "failed_turns": [
+          4,
+          5,
+          8,
+          9,
+          16,
+          19,
+          20,
+          21,
+          22,
+          25,
+          26,
+          27,
+          28,
+          29
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 29,
+          "context": 29,
+          "ground_truth": 26
+        },
+        "different_from_terra_turns": {
+          "question": [
+            28
+          ],
+          "context": [
+            3
+          ],
+          "ground_truth": [
+            4,
+            23,
+            25,
+            27
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 30,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "996333a5bfbe7bd5b54b6d37adac96f72256cc640af53c6ddf97808c4536a507",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/results_eval.json",
+        "evaluation_sha256": "02d9b0be47c793527e098eebdf4f47afe0b765de875d12139af3dc4d9215a38e",
+        "budget": {
+          "started": 1790555550.0779185,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 30,
+        "correct": 21,
+        "task_accuracy": 0.7,
+        "failed_turns": [
+          1,
+          4,
+          5,
+          7,
+          9,
+          11,
+          24,
+          27,
+          28
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 30,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 30,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "18be10ac202725e68c0f3c0b36d47e44715eb79d7229fbe349ca73901a584036",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/results_eval.json",
+        "evaluation_sha256": "6c583326c0bc131fd9904d0a195089cdcc4aacde55ab0f5aac6b20af9cf6b9a1"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 30,
+        "correct": 26.0,
+        "task_accuracy": 0.8666666666666667,
+        "failed_turns": [
+          1,
+          4,
+          24,
+          27
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 30,
+          "context": 30,
+          "ground_truth": 30
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "",
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 30,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "18be10ac202725e68c0f3c0b36d47e44715eb79d7229fbe349ca73901a584036",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task2/results_eval.json",
+        "evaluation_sha256": "fd81d1ed95c4886594b91d8c326deaa8234cfdd2fc6dc2a2f1b5a4a3c2de7c4a"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "education__world_university_rankings__task3",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 23,
+        "correct": 20,
+        "task_accuracy": 0.8695652173913043,
+        "failed_turns": [
+          16,
+          19,
+          21
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 23,
+          "context": 23,
+          "ground_truth": 23
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "education__world_university_rankings__task3",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 23,
+          "runtime": {
+            "head": "4fbff96b5211a0f7b431eb9242ea462913363a42",
+            "source_sha256": "0cb8eeb438f534999a80c7f120593e5e06833a7f140e6246ad9998ce607b92dd"
+          },
+          "manifest_sha256": "2656653d06efc4f9cd4410a827034c9c70c5b228342c7b56fe97d5e817d983b8",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/education__world_university_rankings__task3/results_eval.json",
+        "evaluation_sha256": "cb8dc20a4135c1b22743b79286b49f3276e22695229bb647273f09cdef8c6b50",
+        "budget": {
+          "started": 1790454835.929003,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "education__world_university_rankings__task3",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 23,
+        "correct": 14,
+        "task_accuracy": 0.6086956521739131,
+        "failed_turns": [
+          1,
+          12,
+          14,
+          16,
+          17,
+          18,
+          19,
+          20,
+          23
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 23,
+          "context": 23,
+          "ground_truth": 23
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "education__world_university_rankings__task3",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 23,
+          "runtime": {
+            "head": "df93f4973f7dee7149427f1907d2ed338ec83032",
+            "source_sha256": "412a1a72ca82f7803b879b7bdb7c6599eb962983f0294a63719e1e64f24b3e83"
+          },
+          "manifest_sha256": "2656653d06efc4f9cd4410a827034c9c70c5b228342c7b56fe97d5e817d983b8",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__world_university_rankings__task3/results_eval.json",
+        "evaluation_sha256": "75015ff7d962a6bf2487607c1a73a019a17b3d828fb42dd7838c6ffb56d36069",
+        "budget": {
+          "started": 1790507084.5638533,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "education__world_university_rankings__task3",
+        "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "turns": 23,
+        "correct": 17,
+        "task_accuracy": 0.7391304347826086,
+        "failed_turns": [
+          14,
+          16,
+          17,
+          18,
+          19,
+          23
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 23,
+          "context": 23,
+          "ground_truth": 23
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "education__world_university_rankings__task3",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 23,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "2656653d06efc4f9cd4410a827034c9c70c5b228342c7b56fe97d5e817d983b8",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__world_university_rankings__task3/results_eval.json",
+        "evaluation_sha256": "d106d52f816336752e10779ee79d62a523bc097397a0849f707bc6eece40a63e",
+        "budget": {
+          "started": 1790558464.8808987,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "education__world_university_rankings__task3",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 23,
+        "correct": 17,
+        "task_accuracy": 0.7391304347826086,
+        "failed_turns": [
+          7,
+          9,
+          16,
+          19,
+          20,
+          23
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 23,
+          "context": 23,
+          "ground_truth": 23
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "education__world_university_rankings__task3",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 23,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "3f24bf15cd49a4282a07bc9f75ccbb093c1dd8c09d247b305cd6490203ff87f4"
+          },
+          "manifest_sha256": "acd3123e7027c9239a83c768677b7193ef4067f6706c610a6afecf8bafec945d",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/education__world_university_rankings__task3/results_eval.json",
+        "evaluation_sha256": "422f9a79be39f361a8d5a7492611c76c5d999a1df7f7eeaae2b7f47cfe7b6ac2"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "education__world_university_rankings__task3",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 23,
+        "correct": 19,
+        "task_accuracy": 0.8260869565217391,
+        "failed_turns": [
+          16,
+          19,
+          20,
+          23
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 23,
+          "context": 23,
+          "ground_truth": 23
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "education__world_university_rankings__task3",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 23,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "3f24bf15cd49a4282a07bc9f75ccbb093c1dd8c09d247b305cd6490203ff87f4"
+          },
+          "manifest_sha256": "acd3123e7027c9239a83c768677b7193ef4067f6706c610a6afecf8bafec945d",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/education__world_university_rankings__task3/results_eval.json",
+        "evaluation_sha256": "d1faa3436d25814936c594f06f4d677a499d77e935ababb84dc4bcaffe4183e4"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "geoscience__phase-ii-widsdatathon2022__task1",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 40,
+        "correct": 22,
+        "task_accuracy": 0.55,
+        "failed_turns": [
+          4,
+          7,
+          8,
+          9,
+          10,
+          11,
+          13,
+          15,
+          16,
+          17,
+          18,
+          20,
+          30,
+          32,
+          37,
+          38,
+          39,
+          40
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 39,
+          "context": 39,
+          "ground_truth": 39
+        },
+        "different_from_terra_turns": {
+          "question": [
+            37
+          ],
+          "context": [
+            37
+          ],
+          "ground_truth": [
+            37
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 40,
+          "runtime": {
+            "head": "4fbff96b5211a0f7b431eb9242ea462913363a42",
+            "source_sha256": "0cb8eeb438f534999a80c7f120593e5e06833a7f140e6246ad9998ce607b92dd"
+          },
+          "manifest_sha256": "603d292e76c5c883ab718d38b77c03f60de3c0a31d8ce48a9a67cf8171aa727e",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+        "evaluation_sha256": "f3df8915af8d266b1300bc4459042d201000668c1f5ea6adbe03ae4a377e3fde",
+        "budget": {
+          "started": 1790460411.235352,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "geoscience__phase-ii-widsdatathon2022__task1",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 40,
+        "correct": 20,
+        "task_accuracy": 0.5,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          7,
+          8,
+          9,
+          10,
+          11,
+          16,
+          17,
+          18,
+          20,
+          30,
+          31,
+          32,
+          37,
+          38,
+          39,
+          40
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 39,
+          "context": 39,
+          "ground_truth": 39
+        },
+        "different_from_terra_turns": {
+          "question": [
+            37
+          ],
+          "context": [
+            37
+          ],
+          "ground_truth": [
+            37
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 40,
+          "runtime": {
+            "head": "df93f4973f7dee7149427f1907d2ed338ec83032",
+            "source_sha256": "412a1a72ca82f7803b879b7bdb7c6599eb962983f0294a63719e1e64f24b3e83"
+          },
+          "manifest_sha256": "603d292e76c5c883ab718d38b77c03f60de3c0a31d8ce48a9a67cf8171aa727e",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+        "evaluation_sha256": "6580d8d88f06dd48a6efc6e7ee98191c45b8244792678a276037ca8b8ac0bc60",
+        "budget": {
+          "started": 1790509141.2008865,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "geoscience__phase-ii-widsdatathon2022__task1",
+        "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+        "turns": 40,
+        "correct": 19,
+        "task_accuracy": 0.475,
+        "failed_turns": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          15,
+          16,
+          17,
+          18,
+          20,
+          26,
+          29,
+          30,
+          31,
+          32,
+          37,
+          38,
+          39,
+          40
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 39,
+          "context": 39,
+          "ground_truth": 39
+        },
+        "different_from_terra_turns": {
+          "question": [
+            37
+          ],
+          "context": [
+            37
+          ],
+          "ground_truth": [
+            37
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 40,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "603d292e76c5c883ab718d38b77c03f60de3c0a31d8ce48a9a67cf8171aa727e",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+        "evaluation_sha256": "5ae4a47b52a572e01f6c8dcd476509d46154566e3e71f2a1f4ba311ea7a4f8b3",
+        "budget": {
+          "started": 1790550836.7636337,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "geoscience__phase-ii-widsdatathon2022__task1",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 40,
+        "correct": 34,
+        "task_accuracy": 0.85,
+        "failed_turns": [
+          7,
+          10,
+          11,
+          23,
+          30,
+          37
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 40,
+          "context": 40,
+          "ground_truth": 40
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 40,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "975c66e09a1d9c080575749cb09ef7063d2c1fbd47e20e27548f9f741aa583b4",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+        "evaluation_sha256": "aeb8d90bde8aa9e201125769ebcd06d54ea6fe2ce3f105ba896c98973bf87da2"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "geoscience__phase-ii-widsdatathon2022__task1",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 40,
+        "correct": 16,
+        "task_accuracy": 0.4,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          37,
+          38,
+          39,
+          40
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 40,
+          "context": 40,
+          "ground_truth": 40
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 40,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "975c66e09a1d9c080575749cb09ef7063d2c1fbd47e20e27548f9f741aa583b4",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+        "evaluation_sha256": "be6c3853ddfc12db3262fcaebaef7e9a39dca7f48d5c150e8c59906b9ff20541"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 37,
+        "correct": 0,
+        "task_accuracy": 0,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 33,
+          "context": 36,
+          "ground_truth": 32
+        },
+        "different_from_terra_turns": {
+          "question": [
+            13,
+            24,
+            27,
+            34
+          ],
+          "context": [
+            1
+          ],
+          "ground_truth": [
+            2,
+            13,
+            14,
+            15,
+            24
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 37,
+          "runtime": {
+            "head": "4fbff96b5211a0f7b431eb9242ea462913363a42",
+            "source_sha256": "0cb8eeb438f534999a80c7f120593e5e06833a7f140e6246ad9998ce607b92dd"
+          },
+          "manifest_sha256": "987e7944656a92bb3d08b943b51d076a0c375540c39ee42e968d1add575a4a2f",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/results_eval.json",
+        "evaluation_sha256": "b0cf582123f334a2f4ce7ce5fce18a9ae5e5426452837f64661398f9a14dbbe8",
+        "budget": {
+          "started": 1790469992.2417362,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 37,
+        "correct": 0,
+        "task_accuracy": 0,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 33,
+          "context": 36,
+          "ground_truth": 32
+        },
+        "different_from_terra_turns": {
+          "question": [
+            13,
+            24,
+            27,
+            34
+          ],
+          "context": [
+            1
+          ],
+          "ground_truth": [
+            2,
+            13,
+            14,
+            15,
+            24
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 37,
+          "runtime": {
+            "head": "df93f4973f7dee7149427f1907d2ed338ec83032",
+            "source_sha256": "412a1a72ca82f7803b879b7bdb7c6599eb962983f0294a63719e1e64f24b3e83"
+          },
+          "manifest_sha256": "987e7944656a92bb3d08b943b51d076a0c375540c39ee42e968d1add575a4a2f",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/results_eval.json",
+        "evaluation_sha256": "1338f1d1808b15be68714524d9ac9f1b8333b29bb6521783dc36bd10f32645a8",
+        "budget": {
+          "started": 1790510842.5052931,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "turns": 37,
+        "correct": 9,
+        "task_accuracy": 0.24324324324324326,
+        "failed_turns": [
+          1,
+          9,
+          10,
+          11,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          35,
+          36,
+          37
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 33,
+          "context": 36,
+          "ground_truth": 32
+        },
+        "different_from_terra_turns": {
+          "question": [
+            13,
+            24,
+            27,
+            34
+          ],
+          "context": [
+            1
+          ],
+          "ground_truth": [
+            2,
+            13,
+            14,
+            15,
+            24
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 37,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "987e7944656a92bb3d08b943b51d076a0c375540c39ee42e968d1add575a4a2f",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/results_eval.json",
+        "evaluation_sha256": "608ea32dc95781e65bb8669f70e9ebc0708749d170750855946bd45ca15f8def",
+        "budget": {
+          "started": 1790550836.0396445,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 37,
+        "correct": 24,
+        "task_accuracy": 0.6486486486486487,
+        "failed_turns": [
+          14,
+          16,
+          17,
+          19,
+          20,
+          25,
+          26,
+          28,
+          30,
+          32,
+          33,
+          36,
+          37
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 37,
+          "context": 37,
+          "ground_truth": 37
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 37,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "6e28ee68bdc650919ad70d47f6efd0993dea8a2cf159e7b09f2b908a467d0f90",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/results_eval.json",
+        "evaluation_sha256": "0b41c8e869f31a7d19dfca861ff9bd3e0868b1437e0d96095f1fba70cb5fa68a"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 37,
+        "correct": 19,
+        "task_accuracy": 0.5135135135135135,
+        "failed_turns": [
+          1,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          22,
+          23,
+          25,
+          30,
+          31,
+          32,
+          35,
+          36,
+          37
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 37,
+          "context": 37,
+          "ground_truth": 37
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 37,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "6e28ee68bdc650919ad70d47f6efd0993dea8a2cf159e7b09f2b908a467d0f90",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/results_eval.json",
+        "evaluation_sha256": "63edb01599a96d6bf662c9fbaa892d06c935f07259d0774644caba676b2c18a7"
+      },
+      {
+        "arm": "luna_dsgym",
+        "task": "sports__nfl_big_data_bowl_2023__task1",
+        "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+        "turns": 42,
+        "correct": 12,
+        "task_accuracy": 0.2857142857142857,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          8,
+          11,
+          13,
+          15,
+          16,
+          18,
+          19,
+          20,
+          23,
+          24,
+          25,
+          26,
+          28,
+          29,
+          30,
+          31,
+          32,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 42,
+          "context": 39,
+          "ground_truth": 19
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [
+            1,
+            25,
+            42
+          ],
+          "ground_truth": [
+            3,
+            4,
+            5,
+            7,
+            8,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            21,
+            22,
+            25,
+            29,
+            30,
+            31,
+            32,
+            35,
+            37,
+            39,
+            41
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 42,
+          "runtime": {
+            "head": "4fbff96b5211a0f7b431eb9242ea462913363a42",
+            "source_sha256": "0cb8eeb438f534999a80c7f120593e5e06833a7f140e6246ad9998ce607b92dd"
+          },
+          "manifest_sha256": "f86e87c2ecfb24bec1b80cd83dd2480dd7866b2a346802904d64089086c6f30a",
+          "functions_guidance": false,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+        "evaluation_sha256": "cb2557a83852ca4637512707190a6e4be7850eaf4b360ed22a2e18ee14182cd0",
+        "budget": {
+          "started": 1790471242.197373,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dsgym_shared",
+        "task": "sports__nfl_big_data_bowl_2023__task1",
+        "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+        "turns": 42,
+        "correct": 2,
+        "task_accuracy": 0.047619047619047616,
+        "failed_turns": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 42,
+          "context": 39,
+          "ground_truth": 19
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [
+            1,
+            25,
+            42
+          ],
+          "ground_truth": [
+            3,
+            4,
+            5,
+            7,
+            8,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            21,
+            22,
+            25,
+            29,
+            30,
+            31,
+            32,
+            35,
+            37,
+            39,
+            41
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "arm": "dsgym-shared",
+          "arm_kind": "script",
+          "model": "gpt-5.6-luna",
+          "turns": 42,
+          "runtime": {
+            "head": "cc9dc11c00fcc8e027b76c0fed076f7757f878c5",
+            "source_sha256": "2c13110608afbc6a8ca81182dcbe8341304c589beb33bf08cad84ba58093c08b"
+          },
+          "manifest_sha256": "f86e87c2ecfb24bec1b80cd83dd2480dd7866b2a346802904d64089086c6f30a",
+          "functions_guidance": false,
+          "shared_task_text": true,
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+        "evaluation_sha256": "44169eba1a68374307368be4fc3f33b4d5d24b34937c241e803d1ffbd4128518",
+        "budget": {
+          "started": 1790512190.6084778,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "luna_dataflow",
+        "task": "sports__nfl_big_data_bowl_2023__task1",
+        "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+        "turns": 42,
+        "correct": 2,
+        "task_accuracy": 0.047619047619047616,
+        "failed_turns": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 42,
+          "context": 39,
+          "ground_truth": 19
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [
+            1,
+            25,
+            42
+          ],
+          "ground_truth": [
+            3,
+            4,
+            5,
+            7,
+            8,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            21,
+            22,
+            25,
+            29,
+            30,
+            31,
+            32,
+            35,
+            37,
+            39,
+            41
+          ]
+        },
+        "judge_models": [
+          "gpt-5.2"
+        ],
+        "protocol": {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "arm": "react-lean2",
+          "arm_kind": "dataflow",
+          "model": "gpt-5.6-luna",
+          "turns": 42,
+          "runtime": {
+            "head": "2be719a8f65c3c1e471d9cef72b9f2e126fdedd4",
+            "source_sha256": "a070fe6951773309721eaa0bd1eccc164da939ec9df4fbfef6437beac60c2676"
+          },
+          "manifest_sha256": "f86e87c2ecfb24bec1b80cd83dd2480dd7866b2a346802904d64089086c6f30a",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "execution_isolation": "bubblewrap: raw data read-only; per-workflow scratch; engine runtime/cache only; local engine network retained",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+          "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+        "evaluation_sha256": "1b07cb4e066fa01c187fb6e2205baecc4dd43a66c79abefea93515c4aa15ece6",
+        "budget": {
+          "started": 1790553978.7020597,
+          "seconds": 3600,
+          "policy_note": "Predeclared one-hour session cap; same cap as the historical controls; unreached questions count as failures.",
+          "poll_grace_seconds": 5
+        }
+      },
+      {
+        "arm": "terra_dsgym",
+        "task": "sports__nfl_big_data_bowl_2023__task1",
+        "run": "LongDS_PythonState_20260930_dsgym_terra_t1",
+        "turns": 42,
+        "correct": 4,
+        "task_accuracy": 0.09523809523809523,
+        "failed_turns": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          18,
+          19,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 42,
+          "context": 42,
+          "ground_truth": 42
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "arm": "dsgym",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 42,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "7e1bf69ee855f51c2c23c921016196eb86ff91eb3d62366c254bf191352fd1b1",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": false,
+          "answer_tool_prompt": false,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network",
+          "protocol": "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; sandbox = local persistent kernel (dsgym_executor.py)"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+        "evaluation_sha256": "f5fe84fe4c13de76e293d37500f6261fa9d873d172ef019ae8caf6e95a3c8b41"
+      },
+      {
+        "arm": "terra_smol",
+        "task": "sports__nfl_big_data_bowl_2023__task1",
+        "run": "LongDS_PythonState_20260930_smolagents-custom_terra_t1",
+        "turns": 42,
+        "correct": 26,
+        "task_accuracy": 0.6190476190476191,
+        "failed_turns": [
+          12,
+          24,
+          25,
+          28,
+          29,
+          30,
+          31,
+          32,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "identical_to_terra_turn_counts": {
+          "question": 42,
+          "context": 42,
+          "ground_truth": 42
+        },
+        "different_from_terra_turns": {
+          "question": [],
+          "context": [],
+          "ground_truth": []
+        },
+        "judge_models": [
+          "deepseek/deepseek-v4-pro"
+        ],
+        "protocol": {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "arm": "smolagents-custom",
+          "arm_kind": "script",
+          "model": "gpt-5.6-terra",
+          "turns": 42,
+          "runtime": {
+            "head": "96afcbd16aa8c59df5f9b53db498ecffe7acd4ff",
+            "source_sha256": "dad6ab691b11a7d8ef70a977be0f0f5a33bd7607b81c60a771a45a7a9ce6668f"
+          },
+          "manifest_sha256": "7e1bf69ee855f51c2c23c921016196eb86ff91eb3d62366c254bf191352fd1b1",
+          "functions_guidance": false,
+          "shared_task_text": false,
+          "custom_prompt": true,
+          "answer_tool_prompt": true,
+          "python_execution_timeout_seconds": 600,
+          "prepared_root": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-terra-20260930/prepared",
+          "dataset_version": "v1.1",
+          "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+          "recorded_cost_basis": "Repository Luna accounting rates for all models; not verified provider charges",
+          "judge": "deepseek/deepseek-v4-pro",
+          "execution_isolation": "bubblewrap: raw task data read-only; persistent smolagents LocalPythonExecutor; no network or credentials",
+          "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+        },
+        "evaluation_path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+        "evaluation_sha256": "bb0a53cc08ff222f157080eeee6342ba1b35a492679f67546903a9795c2e82da"
+      }
+    ],
+    "totals": {
+      "luna_dsgym": {
+        "correct": 89,
+        "turns": 271,
+        "task_macro": 0.3548266045548654,
+        "identical_to_terra": {
+          "question": 263,
+          "context": 255,
+          "ground_truth": 236
+        }
+      },
+      "luna_dsgym_shared": {
+        "correct": 85,
+        "turns": 271,
+        "task_macro": 0.3425822667670494,
+        "identical_to_terra": {
+          "question": 263,
+          "context": 255,
+          "ground_truth": 236
+        }
+      },
+      "luna_dataflow": {
+        "correct": 86,
+        "turns": 271,
+        "task_macro": 0.3480357068672286,
+        "identical_to_terra": {
+          "question": 263,
+          "context": 255,
+          "ground_truth": 236
+        }
+      },
+      "terra_dsgym": {
+        "correct": 180,
+        "turns": 271,
+        "task_macro": 0.6787483594548812,
+        "identical_to_terra": {
+          "question": 271,
+          "context": 271,
+          "ground_truth": 271
+        }
+      },
+      "terra_smol": {
+        "correct": 184.0,
+        "turns": 271,
+        "task_macro": 0.6947678798222277,
+        "identical_to_terra": {
+          "question": 271,
+          "context": 271,
+          "ground_truth": 271
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "luna_netflix_execution_claim_and_input_exposure",
+      "finding": "Original Luna DSGym answers turn 1 without attempting Python and says files cannot be accessed. Thirty-five of 36 turns contain no Python call. Turn 23 issues its only three Python calls, lists official files plus pre-existing working_tables, reads those tables, and still cannot recover the current ranking. Those tables were not produced by this conversation and are absent from the pinned official input list. This is not a clean input-controlled model comparison.",
+      "paper_style_example": {
+        "turn": 1,
+        "primary": "Instruction Following Error",
+        "all": [
+          "Instruction Following Error"
+        ],
+        "upstream_turn": null,
+        "confidence": "high for skipped execution and missing answer; the access claim has no observed failed tool call"
+      },
+      "evidence": [
+        {
+          "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "turn": 1,
+          "path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/business__netflix_movies_and_tv_shows__task3/agent/traj.json",
+          "sha256": "4daf0068c2fd6878786f9ea87b6153dc2abce22893542885b8b57a7b0fba720a",
+          "message_indices": [
+            1,
+            2
+          ]
+        },
+        {
+          "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "turn": 23,
+          "path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/business__netflix_movies_and_tv_shows__task3/agent/traj.json",
+          "sha256": "4daf0068c2fd6878786f9ea87b6153dc2abce22893542885b8b57a7b0fba720a",
+          "message_indices": [
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52
+          ]
+        },
+        {
+          "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+          "task": "business__netflix_movies_and_tv_shows__task3",
+          "turn": 36,
+          "path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/business__netflix_movies_and_tv_shows__task3/agent/traj.json",
+          "sha256": "4daf0068c2fd6878786f9ea87b6153dc2abce22893542885b8b57a7b0fba720a",
+          "message_indices": [
+            77,
+            78
+          ]
+        }
+      ],
+      "opportunity": "Ensure new data-derived answers use observed computation; do not describe missing computation as proof that a memory catalog is needed."
+    },
+    {
+      "id": "luna_kiva_output_was_available",
+      "finding": "At turn 1, original Luna DSGym lists six data files and receives their paths and sizes, then claims the required execution output was not returned. The shared-task-text Luna arm declines at turn 1 but loads and processes data at turn 2. Both saved Kiva runs score zero throughout, so a string of failures does not by itself establish a single inherited numerical error.",
+      "evidence": [
+        {
+          "run": "LongDS_Dsgym4_20260926_dsgym_luna_t1",
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "turn": 1,
+          "path": "benchmark/longds/system_scratch/LongDS_Dsgym4_20260926_dsgym_luna_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/traj.json",
+          "sha256": "524c7f8ab155242ca651222940d7afa15826fa6580efefd040b25c1d188de006",
+          "message_indices": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "turn": 1,
+          "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/traj.json",
+          "sha256": "8299c3cd41e114ccb2bb28dc874e9902797bb826359aadf6674f75194357ae8f",
+          "message_indices": [
+            1,
+            2
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+          "turn": 2,
+          "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/traj.json",
+          "sha256": "8299c3cd41e114ccb2bb28dc874e9902797bb826359aadf6674f75194357ae8f",
+          "message_indices": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ]
+        }
+      ],
+      "opportunity": "Separate execution/answer behavior from state selection when building the diagnosis set."
+    },
+    {
+      "id": "luna_wids_pass_with_wrong_historical_set",
+      "finding": "Luna native turn 29 applies 0.375/0.375/0.25 from the old equal-weight state and returns cutoff 0.9907. Luna shared DSGym applies the correct reduced weights 0.45/0.20/0.35 and cutoff 1.1284, but constructs the comparison leaders from equal_score instead of the prior weighted score. Its overlap count happens to equal the reference value 9, and its saved score is 1. Both current Terra Python arms correctly use the updated weights; the earlier native loss shows that retaining a catalog does not guarantee the right component is consumed.",
+      "paper_style_example": {
+        "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+        "turn": 29,
+        "primary": "State Management Error",
+        "all": [
+          "State Management Error"
+        ],
+        "upstream_turn": null,
+        "confidence": "high for wrong prior weight state"
+      },
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "turn": 29,
+          "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t29/react_steps.json",
+          "sha256": "3bce6d4a3c16ad35b2dd573f24da74517b662fc99ace153fbe706c184933f25b",
+          "agent_step_ids": [
+            "step-agent-yl7oft-1-116-1790551528751",
+            "step-agent-yl7oft-1-117-1790551541069",
+            "step-agent-yl7oft-1-118-1790551549875",
+            "step-agent-yl7oft-1-119-1790551555480"
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "turn": 29,
+          "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/traj.json",
+          "sha256": "839016ff27bbeadf5d6eaaca5d0c1b82137187044a8f11a3edce0c64b084c457",
+          "message_indices": [
+            115,
+            116,
+            117,
+            118
+          ]
+        }
+      ],
+      "current_pilot_case": "wids_weights_and_historical_composition_succeed",
+      "opportunity": "Audit actual component references and operations, including in passing answers."
+    },
+    {
+      "id": "luna_correction_reaches_descendants",
+      "finding": "In University task 2 turn 5, both agents identify a bad female/male ratio interpretation. Native changes mahalanobis_all, which recomputes distances and the connected filters, ending with 721 rows. Shared DSGym changes the univariate screening field but consumes the previous squared_mahalanobis_distance, ending with 718 rows. This is an observed local repair advantage, not a controlled causal estimate; the v1 ratio wording is ambiguous.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__world_university_rankings__task2",
+          "turn": 5,
+          "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__world_university_rankings__task2/turns/t05/react_steps.json",
+          "sha256": "f0decc2c439756b6b280ccdc2abd1c03c35c11e02918771ab37ed14977531314",
+          "agent_step_ids": [
+            "step-agent-yl7oft-32-20-1790558257787",
+            "step-agent-yl7oft-32-21-1790558268406",
+            "step-agent-yl7oft-32-22-1790558280971",
+            "step-agent-yl7oft-32-23-1790558287357"
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__world_university_rankings__task2",
+          "turn": 5,
+          "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__world_university_rankings__task2/agent/traj.json",
+          "sha256": "00c8468400501ed01018a1de921c59127cf8267e0ad9d7f207d9553bd8546c2f",
+          "message_indices": [
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28
+          ]
+        }
+      ],
+      "opportunity": "Test dependency-aware repair after giving both arms the same upstream correction."
+    },
+    {
+      "id": "working_state_is_separate_from_answer",
+      "finding": "Luna native BI task 1 turn 10 returns correct outlier-replacement statistics without exporting replaced student rows. Turn 19 correlates an imputed table with unchanged ages. The current Terra smolagents Kiva turn 12 similarly reports exclusions without committing surviving rows, and turn 13 joins the broad social table. Passing answers at the origin conceal missing persistent state.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task1",
+          "turn": 10,
+          "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/turns/t10/react_steps.json",
+          "sha256": "ec86d552bccf4595a3c3abdba8024b30a9964523b19665b78ca6e03e8c4973c4",
+          "agent_step_ids": [
+            "step-agent-yl7oft-33-41-1790558609038",
+            "step-agent-yl7oft-33-42-1790558615957",
+            "step-agent-yl7oft-33-43-1790558619896",
+            "step-agent-yl7oft-33-44-1790558623117"
+          ]
+        },
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task1",
+          "turn": 19,
+          "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/turns/t19/react_steps.json",
+          "sha256": "5465ddc39e39f923349711affe877a4ed9eeccc441d39a28db9d78a8a746330c",
+          "agent_step_ids": [
+            "step-agent-yl7oft-33-74-1790558712274",
+            "step-agent-yl7oft-33-75-1790558714396"
+          ]
+        }
+      ],
+      "current_pilot_case": "kiva_population_update_not_materialized",
+      "opportunity": "Publish the changed working result before producing its report, and carry its result ID forward."
+    },
+    {
+      "id": "exact_historical_values",
+      "finding": "Luna native BI task 2 turn 19 compares saved computed correlations and returns shift 0.0351. Shared DSGym types the earlier four-decimal display values into code, returning 0.0350. Exact historical results have practical value even with a persistent Python kernel.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task2",
+          "turn": 19,
+          "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__bi__task2/turns/t19/react_steps.json",
+          "sha256": "b78d3db622b8bde07234930634f37610253620ba2343b3ce38ea2ee5b42adafe",
+          "agent_step_ids": [
+            "step-agent-7u6hd8-33-68-1790558477854",
+            "step-agent-7u6hd8-33-69-1790558485888",
+            "step-agent-7u6hd8-33-70-1790558488143",
+            "step-agent-7u6hd8-33-71-1790558488163"
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__bi__task2",
+          "turn": 19,
+          "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task2/agent/traj.json",
+          "sha256": "18b99c4362ff38a184833bf217c36b14ac67ca70a8c252f76ea90764d30dcb40",
+          "message_indices": [
+            75,
+            76,
+            77,
+            78
+          ]
+        }
+      ],
+      "opportunity": "Bind calculations to unrounded result IDs and round only answer projections."
+    },
+    {
+      "id": "terra_population_roles_are_explicit_current_instructions",
+      "finding": "Smolagents NFL turn 24 has the correct 33-player candidates and full 86-player table. It fits, applies, and ranks on the candidate copy although the current request says to fit on candidates, apply to all players, rank across each full side, then report candidates. This is a new local instruction/population mistake, not demonstrated forgetting.",
+      "paper_style_example": {
+        "turn": 24,
+        "primary": "Instruction Following Error",
+        "all": [
+          "Instruction Following Error",
+          "Statistical / Domain Reasoning Error"
+        ],
+        "upstream_turn": null,
+        "confidence": "high"
+      },
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 8,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t08/react_steps.json",
+          "sha256": "10d7acec4afddea28348cb960584c23a99d3acbbd9746f10348b9d96a74e3a3e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t13/react_steps.json",
+          "sha256": "033b48169cbfdaa09ae051fc5f3f67f0e524a4e2efc863d2120131e3845fd244"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 18,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t18/react_steps.json",
+          "sha256": "d55b86d785072ba3b1434d1565004da5e7c7767b27fdeab1d3249e4f6f3d0368"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 23,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t23/react_steps.json",
+          "sha256": "03b704eab391f178c88c8baea9db2774f16910511c469537bd8cee9277ccba5b"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t24/react_steps.json",
+          "sha256": "38954fb0cefb5fb4d57312f642a8089d52c1f98079d557bb49ab79099b664d63"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 26,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t26/react_steps.json",
+          "sha256": "18b0cfc1e5476bd8ee40f049c62e1ba46601eda6c4868fc071b16d99f7c24dbf"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 32,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t32/react_steps.json",
+          "sha256": "fc40868ac27298ae5c8eac469a1c9b786c0d8ef4745e4e314253ab197a879c28"
+        }
+      ],
+      "opportunity": "Use separate explicit inputs for fitting population, scoring population, and reporting keys."
+    },
+    {
+      "id": "terra_gas_source_then_cascade",
+      "finding": "Smolagents WiDS creates annual_gas_use from summed qq_dict at turn 1. Turn 2 correctly filters valid gas values and positive connection counts, then aggregates the wrong inherited gas column. Its mean is 43736.0026 instead of 78.0605. The current computation is locally reasonable under the incorrect upstream field.",
+      "paper_style_example": {
+        "turn": 2,
+        "primary": "Cascade Error",
+        "all": [
+          "Cascade Error"
+        ],
+        "upstream_turn": 1,
+        "confidence": "high"
+      },
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 1,
+          "steps": [
+            1,
+            3,
+            4,
+            5,
+            6
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t01/react_steps.json",
+          "sha256": "0aae6bf3537efb465283ebfc0c2ce17a5acadcf9d230bbf30d1cc3c2ebd57673"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 2,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t02/react_steps.json",
+          "sha256": "283263f02693ddebd76c3873734c1a0f20ee3c5097ad37c3a04c941bf67e0ab9"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t13/react_steps.json",
+          "sha256": "5990189173f6b18c67ff94620a733b4fdaa17890aeb42ba083aaaeca0cbda7b5"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 14,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t14/react_steps.json",
+          "sha256": "5f6b56244c12409c09cef9593dbf9bea0643873a3eab438793a1b9417abb8813"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 38,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t38/react_steps.json",
+          "sha256": "eb4eb2577823eaa6cc0c45da12fc3c48ef2dc8984722c32f8d2baf4c349ba021"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 40,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t40/react_steps.json",
+          "sha256": "d046082f1d32f3a5c31fe5e2d1a56c81f8c3cffcf8acb8eb5e2acfb974f1fda7"
+        }
+      ],
+      "opportunity": "Locate the producer of the wrong metric, correct it, and replay intended descendants; lineage alone cannot choose the correct source field."
+    }
+  ],
+  "prior_cases_reused": [
+    {
+      "id": "bi_update",
+      "finding": "A correct answer did not preserve the requested updated data.",
+      "observed": "Native t10 returned an age-outlier summary only; t19 correlated imputed_students with unchanged ages. DSGym t10 updated student_df and t19 reused it.",
+      "interpretation_or_proposal": "Materialize the updated student table and derive the answer summary from it. This is a proposed intervention, not a measured treatment effect.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task1",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/results_eval.json",
+            "sha256": "fd0a18c18010185424f7565da17818c06cb15b52216ba72e7ac4a82e57cb58ae"
+          },
+          "turns": [
+            {
+              "turn": 10,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.00481938,
+                "input_tokens": 90235,
+                "output_tokens": 1697,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/turns/t10/react_steps.json",
+                "sha256": "ec86d552bccf4595a3c3abdba8024b30a9964523b19665b78ca6e03e8c4973c4"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-33-41-1790558609038",
+                "step-agent-yl7oft-33-42-1790558615957",
+                "step-agent-yl7oft-33-43-1790558619896"
+              ]
+            },
+            {
+              "turn": 19,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 1,
+                "cost_usd": 0.0023051,
+                "input_tokens": 28479,
+                "output_tokens": 885,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__bi__task1/turns/t19/react_steps.json",
+                "sha256": "5465ddc39e39f923349711affe877a4ed9eeccc441d39a28db9d78a8a746330c"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-33-74-1790558712274"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__bi__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task1/results_eval.json",
+            "sha256": "83c7f17d6e77bf3292124d7d6df7c1c8c8e473f10308156a4d428ad01ae4ed87"
+          },
+          "turns": [
+            {
+              "turn": 10,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00165294,
+                "input_tokens": 14703,
+                "output_tokens": 936,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                47,
+                48,
+                49,
+                50
+              ]
+            },
+            {
+              "turn": 19,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0020666400000000002,
+                "input_tokens": 30180,
+                "output_tokens": 986,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                83,
+                84,
+                85,
+                86
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task1/agent/traj.json",
+            "sha256": "48a17e30f387ec51576c2ce8c2b866f85ae31111866be4128a5c58b80df797d3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "restaurant_subset",
+      "finding": "The agent chose a five-row answer view instead of the visible ten-row working table.",
+      "observed": "Native t1 created first_pressure_scan with ten rows and first_pressure_leaders with five. At t2 it passed first_pressure_leaders into review_fixed_pressure despite the ten-row request. Both tables and row counts were in task-start context.",
+      "interpretation_or_proposal": "Present the working table beside its answer projection and require the selected population to match the current request.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task3",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/results_eval.json",
+            "sha256": "0d60c2f5e6e90c5f97eafd75148c041ed4929c8a31ea2793682dfef70b25f1b5"
+          },
+          "turns": [
+            {
+              "turn": 1,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.007174649999999999,
+                "input_tokens": 45993,
+                "output_tokens": 1903,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/turns/t01/react_steps.json",
+                "sha256": "19325399ba4a1c76f44a9e5d863b63f27ba36e4cb3a896aa10e16455f8f23547"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-27-3-1790557212716",
+                "step-agent-yl7oft-27-4-1790557228558",
+                "step-agent-yl7oft-27-5-1790557237525"
+              ]
+            },
+            {
+              "turn": 2,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0030791499999999997,
+                "input_tokens": 34755,
+                "output_tokens": 1089,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/turns/t02/react_steps.json",
+                "sha256": "f9705f3f176587b171617df376bfd47f03ca6c2a88cf8de0061aa76faea53f1e"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-27-8-1790557247907",
+                "step-agent-yl7oft-27-9-1790557252897"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task3",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/results_eval.json",
+            "sha256": "8e300d6827a68aa79573020c48c1a39786754b29429f624332b1affe594118e1"
+          },
+          "turns": [
+            {
+              "turn": 2,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.0026592799999999995,
+                "input_tokens": 10010,
+                "output_tokens": 1711,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                11,
+                12,
+                13,
+                14
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task3/agent/traj.json",
+            "sha256": "b89dc52094575d7271c57c4509d30e38ae05b15200833493abd7d6d7d68f4e51"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wids_weights",
+      "finding": "A local weight change used the original weights instead of the latest persistent weights.",
+      "observed": "Native t28 used weights .20/.35/.10/.35. At t29 it used .375/.375/.25 and the t27 social_justice_result; the intended remaining weights were .45/.20/.35. DSGym used those values. Both arms passing t28 does not establish every intermediate state was correct.",
+      "interpretation_or_proposal": "Keep county components and the evolving weight choice separately addressable. A small parameter table is justified by this actual update.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+            "sha256": "5ae4a47b52a572e01f6c8dcd476509d46154566e3e71f2a1f4ba311ea7a4f8b3"
+          },
+          "turns": [
+            {
+              "turn": 27,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.010698319999999999,
+                "input_tokens": 259271,
+                "output_tokens": 2837,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t27/react_steps.json",
+                "sha256": "6054489ae7bec7077d0a1bbd71a8928f10b62109f9cb8c606607f87291e3b0f0"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-1-107-1790551475287",
+                "step-agent-yl7oft-1-108-1790551484357",
+                "step-agent-yl7oft-1-109-1790551490028"
+              ]
+            },
+            {
+              "turn": 28,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.006693279999999999,
+                "input_tokens": 131675,
+                "output_tokens": 1801,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t28/react_steps.json",
+                "sha256": "426f88345a774517961ce0787b6072234b79e84756e1d59010ae56d3fd341180"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-1-112-1790551505783",
+                "step-agent-yl7oft-1-113-1790551515955"
+              ]
+            },
+            {
+              "turn": 29,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.012335579999999999,
+                "input_tokens": 275764,
+                "output_tokens": 3662,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/turns/t29/react_steps.json",
+                "sha256": "3bce6d4a3c16ad35b2dd573f24da74517b662fc99ace153fbe706c184933f25b"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-1-116-1790551528751",
+                "step-agent-yl7oft-1-117-1790551541069",
+                "step-agent-yl7oft-1-118-1790551549875"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "geoscience__phase-ii-widsdatathon2022__task1",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/results_eval.json",
+            "sha256": "6580d8d88f06dd48a6efc6e7ee98191c45b8244792678a276037ca8b8ac0bc60"
+          },
+          "turns": [
+            {
+              "turn": 27,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.01008887,
+                "input_tokens": 333285,
+                "output_tokens": 2211,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                107,
+                108,
+                109,
+                110
+              ]
+            },
+            {
+              "turn": 28,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00919907,
+                "input_tokens": 338513,
+                "output_tokens": 1630,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                111,
+                112,
+                113,
+                114
+              ]
+            },
+            {
+              "turn": 29,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00971789,
+                "input_tokens": 343062,
+                "output_tokens": 1916,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                115,
+                116,
+                117,
+                118
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/traj.json",
+            "sha256": "839016ff27bbeadf5d6eaaca5d0c1b82137187044a8f11a3edce0c64b084c457"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bi_exact_baseline",
+      "finding": "Binding an earlier definition preserved the precision needed for a comparison.",
+      "observed": "Native t19 bound the earlier equal-weight composite and calculated the shift from computed values. DSGym typed four-decimal old coefficients into code; the largest shift became .0350 rather than .0351.",
+      "interpretation_or_proposal": "Keep historical values and existing bind support; low usage alone is not evidence that the capability is useless.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanA_20260927_react-lean2_luna_t1",
+          "task": "education__bi__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__bi__task2/results_eval.json",
+            "sha256": "a7790cd788fdd29a9dfb97e7eb18366da85fb3f9fceef5cc487ae32fe167ca67"
+          },
+          "turns": [
+            {
+              "turn": 19,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.00383255,
+                "input_tokens": 86510,
+                "output_tokens": 840,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 1
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanA_20260927_react-lean2_luna_t1/education__bi__task2/turns/t19/react_steps.json",
+                "sha256": "b78d3db622b8bde07234930634f37610253620ba2343b3ce38ea2ee5b42adafe"
+              },
+              "tool_step_ids": [
+                "step-agent-7u6hd8-33-68-1790558477854",
+                "step-agent-7u6hd8-33-69-1790558485888",
+                "step-agent-7u6hd8-33-70-1790558488143"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__bi__task2",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task2/results_eval.json",
+            "sha256": "a65782409a79f7393e7a55ca5667bf66ff6cb36a851ffb0565f7d2419dbe44a4"
+          },
+          "turns": [
+            {
+              "turn": 19,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 2,
+                "cost_usd": 0.00147723,
+                "input_tokens": 27164,
+                "output_tokens": 607,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                75,
+                76,
+                77,
+                78
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__bi__task2/agent/traj.json",
+            "sha256": "18b99c4362ff38a184833bf217c36b14ac67ca70a8c252f76ea90764d30dcb40"
+          }
+        }
+      ]
+    },
+    {
+      "id": "university_repair",
+      "finding": "A correction included the dependent distance calculation in native, but only the downstream screen in DSGym.",
+      "observed": "Native t5 changed mahalanobis_all from a quotient to the female-side percentage and recomputed distances plus the cleaning chain, yielding 721. DSGym corrected the screening values while retaining squared_mahalanobis_distance, yielding 718. The original ratio wording is ambiguous; this is a mechanism example from v1, not an oracle rule for agents.",
+      "interpretation_or_proposal": "When public evidence contradicts a convention, repair its earliest shared definition and refresh the affected consumers. Detection and correct interpretation remain model responsibilities.",
+      "evidence": [
+        {
+          "run": "LongDS_PlanB_20260927_react-lean2_luna_t1",
+          "task": "education__world_university_rankings__task2",
+          "kind": "native",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__world_university_rankings__task2/results_eval.json",
+            "sha256": "54ab14436a999d445b7edc914956d97dc044d7844498a8f11f654013bc83b556"
+          },
+          "turns": [
+            {
+              "turn": 5,
+              "saved_score": 1,
+              "stats": {
+                "llm_calls": 3,
+                "cost_usd": 0.0062945,
+                "input_tokens": 63441,
+                "output_tokens": 3090,
+                "inspection_calls": 0,
+                "recall_calls": 0,
+                "bind_requests": 0
+              },
+              "trace": {
+                "path": "benchmark/longds/system_scratch/LongDS_PlanB_20260927_react-lean2_luna_t1/education__world_university_rankings__task2/turns/t05/react_steps.json",
+                "sha256": "f0decc2c439756b6b280ccdc2abd1c03c35c11e02918771ab37ed14977531314"
+              },
+              "tool_step_ids": [
+                "step-agent-yl7oft-32-20-1790558257787",
+                "step-agent-yl7oft-32-21-1790558268406",
+                "step-agent-yl7oft-32-22-1790558280971"
+              ]
+            }
+          ]
+        },
+        {
+          "run": "LongDS_DsgymShared_20260927_dsgym-shared_luna_t1",
+          "task": "education__world_university_rankings__task2",
+          "kind": "dsgym",
+          "evaluation": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__world_university_rankings__task2/results_eval.json",
+            "sha256": "266e544c85150acbd6febf5e2cb51541653809aa130a3417e713ae9fc25f507f"
+          },
+          "turns": [
+            {
+              "turn": 5,
+              "saved_score": 0,
+              "stats": {
+                "llm_calls": 4,
+                "cost_usd": 0.00389577,
+                "input_tokens": 31744,
+                "output_tokens": 2265,
+                "inspection_calls": null,
+                "recall_calls": null,
+                "bind_requests": null
+              },
+              "message_indices": [
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28
+              ]
+            }
+          ],
+          "trajectory": {
+            "path": "benchmark/longds/system_scratch/LongDS_DsgymShared_20260927_dsgym-shared_luna_t1/education__world_university_rankings__task2/agent/traj.json",
+            "sha256": "00c8468400501ed01018a1de921c59127cf8267e0ad9d7f207d9553bd8546c2f"
+          }
+        }
+      ]
+    }
+  ],
+  "current_cases_reused": [
+    {
+      "id": "kiva_population_update_not_materialized",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": [
+        7,
+        12,
+        13,
+        16
+      ],
+      "mechanism": "working_population_update_not_consumed",
+      "finding": "Smolagents correctly builds strict social priority at turn 7 and finds the five removed pairs at turn 12, but only saves an all-rows left join with a support flag and the removed top-five answer. At turn 13 it joins poverty evidence to the earlier full social table (411 rows), omitting the new specialized-partner support restriction. DSGym applies the restriction before joining: 21 full-support rows, 17 with MPI, and the four expected risers. Smolagents turn 16 continues from the broad poverty view.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 7,
+          "steps": [
+            3,
+            4,
+            5
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t07/react_steps.json",
+          "sha256": "7e13a712156b87aa4aa344bdc13e10000f688cf1d12600febbbffed955f0367f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 12,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t12/react_steps.json",
+          "sha256": "5b99bb8586760eb66464d2f141d58c38acf262a900be2588247cea613bd62bc4"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            3,
+            4,
+            5
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t13/react_steps.json",
+          "sha256": "9c13d4cc3c0c1f263ad3147082f33814a34f7071031698026238df47f6bb7abb"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 16,
+          "steps": [
+            6,
+            7
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/t16/react_steps.json",
+          "sha256": "cbd664bf5d513e1120ca742006d334309d7df67b6a95b9de617b1648ade8f605"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 13,
+          "messages": [
+            84,
+            85,
+            86
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/social_good__data_science_for_good_kiva_crowdfunding__task1/agent/bak/turn_13_result.json",
+          "sha256": "a7a283a8bb8d82b2bf9bc89eb624c0327eb57328bd0879d2b468296b507aae10"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A correct answer about excluded rows does not establish a new reusable surviving population. Keep explicit population outputs and make later computations consume the current one."
+    },
+    {
+      "id": "wids_weights_and_historical_composition_succeed",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        27,
+        28,
+        29,
+        30,
+        35,
+        36,
+        40
+      ],
+      "mechanism": "successful_updates_and_historical_composition",
+      "finding": "Smolagents retains all404eligiblecounties and component z-scores. At28 it correctly moves from equal weights to race.20/income.35/language.10/education.35. At29 it redistributes race to income.45/language.20 while retaining education.35, producing cutoff1.1284 and correct leader overlaps9and3. At30 it correctly joins equal-weight social with old fixed burden and reduced social with current state-relative burden, standardizes each restricted41-county set independently, and obtains the correct historical top10 and overlap7. At35 pollution weights are correctly .50/.30/.20; at36 dropping carbon monoxide correctly produces .60/.40 and expands eligibility to405counties; at40 allfivefinalcountylabels and scores match the reference. DSGym28and29 also uses the correct weights, denominator and pairwise overlaps; it reconstructs the social and PM tables from Excel on each turn instead of directly consuming the retained tables. DSGym36 correctly expands to405counties and changes weights to.60/.40, obtaining the correct score cutoff.7450 and top-ten overlap6.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t27/react_steps.json",
+          "sha256": "4e93d97f96f261695c543ba27d6d32bcf4ae290715dcb087975731880b0802e8"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 28,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t28/react_steps.json",
+          "sha256": "7e2f4c9c8f05460a711a27703330f202c1f3d5531c902ce96fd757d94428267e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t29/react_steps.json",
+          "sha256": "5fb315f1b155ee407b17e7288521996f81feaaa83ce692f46b868b14b0ec59aa"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 30,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t30/react_steps.json",
+          "sha256": "7abf4b7924d8bca5f9622847c3041559db6a5b05043cd854d90636dc5528457a"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 35,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t35/react_steps.json",
+          "sha256": "2fc73de17d728a8151b566a65c491d47f53011139d24885ae0a22344c005b1e4"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 36,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t36/react_steps.json",
+          "sha256": "eeec0a6d8ca5d833377504b0cd38dc20a7bbeb7ab6bffc01ac32097b32ed483f"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 40,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t40/react_steps.json",
+          "sha256": "d046082f1d32f3a5c31fe5e2d1a56c81f8c3cffcf8acb8eb5e2acfb974f1fda7"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 28,
+          "messages": [
+            192,
+            193,
+            194,
+            195,
+            196
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_28_result.json",
+          "sha256": "da237aa5456e747721bf9a420de1a0ea61d2cd10ea7ce4e58e3ae8e0bc955278"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 29,
+          "messages": [
+            198,
+            199,
+            200,
+            201,
+            202,
+            203,
+            204
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_29_result.json",
+          "sha256": "00ce9883b53470652ff3aca5baab563acefaa293450ae0965e99d223c5b6ab98"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 36,
+          "messages": [
+            258,
+            259,
+            260,
+            261,
+            262
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/agent/bak/turn_36_result.json",
+          "sha256": "2bd9f670a324097725cf4ed8a6c48a16e7484ff91352bc2288a3f2cfb3887f4d"
+        }
+      ],
+      "confidence": "high",
+      "implication": "This Python control succeeds on the precise incremental-weight and historical/current mixtures that motivated earlier catalog work. Judge the intervention against that capability, rather than assuming a graph is required."
+    },
+    {
+      "id": "nfl_fit_rank_and_reporting_populations",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turns": [
+        8,
+        13,
+        18,
+        23,
+        24,
+        26,
+        32
+      ],
+      "mechanism": "different_population_roles_collapsed",
+      "finding": "Smolagents correctly preserves/refines full-table scores at turn 8, restores severity weighting at turn 13, repairs a duplicate snap-coordinate join and gets the expected play-conflict values at turn 18, and materializes the correct 33-player current pool at turn 23. Turn 24 explicitly requires fitting clipping caps on those current candidates, applying them to every player, ranking across every player on each side, then reporting current candidates. The agent fits caps and also applies/ranks only the 33-player candidate copy. The first thought explicitly conflates these populations. The largest gain becomes Jawaan Taylor0.2563 instead of Ryan Ramczyk0.2230, and later current scores start from a wrong percentile scale. This error occurs with the correct wider table still available and the exact population instruction in the current request. At turn 26 it correctly restores only old eligibility but constructs out-of-pool percentiles against the incorrect 33-player ladders because full-table current scores were never materialized. The five player identities are right but their current scores differ (Riley Reiff1.0587 versus1.1063). At turn 32 it selects the requested old severity-pressure component and old team aggregation recipe with current speed, play adjustment, and cohort. The historical composition is correct, while mixed team differences inherit the wrong current speed values.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 8,
+          "steps": [
+            1,
+            2,
+            3
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t08/react_steps.json",
+          "sha256": "10d7acec4afddea28348cb960584c23a99d3acbbd9746f10348b9d96a74e3a3e"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t13/react_steps.json",
+          "sha256": "033b48169cbfdaa09ae051fc5f3f67f0e524a4e2efc863d2120131e3845fd244"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 18,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t18/react_steps.json",
+          "sha256": "d55b86d785072ba3b1434d1565004da5e7c7767b27fdeab1d3249e4f6f3d0368"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 23,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t23/react_steps.json",
+          "sha256": "03b704eab391f178c88c8baea9db2774f16910511c469537bd8cee9277ccba5b"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 24,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t24/react_steps.json",
+          "sha256": "38954fb0cefb5fb4d57312f642a8089d52c1f98079d557bb49ab79099b664d63"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 26,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t26/react_steps.json",
+          "sha256": "18b0cfc1e5476bd8ee40f049c62e1ba46601eda6c4868fc071b16d99f7c24dbf"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 32,
+          "steps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/sports__nfl_big_data_bowl_2023__task1/t32/react_steps.json",
+          "sha256": "fc40868ac27298ae5c8eac469a1c9b786c0d8ef4745e4e314253ab197a879c28"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A single current-population slot is insufficient. Preserve fit population, full scored population, and reporting cohort as separate inputs/results. Catalog visibility alone does not resolve a misread current instruction."
+    },
+    {
+      "id": "wids_wrong_gas_field_cascades",
+      "task": "geoscience__phase-ii-widsdatathon2022__task1",
+      "turns": [
+        1,
+        2,
+        13,
+        14,
+        38,
+        40
+      ],
+      "mechanism": "wrong_source_metric_then_cascade",
+      "finding": "Smolagents initially emits unsupported raw-summary JSON, then recovers through parsing/tool feedback and reads the actual table. It defines annual_gas_use as the sum of qq_dict values rather than consumption. At 2 the retained sample is correct but its mean is43736.0026 instead of78.0605. At13 it correctly updates the city-median connection denominator while retaining this wrong numerator. At14 it correctly restores the original unprotected intensity and the fixed city cohort, again built on the wrong metric. The required versions are retained; the root metric is wrong. At38 the structured sample receives newly fitted city medians and a new OLS fit as requested, but the response still uses the wrong gas field and area with holes; at40 that upstream error reaches the final building panel while the separate county panel is exactly correct.",
+      "evidence": [
+        {
+          "arm": "smolagents-custom",
+          "turn": 1,
+          "steps": [
+            1,
+            3,
+            4,
+            5,
+            6
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t01/react_steps.json",
+          "sha256": "0aae6bf3537efb465283ebfc0c2ce17a5acadcf9d230bbf30d1cc3c2ebd57673"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 2,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t02/react_steps.json",
+          "sha256": "283263f02693ddebd76c3873734c1a0f20ee3c5097ad37c3a04c941bf67e0ab9"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 13,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t13/react_steps.json",
+          "sha256": "5990189173f6b18c67ff94620a733b4fdaa17890aeb42ba083aaaeca0cbda7b5"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 14,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t14/react_steps.json",
+          "sha256": "5f6b56244c12409c09cef9593dbf9bea0643873a3eab438793a1b9417abb8813"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 38,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t38/react_steps.json",
+          "sha256": "eb4eb2577823eaa6cc0c45da12fc3c48ef2dc8984722c32f8d2baf4c349ba021"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 40,
+          "steps": [
+            1
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/geoscience__phase-ii-widsdatathon2022__task1/t40/react_steps.json",
+          "sha256": "d046082f1d32f3a5c31fe5e2d1a56c81f8c3cffcf8acb8eb5e2acfb974f1fda7"
+        }
+      ],
+      "confidence": "high",
+      "implication": "Distinguish wrong input meaning from state loss. A profile and source-description check may help validate the initial metric. Lineage is useful for locating affected downstream results after that metric is corrected."
+    },
+    {
+      "id": "restaurants_lost_voucher_gate_in_local_stress",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": [
+        27,
+        28,
+        29,
+        30
+      ],
+      "mechanism": "reinterpreting_existing_state_during_reconstruction",
+      "finding": "At 27 DSGym correctly materializes voucher_results.positive_after_voucher_pass = positive net commission AND stricter quality, selecting only the two Meatball Shop details. At 29 its stress calculations and stressed rating cutoff are numerically correct, but it replaces that established baseline with baseline_voucher_adjusted_net > 0, dropping the quality condition. It therefore claims two Blue Ribbon stress-only failures even though they already failed the baseline gate; the reference has zero. At 30 it returns to the correct combined gate and stable set. Smolagents makes the same error: at 27 it materializes positive_after_voucher_gate_pass correctly. At 29 step 2 it even carries that flag into combined_stress_review; step 3 ignores it and filters on voucher_adjusted_net_commission > 0. Correct state was available and retrieved. Both therefore invent the same two stress-only failures. Smolagents turn30 returns to the saved joint gate and correctly finds the two stable Meatball recommendations and no sensitive recommendations.",
+      "evidence": [
+        {
+          "arm": "dsgym",
+          "turn": 27,
+          "messages": [
+            190,
+            191,
+            192
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_27_result.json",
+          "sha256": "4b9af49ebda81d602129123889d266b470a7d0a87916dccbb19a7fe3042e1c3b"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 28,
+          "messages": [
+            194,
+            195,
+            196
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_28_result.json",
+          "sha256": "8fcf0df41c90bd2566dc4447a1db52658cc9e71e742fa26226779e6772fec07e"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 29,
+          "messages": [
+            198,
+            200,
+            201,
+            202
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_29_result.json",
+          "sha256": "050398531f4b2933fdefae31c6a73160325422305d6ab037177070f794773ec6"
+        },
+        {
+          "arm": "dsgym",
+          "turn": 30,
+          "messages": [
+            204
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_dsgym_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/agent/bak/turn_30_result.json",
+          "sha256": "586174aed9400be6f991e0045803176ea3264c4c00e659eb0b919ddd3614b8d2"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 27,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t27/react_steps.json",
+          "sha256": "acfef7e2f5591bfa6b0d5f75c99602eab92d59ddad177baa0fa42bed5993e8cf"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 29,
+          "steps": [
+            2,
+            3,
+            4
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t29/react_steps.json",
+          "sha256": "59fbf569fc8e4c92400609430e4fbcf75be38da4b549c8288083fbd1d320a5e8"
+        },
+        {
+          "arm": "smolagents-custom",
+          "turn": 30,
+          "steps": [
+            1,
+            2
+          ],
+          "path": "benchmark/longds/system_scratch/LongDS_PythonState_20260930_smolagents-custom_terra_t1/business__nyc_restaurants_data_food_ordering_and_delivery__task2/t30/react_steps.json",
+          "sha256": "15ad82b62bf7df10f23e1da9aa4f5a99ca5e60ebba9f4a6888d1009195f00461"
+        }
+      ],
+      "confidence": "high",
+      "implication": "A compact catalog alone is insufficient: smolagents already retrieved the correct gate. Test a reuse policy that treats an established eligibility output as the input population, preserving all its predicates. Explicit lineage can make that consumption checkable; prevention remains an untested hypothesis."
+    }
+  ],
+  "caveats": [
+    "Only selected causal chains are manually audited; no complete category-frequency estimate.",
+    "Fifty of 271 turn records differ in question, context, or reference answer across releases. Changed early context can also affect otherwise unchanged later questions.",
+    "Original Luna Netflix reads pre-existing working_tables not produced by its session.",
+    "Historical runs used one-hour session caps; the Terra pilot allowed two hours.",
+    "Saved judgments are unchanged; correctness does not prove the intended state was consumed.",
+    "No new Dataflow Terra arm has been run; comparative gains remain untested."
+  ],
+  "supporting_artifact_sha256": {
+    "logs/longds-classification-review-20260930/cohort-comparison.json": "c6db4ba1c72fdc87db593f9618aefede825f6157b1cc86ddbdf0af077c9e33f0",
+    "logs/longds-classification-review-20260930/upstream-tree.json": "e92f86014c5d6e3a4955e33b4f87071c6c159b571336631cd2ba0a441c563b93",
+    "logs/longds-classification-review-20260930/upstream-provenance.json": "3337297caadebf582387920c7317a590b185eb435585ab6f483c497e218c4114",
+    "logs/longds-classification-review-20260930/upstream-content-search.json": "d34570bdb06316491605a1be67e71de3707a9f747c5c2ff8ad7aad7e99d91fc9",
+    "logs/longds-classification-review-20260930/netflix-pinned-input-list.json": "fff5d1be0ee487ead87419a21a19f74170ae2e97f75c0b665c334a4ddb4c0be6"
+  }
+}
