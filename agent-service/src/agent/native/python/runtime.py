@@ -2151,6 +2151,29 @@ class _ProcessTrace:
         return False
 
 
+def execute_native_from_engine(spec, inputs):
+    """Restore UTC metadata stripped by Texera's timezone-free TIMESTAMP wire type.
+
+    Native producers validate timezone-aware datetimes before transport; Arrow
+    serializes their instants in UTC. Restore that known zone only at this
+    engine boundary, leaving direct runtime and callback validation strict.
+    """
+    import pandas as pd
+
+    restored = []
+    for frame in inputs:
+        if isinstance(frame, pd.DataFrame) and frame.columns.is_unique:
+            naive = [name for name in frame.columns
+                     if pd.api.types.is_datetime64_any_dtype(frame[name].dtype)
+                     and getattr(frame[name].dt, "tz", None) is None]
+            if naive:
+                frame = frame.copy(deep=False)
+                for name in naive:
+                    frame[name] = frame[name].dt.tz_localize("UTC")
+        restored.append(frame)
+    return execute_native(spec, restored)
+
+
 def execute_native(spec, inputs):
     global pd, np
     import pandas as pd

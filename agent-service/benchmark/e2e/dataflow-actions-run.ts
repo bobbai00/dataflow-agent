@@ -346,6 +346,24 @@ async function probes() {
     1
   );
   assert.equal((restored.snapshot.results.total as any).sampleRecords[0].sum_x, 7);
+  const dates = await run(
+    "datetime cast survives transport to a native consumer",
+    [
+      edit(`create operator date_source: process(fn=load_date, doc="One local timestamp")
+    def load_date():
+        import pandas as pd
+        return pd.DataFrame({"when": ["2025-01-01 00:00:00"]})
+create operator utc_dates: cast(when=datetime(tz="America/Los_Angeles"))
+create operator utc_hour: map(lambda row: {"hour": row["when"].hour}, doc="Hour of the converted UTC timestamp")
+create edge date_source.out -> utc_dates.in
+create edge utc_dates.out -> utc_hour.in`),
+      execute,
+      retrieve("utc_hour"),
+    ],
+    ["ok", "ok", "ok"],
+    2
+  );
+  assert.equal((dates.snapshot.results.utc_hour as any).sampleRecords[0].hour, 8);
   const old = await getSnapshot(agentId, initial.snapshot.stepId!, baseUrl);
   assert.deepEqual(old, initial.snapshot, "Later edits changed an earlier snapshot");
   save("probe-trace.json", (await getReActSteps(agentId, baseUrl)).steps);

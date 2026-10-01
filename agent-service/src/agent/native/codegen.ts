@@ -144,7 +144,7 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   // particular callback strings containing true/false/null stay byte-for-byte.
   const code = [
     `def ${source ? "load()" : `process(${parameters.join(", ")})`}:`,
-    `    return ${prefix}_scope["execute_native"](${prefix}_spec, [${argumentsInOrder.join(", ")}])`,
+    `    return ${prefix}_scope["execute_native_from_engine"](${prefix}_spec, [${argumentsInOrder.join(", ")}])`,
     `import json as ${prefix}_json`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_runtime__"}`,
