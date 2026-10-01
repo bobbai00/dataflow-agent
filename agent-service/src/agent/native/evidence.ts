@@ -174,6 +174,10 @@ function columnScope(info: OperatorInfo, c: ProfileColumn): string {
     : `partial prefix=${c.rowsProcessed}/${info.totalRowCount ?? "?"} rows`;
 }
 
+function hasColumnObservations(info: OperatorInfo, c: ProfileColumn): boolean {
+  return c.rowsProcessed > 0 || info.totalRowCount === 0;
+}
+
 function columnCount(info: OperatorInfo, column: string, c: ProfileColumn): NativeColumnCount {
   return {
     column,
@@ -401,7 +405,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     for (const [name, c] of Object.entries(profile.columns).sort(
       ([a], [b]) => position(a) - position(b) || lexical(a, b)
     )) {
-      if (rawPreview) continue;
+      if (rawPreview || !hasColumnObservations(info, c)) continue;
       if (context.columns?.length && !context.columns.includes(name)) continue;
       const priority = relevant.has(name) ? 85 : 80;
       const scope = columnScope(info, c);
@@ -522,7 +526,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         if (context.columns?.length && !context.columns.includes(name)) continue;
         const before = own(input.tableProfile!.columns, name) ? input.tableProfile!.columns[name] : undefined;
         const after = own(profile!.columns, name) ? profile!.columns[name] : undefined;
-        if (before && after)
+        if (before && after && hasColumnObservations(input, before) && hasColumnObservations(info, after))
           add(
             `flow.filter.column.${name}`,
             "flow",
@@ -1058,7 +1062,9 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       ? "Parse raw lines into columns to obtain data statistics."
       : !profile
         ? "Data statistics unavailable for this result."
-        : `Data statistics: ${profile.coverage.complete && profile.coverage.rowsProcessed === total ? "full table" : "partial prefix"}, ${profile.coverage.rowsProcessed}/${total ?? "?"} rows; ${Object.keys(profile.columns).length}/${schema.length} columns profiled.`;
+        : profile.coverage.rowsProcessed === 0 && total !== 0
+          ? "Data statistics unavailable: no rows were profiled."
+          : `Data statistics: ${profile.coverage.complete && profile.coverage.rowsProcessed === total ? "full table" : "partial prefix"}, ${profile.coverage.rowsProcessed}/${total ?? "?"} rows; ${Object.keys(profile.columns).length}/${schema.length} columns profiled.`;
     if (!appendData(status, "view.data_status")) result.omitted.push({ id: "view.data_status", reason: "budget" });
   }
   // Column counts are rendered as rows of one table, so they are budgeted as

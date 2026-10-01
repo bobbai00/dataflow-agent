@@ -213,6 +213,21 @@ test("unavailable statistics are explicit and do not fabricate zero counts", () 
   expect(result.text).not.toContain("null=0");
 });
 
+test("a nonempty table with zero profiled rows has unavailable data statistics", () => {
+  const f = fixture("Scan");
+  f.info.totalRowCount = 8627181;
+  f.info.tableProfile!.status = "partial";
+  f.info.tableProfile!.coverage.complete = false;
+  f.info.tableProfile!.coverage.scope = "partial";
+  f.info.tableProfile!.coverage.rowsProcessed = 0;
+  f.info.tableProfile!.columns = { x: column(0, 0) };
+  const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(result.text).toContain("Data statistics unavailable: no rows were profiled");
+  expect(result.selected.some(id => id.startsWith("data."))).toBe(false);
+  expect(result.text).not.toContain("column counts");
+  expect(result.table?.returnedRows).toBeGreaterThan(0);
+});
+
 test("flow evidence remains available when a full record view fills its budget", () => {
   const f = fixture();
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
@@ -442,6 +457,18 @@ test("partial column profiles do not erase full operator counters or claim full 
   f.info.tableProfile!.columns.x = column(2);
   expect(factText(f)).toContain("kept=3/5");
   expect(factText(f)).toContain("partial prefix=2/3 rows");
+});
+
+test("zero profiled rows omit column comparisons but preserve operator counters", () => {
+  const f = fixture();
+  for (const info of [f.info, f.results.get("left")!]) {
+    info.tableProfile!.coverage.rowsProcessed = 0;
+    info.tableProfile!.coverage.complete = false;
+    info.tableProfile!.columns.x = column(0, 0);
+  }
+  expect(factText(f)).toContain("kept=3/5");
+  expect(factText(f)).not.toContain("Flow measurement: predicate column");
+  expect(collectNativeEvidence(f).facts.some(fact => fact.family === "data")).toBe(false);
 });
 
 test("stale profile, wrong operator revision, failed or missing input cannot earn relational measurements", () => {

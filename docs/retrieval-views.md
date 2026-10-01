@@ -32,6 +32,8 @@ are meaningful; repeated raw lines are not reported as duplicate data records.
 The collector currently bounds profiles by 100,000 rows, 1,000,000 cells, 128
 columns and 0.2 seconds per worker. Large-table profiles can therefore cover a
 prefix. Counts and ranges describe that prefix; they are not population estimates.
+If profiling measured no rows of a nonempty table, its data statistics are
+marked unavailable. Independently measured operator counters remain usable.
 
 The prompt recommends sample statistics for large parsed tables, projections
 to relevant columns, and graph computations before requesting large record
