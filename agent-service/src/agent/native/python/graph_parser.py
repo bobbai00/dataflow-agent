@@ -68,7 +68,10 @@ def parse_graph_changes(source):
                     raise ValueError(f"Line {start}: indent Python functions under their operator.")
                 functions = "\n".join(line[width:] if line.startswith(" " * width) else line for line in implementation)
                 definition = f"{identifier} = {expression}\n{functions}"
-                tree = ast.parse(definition)
+                try:
+                    tree = ast.parse(definition)
+                except SyntaxError as error:
+                    raise ValueError(f"Line {start + (error.lineno or 1) - 1}: {error.msg}") from error
                 if not isinstance(tree.body[0], ast.Assign) or any(not isinstance(node, ast.FunctionDef) for node in tree.body[1:]):
                     raise ValueError(f"Line {start}: one operator expression, followed only by its indented function definitions.")
                 parsed = parse_program(definition)

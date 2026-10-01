@@ -67,6 +67,14 @@ test("create and modify are distinct and invalid edits are atomic", async () => 
   }
 });
 
+test("expression syntax errors name the command's line in the edit", async () => {
+  const state = new WorkflowState();
+  await expect(
+    edit(state, 'create operator source: scan("data.csv")\ncreate operator typed: cast(Age (years)=float64)')
+  ).rejects.toThrow("Line 2:");
+  expect(state.getAllOperators()).toEqual([]);
+});
+
 test("modify preserves incoming and outgoing connections and invalidates descendants", async () => {
   const state = new WorkflowState();
   await edit(state, chain);
