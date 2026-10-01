@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-/** Replay bounded large-table snapshots to check renderer invariants.
- * No engine/model calls. Historical snapshots omit the transport truncation
- * flag, so only replay tables whose retained records are provably incomplete.
+/** Replay snapshots to check renderer invariants without engine/model calls.
+ * When historical snapshots omit the transport truncation flag, replay only
+ * tables whose retained records are provably incomplete.
  * Usage: bun benchmark/retrieval/replay.ts <pilot-directory>
  */
 import { readFileSync, writeFileSync } from "node:fs";
@@ -29,6 +29,8 @@ const directory = resolve(Bun.argv[2]);
 const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 let replayed = 0;
 let partialProfiles = 0;
+let recordedCompleteness = 0;
+let inferredIncomplete = 0;
 const failures: Array<{ path: string; operator: string; error: string }> = [];
 for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
   cwd: directory,
@@ -43,7 +45,12 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
       {
         ...raw,
         result: raw.sampleRecords,
-        truncated: true,
+        truncated:
+          typeof raw.truncated === "boolean"
+            ? raw.truncated
+            : raw.totalRowCount > raw.sampleRecords?.length
+              ? true
+              : undefined,
         resultMode: "table",
       },
     ]),
@@ -54,12 +61,17 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
       !info?.resultVersion?.complete ||
       info.error ||
       !op.nativeOp ||
-      !info.result?.length ||
-      (info.totalRowCount ?? 0) <= info.result.length ||
+      !Array.isArray(info.result) ||
+      info.truncated === undefined ||
       info.resultVersion.operatorRevision !== op.nativeOp.revision
     )
       continue;
     replayed++;
+    if (typeof snapshot.results[op.operatorID].truncated === "boolean") {
+      recordedCompleteness++;
+    } else {
+      inferredIncomplete++;
+    }
     partialProfiles += Number(info.tableProfile?.status === "partial");
     try {
       const context = {
@@ -96,7 +108,19 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
       assert.deepEqual(records(stats), records(both));
       assert.deepEqual(sample.table, stats.table);
       assert.equal(sample.resultVersion, stats.resultVersion);
-      assert.equal(stats.table?.complete, false);
+      const full = selectNativeObservation({
+        ...context,
+        maxChars: settings.fullResultCharLimit,
+        maxRows: 0,
+        view: "full",
+        data: false,
+        flow: false,
+      });
+      assert.equal(full.resultVersion, stats.resultVersion);
+      if (info.truncated) {
+        assert.equal(stats.table?.complete, false);
+        assert.equal(full.table?.complete, false);
+      }
       assert.ok(
         stats.text.length <= context.maxChars + context.dataMaxChars + 2,
       );
@@ -120,9 +144,11 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
 const result = {
   replayed,
   partialProfiles,
+  recordedCompleteness,
+  inferredIncomplete,
   failures,
   scope:
-    "Provably incomplete retained tables; archived completeness flags were unavailable. Rendering only, no new executions or model calls.",
+    "Tables with recorded completeness flags, plus provably incomplete historical tables. Rendering only, no new executions or model calls.",
 };
 writeFileSync(
   resolve(directory, "renderer-replay.json"),
