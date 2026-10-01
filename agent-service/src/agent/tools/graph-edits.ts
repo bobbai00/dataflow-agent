@@ -180,6 +180,10 @@ export async function planGraphEdit(
         if (operation === "create_operator" && existing)
           throw new Error(`Operator ${id} already exists; use update operator.`);
         if (operation === "update_operator") required(id);
+        if (original.operators.find(op => op.operatorID === id)?.taskImport)
+          throw new Error(
+            `Imported operator ${id} is immutable. Add a downstream operator or import another saved result.`
+          );
         const view = definition(command, existing?.profileCollection ?? context.settings?.nativeProfileCollection);
         nodes.set(id, view);
         changed.add(id);
@@ -252,23 +256,25 @@ export async function planGraphEdit(
       view.inputs = ports(view).map(
         port => [...edges.values()].find(e => e.target === id && e.targetPort === port)?.source ?? ""
       );
-      view.revision = nativeRevision(view);
+      if (!original.operators.find(op => op.operatorID === id)?.taskImport) view.revision = nativeRevision(view);
     }
     // Missing inputs are permitted in an editable draft, never in execution.
     // Placeholders validate local parameter/Python contracts without pretending
     // that an unconnected node has a materialized upstream table.
     const validationViews = new Map(
-      [...nodes].map(([id, view]) => [
-        id,
-        {
-          ...view,
-          inputs: view.inputs.map((up, i) => up || `_unconnected_${i}`),
-        },
-      ])
+      [...nodes]
+        .filter(([id]) => !original.operators.find(op => op.operatorID === id)?.taskImport)
+        .map(([id, view]) => [
+          id,
+          {
+            ...view,
+            inputs: view.inputs.map((up, i) => up || `_unconnected_${i}`),
+          },
+        ])
     );
     const validation = await validateNativeOperators([...validationViews].map(([id, view]) => ({ id, view })));
     const failure = validation.findIndex(d => d !== undefined);
-    if (failure >= 0) throw new Error(`${[...nodes.keys()][failure]}: ${validation[failure]!.message}`);
+    if (failure >= 0) throw new Error(`${[...validationViews.keys()][failure]}: ${validation[failure]!.message}`);
     const draft = new WorkflowState();
     draft.setWorkflowContent(original);
     for (const old of draft.getAllOperators()) if (!nodes.has(old.operatorID)) draft.deleteOperator(old.operatorID);
@@ -276,6 +282,7 @@ export async function planGraphEdit(
     const util = new WorkflowUtilService(context.metadataStore, draft);
     for (const id of ordered) {
       const view = nodes.get(id)!;
+      if (draft.getOperator(id)?.taskImport) continue;
       if (context.settings?.nativeChecks) {
         view.lineage = nativeLineage(draft, view);
         validationViews.get(id)!.lineage = view.lineage;

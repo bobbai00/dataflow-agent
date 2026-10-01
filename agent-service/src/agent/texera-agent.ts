@@ -125,6 +125,8 @@ import {
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import { createDataflowTool, asDataflowActionsResult } from "./tools/dataflow-actions";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
+import { TaskDataflows } from "./task-dataflows";
+import { retainTaskResult } from "../api/task-results-api";
 import { planGraphEdit } from "./tools/graph-edits";
 import {
   executeWorkflowAndPersist,
@@ -294,7 +296,7 @@ export function computeOperatorAccess(
 }
 
 /** Retries of a turn whose driver run failed transiently (a timed-out or dropped model request). */
-const MODEL_RETRIES_PER_TURN = 2;
+const MODEL_RETRIES_PER_TURN = Number(process.env.MODEL_RETRIES_PER_TURN ?? 2);
 /** Backoff before retry n is n times this many milliseconds. */
 const MODEL_RETRY_BACKOFF_MS = () => Number(process.env.MODEL_RETRY_BACKOFF_MS ?? 3000);
 
@@ -360,6 +362,24 @@ export class TexeraAgent {
 
   private abortController: AbortController | null = null;
   private nativeActionAnswer: string | undefined;
+  private readonly taskDataflows = new TaskDataflows(async (operator, info) => {
+    if (!this.delegateConfig || !info.materialization?.executionId)
+      throw new Error("Complete task outputs require an authenticated execution backend");
+    return retainTaskResult(
+      this.delegateConfig.userToken,
+      this.delegateConfig.workflowId,
+      this.delegateConfig.computingUnitId ?? 0,
+      operator,
+      info.materialization.executionId
+    );
+  });
+
+  getTaskDataflows() {
+    return this.taskDataflows.all();
+  }
+  getCurrentMessageId() {
+    return this.currentMessageId;
+  }
 
   private workflowChangeSubscription: Subscription | null = null;
 
@@ -582,6 +602,8 @@ export class TexeraAgent {
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
         checks: this.settings.nativeChecks === true,
+        taskDataflows: this.settings.taskDataflows,
+        statePolicy: this.settings.statePolicy,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -673,7 +695,7 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool();
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(this.settings.taskDataflows);
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1275,6 +1297,10 @@ export class TexeraAgent {
   }
 
   checkout(stepId: string): boolean {
+    if (this.settings.taskDataflows)
+      throw new Error(
+        "Task Dataflow sessions are append-only; import saved outputs into a new task instead of checking out a ReAct step."
+      );
     const step = this.stepsById.get(stepId);
     if (!step) return false;
     this.head = stepId;
@@ -1388,6 +1414,8 @@ export class TexeraAgent {
     flowEvidence?: boolean;
     dataflowReasoning?: boolean;
     nativeChecks?: boolean;
+    taskDataflows?: boolean;
+    statePolicy?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1439,6 +1467,36 @@ export class TexeraAgent {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
+    const effective = {
+      ...this.settings,
+      ...Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined)),
+    } as AgentSettings;
+    if (
+      ((updates.taskDataflows !== undefined && updates.taskDataflows !== this.settings.taskDataflows) ||
+        (updates.statePolicy !== undefined && updates.statePolicy !== this.settings.statePolicy)) &&
+      this.getAllSteps().some(step => step.role === "user")
+    )
+      throw new Error("Task memory and state policy must be selected before the first user task");
+    if (
+      effective.taskDataflows &&
+      (effective.agentMode !== AgentMode.NATIVE ||
+        effective.contextMode !== ContextMode.DELTA ||
+        effective.versionedMode ||
+        effective.sessionTurns ||
+        effective.enableRecallTool ||
+        effective.enableResumeTool ||
+        effective.enableAnswerGrounding ||
+        effective.seedSources ||
+        effective.staticCompaction ||
+        effective.enableCompactTool ||
+        effective.turnHistory === "index" ||
+        effective.tunerConfig ||
+        effective.summarizeParams ||
+        effective.selectorConfig)
+    )
+      throw new Error(
+        "Task Dataflows require native DELTA context without other history, grounding, or compaction policies"
+      );
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     if (
       collection !== (this.settings.nativeProfileCollection ?? false) &&
@@ -1449,6 +1507,12 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
+    for (const key of ["taskDataflows", "statePolicy"] as const) {
+      if (updates[key] !== undefined && updates[key] !== this.settings[key]) {
+        this.settings[key] = updates[key]!;
+        promptNeedsRebuild = true;
+      }
+    }
     this.settings.nativeProfileCollection = collection;
     // The native prompt documents exactly the evidence kinds that are on.
     if (updates.dataEvidence !== undefined && updates.dataEvidence !== this.settings.dataEvidence) {
@@ -1833,6 +1897,11 @@ export class TexeraAgent {
 
     await this.refreshWorkflowFromBackend();
 
+    if (this.settings.taskDataflows) {
+      this.taskDataflows.begin(userMessage);
+      this.workflowState.setWorkflowContent(createEmptyWorkflowContent());
+    }
+
     this.nativeValidationRepair.clear();
 
     this.abortController = new AbortController();
@@ -1863,6 +1932,8 @@ export class TexeraAgent {
       };
       this.addStep(userStep);
       this.head = userStepId;
+      if (this.settings.taskDataflows)
+        this.snapshotStorage.createSnapshot(userStepId, this.workflowState.getWorkflowContent());
       // User steps carry no tool calls and therefore own no snapshot — the
       // workflow visible here resolves to the nearest action-bearing
       // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
@@ -1913,15 +1984,7 @@ export class TexeraAgent {
             const visibleSteps = this.getVisibleReActSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
             // prepareStep path; cache the rendered content for the sync preview.
-            const processed = await this.contextAssembler({
-              visibleSteps,
-              workflowState: this.workflowState,
-              snapshotStorage: this.snapshotStorage,
-              settings: this.settings,
-              compilationResult,
-              turnNumberByMessageId: this.turnNumberMap(),
-              offBranchTurns: this.offBranchTurns(visibleSteps),
-            });
+            const processed = await this.assembleActiveContext(visibleSteps, compilationResult);
             lastPreparedMessages = processed;
             this.lastRenderedContext = processed
               .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
@@ -2156,6 +2219,7 @@ export class TexeraAgent {
         error: error.message || String(error),
       };
     } finally {
+      if (this.settings.taskDataflows) this.taskDataflows.finishIncomplete();
       // The turn is over however it ended (answered, aborted, error): seal its
       // versions. A later turn referencing `X (turn N)` must get one fixed
       // definition, so the boundary — not the outcome — is what freezes it.
@@ -2179,21 +2243,38 @@ export class TexeraAgent {
    */
   getNextStepContext(): string {
     const visibleSteps = this.getVisibleReActSteps();
-    const processed = this.contextAssembler({
-      visibleSteps,
-      workflowState: this.workflowState,
-      snapshotStorage: this.snapshotStorage,
-      settings: this.settings,
-      compilationResult: null,
-      turnNumberByMessageId: this.turnNumberMap(),
-      offBranchTurns: this.offBranchTurns(visibleSteps),
-    });
-    // An async assembler (LLM tuner) can't be awaited in this sync preview —
-    // return the content last rendered on the prepareStep path.
+    const processed = this.assembleActiveContext(visibleSteps, null);
+    // An async assembler (LLM tuner) can't be awaited in this sync preview.
     if (processed instanceof Promise) return this.lastRenderedContext ?? "";
     return processed
       .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
       .join("\n\n");
+  }
+
+  private assembleActiveContext(visibleSteps: ReActStep[], compilationResult: WorkflowCompilationResponse | null) {
+    const tasks = this.settings.taskDataflows;
+    if (tasks && this.taskDataflows.currentId === undefined) return this.taskDataflows.historyMessages();
+    const current = tasks
+      ? visibleSteps
+          .filter(step => step.messageId === this.currentMessageId)
+          .map(step =>
+            step.role === "user" && step.isBegin
+              ? { ...step, content: `[Task ${this.taskDataflows.currentId}]\n${step.content}` }
+              : step
+          )
+      : visibleSteps;
+    const processed = this.contextAssembler({
+      visibleSteps: current,
+      workflowState: this.workflowState,
+      snapshotStorage: this.snapshotStorage,
+      settings: this.settings,
+      compilationResult,
+      turnNumberByMessageId: this.turnNumberMap(),
+      offBranchTurns: this.offBranchTurns(visibleSteps),
+    });
+    const prepend = (messages: ModelMessage[]) =>
+      tasks ? [...this.taskDataflows.historyMessages(), ...messages] : messages;
+    return processed instanceof Promise ? processed.then(prepend) : prepend(processed);
   }
 
   stop(): void {
@@ -2204,6 +2285,7 @@ export class TexeraAgent {
   }
 
   clearHistory(): void {
+    this.taskDataflows.clear();
     this.nativeValidationRepair.clear();
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
@@ -2252,6 +2334,8 @@ export class TexeraAgent {
     steps: ReActStep[],
     snapshots?: Record<string, WorkflowContent>
   ): Promise<{ headId: string; importedCount: number }> {
+    if (this.settings.taskDataflows)
+      throw new Error("Trace replay alone cannot restore retained task outputs. Start a fresh task session.");
     if (!Array.isArray(steps) || steps.length === 0) {
       throw new Error("import requires a non-empty steps array");
     }
@@ -2675,6 +2759,7 @@ export class TexeraAgent {
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
+          tasks: this.settings.taskDataflows ? this.taskDataflows : undefined,
         });
         if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
       }

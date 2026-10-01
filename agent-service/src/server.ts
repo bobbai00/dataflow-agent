@@ -35,6 +35,7 @@ import { env } from "./config/env";
 import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
+import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
@@ -550,7 +551,14 @@ async function createAgentInstance(
     apiKey: delegateConfig.userToken,
     // Every model request has a deadline; a request that never answers is
     // abandoned and the turn retries it (TexeraAgent.sendMessage).
-    fetch: withRequestTimeout(),
+    fetch: withRequestTimeout(
+      withModelWireTrace(process.env.TEXERA_LLM_TRACE_DIR, () => ({
+        agentId,
+        workflowId: delegateConfig.workflowId,
+        headId: agent.getHead(),
+        messageId: agent.getCurrentMessageId(),
+      }))
+    ),
   });
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml
@@ -558,7 +566,15 @@ async function createAgentInstance(
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
   const driver: LLMDriver =
-    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+    driverKind === "local-react"
+      ? new LocalReactTextDriver({ model })
+      : new VercelToolUseDriver({
+          model,
+          maxOutputTokens: process.env.TEXERA_LLM_MAX_OUTPUT_TOKENS
+            ? Number(process.env.TEXERA_LLM_MAX_OUTPUT_TOKENS)
+            : undefined,
+          maxRetries: process.env.TEXERA_LLM_MAX_RETRIES ? Number(process.env.TEXERA_LLM_MAX_RETRIES) : undefined,
+        });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -605,6 +621,8 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     flowEvidence: agentSettings.flowEvidence,
     dataflowReasoning: agentSettings.dataflowReasoning,
     nativeChecks: agentSettings.nativeChecks,
+    taskDataflows: agentSettings.taskDataflows,
+    statePolicy: agentSettings.statePolicy,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     messageLayout: agentSettings.messageLayout,
@@ -849,6 +867,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
             nativeChecks: settings.nativeChecks,
+            taskDataflows: settings.taskDataflows,
+            statePolicy: settings.statePolicy,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
             parallelToolCalls: settings.parallelToolCalls,
@@ -936,6 +956,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
+            taskDataflows: t.Optional(t.Boolean()),
+            statePolicy: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -1090,6 +1112,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
    * now." Convenient endpoint for batch drivers that just want the final
    * workflow after a turn without paginating through snapshots.
    */
+  .get("/:id/task-dataflows", ({ params: { id } }) => ({ tasks: getAgent(id).getTaskDataflows() }))
+
   .get("/:id/workflow", ({ params: { id } }) => {
     const agent = getAgent(id);
     return {
@@ -1313,6 +1337,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: settings.flowEvidence,
         dataflowReasoning: settings.dataflowReasoning,
         nativeChecks: settings.nativeChecks,
+        taskDataflows: settings.taskDataflows,
+        statePolicy: settings.statePolicy,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1371,6 +1397,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
+        taskDataflows: t.Optional(t.Boolean()),
+        statePolicy: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),

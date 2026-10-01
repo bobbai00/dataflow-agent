@@ -40,15 +40,19 @@ export interface VercelToolUseDriverOptions {
   /** Sampling temperature. Defaults to 0.2, matching the pre-refactor
    *  hardcoded value in TexeraAgent.sendMessage. */
   temperature?: number;
+  maxOutputTokens?: number;
+  maxRetries?: number;
 }
 
 export class VercelToolUseDriver implements LLMDriver {
   private readonly model: LanguageModel;
   private readonly temperature: number;
+  private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
+    this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
@@ -58,6 +62,7 @@ export class VercelToolUseDriver implements LLMDriver {
     const updatedToolOutputs = new Map<string, unknown>();
     const result = await generateText({
       model: this.model,
+      ...this.requestLimits,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,

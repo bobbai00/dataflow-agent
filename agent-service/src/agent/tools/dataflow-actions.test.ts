@@ -32,6 +32,87 @@ import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 const edit = { type: "edit", changes: 'create operator source: scan("data/orders.csv")' };
 
 describe("ordered dataflow actions", () => {
+  test("task mode can be selected after initialization and is fixed after the first user request", async () => {
+    const s = session([]);
+    await s.agent.initialize();
+    expect(() =>
+      s.agent.updateSettings({ taskDataflows: true, agentMode: undefined, contextMode: undefined })
+    ).not.toThrow();
+    await s.agent.sendMessage("First request");
+    expect(() => s.agent.updateSettings({ taskDataflows: false })).toThrow("before the first user task");
+  });
+  test("task actions are opt-in and task Answer requires explicit exports and default changes", () => {
+    const inspect = {
+      reasoning: "Find the saved population.",
+      actions: [{ type: "inspect", target: "task", task_id: 1, detail: "outputs" }],
+    };
+    expect(prepareDataflowActions(inspect).status).toBe("error");
+    expect(prepareDataflowActions(inspect, true).status).toBe("pending");
+    expect(
+      prepareDataflowActions({ reasoning: "Done", actions: [{ type: "answer", content: "42" }] }, true).status
+    ).toBe("error");
+    expect(
+      prepareDataflowActions(
+        {
+          reasoning: "Done",
+          actions: [{ type: "answer", content: "42", exports: [], answer_sources: [], defaults: [] }],
+        },
+        true
+      ).status
+    ).toBe("pending");
+  });
+  test("task boundaries start empty and retain only past questions and answers in model context", async () => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const requests: any[][] = [];
+    let turn = 0;
+    const agent = new TexeraAgent({
+      agentId: "task-boundary",
+      modelType: "test",
+      contextAssembler: ({ visibleSteps, workflowState, snapshotStorage }) =>
+        assembleContext(visibleSteps, workflowState, snapshotStorage, ContextMode.DELTA, {
+          agentMode: AgentMode.NATIVE,
+          messageLayout: "native",
+        }),
+      driver: {
+        async runTurn(input) {
+          turn++;
+          const batches: DataflowAction[][] =
+            turn === 1
+              ? [
+                  [{ type: "edit", changes: 'create operator secret_probe: scan("internal.csv")' }],
+                  [{ type: "answer", content: "First answer", exports: [], answer_sources: [], defaults: [] }],
+                ]
+              : [[{ type: "answer", content: "Second answer", exports: [], answer_sources: [], defaults: [] }]];
+          for (const [i, actions] of batches.entries()) {
+            const prepared = await input.prepareStep({ stepNumber: i, messages: [] });
+            requests.push(prepared.messages!);
+            const args = { reasoning: "Continue", actions };
+            const output = await input.tools.dataflow.execute(args);
+            await input.onStepFinish({
+              text: "",
+              toolCalls: [{ toolName: "dataflow", toolCallId: `task-${turn}-${i}`, input: args }],
+              toolResults: [{ toolCallId: `task-${turn}-${i}`, output }],
+            });
+            expect(output.status).toBe("completed");
+          }
+          return { text: input.getFinalAnswer?.() ?? "", messages: [], usage: {} };
+        },
+      },
+    });
+    agent.updateSettings({ taskDataflows: true, statePolicy: true });
+    expect((await agent.sendMessage("First request")).response).toBe("First answer");
+    expect((await agent.sendMessage("Second request")).response).toBe("Second answer");
+    expect(agent.getWorkflowState().getAllOperators()).toEqual([]);
+    expect(requests[1].slice(0, requests[0].length)).toEqual(requests[0]);
+    const second = JSON.stringify(requests.at(-1));
+    expect(second).toContain("First request");
+    expect(second).toContain("First answer");
+    expect(second).toContain("Second request");
+    expect(second).toContain("Task 2");
+    expect(second).not.toContain("internal.csv");
+    expect(second).not.toContain("secret_probe");
+    expect(agent.getTaskDataflows().map(r => r.status)).toEqual(["completed", "completed"]);
+  });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);

@@ -48,7 +48,15 @@ export interface PortDescription {
   readonly dependencies?: { id: number; internal: boolean }[];
 }
 
+export interface TaskResultReference {
+  task_id: number;
+  export_name: string;
+  result_version: string;
+}
+
 export interface OperatorPredicate {
+  /** Immutable full output imported from an earlier task. */
+  readonly taskImport?: TaskResultReference;
   readonly operatorID: string;
   readonly operatorType: string;
   readonly operatorVersion: string;

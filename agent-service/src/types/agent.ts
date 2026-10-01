@@ -277,6 +277,10 @@ export interface AgentSettings {
    *  records repeated across sources, join fan-out, row effects inside a
    *  process function). Off by default. */
   nativeChecks: boolean;
+  /** Fresh task graphs with on-demand historical outputs. Opt-in research arm. */
+  taskDataflows: boolean;
+  /** Short state-management policy shared by prompt and task-memory arms. */
+  statePolicy: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -525,6 +529,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   flowEvidence: false,
   dataflowReasoning: true,
   nativeChecks: false,
+  taskDataflows: false,
+  statePolicy: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
@@ -642,6 +648,8 @@ export interface AgentSettingsApi {
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
+  taskDataflows?: boolean;
+  statePolicy?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -743,6 +751,8 @@ export interface UpdateAgentSettingsRequest {
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
+  taskDataflows?: boolean;
+  statePolicy?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */

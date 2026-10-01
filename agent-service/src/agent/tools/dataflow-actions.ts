@@ -20,14 +20,19 @@
 import Ajv from "ajv";
 import { jsonSchema, tool } from "ai";
 import type { NativeBatchOutcome } from "./native-batch-tools";
+import type { TaskAnswer, TaskDetail } from "../task-dataflows";
 
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
+  | { type: "inspect"; target: "tasks"; query: string }
+  | { type: "inspect"; target: "task"; task_id: number; detail: TaskDetail }
+  | { type: "inspect"; target: "defaults" }
+  | { type: "reuse_result"; task_id: number; export_name: string; operator_id: string }
   | { type: "edit"; changes: string }
   | { type: "execute" }
   | { type: "retrieve"; operator_id: string }
-  | { type: "answer"; content: string };
+  | ({ type: "answer"; content: string } & Partial<Omit<TaskAnswer, "content">>);
 
 export interface DataflowActionsInput {
   reasoning: string;
@@ -124,13 +129,65 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
 });
 
 const ajv = new Ajv({ allErrors: true });
-const validate = ajv.compile<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA);
-const actionValidators = DATAFLOW_ACTIONS_SCHEMA.properties.actions.items.anyOf.map(schema => ({
-  schema,
-  validate: ajv.compile(schema),
+const taskId = { type: "integer", minimum: 1 };
+const TASK_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
+const taskVariants = TASK_ACTIONS_SCHEMA.properties.actions.items.anyOf;
+taskVariants.splice(
+  taskVariants.findIndex(s => s.properties.type.const === "answer"),
+  1,
+  action(
+    "answer",
+    "Retain declared complete outputs, capture their producing graph and end the task. Alone in its call. Use empty arrays when nothing needs saving or changing.",
+    {
+      content: text,
+      exports: { type: "array", items: object({ name: text, operator_id: text }) },
+      answer_sources: {
+        type: "array",
+        items: text,
+        description: "Current operators whose results support this answer.",
+      },
+      defaults: {
+        type: "array",
+        items: object({ name: text, export_name: text }),
+        description:
+          "Explicit ongoing default changes. Reference an export declared in this answer. Leave empty for a temporary comparison.",
+      },
+    }
+  )
+);
+taskVariants.push(
+  action("inspect", "Search earlier task requests and answers. Empty query lists all earlier tasks.", {
+    target: { type: "string", const: "tasks" },
+    query: { type: "string" },
+  }),
+  action(
+    "inspect",
+    "Read a saved task's outputs, producing graph, exact definitions or actual dependencies. Does not execute or change defaults.",
+    {
+      target: { type: "string", const: "task" },
+      task_id: taskId,
+      detail: { type: "string", enum: ["summary", "outputs", "graph", "implementations", "dependencies"] },
+    }
+  ),
+  action("inspect", "Read explicit ongoing default bindings to exact task outputs.", {
+    target: { type: "string", const: "defaults" },
+  }),
+  action(
+    "reuse_result",
+    "Import a full saved output under an unused local operator ID. The imported source is immutable. Execute loads it for this graph without rerunning its producer; connect downstream operators with edit.",
+    { task_id: taskId, export_name: text, operator_id: text }
+  )
+);
+export function dataflowActionsSchema(taskDataflows = false) {
+  return taskDataflows ? TASK_ACTIONS_SCHEMA : DATAFLOW_ACTIONS_SCHEMA;
+}
+const validators = [DATAFLOW_ACTIONS_SCHEMA, TASK_ACTIONS_SCHEMA].map(schema => ({
+  validate: ajv.compile<DataflowActionsInput>(schema),
+  actions: schema.properties.actions.items.anyOf.map(schema => ({ schema, validate: ajv.compile(schema) })),
 }));
 
-function validationMessage(input: any): string {
+function validationMessage(input: any, taskDataflows: boolean): string {
+  const { validate, actions: actionValidators } = validators[taskDataflows ? 1 : 0];
   if (Array.isArray(input?.actions)) {
     for (const [index, item] of input.actions.entries()) {
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
@@ -145,7 +202,7 @@ function validationMessage(input: any): string {
       const selected = candidates.find(
         v => !("target" in v.schema.properties) || (v.schema.properties as any).target.const === item?.target
       );
-      if (!selected) return `Action ${index + 1} (inspect): target must be graph or operator.`;
+      if (!selected) return `Action ${index + 1} (inspect): unknown target for this tool configuration.`;
       if (!selected.validate(item))
         return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;
     }
@@ -164,7 +221,7 @@ export const DATAFLOW_ACTIONS_DESCRIPTION =
 /** Validate first. The agent resolves this receipt after creating the step's
  * snapshot, in onStepFinish, before another model request or stop decision.
  * This preserves the same ownership boundary as post-step execution in code mode. */
-export function prepareDataflowActions(input: unknown): DataflowActionsResult {
+export function prepareDataflowActions(input: unknown, taskDataflows = false): DataflowActionsResult {
   const result: DataflowActionsResult = {
     kind: "dataflow-actions",
     status: "pending",
@@ -173,9 +230,9 @@ export function prepareDataflowActions(input: unknown): DataflowActionsResult {
     observe: [],
     observationErrors: [],
   };
-  if (!validate(input)) {
+  if (!validators[taskDataflows ? 1 : 0].validate(input)) {
     result.status = "error";
-    result.error = validationMessage(input);
+    result.error = validationMessage(input, taskDataflows);
     return result;
   }
   const request = input as DataflowActionsInput;
@@ -188,12 +245,16 @@ export function prepareDataflowActions(input: unknown): DataflowActionsResult {
   return result;
 }
 
-export function createDataflowTool() {
+export function createDataflowTool(taskDataflows = false) {
   return tool({
-    description: DATAFLOW_ACTIONS_DESCRIPTION,
+    description:
+      DATAFLOW_ACTIONS_DESCRIPTION +
+      (taskDataflows
+        ? " Inspect historical tasks and reuse exact saved outputs on demand. Answer also saves exports and explicit default changes."
+        : ""),
     strict: true,
-    inputSchema: jsonSchema<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA as any),
-    execute: async input => prepareDataflowActions(input),
+    inputSchema: jsonSchema<DataflowActionsInput>(dataflowActionsSchema(taskDataflows) as any),
+    execute: async input => prepareDataflowActions(input, taskDataflows),
   });
 }
 

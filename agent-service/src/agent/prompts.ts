@@ -205,6 +205,8 @@ export function buildCodeModeSystemPrompt(
 const NATIVE_MODE_TEMPLATE: string = rd("native-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
 export interface NativePromptLayoutOptions {
+  taskDataflows?: boolean;
+  statePolicy?: boolean;
   versioned?: boolean;
   session?: boolean;
   recall?: boolean;
@@ -240,24 +242,51 @@ export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.DELTA,
   options: NativePromptLayoutOptions = {}
 ): string {
-  const context = options.versioned
-    ? "Your context lists prior turns in a catalog, followed by the current task and results. Table names refer to their current versions. Answer the current task."
-    : options.session
-      ? "Your context groups work by user turn. Earlier tables remain available by name. Answer the current task."
-      : contextMode === ContextMode.DELTA
-        ? "Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition."
-        : "Your context shows the current dataflow and its available results. The latest action receipt records what just completed. Earlier execution events may be collapsed; use inspect to recover operator details.";
+  const context = options.taskDataflows
+    ? "Each user request starts an empty dataflow. Your initial context contains previous task requests and answers with task IDs, then the current request. Prior graphs, code and tables are available through task inspection and saved-result reuse. Only the current task's actions and observations are replayed."
+    : options.versioned
+      ? "Your context lists prior turns in a catalog, followed by the current task and results. Table names refer to their current versions. Answer the current task."
+      : options.session
+        ? "Your context groups work by user turn. Earlier tables remain available by name. Answer the current task."
+        : contextMode === ContextMode.DELTA
+          ? "Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition."
+          : "Your context shows the current dataflow and its available results. The latest action receipt records what just completed. Earlier execution events may be collapsed; use inspect to recover operator details.";
   const checks = options.checks
     ? "\n\nA check line reports a suspicious header, records repeated across sources, or an empty or duplicating operation inside a custom function. Examine the finding before using its result."
     : "";
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
-    .replace("{{EVIDENCE}}", nativeEvidenceText(options) + checks)
-    .replace("{{CONTEXT_LAYOUT}}", context)
-    .replace(
-      "{{RECALL_TOOL}}",
-      options.recall ? "\nUse recallState to read an earlier turn's saved work without execution." : ""
-    );
+  return (
+    NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
+      .replace("{{EVIDENCE}}", nativeEvidenceText(options) + checks)
+      .replace("{{CONTEXT_LAYOUT}}", context)
+      .replace(
+        "{{RECALL_TOOL}}",
+        options.recall ? "\nUse recallState to read an earlier turn's saved work without execution." : ""
+      ) +
+    (options.statePolicy ? STATE_POLICY : "") +
+    (options.taskDataflows ? TASK_DATAFLOWS_POLICY : "")
+  );
 }
+
+/** Shared verbatim by the prompt-only and task-memory experiment arms. */
+export const STATE_POLICY = `
+
+## State across tasks
+Before computing, identify the population, definitions and earlier task state this request needs. Distinguish fitting, scoring and reporting populations. Preserve a reusable working table before making a short answer report. Recover exact earlier values and definitions rather than reconstructing them from rounded answer text. Treat a temporary comparison as a separate branch; only change the ongoing default when the user requests it. A correct report does not establish that the right working state was preserved.
+`;
+
+export const TASK_DATAFLOWS_POLICY = `
+
+## Saved task Dataflows
+Use the task IDs in the previous questions and answers to choose the historical work needed now. Inspect a task's outputs, graph, implementations or dependencies on demand. Output discovery lists saved tables and a short schema preview. Named exports preserve working tables; saved answer sources are also retrievable under answer/operator_id. Inspect defaults to find an explicitly saved ongoing binding. Inspection neither executes nor changes the active dataflow.
+
+Import an exact saved output with reuse_result(task_id, export_name, operator_id). This creates a fixed source with an out port. Connect downstream operations using edit and execute to load and use the complete saved table. The producing task is not rerun. An imported source cannot be updated; create a downstream transformation or import a different saved output. Retrieve still never executes.
+
+Answer alone after reading the evidence. Alongside content, declare exports as [{name, operator_id}], answer_sources as current operator IDs, and defaults as [{name, export_name}]. Export full working populations that later requests may need, separately from report tables. The runtime validates current results, retains complete outputs and captures their actual producing ancestors. The graph records computational lineage; it does not certify that your analysis is correct. A table discarded inside a function cannot be recovered: return it and put the report downstream.
+
+Persistent update example: after narrowing and inspecting an eligible population, answer with exports=[{name:"eligible_population",operator_id:"eligible"}], answer_sources=["report"], defaults=[{name:"population",export_name:"eligible_population"}].
+
+Temporary comparison example: inspect and import task 3's earlier population, calculate a comparison, then answer with exports=[{name:"comparison",operator_id:"comparison"}], answer_sources=["comparison"], defaults=[]. This leaves the ongoing population binding unchanged. Use empty arrays when there is nothing to export, cite or update.
+`;
 
 // ---------------------------------------------------------------------------
 // Local-react (in-house local LLM) system prompts — one per tool-call dialect.

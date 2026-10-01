@@ -27,6 +27,7 @@ import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
+import type { TaskDataflows } from "../task-dataflows";
 
 export interface DataflowActionRuntime {
   state: WorkflowState;
@@ -38,6 +39,7 @@ export interface DataflowActionRuntime {
   edited: (ids: string[]) => void;
   isCurrent: () => boolean;
   signal?: AbortSignal;
+  tasks?: TaskDataflows;
 }
 
 /** Resolve actions against one owned snapshot. Edits advance its graph;
@@ -69,6 +71,18 @@ export async function executeDataflowActionBatch(
     assertCurrent();
     if (action.type === "inspect") {
       if (action.target === "graph") return { status: "ok", output: inspectGraph(state.getWorkflowContent()) };
+      if (action.target !== "operator") {
+        if (!runtime.tasks) throw new Error("Task Dataflows are not enabled");
+        return {
+          status: "ok",
+          output:
+            action.target === "tasks"
+              ? runtime.tasks.list(action.query)
+              : action.target === "defaults"
+                ? runtime.tasks.defaults()
+                : runtime.tasks.inspect(action.task_id, action.detail),
+        };
+      }
       const op = state.getOperator(action.operator_id);
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
       const view = op.nativeOp;
@@ -94,6 +108,27 @@ export async function executeDataflowActionBatch(
                   : { code: op.operatorProperties.code ?? null },
               }
             : {}),
+        },
+      };
+    }
+    if (action.type === "reuse_result") {
+      if (!runtime.tasks || !context.metadataStore) throw new Error("Task Dataflows are not enabled");
+      runtime.tasks.importResult(action.task_id, action.export_name, action.operator_id, state, context.metadataStore);
+      storage.updatePendingWorkflow(stepId, state.getWorkflowContent());
+      runtime.edited([action.operator_id]);
+      const saved = runtime.tasks.resolve(action.task_id, action.export_name);
+      return {
+        status: "ok",
+        output: {
+          operator_id: action.operator_id,
+          task_id: action.task_id,
+          export_name: action.export_name,
+          result_version: saved.info.resultVersion?.id,
+          rows: saved.artifact.rowCount,
+          columns: saved.info.resultSchema?.length,
+          columns_preview: saved.info.resultSchema?.slice(0, 12),
+          omitted_columns: Math.max(0, (saved.info.resultSchema?.length ?? 0) - 12),
+          message: "Imported fixed source. Connect its out port and execute to load the saved table.",
         },
       };
     }
@@ -173,6 +208,21 @@ export async function executeDataflowActionBatch(
           text: observation.text,
         },
       };
+    }
+    if (runtime.tasks) {
+      if (!action.exports || !action.answer_sources || !action.defaults)
+        throw new Error("Task Answer requires exports, answer_sources and defaults arrays");
+      await runtime.tasks.seal(
+        {
+          content: action.content,
+          exports: action.exports,
+          answer_sources: action.answer_sources,
+          defaults: action.defaults,
+        },
+        state.getWorkflowContent(),
+        storage.getAllVisibleResults(stepId),
+        assertCurrent
+      );
     }
     return { status: "ok", output: action.content };
   });

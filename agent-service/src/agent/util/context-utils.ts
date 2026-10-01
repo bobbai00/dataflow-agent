@@ -2284,7 +2284,7 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
           pulls.push({
             eventIndex: node.eventIndex,
             toolName: "inspect",
-            operatorId: item.action.target === "graph" ? "graph" : item.action.operator_id,
+            operatorId: item.action.target === "operator" ? item.action.operator_id : item.action.target,
             argsSummary: item.status,
             output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
           });
