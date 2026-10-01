@@ -48,6 +48,8 @@ def main():
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--selection", default="Diagnostic pilot selected before runs for large tables, parsing, joins and known sampling mistakes; not a representative full-benchmark estimate.")
+    parser.add_argument("--source-manifest", type=Path, help="Frozen input inventory and task-selection rationale")
     parser.add_argument("--tasks", nargs="+", default=["archeology-easy-6", "astronomy-easy-1",
                         "biomedical-hard-3", "environment-hard-9", "legal-easy-25", "legal-hard-30"])
     parser.add_argument("--models", nargs="+", choices=["Luna", "Terra"], default=["Luna", "Terra"])
@@ -55,6 +57,8 @@ def main():
                         ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]])
     args = parser.parse_args()
     output = args.output.resolve()
+    if args.source_manifest:
+        args.source_manifest = args.source_manifest.resolve()
     if output.exists():
         raise SystemExit(f"Refusing to overwrite {output}")
     for path in [ROOT / ".env", KB / ".env"]:
@@ -91,10 +95,12 @@ def main():
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
                      "fullResultCharLimit": 100000, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
                      "thoughtReplay": False, "enableCodeInSnapshot": False},
-        "selection": "Diagnostic pilot selected before runs for large tables, parsing, joins and known sampling mistakes; not a representative full-benchmark estimate.",
+        "selection": args.selection,
         "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
         "task_timeout_seconds": args.timeout, "workers": args.workers,
     }
+    if args.source_manifest:
+        manifest["source_inventory"] = json.loads(args.source_manifest.resolve().read_text())
     jobs = []
     for rep in range(1, args.repetitions + 1):
         round_jobs = [{"model": model, "arm": arm, "task": task, "rep": rep,
