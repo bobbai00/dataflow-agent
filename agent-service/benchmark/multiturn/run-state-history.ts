@@ -372,6 +372,8 @@ try {
     console.log(
       `DONE ${arm} ${manifest.key} turn ${turn.turn_id} answer=${!!answer} seconds=${stats.elapsed_seconds.toFixed(1)}`
     );
+    if (!answered && errors.some(error => /litellm\.|invalid_function_parameters|invalid_request_error/i.test(error)))
+      throw new Error("Session stopped after a provider rejection; preserve this setup attempt before recovery");
     if (!result.completed)
       throw new Error("Session stopped after incomplete turn; inspect backend termination before any recovery");
   }

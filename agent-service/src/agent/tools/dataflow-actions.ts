@@ -121,7 +121,7 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         action(
           "execute",
           "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately.",
-          { operator_ids: { type: "array", items: text, minItems: 1, uniqueItems: true } }
+          { operator_ids: { type: "array", items: text, minItems: 1 } }
         ),
         action(
           "retrieve",
@@ -237,6 +237,14 @@ export function prepareDataflowActions(
     return result;
   }
   const request = input as DataflowActionsInput;
+  const duplicateSelection = request.actions.findIndex(
+    a => a.type === "execute" && a.operator_ids && new Set(a.operator_ids).size !== a.operator_ids.length
+  );
+  if (duplicateSelection !== -1) {
+    result.status = "error";
+    result.error = `Action ${duplicateSelection + 1}: execute operator_ids must be unique. No actions ran.`;
+    return result;
+  }
   const unavailable = request.actions.find(a => a.type === "retrieve" && !views.includes(a.view));
   if (unavailable?.type === "retrieve") {
     result.status = "error";

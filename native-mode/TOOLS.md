@@ -124,8 +124,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                   "minLength": 1,
                   "pattern": "\\S"
                 },
-                "minItems": 1,
-                "uniqueItems": true
+                "minItems": 1
               }
             },
             "required": [
@@ -325,8 +324,7 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
                   "minLength": 1,
                   "pattern": "\\S"
                 },
-                "minItems": 1,
-                "uniqueItems": true
+                "minItems": 1
               }
             },
             "required": [

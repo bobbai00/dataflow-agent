@@ -386,7 +386,10 @@ describe("dataflow action integration", () => {
             'create operator source: scan("data/input.csv")\ncreate operator good: limit(1)\ncreate operator bad: process(fn=fail, doc="Old failed exploration")\n    def fail(df):\n        raise ValueError("old branch")\ncreate operator unfinished: limit(1)\ncreate edge source.out -> good.in\ncreate edge source.out -> bad.in',
         },
       ],
-      [{ type: "execute", operator_ids: ["good"] }, { type: "retrieve", operator_id: "good", view: "full" }],
+      [
+        { type: "execute", operator_ids: ["good"] },
+        { type: "retrieve", operator_id: "good", view: "full" },
+      ],
     ]);
     delete (s.agent as any).executePostStepChanges;
     (s.agent as any).buildExecutionConfig = () => ({ userToken: "test", workflowId: 321 });
@@ -440,6 +443,24 @@ describe("dataflow action integration", () => {
     const result = prepareDataflowActions({ reasoning: "Run.", actions: [{ type: "execute", operator_ids: [] }] });
     expect(result.status).toBe("error");
     expect(result.actions).toHaveLength(0);
+  });
+
+  test("selected execution exposes a provider-compatible schema and rejects duplicate targets locally", () => {
+    for (const history of [false, true]) {
+      const schema = asSchema(createDataflowTool(undefined, history).inputSchema).jsonSchema as any;
+      const selected = schema.properties.actions.items.anyOf.find(
+        (a: any) => a.properties.type.const === "execute" && a.properties.operator_ids
+      );
+      expect(selected.properties.operator_ids).not.toHaveProperty("uniqueItems");
+      const result = prepareDataflowActions(
+        { reasoning: "Run.", actions: [{ type: "execute", operator_ids: ["total", "total"] }] },
+        undefined,
+        history
+      );
+      expect(result.status).toBe("error");
+      expect(result.error).toContain("unique");
+      expect(result.actions).toHaveLength(0);
+    }
   });
 
   test("changing retrieval views reads the same result and freezes each observation", async () => {
