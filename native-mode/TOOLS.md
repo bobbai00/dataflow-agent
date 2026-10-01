@@ -179,3 +179,279 @@ Only execute runs the graph. Retrieve reads existing results for the current gra
 Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.
 
 Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.
+
+## Optional historical state actions
+
+With `stateHistory: true`, the same tool adds historical inspection, retrieval by task, and fork. The complete enabled schema is:
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "One brief sentence stating the next objective."
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer must be the only action.",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "graph"
+              }
+            },
+            "required": [
+              "type",
+              "target"
+            ],
+            "description": "List operator IDs, kinds, and data edges with their ports. Does not execute."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "operator"
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "include_implementation": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "operator_id",
+              "include_implementation"
+            ],
+            "description": "Read an operator's definition, ports, connections and description. Request its registered Python functions when needed."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "edit"
+              },
+              "changes": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes."
+              }
+            },
+            "required": [
+              "type",
+              "changes"
+            ],
+            "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "execute"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "description": "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "retrieve"
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "sample"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "operator_id",
+              "view"
+            ],
+            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "answer"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "type",
+              "content"
+            ],
+            "description": "Return the final response and end the loop. Must be the only action; base the answer on results already received."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "state"
+              },
+              "task_id": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "operator_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "include_implementation": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "task_id",
+              "operator_id",
+              "include_implementation"
+            ],
+            "description": "Read completed task state without execution. A task with null operator lists its graph; an operator with null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "fork"
+              },
+              "task_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "new_operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "type",
+              "task_id",
+              "operator_id",
+              "new_operator_id"
+            ],
+            "description": "Copy an operator and its full upstream definitions from a completed task into this graph under new IDs. Keeps current operators unchanged. Does not execute. Retrieve can read available saved observations; execute computes the copied graph for further analysis. Inspect the returned mapping before rewiring an older formula to current inputs."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "retrieve"
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "sample"
+                ]
+              },
+              "task_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "type",
+              "operator_id",
+              "view",
+              "task_id"
+            ],
+            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "reasoning",
+    "actions"
+  ]
+}
+```

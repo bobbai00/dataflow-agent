@@ -26,9 +26,17 @@ import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
+  | {
+      type: "inspect";
+      target: "state";
+      task_id: number | null;
+      operator_id: string | null;
+      include_implementation: boolean;
+    }
+  | { type: "fork"; task_id: number; operator_id: string; new_operator_id: string }
   | { type: "edit"; changes: string }
   | { type: "execute" }
-  | { type: "retrieve"; operator_id: string; view: RetrievalView }
+  | { type: "retrieve"; operator_id: string; view: RetrievalView; task_id?: number }
   | { type: "answer"; content: string };
 
 export interface DataflowActionsInput {
@@ -125,14 +133,48 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
   },
 });
 
+const taskId = { type: "integer", minimum: 1 };
+const STATE_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
+STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
+  action(
+    "inspect",
+    "Read completed task state without execution. A task with null operator lists its graph; an operator with null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions.",
+    {
+      target: { type: "string", const: "state" },
+      task_id: { anyOf: [taskId, { type: "null" }] },
+      operator_id: { anyOf: [text, { type: "null" }] },
+      include_implementation: { type: "boolean" },
+    }
+  ),
+  action(
+    "fork",
+    "Copy an operator and its full upstream definitions from a completed task into this graph under new IDs. Keeps current operators unchanged. Does not execute. Retrieve can read available saved observations; execute computes the copied graph for further analysis. Inspect the returned mapping before rewiring an older formula to current inputs.",
+    {
+      task_id: taskId,
+      operator_id: text,
+      new_operator_id: text,
+    }
+  ),
+  action(
+    "retrieve",
+    "Read this operator's saved result at a completed task. Never executes or substitutes a current result. The returned records may be a sample.",
+    {
+      operator_id: text,
+      view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
+      task_id: taskId,
+    }
+  )
+);
+export const dataflowActionsSchema = (stateHistory = false) =>
+  stateHistory ? STATE_ACTIONS_SCHEMA : DATAFLOW_ACTIONS_SCHEMA;
 const ajv = new Ajv({ allErrors: true });
-const validate = ajv.compile<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA);
-const actionValidators = DATAFLOW_ACTIONS_SCHEMA.properties.actions.items.anyOf.map(schema => ({
-  schema,
-  validate: ajv.compile(schema),
+const validators = [DATAFLOW_ACTIONS_SCHEMA, STATE_ACTIONS_SCHEMA].map(schema => ({
+  validate: ajv.compile<DataflowActionsInput>(schema),
+  actions: schema.properties.actions.items.anyOf.map(schema => ({ schema, validate: ajv.compile(schema) })),
 }));
 
-function validationMessage(input: any): string {
+function validationMessage(input: any, stateHistory: boolean): string {
+  const { validate, actions: actionValidators } = validators[stateHistory ? 1 : 0];
   if (Array.isArray(input?.actions)) {
     for (const [index, item] of input.actions.entries()) {
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
@@ -144,10 +186,15 @@ function validationMessage(input: any): string {
         }
         return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;
       }
-      const selected = candidates.find(
-        v => !("target" in v.schema.properties) || (v.schema.properties as any).target.const === item?.target
-      );
-      if (!selected) return `Action ${index + 1} (inspect): target must be graph or operator.`;
+      const selected =
+        candidates.find(v => v.validate(item)) ??
+        candidates.find(v =>
+          "target" in v.schema.properties
+            ? (v.schema.properties as any).target.const === item?.target
+            : "task_id" in v.schema.properties === (item && "task_id" in item)
+        );
+      if (!selected)
+        return `Action ${index + 1} (inspect): target must be graph, operator${stateHistory ? ", or state" : ""}.`;
       if (!selected.validate(item))
         return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;
     }
@@ -168,7 +215,8 @@ export const DATAFLOW_ACTIONS_DESCRIPTION =
  * This preserves the same ownership boundary as post-step execution in code mode. */
 export function prepareDataflowActions(
   input: unknown,
-  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
+  stateHistory = false
 ): DataflowActionsResult {
   const result: DataflowActionsResult = {
     kind: "dataflow-actions",
@@ -178,9 +226,9 @@ export function prepareDataflowActions(
     observe: [],
     observationErrors: [],
   };
-  if (!validate(input)) {
+  if (!validators[stateHistory ? 1 : 0].validate(input)) {
     result.status = "error";
-    result.error = validationMessage(input);
+    result.error = validationMessage(input, stateHistory);
     return result;
   }
   const request = input as DataflowActionsInput;
@@ -199,22 +247,27 @@ export function prepareDataflowActions(
   return result;
 }
 
-export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
-  const schema = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
-  const retrieve = schema.properties.actions.items.anyOf.find(a => a.properties.type.const === "retrieve")!;
-  (retrieve.properties as any).view.enum = [...views];
+export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews(), stateHistory = false) {
+  const schema = structuredClone(dataflowActionsSchema(stateHistory));
   const descriptions = {
     full: "full requests records up to its character cap; narrow large tables first",
     sample: "sample checks layout and example values with a small record view",
     sample_stats:
       "sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics",
   };
-  retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
+  for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
+    (retrieve.properties as any).view.enum = [...views];
+    retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
+  }
   return tool({
-    description: DATAFLOW_ACTIONS_DESCRIPTION,
+    description:
+      DATAFLOW_ACTIONS_DESCRIPTION +
+      (stateHistory
+        ? " Historical state inspection, retrieval by task_id, and fork are available for completed user tasks."
+        : ""),
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),
-    execute: async input => prepareDataflowActions(input, views),
+    execute: async input => prepareDataflowActions(input, views, stateHistory),
   });
 }
 
@@ -264,6 +317,8 @@ export function renderDataflowActionsResult(result: DataflowActionsResult): stri
           body = `Operator ${output.operator_id}${output.revision ? ` (revision ${output.revision})` : ""}\n${output.text}`;
           if (output.view && output.table)
             body = `View ${output.view}: ${output.table.returnedRows}/${output.table.totalRows ?? "?"} rows, ${output.table.columnsShown}/${output.table.totalColumns} columns; ${output.table.complete ? "complete" : "incomplete"}.\n${body}`;
+          if (output.historical_state)
+            body = `Saved result: task ${output.historical_state.task_id}, operator ${output.historical_state.operator_id}.\n${body}`;
           if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
         } else if (item.action.type === "edit" && Array.isArray(output.changes)) {
           body = [

@@ -90,6 +90,8 @@ Retrieval reports returned and total rows and columns, and whether the view is c
 
 {{CONTEXT_LAYOUT}}{{RECALL_TOOL}}
 
+{{STATE_HISTORY}}
+
 ## Examples
 
 Preview a file, execute and read its raw header:

@@ -41,15 +41,19 @@ export interface VercelToolUseDriverOptions {
   /** Sampling temperature. Defaults to 0.2, matching the pre-refactor
    *  hardcoded value in TexeraAgent.sendMessage. */
   temperature?: number;
+  maxOutputTokens?: number;
+  maxRetries?: number;
 }
 
 export class VercelToolUseDriver implements LLMDriver {
   private readonly model: LanguageModel;
   private readonly temperature: number;
+  private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
+    this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
@@ -59,6 +63,7 @@ export class VercelToolUseDriver implements LLMDriver {
     const updatedToolOutputs = new Map<string, unknown>();
     const result = await generateText({
       model: this.model,
+      ...this.requestLimits,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,
@@ -80,12 +85,12 @@ export class VercelToolUseDriver implements LLMDriver {
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
       onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
-        // Anthropic cache WRITES (billed 1.25x input). LiteLLM reports them as
-        // prompt_tokens_details.cache_creation_tokens, a non-standard extension
-        // the SDK's typed usage object drops — but the raw parsed HTTP body is
-        // kept on each step's response metadata, so read it from there.
+        // Preserve cache writes from raw provider usage. Gateways expose both
+        // OpenAI's cache_write_tokens and Anthropic's cache_creation_tokens;
+        // the SDK's flattened usage does not retain either field reliably.
         const stepCacheCreation = Number(
-          (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
+          (response as any)?.body?.usage?.prompt_tokens_details?.cache_write_tokens ??
+            (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
             (response as any)?.body?.usage?.cache_creation_input_tokens ??
             0
         );

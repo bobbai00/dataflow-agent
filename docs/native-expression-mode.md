@@ -177,6 +177,41 @@ that transcript, so successive requests preserve the existing message prefix.
 
 ## Implementation
 
+### Optional historical state
+
+Set `stateHistory: true` when creating a native agent to expose historical
+inspection, forking and retrieval. The default is `false`. All tasks continue
+on one graph, and DELTA keeps the action transcript. Task numbers follow user
+request order, starting at 1; only completed tasks have historical state.
+
+| Action | Arguments | Result |
+|---|---|---|
+| Inspect saved operator | `target: "state"`, `task_id`, `operator_id`, `include_implementation` | Historical expression, ports, edges, functions, dependency hash and result availability |
+| Inspect operator history | Same, with `task_id: null` | Definitions and dependency hashes across completed tasks, including deletion |
+| Inspect saved graph | Same, with `operator_id: null` | Operators and edges at that task |
+| List completed tasks | Same, with both IDs `null` | Earlier requests and answers, fetched only on demand |
+| Fork | `task_id`, `operator_id`, `new_operator_id` | New copies of the operator and all upstream definitions, with an ID mapping |
+| Retrieve saved output | `operator_id`, `task_id` | The observation saved at that task, without execution or fallback to current state |
+
+A fork preserves input port positions and assigns new IDs to every dependency.
+It leaves the existing branch intact. Before execution, retrieving the fork can
+read its source observation, labeled with the original task, operator and result
+version. This is a saved observation, potentially sampled, rather than a new
+engine materialization. Execute computes the copied graph for downstream use.
+Changing a definition or input invalidates this saved-result fallback, as does
+materializing new inputs without completing the descendant.
+
+To reuse an old formula with current data, inspect the historical definition
+and create it with current edges, or rewire the fork explicitly. Forking an
+entire branch also restores its historical input definitions. External files
+are not versioned: executing a fork reads the files at their supplied paths.
+
+The system prompt explains these choices and the observation boundary: edits
+that depend on an inspection belong in the next call. Saved tasks address the
+existing snapshot tree; this feature adds no separate catalog or task store.
+
+### Graph implementation
+
 `native/catalog.ts` defines operator parameters, meanings and input arity.
 `native/python/graph_parser.py` parses the five graph commands and extracts
 operator-local functions without executing them. `tools/graph-edits.ts` stages

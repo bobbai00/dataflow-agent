@@ -1699,11 +1699,15 @@ function renderInterleaved(
 ): string {
   const sections: string[] = [];
   const taskAtBottom = options.userTaskPlacement === "bottom";
+  // Native frames are a conversation: keep each request at its original
+  // position. Hoisting the latest request rewrites the prefix at task changes;
+  // repeating it at the tail prevents reuse after every new action.
+  const chronologicalRequests = options.messageLayout === "native" && !options.turnHistoryIndex;
 
   // 1. # User Task — unless it was moved to the bottom, where it leaves the
   // history as a byte-stable prefix across turns (cache) and sits closest to
   // the generation point (recency).
-  if (latestUserContent && !taskAtBottom) {
+  if (latestUserContent && !taskAtBottom && !chronologicalRequests) {
     sections.push("# User Task");
     sections.push("");
     sections.push(latestUserContent);
@@ -1754,7 +1758,7 @@ function renderInterleaved(
       workflowState,
       options,
       initSnapshot,
-      latestUserStepId,
+      chronologicalRequests ? undefined : latestUserStepId,
       createFlagsByStep,
       options.omitObservations === true
     )
@@ -1792,7 +1796,7 @@ function renderInterleaved(
 
   // 1-at-the-bottom: the request goes last so everything above it is a stable
   // prefix across turns.
-  if (latestUserContent && taskAtBottom) {
+  if (latestUserContent && taskAtBottom && !chronologicalRequests) {
     sections.push("");
     sections.push("# User Task");
     sections.push("");
@@ -2271,13 +2275,16 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
           if (
             item.action.type === "retrieve" &&
             item.status === "ok" &&
-            (item.output as { superseded_in_call?: boolean })?.superseded_in_call
+            ((item.output as { superseded_in_call?: boolean })?.superseded_in_call ||
+              (item.output as { historical_state?: unknown })?.historical_state)
           ) {
             pulls.push({
               eventIndex: node.eventIndex,
               toolName: "retrieve",
               operatorId: item.action.operator_id,
-              argsSummary: "historical result; changed later in this call",
+              argsSummary: (item.output as { superseded_in_call?: boolean })?.superseded_in_call
+                ? "historical result; changed later in this call"
+                : "saved historical result",
               output: JSON.stringify(item.output, null, 2),
             });
             continue;
@@ -2286,7 +2293,7 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
           pulls.push({
             eventIndex: node.eventIndex,
             toolName: "inspect",
-            operatorId: item.action.target === "graph" ? "graph" : item.action.operator_id,
+            operatorId: item.action.target === "graph" ? "graph" : (item.action.operator_id ?? "state"),
             argsSummary: item.status,
             output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
           });

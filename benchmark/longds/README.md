@@ -88,6 +88,39 @@ though the workflow row survives in Postgres, so a half-finished task is re-run
 from turn 1. `--skip-done` skips only fully-completed tasks. Corollary for pools:
 recycle at task boundaries, never mid-task.
 
+## Historical-state pilot
+
+`agent-service/benchmark/multiturn/run-state-history.ts` runs one continuous
+session with either `baseline` or `history` actions. Set
+`TEXERA_AGENT_MODEL=gpt-5.6-luna` or `gpt-5.6-terra`, point
+`TEXERA_AGENT_SERVICE_ENDPOINT` at the experiment service, and enable the same
+`TEXERA_LLM_TRACE_DIR` on the service and runner. Arguments are the prepared
+directory, a new output directory, the arm, and an optional declared turn limit.
+
+Both arms use native ReAct, DELTA history, the same predefined-operator guidance,
+40 calls per turn and 2,000 characters per result. Only the history setting,
+its action schema and its system-prompt instructions differ. The service's
+`MODEL_MAX_OUTPUT_TOKENS`, `MODEL_SDK_RETRIES` and `MODEL_RETRIES_PER_TURN`
+environment variables bound model output and retries independently of engine
+timeouts. Record these values in the experiment protocol.
+
+The runner saves user prompts, answers, full action receipts, per-step snapshots,
+effective settings and provider usage. Diagnostics flag repeated actions, cycles,
+repeated reads, missing answers, changed request prefixes and provider failures.
+These flags need trace review; they do not establish a cause or automatically
+change the agent's actions. Cached-token counts come from provider usage;
+character-prefix overlap is a separate measurement. Missing usage fields remain
+unknown in the wire audit. Cost estimates must retain their model-specific
+pricing source, including separate cache-read and cache-write rates.
+
+Use the pinned upstream correctness prompt with `deepseek/deepseek-v4-pro`.
+`annotate_errors.py prepare --native-campaign ...` adapts saved native traces
+for the paper's original Appendix E.3 prompt and Codex `gpt-5.5` at `xhigh`.
+Annotation accepts a complete session or a predeclared prefix, validates every
+incorrect turn's label, and preserves original scores. Reference files remain
+unmodified. Inspect disagreements and distinguish a root state error from its
+later cascades before interpreting accuracy differences.
+
 ## First result — baseline, 2026-08-03
 
 Arm `luna-delta-1k`: gpt-5.6-luna, DELTA, 1k result chars, no stats, no

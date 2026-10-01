@@ -160,6 +160,7 @@ An agent created with no `settings` uses
 | `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
 | `maxOperatorResultCellCharLimit` | `2000` | sample cells are clipped and marked; native full retrieval preserves retained cell contents |
 | `maxSteps` | `100` | per-turn step budget |
+| `stateHistory` | `false` | native actions can inspect completed task states, fork historical operator branches, and retrieve saved observations; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |

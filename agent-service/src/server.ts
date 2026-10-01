@@ -20,6 +20,7 @@
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
+import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
 import {
@@ -550,7 +551,14 @@ async function createAgentInstance(
     apiKey: delegateConfig.userToken,
     // Every model request has a deadline; a request that never answers is
     // abandoned and the turn retries it (TexeraAgent.sendMessage).
-    fetch: withRequestTimeout(),
+    fetch: withRequestTimeout(
+      withModelWireTrace(process.env.TEXERA_LLM_TRACE_DIR, () => ({
+        agentId,
+        workflowId: delegateConfig.workflowId,
+        headId: agent.getHead(),
+        messageId: agent.getCurrentMessageId(),
+      }))
+    ),
   });
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml
@@ -558,7 +566,15 @@ async function createAgentInstance(
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
   const driver: LLMDriver =
-    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+    driverKind === "local-react"
+      ? new LocalReactTextDriver({ model })
+      : new VercelToolUseDriver({
+          model,
+          maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS
+            ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS)
+            : undefined,
+          maxRetries: process.env.MODEL_SDK_RETRIES ? Number(process.env.MODEL_SDK_RETRIES) : undefined,
+        });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -609,6 +625,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     flowEvidence: agentSettings.flowEvidence,
     dataflowReasoning: agentSettings.dataflowReasoning,
     nativeChecks: agentSettings.nativeChecks,
+    stateHistory: agentSettings.stateHistory,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     messageLayout: agentSettings.messageLayout,
@@ -857,6 +874,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
             nativeChecks: settings.nativeChecks,
+            stateHistory: settings.stateHistory,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
             parallelToolCalls: settings.parallelToolCalls,
@@ -953,6 +971,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
+            stateHistory: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -1334,6 +1353,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: settings.flowEvidence,
         dataflowReasoning: settings.dataflowReasoning,
         nativeChecks: settings.nativeChecks,
+        stateHistory: settings.stateHistory,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1401,6 +1421,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
+        stateHistory: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),

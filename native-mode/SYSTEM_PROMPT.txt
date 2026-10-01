@@ -134,6 +134,8 @@ Retrieval reports returned and total rows and columns, and whether the view is c
 
 Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.
 
+
+
 ## Examples
 
 Preview a file, execute and read its raw header:

@@ -49,6 +49,9 @@ export interface PortDescription {
 }
 
 export interface OperatorPredicate {
+  /** Provenance of a copied historical definition. Saved observations keep
+   * their original identity; they are not a materialization of this new ID. */
+  readonly stateOrigin?: { taskId: number; stepId: string; operatorId: string; subgraphHash: string };
   readonly operatorID: string;
   readonly operatorType: string;
   readonly operatorVersion: string;

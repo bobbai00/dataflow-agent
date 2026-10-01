@@ -87,7 +87,7 @@ export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResult
   const results = nativeBatchResults(step).filter(result => {
     const actions = asDataflowActionsResult(result);
     // Structural inspection and answering do not change which tables were read.
-    return !actions || actions.actions.some(item => ["edit", "execute", "retrieve"].includes(item.action.type));
+    return !actions || actions.actions.some(item => ["edit", "fork", "execute", "retrieve"].includes(item.action.type));
   });
   return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
 }
