@@ -266,6 +266,8 @@ try {
       },
     });
     await pending;
+    if (result.completionSource === "rest")
+      alert("completion_recovered_from_rest", { turn_id: turn.turn_id });
     auditWire();
     const steps = [...current.values()];
     for (const step of steps) allPriorIds.add(step.id);
@@ -301,6 +303,7 @@ try {
       response: answered ?? result.finalAnswer,
       errors,
       completed: result.completed,
+      completion_source: result.completionSource,
     });
     save(`${dir}/stats.json`, stats);
     save(`${dir}/workflow.json`, await json(`${agentUrl}/workflow`));
