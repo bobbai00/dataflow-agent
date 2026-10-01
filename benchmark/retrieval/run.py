@@ -35,6 +35,7 @@ from catalog import inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 KB = ROOT / "benchmark/Kramabench"
+MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Haiku45": "claude-haiku-4.5"}
 
 
 def save(path, data):
@@ -61,7 +62,7 @@ def main():
     parser.add_argument("--source-manifest", type=Path, help="Frozen input inventory and task-selection rationale")
     parser.add_argument("--tasks", nargs="+", default=["archeology-easy-6", "astronomy-easy-1",
                         "biomedical-hard-3", "environment-hard-9", "legal-easy-25", "legal-hard-30"])
-    parser.add_argument("--models", nargs="+", choices=["Luna", "Terra"], default=["Luna", "Terra"])
+    parser.add_argument("--models", nargs="+", choices=list(MODEL_TYPES), default=["Luna", "Terra"])
     parser.add_argument("--arms", nargs="+", default=[f"{view}_flow{flow}" for view in
                         ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]])
     args = parser.parse_args()
@@ -108,7 +109,7 @@ def main():
         "runner_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "harness_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "endpoint": args.endpoint, "task_ids": args.tasks, "repetitions": args.repetitions,
-        "models": {m: "gpt-5.6-" + m.lower() for m in args.models},
+        "models": {m: MODEL_TYPES[m] for m in args.models},
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
         "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
