@@ -125,6 +125,11 @@ The [2026-10-01 state-history report](reports/2026-10-01-state-history.md)
 compares Luna/Terra traces with saved DSGym, reports matched costs and error
 labels, and documents the subsequent repairs and remaining accuracy gap.
 
+The [state retrieval audit](reports/2026-10-01-state-retrieval-audit.md)
+checks every after-repairs answer, records judge disagreements and latent
+state errors, adds deterministic diagnostic partial credit, and describes
+the focused historical inspection changes.
+
 ## First result — baseline, 2026-08-03
 
 Arm `luna-delta-1k`: gpt-5.6-luna, DELTA, 1k result chars, no stats, no
