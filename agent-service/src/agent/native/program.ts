@@ -35,6 +35,7 @@ import {
   NATIVE_OPERATOR_NAMES,
   NativeArgumentError,
   splitInputs,
+  graphOperatorSignature,
   type FunctionSlot,
   type NativeOpView,
   type ParsedFunction,
@@ -113,7 +114,7 @@ function attemptedView(statement: ParsedStatement, type: string, inputs: string[
 export function normalizeStatement(
   statement: ParsedStatement,
   functions: Record<string, ParsedFunction>,
-  options: { profileCollection?: boolean } = {}
+  options: { profileCollection?: boolean; explicitInputs?: string[] } = {}
 ): ProgramStatement {
   const base = { id: statement.id, op: statement.op, line: statement.line, source: statement.source };
   const def = NATIVE_BY_NAME.get(statement.op);
@@ -134,7 +135,9 @@ export function normalizeStatement(
   }
   let inputs: string[] = [];
   try {
-    const split = splitInputs(def, statement.args, functions);
+    const split = options.explicitInputs
+      ? { inputs: options.explicitInputs, rest: statement.args }
+      : splitInputs(def, statement.args, functions);
     inputs = split.inputs;
     const used = new Map<string, string>();
     const context = {
@@ -163,7 +166,7 @@ export function normalizeStatement(
       return {
         ...base,
         error: {
-          message: `Invalid ${def.name} arguments: ${error.message} Signature: ${def.signature}`,
+          message: `Invalid ${def.name} arguments: ${error.message} Signature: ${options.explicitInputs ? graphOperatorSignature(def) : def.signature}`,
           field: error.field,
         },
         attempted: attemptedView(statement, def.type, inputs),

@@ -69,6 +69,8 @@ export interface NativeOpView {
   properties: Record<string, unknown>;
   /** Upstream operator ids in port order (= positional operands). */
   inputs: string[];
+  /** Explicit graph input ports. Empty input IDs represent unconnected ports. */
+  graph?: { inputPorts: string[] };
   /** The assignment as the model wrote it (`x = filter(...)`), for rendering. */
   source?: string;
   /** Top-level `def` sources the statement refers to, by name. */
@@ -502,7 +504,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "cast",
     brief:
-      'Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes: cast(T, amount=float64). Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.',
+      'Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.',
     type: "Cast",
     inputs: 1,
     rowEffect: "none",
@@ -924,6 +926,28 @@ export function nativeOperatorName(type: string): string {
 export function nativeCatalogText(compact = false): string {
   return NATIVE_OPERATORS.map(
     d => `${d.name === "scan" ? "T" : "T2"} = ${d.signature}\n    ${compact ? d.brief : d.doc}`
+  ).join("\n\n");
+}
+
+/** Graph authoring keeps table connections out of the parameter expression. */
+export function graphOperatorSignature(def: NativeOperatorDef): string {
+  if (def.name === "process") return 'process(fn=function, doc="what it does")';
+  if (def.name === "union") return 'union(schema="strict")';
+  return def.signature.replace(/\(T, /, "(").replace(/\(L, R, /, "(");
+}
+
+export function graphOperatorPorts(def: NativeOperatorDef): string {
+  if (def.inputs === 0) return "no inputs -> out";
+  if (def.inputs === 1) return "in -> out";
+  if (def.inputs === 2) return "left, right -> out";
+  return def.name === "union"
+    ? "in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255)"
+    : "in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader";
+}
+
+export function graphCatalogText(): string {
+  return NATIVE_OPERATORS.map(
+    def => `${graphOperatorSignature(def)}\n    Ports: ${graphOperatorPorts(def)}.\n    ${def.brief}`
   ).join("\n\n");
 }
 

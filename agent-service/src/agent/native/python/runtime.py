@@ -197,7 +197,7 @@ def validate_native(spec):
     for name in [spec.get("id", "operator"), *inputs]:
         if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
-    if len(set(inputs)) != len(inputs) and kind != "Join":
+    if len(set(inputs)) != len(inputs) and kind != "Join" and not spec.get("graph"):
         raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
     expected = 0 if kind == "Scan" else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
@@ -2264,7 +2264,11 @@ if __name__ == "__main__":
     import sys
 
     request = json.load(sys.stdin)
-    if isinstance(request, dict) and "program" in request:
+    if isinstance(request, dict) and "changes" in request:
+        from graph_parser import parse_graph_changes
+
+        print(json.dumps(parse_graph_changes(request["changes"]), ensure_ascii=True))
+    elif isinstance(request, dict) and "program" in request:
         # Parse a native program (see program_parser.py); no operator semantics.
         from program_parser import parse_program
 

@@ -69,7 +69,7 @@ function wireInputs(workflowState: WorkflowState, operatorId: string, inputs: st
 
 /** Ancestry facts for engine-side checks: rows from several sources (a glob
  * or file-list scan, or a union) and the scans' file-name columns. */
-function nativeLineage(workflowState: WorkflowState, view: NativeOpView): NonNullable<NativeOpView["lineage"]> {
+export function nativeLineage(workflowState: WorkflowState, view: NativeOpView): NonNullable<NativeOpView["lineage"]> {
   const provenance = new Set<string>();
   let multiSource = view.type === "Union";
   const seen = new Set<string>();

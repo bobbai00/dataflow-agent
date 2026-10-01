@@ -24,7 +24,7 @@ import type { NativeBatchOutcome } from "./native-batch-tools";
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
-  | { type: "edit"; expressions: string; delete: string[] }
+  | { type: "edit"; changes: string }
   | { type: "execute" }
   | { type: "retrieve"; operator_id: string }
   | { type: "answer"; content: string };
@@ -93,18 +93,13 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
             include_implementation: { type: "boolean" },
           }
         ),
-        action(
-          "edit",
-          "Delete the listed operators, then apply the operator expressions. Does not execute. Use an empty string or delete list when unused.",
-          {
-            expressions: {
-              type: "string",
-              description:
-                "One name = operator(...) statement per operator, plus any functions it uses. Reusing a name revises it; input references define edges.",
-            },
-            delete: { type: "array", items: text, uniqueItems: true },
-          }
-        ),
+        action("edit", "Apply an atomic batch of explicit operator and edge changes. Does not execute.", {
+          changes: {
+            ...text,
+            description:
+              "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes.",
+          },
+        }),
         action(
           "execute",
           "Execute the current dataflow, reusing valid cached results. Returns status and errors; retrieve table contents separately."
@@ -236,6 +231,19 @@ export function renderDataflowActionsResult(result: DataflowActionsResult): stri
         if (item.action.type === "retrieve" && typeof output.text === "string") {
           body = `Operator ${output.operator_id}${output.revision ? ` (revision ${output.revision})` : ""}\n${output.text}`;
           if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
+        } else if (item.action.type === "edit" && Array.isArray(output.changes)) {
+          body = [
+            ...output.changes.map(
+              (change: any) =>
+                `- ${change.operation.replaceAll("_", " ")}: ${change.operator_id ?? change.edge}${change.deleted_edges?.length ? `\n  automatically deleted edges: ${change.deleted_edges.join("; ")}` : ""}`
+            ),
+            ...(output.unconnected_inputs?.length
+              ? [`Unconnected required inputs: ${output.unconnected_inputs.join(", ")}`]
+              : []),
+            ...(output.invalidated_results?.length
+              ? [`Invalidated results: ${output.invalidated_results.join(", ")}`]
+              : []),
+          ].join("\n");
         } else if ((item.action.type === "edit" || item.action.type === "execute") && Array.isArray(output.operators)) {
           body = [
             ...output.operators.map(

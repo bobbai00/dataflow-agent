@@ -23,8 +23,7 @@ import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { selectNativeObservation } from "../native/evidence";
 import { nativeCheckLines } from "../native/checks";
-import { formatNativeDiagnostic } from "../native/diagnostics";
-import { createNativeTools, asNativeBatchResult } from "./native-batch-tools";
+import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
@@ -69,16 +68,7 @@ export async function executeDataflowActionBatch(
   await runDataflowActions(result, async (action, index) => {
     assertCurrent();
     if (action.type === "inspect") {
-      if (action.target === "graph")
-        return {
-          status: "ok",
-          output: {
-            operators: state
-              .getAllOperators()
-              .map(op => ({ id: op.operatorID, type: op.nativeOp?.type ?? op.operatorType })),
-            edges: state.getAllLinks().map(link => ({ id: link.linkID, source: link.source, target: link.target })),
-          },
-        };
+      if (action.target === "graph") return { status: "ok", output: inspectGraph(state.getWorkflowContent()) };
       const op = state.getOperator(action.operator_id);
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
       const view = op.nativeOp;
@@ -89,7 +79,10 @@ export async function executeDataflowActionBatch(
           type: view?.type ?? op.operatorType,
           revision: view?.revision,
           expression: view?.source,
-          inputs: view?.inputs,
+          ports: inspectGraph(state.getWorkflowContent()).operators.find(item => item.id === op.operatorID)?.ports,
+          connections: inspectGraph(state.getWorkflowContent()).edges.filter(
+            edge => edge.startsWith(`${op.operatorID}.`) || edge.includes(` -> ${op.operatorID}.`)
+          ),
           description: view?.properties.doc,
           ...(action.include_implementation
             ? {
@@ -105,62 +98,25 @@ export async function executeDataflowActionBatch(
       };
     }
     if (action.type === "edit") {
-      if (!action.expressions.trim() && !action.delete.length)
-        throw new Error("An edit needs expressions or at least one operator to delete.");
-      // Parsing and Python validation can await. Stage changes so a checkout
-      // or cancellation during validation cannot mutate the new active graph.
-      const draft = new WorkflowState();
-      draft.setWorkflowContent(state.getWorkflowContent());
-      const editTool = createNativeTools(draft, context).dataflow;
-      const output = await editTool.execute!({ edits: action.expressions, delete: action.delete }, {} as any);
+      const plan = await planGraphEdit(state.getWorkflowContent(), action.changes, context);
       assertCurrent();
-      const batch = asNativeBatchResult(output);
-      if (!batch) throw new Error(typeof output === "string" ? output : JSON.stringify(output));
-      state.setWorkflowContent(draft.getWorkflowContent());
-      storage.updatePendingWorkflow(stepId, state.getWorkflowContent());
-      const accepted = batch.operators.filter(o => ["added", "modified", "deleted"].includes(o.status)).map(o => o.id);
+      state.setWorkflowContent(plan.workflow);
+      storage.updatePendingWorkflow(stepId, plan.workflow);
+      const accepted = plan.operators.map(op => op.id);
       storage.clearNativeRejectedEdits(stepId, accepted);
       runtime.edited(accepted.filter(id => !!state.getOperator(id)));
-      for (const outcome of batch.operators) {
-        if ((outcome.status !== "error" && outcome.status !== "blocked") || !outcome.attempted) continue;
-        const diagnostic = outcome.diagnostic;
-        if (!diagnostic) continue;
-        const summary = storage.captureNativeAttemptDiagnostic(
-          stepId,
-          {
-            operatorID: outcome.id,
-            operatorType: "DataProcessing",
-            operatorVersion: "1",
-            operatorProperties: {},
-            inputPorts: [],
-            outputPorts: [],
-            showAdvanced: false,
-            nativeOp: outcome.attempted,
-          },
-          "NATIVE_ERROR_V2:" + JSON.stringify(diagnostic)
-        );
-        outcome.diagnostic = summary.diagnostic;
-        outcome.message = `${formatNativeDiagnostic(summary.diagnostic)}\nDiagnostic: ${summary.diagnosticId}`;
-        context.nativeValidationRepair?.bind(
-          outcome.op,
-          { id: outcome.id, inputs: outcome.attempted.inputs, ...outcome.attempted.properties },
-          summary
-        );
-      }
-      storage.restoreNativeRejectedEdits(stepId);
-      result.operators.push(...batch.operators);
-      const blocked = state
-        .getAllOperators()
-        .filter(op => current(op.operatorID)?.state === "Blocked")
-        .map(op => ({ id: op.operatorID, message: errorText(op.operatorID, current(op.operatorID)!) }));
-      return {
-        status: batch.operators.some(o => o.status === "error" || o.status === "blocked") ? "error" : "ok",
-        output: { operators: batch.operators, ...(blocked.length ? { blocked } : {}) },
-      };
+      result.operators.push(...plan.operators);
+      const { workflow: _workflow, ...output } = plan;
+      return { status: "ok", output };
     }
     if (action.type === "execute") {
       const operators = state.getAllOperators();
       if (!operators.length) throw new Error("The dataflow is empty. Add an operator before execute.");
+      const missing = missingGraphInputs(state.getWorkflowContent());
+      if (missing.length)
+        throw new Error(
+          `Unconnected required inputs: ${missing.join(", ")}. Create edges or delete unused operators before execute.`
+        );
       let failure: string | undefined;
       try {
         await runtime.execute();

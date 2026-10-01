@@ -17,276 +17,179 @@
   ~ under the License.
 -->
 
-# Native mode: the dataflow as operator expressions
+# Native mode: editing a dataflow graph
 
-Since 2026-09-22 the agent has two modes:
+Native mode exposes one `dataflow(reasoning, actions)` tool. The model edits
+operator definitions and edges, explicitly executes the graph, and retrieves
+stored results. The service compiles catalog operators to Python for the engine.
+Code mode continues to expose free Python operators through its existing tools.
 
-- **native** (default): the model writes the dataflow as
-  `name = operator(...)` statements over one operator catalog. Three custom
-  operators carry Python: `filter` (row → bool), `map` (row → one value per
-  declared column) and `process` (tables → table). The service compiles every
-  operator to Python for the engine.
-- **code**: the previous script-based approach. Every operator is one free
-  Python `def load()` / `def process(...)` function written through
-  `createOrModifyOperator`.
+The generated references are the source of truth for the public interface:
 
-The former `general` mode (Texera's built-in typed operators), the V1 native
-catalog (SQL predicates and `Compute`) and the V2 JSON batch tool are gone.
-`nativeToolMode`, `nativeCatalogVersion` and `allowedOperatorTypes` are
-rejected at agent creation and on PATCH, so old experiment configurations
-cannot silently become new arms.
+- [Exact system prompt](../native-mode/SYSTEM_PROMPT.txt)
+- [Tool schema](../native-mode/TOOLS.md)
+- [Every operator, its parameters and ports](../native-mode/OPERATORS.md)
 
-## Editing the dataflow
-
-```python
-def rating_value(row):
-    text = row["rating"]
-    if text is None:
-        return {"product": row["product"], "numeric_rating": None}
-    parts = [p.strip() for p in text.split("or")]
-    return {"product": row["product"], "numeric_rating": sum(float(p) for p in parts) / len(parts)}
-
-domestic = filter(reviews, lambda row: row["country"] == "Greece", doc="Keeps reviews whose country is Greece")
-rated = map(domestic, rating_value, doc="Keeps product and the numeric rating parsed from the rating text")
-average_rating = aggregate(rated, by=["product"], average=mean("numeric_rating"))
-```
-
-1. One assignment per operator. The left name is the output table; assigning
-   to an existing name revises that operator and keeps its consumers.
-2. Positional arguments are the input tables; keyword arguments are the
-   parameters. The DAG's edges are derived from the operands, never declared
-   separately.
-3. Statements may refer to tables defined later in the edit or in earlier
-   calls; the shared `ToolCallScheduler` orders them. A statement whose input
-   was rejected is blocked; independent statements still land.
-4. Functions are lambdas or top-level `def`s referenced by name. A `def` that
-   calls another `def` ships with it. Types are bare names (`str`, `int64`,
-   `float64`, `bool`, `datetime`); reducers and window functions are calls.
-5. A column whose name is not an identifier is addressed by string:
-   `row["Acres Burned"]`, `**{"Acres Burned": float64}`.
-
-A statement that does not parse fails alone (`PROGRAM_SYNTAX` at its line,
-its dependents blocked, the other statements landed). An argument error
-fails only its statement.
-
-## The tool
-
-Native mode exposes `dataflow({reasoning, actions})`. `reasoning` is a short
-statement of the next objective; `actions` is an ordered list:
+## Actions
 
 | Action | Arguments | Result |
-| --- | --- | --- |
-| `inspect` graph | `target: "graph"` | operator IDs, types, and edges with ports |
-| `inspect` operator | `target: "operator"`, `operator_id`, `include_implementation` | semantic expression and inputs, plus registered Python functions when requested |
-| `edit` | `expressions`, `delete` | per-operator changes or validation errors |
-| `execute` | none | whole-dataflow execution status and per-operator errors; valid cached results can be reused |
-| `retrieve` | `operator_id` | stored output records and enabled profiles, within result budgets |
-| `answer` | `content` | final response; ends the loop |
+|---|---|---|
+| Inspect graph | `target: "graph"` | Operator IDs, types, named ports, edges and unconnected inputs |
+| Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
+| Edit | `changes` | Ordered change receipts, automatically deleted edges, unconnected inputs and invalidated results |
+| Execute | none | Whole-graph execution status; valid cached results can be reused |
+| Retrieve | `operator_id` | Existing output records and enabled profiles within display budgets |
+| Answer | `content` | Final response; ends the loop |
 
-All fields shown are required. Use an empty expression string or delete list when
-unused. The complete schema and runnable examples are generated under
-[native-mode/](../native-mode/TOOLS.md); the exact prompt is
-[SYSTEM_PROMPT.txt](../native-mode/SYSTEM_PROMPT.txt).
+The complete request is validated before actions begin. Actions run in order,
+with one observation per action, including errors and skipped actions. A failure
+skips later actions, except that Inspect and Retrieve may read independent
+completed results after an Execute failure. Earlier completed actions remain.
+Answer must be the only action in its call. Decisions that depend on a returned
+observation belong in the next call.
 
-For example:
+## Graph syntax
+
+```text
+create operator <id>: <operator>(parameters)
+modify operator <id>: <operator>(parameters)
+delete operator <id>
+create edge <source>.out -> <target>.<input_port>
+delete edge <source>.out -> <target>.<input_port>
+```
+
+Identifiers contain letters, digits and underscores and start with a letter or
+underscore. Create requires a new ID; Modify requires an existing one. Modify
+supplies the complete definition, preserves the ID and all connections, and
+resets omitted parameters to defaults. An incompatible definition is rejected.
+
+Operator expressions contain parameters only; edges supply all input tables.
+Delete automatically removes every incident edge and lists them in its receipt.
+Consumers remain in the graph with unconnected inputs. Edges cannot be modified:
+delete the old edge and create its replacement.
+
+Commands are staged in order. Each Edit is atomic: a missing operator, invalid
+parameter or port, occupied input, or cycle rejects all changes in that Edit.
+Unconnected inputs are allowed during construction. Execute requires every
+required input to be connected. A rejected Edit leaves previous results valid.
+
+### Ports
+
+Every operator has one output, `out`. An input accepts exactly one edge; an
+output may feed any number of inputs, including both sides of a self-join.
+
+| Operators | Input ports |
+|---|---|
+| `scan` | none |
+| `project`, `cast`, `filter`, `map`, `aggregate`, `distinct`, `sort`, `limit`, `window`, `unpivot`, `pivot` | `in` |
+| `join` | `left`, `right` |
+| `union` | Consecutive `in[0]`, `in[1]`, …; at least two, at most 256 |
+| `process` | One `in[i]` per function parameter, in parameter order; no parameters means a source |
+
+### Example
 
 ```json
 {
   "reasoning": "Count the source rows and check the result.",
   "actions": [
-    {"type": "edit", "expressions": "source = scan(\"data/orders.csv\")\ntotal = aggregate(source, n=count())", "delete": []},
+    {"type": "edit", "changes": "create operator source: scan(\"data/orders.csv\")\ncreate operator total: aggregate(n=count())\ncreate edge source.out -> total.in"},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "total"}
   ]
 }
 ```
 
-The request is validated before any action runs. Actions run in order and
-skip later actions after a failure, except that inspect and retrieve may read
-independent completed results after an execution failure. Completed changes remain. Within an edit, deletion happens first and independent
-valid statements still land when another statement fails. Repeated identical
-invalid revisions pause until corrected arguments arrive.
+To change the calculation while keeping the edge:
 
-Only `execute` runs the workflow. An edit invalidates the changed operator's
-results and its downstream results. Retrieval never reruns the graph and
-reports missing or stale results explicitly. Each retrieved table is pinned
-to the version that existed at that point in the action list.
-
-A decision that uses returned information belongs in the next call. `answer`
-must be the only action in its call, so the model receives the retrieved
-result before producing its answer.
-
-Edges remain part of the expression language: input references create them.
-Revising an input removes the old dependency and creates its replacement;
-reusing an operator ID keeps downstream consumers attached.
-
-### Compatibility
-
-This branch replaces the public `edits/delete/observe` envelope. Existing
-traces can still be imported: legacy edits replay through the original parser,
-and action traces replay only edits that actually ran. Import never executes
-saved workflows. Historical benchmark arms must use their recorded revision.
-Code-mode tools keep their existing behavior.
-
-## Operators
-
-`native/catalog.ts` is the single source: each operator's surface name,
-runtime type, input arity, row effect, prompt signature and the normalizer
-from a parsed call to the runtime `properties`. The prompt's operator
-reference is generated from it, so prompt, parser and engine cannot drift.
-
-| Surface | Runtime type | Rows out |
-| --- | --- | --- |
-| `scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)` | Scan | created |
-| `project(T, keep=None, drop=None, rename=None)` | Project | same |
-| `cast(T, column=dtype, ..., errors="raise")`, `datetime(format=, tz=)` | Cast | same |
-| `filter(T, fn, doc="...")` | Filter | drop |
-| `map(T, fn, doc="...")` (returns the new row as a dict) | Map | same |
-| `aggregate(T, by=[], name=reducer("col"), ...)` | Aggregate | one per group |
-| `join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")` | Join | multiply |
-| `union(T1, T2, ..., schema="strict")` | Union | add |
-| `distinct(T, columns=None, keep="first")` | Distinct | drop |
-| `sort(T, by, nulls="last")` | Sort | same |
-| `limit(T, n, offset=0)` | Limit | drop |
-| `window(T, partition_by=[], order_by=[...], name=fn, ...)` | Window | same |
-| `unpivot(T, columns, name="variable", value="value")` | Unpivot | add |
-| `pivot(T, index, columns, values)` | Pivot | collapse |
-| `process(T1, ..., Tn, fn=function, doc="...")` | Process | unknown |
-
-`map` replaces the earlier Transform and Derive; `process` replaces UDF;
-`fill_null`, `split` and `explode` were retired on 2026-09-23 because traces
-never needed them (a `map` expresses each). Every custom operator (`filter`,
-`map`, `process`) takes a required one-sentence `doc` stating the logical
-semantics of its function; it is stored on the operator and leads its flow
-guarantee in observed results, since nothing else about custom code can be
-measured. The
-runtime (`native/python/runtime.py`) no longer takes declared input columns
-for filter and map: every function sees the whole row, and the columns it
-actually read are recorded (`operations.predicateColumns`,
-`operations.columnDependencies`). Flow evidence and the lineage ranking read
-those measurements instead of declarations.
-
-## From text to engine
-
-```text
-edit text ──python/program_parser.py (ast, no execution)──▶ statements + defs
-             ──catalog normalize + Ajv──▶ NativeOpView {type, properties, inputs, source, functions}
-             ──graph checks, ToolCallScheduler──▶ applyNativeOperator (native-upsert.ts)
-             ──validateNativeOperator (Python syntax + entry signature, one subprocess)
-             ──compileNativeOp──▶ DataLoading / DataProcessing operator calling execute_native
+```dataflow
+modify operator total: aggregate(total_amount=sum("amount"))
 ```
 
-A rejected statement carries an `attempted` view whose identity is the parsed
-arguments, so reordering keywords or reformatting is not counted as a
-correction by the repeat-failure throttle (`NativeValidationRepair`).
+Given another source named `replacement`, rewire explicitly:
 
-## What the model sees
-
-- **DELTA / `native` layout** (default): the tool-call transcript. The
-  assistant part carries the expressions as written; the tool result carries the
-  ordered observations, one per action, including errors and skipped actions.
-  These are a numbered text list inside one tool result, paired with the
-  original tool-call ID. Observations are frozen when captured, so the
-  transcript stays an append-only prefix for the provider cache.
-- **LATEST / `opSplit`, `opBlock`**: one message per operator. Each block
-  shows `Definition:` — the `def`s it uses followed by the statement as
-  written — instead of the former `Inputs:` / `Properties:` JSON. A process
-  body appears only in `opBlock` (or with code-in-snapshot); the statement
-  alone otherwise.
-
-### Live DELTA and cache check
-
-With the backend and this branch's agent service running:
-
-```bash
-cd agent-service
-TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3071 \
-  TEXERA_AGENT_MODEL=gpt-5.6-luna bun benchmark/e2e/dataflow-actions-run.ts
+```dataflow
+delete edge source.out -> total.in
+create edge replacement.out -> total.in
 ```
 
-Use the deployment's normal backend endpoint and login environment variables.
-The harness runs one real model task, then deterministic action checks against
-the engine: retrieval without execution, unchanged execution, leaf and upstream
-edits, stale retrieval, and an edit referencing a missing operator.
+Deleting `replacement` now removes `replacement.out -> total.in` automatically.
+The observation lists that removal and identifies `total.in` as unconnected.
+Reconnect it before executing:
 
-The printed artifact directory contains the exact system prompt and tool
-definitions, each model request (`request-N.json` and a readable `.txt`), the
-trace, snapshots, provider cache-token counts, and backend execution history.
-The checks compare successive DELTA message prefixes and count backend
-executions around reads and failed actions. Debug contexts are saved separately;
-they are previews and were not sent to a model. The harness deletes its own
-workflows and computing unit once execution is confirmed finished.
+```dataflow
+delete operator replacement
+create edge source.out -> total.in
+```
 
-## Errors
+### Python implementations
 
-Every failure reaches the model as one receipt line per operator with a fixed
-envelope: `[CODE; stage; revision R] message`, then `Hint:` (one repair hint
-per code, always present), `Field:` (the model-facing argument, e.g. `how`,
-`orderBy`, `columns[0].func`), the failing line of a submitted function
-(`scaled line 2: return row["Amount"] * 2.0`), and `Diagnostic: diag_…` for
-the receipt. Messages name the cause: the column, the value, the option.
+Prefer the predefined operators whenever they express the calculation. Use
+`process` for calculations the catalog cannot express. Filter and map receive
+one row; process receives one DataFrame per input and returns one DataFrame.
+All three require a `doc` describing the output's meaning.
 
-The layers, in the order a statement passes through them:
+Functions are lambdas or complete definitions indented under the operator that
+uses them. Helpers belong in the same block and imports belong inside functions.
+There are no shared definitions between operators. Include required functions
+again when modifying an operator.
 
-| Layer | Stage | Catches | Codes |
-|---|---|---|---|
-| Expression parse | validate | the statement that does not parse fails at its line; dependents blocked; the rest lands | `PROGRAM_SYNTAX` |
-| Argument normalizer (TypeScript) | validate | unknown keyword, enum, type, table count, undefined function, non-window function; carries the signature | `INVALID_ARGUMENTS` |
-| Runtime validate (Python, no data) | validate / compile | argument rules, Python syntax, entry signature, duplicate outputs | `*_ARGUMENT`, `*_OPTIONS`, `DTYPE`, `INPUT_PORTS`, `OPERATOR_ID`, `COLUMN_COLLISION`, `PYTHON_SYNTAX`, `CALLBACK_SIGNATURE` |
-| Runtime execute (Python, with data) | execute / contract | missing columns, value and type failures, custom-code failures, output contract | `MISSING_COLUMN`, `SCAN_*`, `CAST_INVALID_VALUE`, `FILL_TYPE`, `FILTER_NULL`, `CALLBACK_*`, `PYTHON_IMPORT`, `AGGREGATE_TYPE/RANGE`, `JOIN_TYPE/CARDINALITY`, `UNION_SCHEMA/TYPE`, `SPLIT_TYPE`, `EXPLODE_JSON/TYPE`, `UNPIVOT_TYPE`, `PIVOT_NULL_KEY/DUPLICATE`, `PROCESS_RETURN_TYPE`, `OUTPUT_SCHEMA`, `OUTPUT_VALUE_TYPE`, `ROW_CONTRACT` |
-| Producer boundary | contract | an input table fails the transport contract before the consumer runs; the producer is blamed | `INPUT_VALUE_TYPE`, `INPUT_SCHEMA`, `INPUT_TABLE_TYPE` |
-| Graph | dependency | assigned twice, unknown input table, cycle, consumer of a rejected statement | `UPSTREAM_FAILED` |
-| Infrastructure | infrastructure | timeout, worker loss, backend refusal; never mistaken for user-code failures | `EXECUTION_TIMEOUT`, `WORKER_UNAVAILABLE`, `BACKEND_UNAVAILABLE`, `EXECUTION_ERROR` |
+```dataflow
+create operator correlation: process(fn=correlate, doc="Pearson correlation of x and y")
+    def correlate(df):
+        import pandas as pd
+        return pd.DataFrame({"correlation": [df["x"].corr(df["y"])]})
+create edge source.out -> correlation.in[0]
+```
 
-Column errors are cross-cutting on purpose: an invalid partition key is
-`MISSING_COLUMN` with `Field: partitionBy`; the field, not the code, says
-which argument. Mixed-type object columns cannot enter any operator, so
-"sort a mixed column" is reported against the operator that produced it.
+## Execution, results and caching
 
-The engine aborts a run at its first failure and hands every unfinished
-operator the same payload. The renderer distinguishes a consumer of the
-failed operator (`not executed; upstream \`x\` failed (CODE). Repair that
-operator`) from a bystander that merely shares the run (`not executed; the
-run stopped when \`x\` failed (CODE). \`y\` does not read from \`x\`, so its
-own definition is not implicated; it runs once that operator is repaired or
-deleted`). A failing operator left in the DAG therefore blocks unrelated
-results on every later call until it is repaired or deleted.
+Only Execute runs the graph. Retrieve never reruns it and reports missing or
+stale results explicitly. Editing a definition or incoming edge invalidates
+that operator and its descendants; independent results stay available. The
+engine can reuse valid upstream and independent results on the next Execute.
 
-Source of truth: `agent-service/benchmark/tests/test_native_error_taxonomy.py`
-holds one row per failure case (operator, mistake, code, stage, field, message
-fragments) and fails if a runtime code has no row or a hint is missing;
-`native-program.test.ts` holds the argument-layer table; the e2e driver below
-asserts the rendered receipts against a live stack.
+DELTA context records the tool calls and ordered observations. Every retrieved
+table is frozen at its observation's graph version. Later changes do not rewrite
+that transcript, so successive requests preserve the existing message prefix.
 
-## Settings
+## Implementation
 
-Defaults: `agentMode: native`, `nativeProfileCollection: true` (collection
-cannot change on an existing workflow), `dataEvidence: false`,
-`flowEvidence: false`, `contextMode: delta`. Native mode forces provider
-parallel tool calls off; the action list is the batch.
+`native/catalog.ts` defines operator parameters, meanings and input arity.
+`native/python/graph_parser.py` parses the five graph commands and extracts
+operator-local functions without executing them. `tools/graph-edits.ts` stages
+and validates a private graph, then returns a complete plan for the runtime to
+commit after checking cancellation and ownership.
 
-## Verification
+Logical port connections become ordered native inputs and physical engine
+ports. The native compiler and Python validator check definitions and callback
+signatures. Runtime errors retain the existing operator error taxonomy, repair
+hints, source locations and result contracts.
+
+Existing assignment-based traces remain replayable through their original edit
+interpreter. New calls use graph commands. Historical benchmark arms must run
+at their recorded service revision. Code-mode behavior is unchanged.
+
+## Defaults and verification
+
+Defaults: native mode, DELTA context, profile collection on, data and flow
+evidence off. Collection cannot change on an existing workflow. Native mode
+forces provider parallel tool calls off; its action list is ordered.
 
 From `agent-service/`:
 
 ```bash
-bun test                    # 1,050 tests, 84 files
+bun test
 bun run typecheck
-../.venv/bin/python -m pytest -q benchmark/tests   # runtime + error taxonomy, 247 tests
-TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3061 bun run benchmark/e2e/native-program-run.ts
-TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3061 bun run benchmark/e2e/native-errors-run.ts
+bun run render:native-reference --check
+../.venv/bin/python -m pytest -q benchmark/tests
+TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3072 \
+  bun benchmark/e2e/dataflow-actions-run.ts --probes-only
 ```
 
-The smoke needs a running backend and agent service; it makes no LLM call and
-covers a forward-referenced chain with a process loader, hidden receipts, a
-cached read, an upstream revision refreshing a descendant, a preview window
-with `skip_lines`, a syntax error that changes nothing, a partial failure, an
-execution error superseding a success, and a delete through `dataflow`. The errors
-driver triggers every layer of the taxonomy through the real tool and engine
-and asserts that each receipt carries the code, stage, argument, cause and
-hint, and that consumers and bystanders of a failed operator are attributed
-correctly.
-
-Benchmark arms: `DataflowSystemTerraNativeExprDataOnly20260922` and the
-seeded variant in `benchmark/Kramabench/systems/native_expression_system.py`.
-Historical arms that pass retired settings fail at agent creation by design.
+The live checks require the backend and this branch's agent service. They cover
+explicit edits, result freshness, unchanged execution, upstream and leaf edits,
+rewiring, self-joins, automatic incident-edge deletion, atomic rejection and
+unconnected inputs. The harness saves traces, snapshots, observations and
+backend execution history and cleans up its workflows and computing unit.
+Without `--probes-only`, it also runs a real model task and saves every actual
+model request and the provider's cache-token counts.

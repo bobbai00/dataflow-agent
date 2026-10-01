@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { ContextMode } from "../../types/agent";
 import { buildNativeModeSystemPrompt } from "../prompts";
 import type { WorkflowState } from "../workflow-state";
-import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
+import { NATIVE_OPERATORS, nativeCatalogText, graphCatalogText } from "./catalog";
 import { compileNativeOp } from "./codegen";
 import { compileProgram, type ProgramStatement } from "./program";
 import { nativeTestTools } from "./test-support";
@@ -534,20 +534,20 @@ describe("native prompt", () => {
         const prompt = buildNativeModeSystemPrompt(mode, layout);
         expect(prompt).not.toContain("{{");
         expect(prompt).toContain("dataflow(reasoning, actions)");
-        expect(prompt).toContain(nativeCatalogText(true));
+        expect(prompt).toContain(graphCatalogText());
         expect(prompt.includes("recallState")).toBe("recall" in layout);
         expect(prompt).toContain("next call");
         expect(prompt).toContain("only action");
         expect(prompt).not.toContain("dataflow(edits");
         const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
-        expect(examples.length).toBeGreaterThanOrEqual(4);
+        expect(examples.length).toBeGreaterThanOrEqual(2);
         for (const input of examples) {
           expect(prepareDataflowActions(input).error).toBeUndefined();
           for (const a of input.actions)
             if (a.type === "edit") {
-              const compiled = await compileProgram(a.expressions);
-              expect(compiled.errors).toEqual([]);
-              for (const statement of compiled.statements) expect(statement.error, statement.source).toBeUndefined();
+              const { runNativePython } = await import("./codegen");
+              const parsed = (await runNativePython({ changes: a.changes })) as any;
+              expect(parsed.ok === true).toBe(true);
             }
         }
       }
@@ -558,6 +558,18 @@ describe("native prompt", () => {
     const plain = buildNativeModeSystemPrompt(ContextMode.DELTA);
     expect(plain).toBe(buildNativeModeSystemPrompt(ContextMode.DELTA, { reasoning: true }));
     expect(plain).toContain("reasoning");
+  });
+
+  test("every graph-command example in the prompt parses", async () => {
+    const { runNativePython } = await import("./codegen");
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    const examples = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)];
+    expect(examples.length).toBe(5);
+    for (const [, changes] of examples) {
+      const parsed = (await runNativePython({ changes })) as any;
+      expect(parsed).toMatchObject({ ok: true });
+      expect(parsed.commands.length).toBeGreaterThan(0);
+    }
   });
 
   test("only enabled evidence kinds are described", () => {

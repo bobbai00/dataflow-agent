@@ -232,18 +232,20 @@ async function probes() {
     return { snapshot, result };
   };
   const retrieve = (operator_id: string): DataflowAction => ({ type: "retrieve", operator_id });
-  const edit = (expressions: string): DataflowAction => ({ type: "edit", expressions, delete: [] });
+  const edit = (changes: string): DataflowAction => ({ type: "edit", changes });
   const execute: DataflowAction = { type: "execute" };
-  const loader = (last: number) =>
-    `def load_source():\n    import pandas as pd\n    import time\n    return pd.DataFrame({"x": [1, 2, ${last}], "stamp": [str(time.time_ns())] * 3})\nsource = process(fn=load_source, doc="Three rows with an execution timestamp")`;
+  const loader = (last: number, verb = "create") =>
+    `${verb} operator source: process(fn=load_source, doc="Three rows with an execution timestamp")\n    def load_source():\n        import pandas as pd\n        import time\n        return pd.DataFrame({"x": [1, 2, ${last}], "stamp": [str(time.time_ns())] * 3})`;
   const other =
-    'def load_other():\n    import pandas as pd\n    return pd.DataFrame({"x": [10]})\nother = process(fn=load_other, doc="An independent constant table")';
+    'create operator other: process(fn=load_other, doc="An independent constant table")\n    def load_other():\n        import pandas as pd\n        return pd.DataFrame({"x": [10]})';
   // Execute covers both independent components. The existing scheduler sends
   // each component in its own backend request, even when both are cache hits.
   const initial = await run(
     "initial execution",
     [
-      edit(`${loader(3)}\n${other}\ntotal = aggregate(source, sum_x=sum("x"))`),
+      edit(
+        `${loader(3)}\n${other}\ncreate operator total: aggregate(sum_x=sum("x"))\ncreate edge source.out -> total.in`
+      ),
       execute,
       retrieve("source"),
       retrieve("total"),
@@ -261,7 +263,7 @@ async function probes() {
   }
   const leaf = await run(
     "leaf edit keeps ancestors cached",
-    [edit('total = aggregate(source, sum_x=sum("x"), n=count())'), execute, retrieve("total")],
+    [edit('modify operator total: aggregate(sum_x=sum("x"), n=count())'), execute, retrieve("total")],
     ["ok", "ok", "ok"],
     2
   );
@@ -270,7 +272,7 @@ async function probes() {
   assert.equal((leaf.snapshot.results.other as any).state, "CompletedFromCache");
   await run(
     "stale retrieval fails and skips execute",
-    [edit(loader(4)), retrieve("total"), execute],
+    [edit(loader(4, "modify")), retrieve("total"), execute],
     ["ok", "error", "skipped"],
     0
   );
@@ -281,19 +283,69 @@ async function probes() {
   assert.equal((revised.snapshot.results.total as any).state, "Completed");
   assert.equal((revised.snapshot.results.other as any).state, "CompletedFromCache");
   const partial = await run(
-    "missing input preserves valid edits and skips suffix",
+    "missing edge endpoint rejects the entire edit and skips suffix",
     [
       { type: "inspect", target: "graph" },
-      edit("good = limit(other, 1)\nbad = limit(missing, 1)\nblocked = limit(bad, 1)"),
+      edit(
+        "create operator good: limit(1)\ncreate operator bad: limit(1)\ncreate edge other.out -> good.in\ncreate edge missing.out -> bad.in"
+      ),
       execute,
       retrieve("good"),
     ],
     ["ok", "error", "skipped", "skipped"],
     0
   );
-  assert.ok(partial.snapshot.workflow!.operators.some(op => op.operatorID === "good"));
+  assert.ok(!partial.snapshot.workflow!.operators.some(op => op.operatorID === "good"));
   assert.ok(!partial.snapshot.workflow!.operators.some(op => op.operatorID === "bad" || op.operatorID === "blocked"));
   assert.doesNotMatch(renderDataflowActionsResult(partial.result), /\bprogram\b/i);
+  const rewired = await run(
+    "edge change recomputes the receiver",
+    [edit("delete edge source.out -> total.in\ncreate edge other.out -> total.in"), execute, retrieve("total")],
+    ["ok", "ok", "ok"],
+    2
+  );
+  assert.equal((rewired.snapshot.results.total as any).sampleRecords[0].sum_x, 10);
+  assert.equal((rewired.snapshot.results.source as any).state, "CompletedFromCache");
+  const joined = await run(
+    "self-join uses left and right ports",
+    [
+      edit(
+        'create operator joined: join(on="x")\ncreate edge source.out -> joined.left\ncreate edge source.out -> joined.right'
+      ),
+      execute,
+      retrieve("joined"),
+    ],
+    ["ok", "ok", "ok"],
+    2
+  );
+  assert.equal(
+    (joined.snapshot.results.joined as any).rowCount ??
+      (joined.snapshot.results.joined as any).totalRowCount ??
+      (joined.snapshot.results.joined as any).outputTuples,
+    3
+  );
+  const deleted = await run(
+    "delete removes every incident edge",
+    [edit("delete operator joined\ndelete operator other"), retrieve("total")],
+    ["ok", "error"],
+    0
+  );
+  const receipt = renderDataflowActionsResult(deleted.result);
+  assert.ok(receipt.includes("source.out -> joined.left") && receipt.includes("source.out -> joined.right"));
+  assert.ok(receipt.includes("other.out -> total.in"));
+  await run(
+    "unconnected execute blocks before engine and permits independent retrieval",
+    [execute, retrieve("source")],
+    ["error", "ok"],
+    0
+  );
+  const restored = await run(
+    "reconnect after deletion",
+    [edit("create edge source.out -> total.in"), execute, retrieve("total")],
+    ["ok", "ok", "ok"],
+    1
+  );
+  assert.equal((restored.snapshot.results.total as any).sampleRecords[0].sum_x, 7);
   const old = await getSnapshot(agentId, initial.snapshot.stepId!, baseUrl);
   assert.deepEqual(old, initial.snapshot, "Later edits changed an earlier snapshot");
   save("probe-trace.json", (await getReActSteps(agentId, baseUrl)).steps);

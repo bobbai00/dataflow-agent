@@ -30,7 +30,7 @@
 
 import { readFileSync } from "node:fs";
 import { ContextMode, type AgentSettings, type LocalToolDialect } from "../types/agent";
-import { nativeCatalogText } from "./native/catalog";
+import { graphCatalogText } from "./native/catalog";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -250,7 +250,7 @@ export function buildNativeModeSystemPrompt(
   const checks = options.checks
     ? "\n\nA check line reports a suspicious header, records repeated across sources, or an empty or duplicating operation inside a custom function. Examine the finding before using its result."
     : "";
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText(true))
+  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
     .replace("{{EVIDENCE}}", nativeEvidenceText(options) + checks)
     .replace("{{CONTEXT_LAYOUT}}", context)
     .replace(

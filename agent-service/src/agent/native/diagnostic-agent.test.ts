@@ -21,6 +21,7 @@ import { expect, spyOn, test } from "bun:test";
 import { AgentMode, ContextMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { createNativeTools } from "../tools/native-batch-tools";
 import { programOf, type LegacySpec } from "./test-support";
 import { assembleContext } from "../util/context-utils";
 import * as executionTools from "../tools/workflow-execution-tools";
@@ -40,21 +41,22 @@ async function fixture() {
   metadata.seedCodeModeDefaults();
   agent.metadataStore = metadata;
   Object.assign(agent.settings, { agentMode: AgentMode.NATIVE });
+  // Exercise diagnostics retained for archived assignment-based traces.
+  const currentTools = agent.createTools.bind(agent);
+  agent.createTools = () => ({
+    ...currentTools(),
+    ...createNativeTools(agent.workflowState, {
+      metadataStore: agent.metadataStore,
+      nativeValidationRepair: agent.nativeValidationRepair,
+      settings: agent.settings,
+    }),
+  });
   agent.tools = agent.createTools();
   // Tests describe operators as small objects; the tool receives the expressions.
   const call = async (name: string, args: any) => {
     const expressions = name === "dataflow" ? programOf(args.operators as LegacySpec[]) : "";
     const input =
-      name === "dataflow"
-        ? {
-            reasoning: "Check the revision and its diagnostics.",
-            actions: [
-              ...(expressions ? [{ type: "edit", expressions, delete: [] }] : []),
-              ...(args.execute ? [{ type: "execute" }] : []),
-              ...(args.observe ?? []).map((operator_id: string) => ({ type: "retrieve", operator_id })),
-            ],
-          }
-        : args;
+      name === "dataflow" ? { edits: expressions, ...(args.observe ? { observe: args.observe } : {}) } : args;
     const result = await agent.handleDebugInput(
       `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(input))})`
     );
@@ -265,7 +267,8 @@ test("an upstream rerun preserves rejected definitions, independent execution, a
       execute: true,
       observe: ["final"],
     });
-    expect(targetSets[1]).toEqual(["source", "answer", "final", "independent"]);
+    // The archived editor executes changed operators; accepted ancestors remain cached.
+    expect(targetSets[1]).toEqual(["answer", "final"]);
     expect(agent.snapshotStorage.getAssociatedSnapshot(repaired).nativeRejectedEdits?.answer).toBeUndefined();
     expect(agent.snapshotStorage.inspectNativeError(repaired, { operatorId: "answer" }).found).toBe(false);
     expect(agent.snapshotStorage.getOperatorResult(repaired, "final")?.result).toEqual([{ x: 7 }]);

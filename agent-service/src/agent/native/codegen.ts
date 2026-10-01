@@ -120,7 +120,7 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   for (const id of inputs) {
     if (!NATIVE_ID_RE.test(id)) throw new Error(`input operator id "${id}" is not a valid identifier`);
   }
-  if (new Set(inputs).size !== inputs.length && view.type !== "Join") {
+  if (new Set(inputs).size !== inputs.length && view.type !== "Join" && !view.graph) {
     throw new Error(`inputs must be distinct operators (got ${inputs.join(", ")})`);
   }
   if (def.inputs === 0 && inputs.length !== 0) throw new Error(`${def.name} takes no input tables`);
@@ -131,6 +131,10 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
     throw new Error("union needs at least two input tables");
   }
   const distinct = [...new Set(inputs)];
+  // Explicit graph edges address ports, including repeated sources on separate
+  // ports. Legacy expressions share one physical input for repeated sources.
+  const parameters = view.graph ? inputs.map((_, i) => `_input_${i}`) : distinct;
+  const argumentsInOrder = view.graph ? parameters : inputs;
   const spec = runtimeSpec(view, operatorId);
   // Avoid shadowing even when an input deliberately uses our private prefix.
   let prefix = "_native";
@@ -139,8 +143,8 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   // JSON is decoded, never textually rewritten into Python tokens. In
   // particular callback strings containing true/false/null stay byte-for-byte.
   const code = [
-    `def ${source ? "load()" : `process(${distinct.join(", ")})`}:`,
-    `    return ${prefix}_scope["execute_native"](${prefix}_spec, [${inputs.join(", ")}])`,
+    `def ${source ? "load()" : `process(${parameters.join(", ")})`}:`,
+    `    return ${prefix}_scope["execute_native"](${prefix}_spec, [${argumentsInOrder.join(", ")}])`,
     `import json as ${prefix}_json`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_runtime__"}`,

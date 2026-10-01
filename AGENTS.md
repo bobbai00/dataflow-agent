@@ -27,8 +27,8 @@ building, executing, and iterating on Texera dataflow operators. The fork adds
 three things on top of the upstream platform:
 
 1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
-   two modes — **native** (default: the model writes the dataflow as
-   `name = operator(...)` expressions over one operator catalog, with
+   two modes — **native** (default: the model edits a graph with
+   explicit operator and edge commands over one operator catalog, with
    `filter`/`map`/`process` carrying Python; see
    [docs/native-expression-mode.md](docs/native-expression-mode.md)) and
    **code** (every operator a free Python function) — plus a heavily
@@ -152,8 +152,8 @@ live in [native-mode/](native-mode/), generated from the code by
 ### Default agent configuration
 
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
-created with no `settings` runs: **`agentMode: native`** (operator
-expressions; `code` is the other mode), **`contextMode: delta`**,
+created with no `settings` runs: **`agentMode: native`** (explicit graph
+commands; `code` is the other mode), **`contextMode: delta`**,
 **`nativeProfileCollection: true`**, **`dataEvidence: false`** and
 **`flowEvidence: false`**. The two booleans independently control selected
 evidence in explicitly observed results; collection is compiled into each
@@ -174,7 +174,7 @@ displaces rows; a complete small table suppresses redundant data facts.
 in native mode. Every call requires a brief rationale and an ordered list of
 `inspect`, `edit`, `execute`, `retrieve`, or `answer` actions. Edits do not
 execute; retrieval never executes; Answer must be the sole action and ends
-the loop. A failure skips later actions while completed edits remain. After
+the loop. Each Edit is atomic. A failure skips later actions while earlier completed edits remain. After
 an execution failure, inspect and retrieve may read independent completed results.
 `inspectResult` is never exposed. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) and

@@ -22,7 +22,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { assembleContext } from "../util/context-utils";
-import { type NativeBatchResult } from "../tools/native-batch-tools";
+import { createNativeTools, type NativeBatchResult } from "../tools/native-batch-tools";
 import { NATIVE_OPERATORS } from "./catalog";
 import { NativeValidationRepair } from "./validation-repair";
 import { formatNativeDiagnostic } from "./diagnostics";
@@ -196,15 +196,18 @@ async function agentFixture() {
   metadata.seedCodeModeDefaults();
   agent.metadataStore = metadata;
   Object.assign(agent.settings, { agentMode: AgentMode.NATIVE });
+  const currentTools = agent.createTools.bind(agent);
+  agent.createTools = () => ({
+    ...currentTools(),
+    ...createNativeTools(agent.workflowState, {
+      metadataStore: agent.metadataStore,
+      nativeValidationRepair: agent.nativeValidationRepair,
+      settings: agent.settings,
+    }),
+  });
   agent.tools = agent.createTools();
   const call = async (name: string, args: any, allowError = false) => {
-    const input =
-      name === "dataflow"
-        ? {
-            reasoning: "Validate this revision.",
-            actions: [{ type: "edit", expressions: args.edits, delete: args.delete ?? [] }],
-          }
-        : args;
+    const input = args;
     const result = await agent.handleDebugInput(
       `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(input))})`
     );
@@ -262,10 +265,7 @@ test("repair state survives tool rebuilding, but resets on checkout, new debug t
   let modelResult: NativeBatchResult | undefined;
   agent.driver = {
     runTurn: async ({ tools, onStepFinish }: any) => {
-      const input = {
-        reasoning: "Try the revision in a new task.",
-        actions: [{ type: "edit", expressions: bad, delete: [] }],
-      };
+      const input = { edits: bad };
       modelResult = await tools.dataflow.execute(input);
       await onStepFinish({
         text: "",

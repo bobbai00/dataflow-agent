@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
 import { ContextMode } from "../src/types/agent";
 import { buildNativeModeSystemPrompt, nativeEvidenceText } from "../src/agent/prompts";
-import { NATIVE_OPERATORS, nativeCatalogText } from "../src/agent/native/catalog";
+import { NATIVE_OPERATORS, graphCatalogText, graphOperatorPorts } from "../src/agent/native/catalog";
 import { createDataflowTool } from "../src/agent/tools/dataflow-actions";
 
 const root = fileURLToPath(new URL("../../native-mode/", import.meta.url));
@@ -89,87 +89,68 @@ export function renderTools(): string {
       .map(t => `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n`)
       .join("\n") +
     "\n## Execution rules\n\n" +
-    "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.\n\n" +
+    "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
-    "Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit expressions define edges; changing those references replaces the corresponding edges.\n\n" +
+    "Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.\n\n" +
     "Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.\n"
   );
 }
 
 export function renderOperators(): string {
-  const rows = NATIVE_OPERATORS.map(
-    d =>
-      `| \`${d.name}\` | ${d.type} | ${d.inputs === "many" ? "1 or more (0 for a `process` loader)" : d.inputs} | ${d.rowEffect} | \`${d.signature}\` |`
-  );
+  const rows = NATIVE_OPERATORS.map(def => `| \`${def.name}\` | ${graphOperatorPorts(def)} | ${def.brief} |`);
   return (
     HEADER(
-      "Native mode: tools and operators",
-      "What the agent can call, what an operator is, and how a statement becomes an engine operator. The catalog table and the operator reference are generated from `agent-service/src/agent/native/catalog.ts`."
+      "Native mode: operators and ports",
+      "Generated from the operator catalog. Every operator produces one output table on out; edges provide its input tables."
     ) +
-    `## Tools versus operators
+    `
+## Graph commands
 
-The model sees one **tool**: \`dataflow(reasoning, actions)\` (TOOLS.md). Operators are not tools. Every operator is one statement inside an edit action's \`expressions\` string:
-
-\`\`\`python
-id = operator(input_id, ..., parameter=value, ...)
-\`\`\`
-
-- The left-hand **id** names the operator and its output table. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per edit.
-- **Positional arguments** are the ids of other operators, whose output tables are the inputs. The DAG edges are derived from them; there is no separate edge list.
-- **Keyword arguments** are the operator's parameters. Types are bare names (\`str\`, \`int64\`, \`float64\`, \`bool\`, \`datetime\`); reducers and window functions are calls (\`mean("x")\`, \`count()\`, \`lag("x", 1)\`).
-- **No nesting.** \`limit(sort(t, by=["x"]), 1)\` is refused; every intermediate table gets its own statement so it can be observed, revised and reported on.
-- **Functions** are lambdas or \`def\`s written in the same edit and passed by name. Only \`filter\`, \`map\` and \`process\` take them; the function's return type is the contract (bool, dict, DataFrame).
-- An edit may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
-
-## The catalog (${NATIVE_OPERATORS.length} operators)
-
-| Operator | Engine type | Inputs | Row effect | Signature |
-|---|---|---|---|---|
-${rows.join("\n")}
-
-Row effect is the contract the runtime enforces and flow evidence reports: \`none\` keeps every row in place, \`drop\` only removes rows, \`unknown\` promises nothing.
-
-## Full operator reference (the system prompt uses a compact version)
-
-\`T\` stands for an input table; defaults are shown.
+\`dataflow(reasoning, actions)\` exposes five actions: Inspect, Edit, Execute, Retrieve and Answer. An Edit's \`changes\` string contains these commands:
 
 \`\`\`text
-${nativeCatalogText()}
+create operator <id>: <operator>(parameters)
+modify operator <id>: <operator>(parameters)
+delete operator <id>
+create edge <source>.out -> <target>.<input_port>
+delete edge <source>.out -> <target>.<input_port>
 \`\`\`
 
-## The three custom operators
+Create requires a new identifier. Modify replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be modified; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction; Execute requires complete inputs and an acyclic graph.
 
-| Operator | Function shape | Contract |
+## Catalog (${NATIVE_OPERATORS.length} operators)
+
+| Operator | Ports | Meaning |
 |---|---|---|
-| \`filter(T, fn, doc="...")\` | \`fn(row) -> bool\` | drop-only: True keeps the row, False or None drops it |
-| \`map(T, fn, doc="...")\` | \`fn(row) -> dict\` (the new row) | row-preserving: one dict per row, same keys in every row, column types inferred from the values; \`{**row, ...}\` keeps the input columns |
-| \`process(T1, ..., Tn, fn=f, doc="...")\` | \`f(df1, ..., dfn) -> DataFrame\`; \`f()\` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes |
+${rows.join("\n")}
 
-Every custom operator carries a required \`doc\`: one sentence stating the logical semantics of the function (which rows a filter keeps, what row a map returns, what table a process produces). It is stored with the operator and leads the operator's flow guarantee in observed results, because nothing else about custom code can be measured.
+## Parameters and contracts
 
-\`row\` is a read-only mapping of the input columns; a missing value is None. The columns a function actually reads are measured at run time (\`predicateColumns\` for filter, \`readColumns\` and \`columnDependencies\` for map, where \`{**row}\` copies are not counted as reads) and drive the flow evidence and lineage, so nothing about the columns is declared.
+Operator expressions contain parameters only. No upstream table identifiers appear inside the expression. Defaults are shown. Data types are bare names; reducers and window functions name columns.
 
-## What an operator looks like end to end
-
-Operator expression:
-
-\`\`\`python
-positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0, doc="Keeps rows with a positive value")
+\`\`\`text
+${graphCatalogText()}
 \`\`\`
 
-Normalized view stored on the operator (\`nativeOp\`):
+## Python implementations
 
-\`\`\`json
-{ "type": "Filter", "inputs": ["typed"],
-  "properties": { "func": "def apply(row):\\n    return row[\\"value\\"] is not None and row[\\"value\\"] > 0", "entry": "apply", "doc": "Keeps rows with a positive value" },
-  "revision": "<hash of type + inputs + properties>" }
+Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. Every callback operator requires doc, describing the output's meaning.
+
+Indent complete function definitions under the operator that uses them. Helpers belong in the same block, and imports belong inside functions. Definitions do not carry across operators or modifications.
+
+\`\`\`dataflow
+create operator correlation: process(fn=correlate, doc="Pearson correlation between yearly changes")
+    def correlate(df):
+        import pandas as pd
+        return pd.DataFrame({"correlation": [df["x"].corr(df["y"])]})
+create edge measurements.out -> correlation.in[0]
 \`\`\`
 
-Engine operator: one \`DataProcessing\` (or \`DataLoading\` for a source) whose code hands this JSON to the shared Python runtime (\`agent-service/src/agent/native/python/runtime.py\`), which validates the contract, runs it with pandas and records the counters that flow evidence reports (\`Filter kept=135/1388\`). The model never sees that code; it sees the statement it wrote.
+## Execution and caching
 
-## Errors
+The editor stages and validates commands before committing. The graph's ordered port connections become the native operator's inputs, its revision and generated engine code. Edge changes invalidate the receiver and its descendants. Valid results on independent branches remain available. Retrieve never executes and observations preserve the result version originally returned.
 
-Every failure is one receipt line per operator: \`[CODE; stage; revision] message\`, then \`Hint:\`, \`Field:\` (the offending argument) and, for custom code, the failing line. \`PROGRAM_SYNTAX\` fails the statement that does not parse; \`INVALID_ARGUMENTS\` fails one statement; runtime codes (\`MISSING_COLUMN\`, \`CAST_INVALID_VALUE\`, \`JOIN_CARDINALITY\`, \`UNION_TYPE\`, ...) name the column, value or option; a consumer of a failed operator is told its upstream failed, a bystander that the run stopped elsewhere. The full taxonomy is in \`docs/native-expression-mode.md\` and \`agent-service/benchmark/tests/test_native_error_taxonomy.py\`.
+Historical assignment-based traces remain replayable through their original edit interpreter. Newly generated calls use graph commands.
 `
   );
 }

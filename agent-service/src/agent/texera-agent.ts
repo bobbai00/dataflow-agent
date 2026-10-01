@@ -125,6 +125,7 @@ import {
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import { createDataflowTool, asDataflowActionsResult } from "./tools/dataflow-actions";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
+import { planGraphEdit } from "./tools/graph-edits";
 import {
   executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
@@ -2391,13 +2392,25 @@ export class TexeraAgent {
               // apply an action that the original run skipped after a failure.
               for (const item of saved?.actions ?? []) {
                 if (item.status === "pending" || item.status === "skipped") break;
-                if (item.action.type === "edit") {
+                if (item.action.type === "edit" && "changes" in item.action) {
+                  if (item.status === "ok") {
+                    const plan = await planGraphEdit(this.workflowState.getWorkflowContent(), item.action.changes, {
+                      metadataStore: this.metadataStore,
+                      settings: this.settings,
+                    });
+                    this.workflowState.setWorkflowContent(plan.workflow);
+                  }
+                } else if ((item.action as { type: string }).type === "edit") {
+                  const legacy = item.action as unknown as {
+                    expressions?: string;
+                    program?: string;
+                    delete?: string[];
+                  };
                   const landed = (item.output as { operators?: Array<{ status: string }> } | undefined)?.operators;
                   if (landed?.some(op => ["added", "modified", "deleted"].includes(op.status))) {
                     // Imported action traces may predate the expressions field.
-                    const expressions =
-                      item.action.expressions ?? (item.action as unknown as { program?: string }).program;
-                    await tool.execute({ edits: expressions, delete: item.action.delete });
+                    const expressions = legacy.expressions ?? legacy.program;
+                    await tool.execute({ edits: expressions, delete: legacy.delete });
                   }
                 }
                 if (item.status === "error") break;
@@ -2579,7 +2592,7 @@ export class TexeraAgent {
     const input = {
       reasoning: "Load the supplied source files.",
       actions: [
-        { type: "edit", expressions: plan.program, delete: [] },
+        { type: "edit", changes: plan.program.replace(/^(\w+) = /gm, "create operator $1: ") },
         { type: "execute" },
         ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id })),
       ],

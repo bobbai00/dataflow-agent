@@ -164,9 +164,8 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
       actions: [
         {
           type: "edit",
-          expressions:
-            'roman_cities = scan("data/archeology/input/roman_cities.csv")\nnotes = scan("data/archeology/input/notes.txt", format="lines")',
-          delete: [],
+          changes:
+            'create operator roman_cities: scan("data/archeology/input/roman_cities.csv")\ncreate operator notes: scan("data/archeology/input/notes.txt", format="lines")',
         },
         { type: "execute" },
         { type: "retrieve", operator_id: "roman_cities" },

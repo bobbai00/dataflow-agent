@@ -72,6 +72,8 @@ export interface OperatorPredicate {
     type: string;
     properties: Record<string, unknown>;
     inputs: string[];
+    /** Public graph ports in logical input order. */
+    graph?: { inputPorts: string[] };
     revision?: string;
     profileCollection?: boolean;
     /** The assignment as the model wrote it (`x = filter(...)`). */

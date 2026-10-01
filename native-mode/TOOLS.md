@@ -82,26 +82,18 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "const": "edit"
               },
-              "expressions": {
+              "changes": {
                 "type": "string",
-                "description": "One name = operator(...) statement per operator, plus any functions it uses. Reusing a name revises it; input references define edges."
-              },
-              "delete": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "\\S"
-                },
-                "uniqueItems": true
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes."
               }
             },
             "required": [
               "type",
-              "expressions",
-              "delete"
+              "changes"
             ],
-            "description": "Delete the listed operators, then apply the operator expressions. Does not execute. Use an empty string or delete list when unused."
+            "description": "Apply an atomic batch of explicit operator and edge changes. Does not execute."
           },
           {
             "type": "object",
@@ -170,10 +162,10 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
 
 ## Execution rules
 
-The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.
+The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.
 
 Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.
 
-Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit expressions define edges; changing those references replaces the corresponding edges.
+Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.
 
 Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.
