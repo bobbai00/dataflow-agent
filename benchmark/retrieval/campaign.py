@@ -89,8 +89,11 @@ def audit_attempt(path, settings):
         warnings.append("missing_trace")
     steps = raw if isinstance(raw, list) else (raw or {}).get("steps", [])
     previous, prefix_checks, action_errors, reads = None, 0, 0, 0
+    answered, text_replies = False, 0
     for step in steps:
         messages = step.get("inputMessages")
+        if settings.get("agentMode") == "native" and step.get("role") == "agent" and messages is not None and not step.get("toolCalls") and step.get("content"):
+            text_replies += 1
         if step.get("role") == "agent" and messages:
             if previous is not None:
                 prefix_checks += 1
@@ -104,6 +107,7 @@ def audit_attempt(path, settings):
             for item in output.get("actions", []):
                 action_errors += item.get("status") == "error"
                 action, observed = item.get("action", {}), item.get("output", {})
+                answered |= action.get("type") == "answer" and item.get("status") == "ok"
                 if action.get("type") != "retrieve" or item.get("status") != "ok":
                     continue
                 reads += 1
@@ -114,6 +118,11 @@ def audit_attempt(path, settings):
                     violations.append("flow_evidence_leak")
                 if action.get("view") != "sample_stats" and any(f.startswith("data.") for f in facts):
                     violations.append("data_evidence_leak")
+    if settings.get("agentMode") == "native" and raw is not None:
+        if text_replies:
+            warnings.append("text_without_dataflow")
+        if not answered:
+            warnings.append("missing_answer_action")
     profiles = columns = 0
     for result in read("snapshot.json", {}).get("results", {}).values():
         profile = result.get("tableProfile")
@@ -133,4 +142,4 @@ def audit_attempt(path, settings):
             if frequencies and sum(v["count"] for v in frequencies["values"]) + frequencies["otherCount"] != data["nonnullCount"]:
                 violations.append("frequency_equation")
     return {"violations": sorted(set(violations)), "warnings": warnings, "prefix_checks": prefix_checks,
-            "action_errors": action_errors, "retrievals": reads, "profiles": profiles, "columns": columns}
+            "action_errors": action_errors, "text_replies": text_replies, "retrievals": reads, "profiles": profiles, "columns": columns}

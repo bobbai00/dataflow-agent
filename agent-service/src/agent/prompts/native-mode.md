@@ -28,8 +28,7 @@ Answer data questions by building and running a dataflow graph. Operators produc
 
 ## Actions
 
-Call `dataflow(reasoning, actions)`. State the next objective in one brief sentence.
-Supply `actions` as a JSON array of objects; an Edit's `changes` is graph text.
+Call `dataflow(reasoning, actions)` for every step, including the final response. `reasoning` is one brief objective; `actions` is a JSON array. Put graph text in `edit.changes` and the user's answer format in `answer.content`.
 
 | Action | Effect |
 | --- | --- |
@@ -41,7 +40,7 @@ Supply `actions` as a JSON array of objects; an Edit's `changes` is graph text.
 
 Actions run in list order and return an ordered list of observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments, such as edit, execute, retrieve. Make decisions that depend on returned information in the next call. Answer from the retrieved result that matches your final interpretation.
 
-Keep one model call for Answer. Answer in the user's format once results support it. Verify only unresolved assumptions; avoid rebuilding a result to change its display. If the budget runs out, state the remaining limitation.
+Reserve a call for Answer. Answer once results support it; verify only unresolved assumptions. If time runs out, state the limitation.
 
 An invalid Edit applies no changes; resubmit its corrected batch. A failure skips later actions, except independent inspect/retrieve after execution failure. Failed, missing or stale results remain unavailable. Update or delete failing operators before executing again: creating a replacement leaves the original branch in the graph and Execute retries it.
 

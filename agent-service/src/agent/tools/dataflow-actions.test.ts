@@ -759,6 +759,8 @@ test("a plain-text plan gets one recorded protocol correction within the origina
   expect(response.response).toBe("result-1");
   expect(seen).toHaveLength(3);
   expect(JSON.stringify(seen[1])).toContain("No Dataflow action was called");
+  expect(JSON.stringify(seen[1])).toContain('\\"type\\":\\"answer\\"');
+  expect(JSON.stringify(seen[1])).toContain("user's required format");
   expect(seen[1].slice(0, seen[0].length)).toEqual(seen[0]);
   expect(seen[2].slice(0, seen[1].length)).toEqual(seen[1]);
   expect(s.executions()).toBe(1);
@@ -768,6 +770,56 @@ test("a plain-text plan gets one recorded protocol correction within the origina
       .getVisibleReActSteps()
       .filter(step => step.messageSource === "feedback" && step.content.includes("No Dataflow action was called"))
   ).toHaveLength(1);
+});
+
+test("Sonnet's text-only final answer gets an explicit Answer example and a bounded recovery", async () => {
+  const s = session([]);
+  s.agent.updateSettings({ maxSteps: 3 });
+  let calls = 0;
+  const model = new MockLanguageModelV3({
+    modelId: "claude-sonnet-5.5",
+    doGenerate: async options => {
+      calls++;
+      expect(options.toolChoice).toEqual({ type: "auto" });
+      if (calls === 2) {
+        expect(JSON.stringify(options.prompt)).toContain('\\"type\\":\\"answer\\"');
+        expect(JSON.stringify(options.prompt)).toContain("user's required format");
+      }
+      return {
+        content:
+          calls === 1
+            ? [{ type: "text", text: "**Final Answer: No**" }]
+            : [
+                {
+                  type: "tool-call",
+                  toolCallId: "answer-recovery",
+                  toolName: "dataflow",
+                  input: JSON.stringify({
+                    reasoning: "Submit the answer.",
+                    actions: [{ type: "answer", content: "**Final Answer: No**" }],
+                  }),
+                },
+              ],
+        finishReason: { unified: calls === 1 ? "stop" : "tool-calls", raw: calls === 1 ? "stop" : "tool_calls" },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 5, text: 5, reasoning: 0 },
+        },
+        warnings: [],
+      };
+    },
+  });
+  (s.agent as any).driver = new VercelToolUseDriver({ model });
+  (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings }: any) =>
+    assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+      agentMode: AgentMode.NATIVE,
+      messageLayout: "native",
+    });
+  const response = await s.agent.sendMessage("Return No in the requested final-answer format.");
+  expect(response.error).toBeUndefined();
+  expect(response.response).toBe("**Final Answer: No**");
+  expect(calls).toBe(2);
+  expect(s.executions()).toBe(0);
 });
 
 test("plain-text protocol correction is bounded and never extends maxSteps", async () => {

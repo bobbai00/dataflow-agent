@@ -2109,7 +2109,12 @@ export class TexeraAgent {
             ) {
               partials.push(error.partial);
               const feedback =
-                "No Dataflow action was called. Continue by calling dataflow with the next actions, or use its Answer action when the result is ready.";
+                "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
+                JSON.stringify({
+                  reasoning: "Submit the supported result.",
+                  actions: [{ type: "answer", content: "<answer in the user's required format>" }],
+                }) +
+                ". Put the final response in answer.content; Answer must be the sole action. Use other actions if more work is needed.";
               const feedbackId = this.generateStepId();
               this.addStep({
                 id: feedbackId,

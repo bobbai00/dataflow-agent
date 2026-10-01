@@ -97,6 +97,24 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(findings["violations"], [])
             self.assertEqual(findings["action_errors"], 1)
 
+    def test_native_text_answer_is_flagged_until_an_answer_action_succeeds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"agentMode": "native", "retrievalViews": ["sample_stats"], "flowEvidence": False}
+            (path / "settings.json").write_text(json.dumps(settings))
+            steps = [{"role": "agent", "content": "Final Answer: No", "inputMessages": [{"role": "user", "content": "question"}], "toolCalls": []},
+                     {"role": "agent", "content": "Error: No final answer was produced."}]
+            (path / "react_steps.json").write_text(json.dumps(steps))
+            findings = audit_attempt(path, settings)
+            self.assertEqual(findings["violations"], [])
+            self.assertEqual(set(findings["warnings"]), {"text_without_dataflow", "missing_answer_action"})
+            self.assertEqual(findings["text_replies"], 1)
+            steps.append({"toolResults": [{"output": {"actions": [{"action": {"type": "answer", "content": "No"}, "status": "ok"}]}}]})
+            (path / "react_steps.json").write_text(json.dumps(steps))
+            findings = audit_attempt(path, settings)
+            self.assertNotIn("missing_answer_action", findings["warnings"])
+            self.assertEqual(findings["text_replies"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
