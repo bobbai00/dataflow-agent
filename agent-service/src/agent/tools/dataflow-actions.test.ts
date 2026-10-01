@@ -140,10 +140,10 @@ describe("ordered dataflow actions", () => {
   });
 
   test("graph verbs in the outer action receive a concrete edit envelope", () => {
-    for (const type of ["create", "modify", "delete"]) {
+    for (const type of ["create", "update", "modify", "delete"]) {
       const result = prepareDataflowActions({ reasoning: "Change the graph.", actions: [{ type }] });
       expect(result.error).toContain('"type":"edit"');
-      expect(result.error).toContain(`"changes":"${type} operator`);
+      expect(result.error).toContain(`"changes":"${type === "modify" ? "update" : type} operator`);
       expect(result.actions).toEqual([]);
     }
   });
@@ -244,7 +244,7 @@ describe("dataflow action integration", () => {
   test("editing an ancestor invalidates downstream retrieval and preserves old observations", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [{ type: "edit", changes: 'modify operator source: scan("data/new.csv")' }, read, { type: "execute" }],
+      [{ type: "edit", changes: 'update operator source: scan("data/new.csv")' }, read, { type: "execute" }],
     ]);
     await s.agent.sendMessage("Revise the source.");
     expect(s.executions()).toBe(1);
@@ -316,7 +316,7 @@ describe("dataflow action integration", () => {
     const s = session([
       [source, { type: "execute" }, read],
       [read, { type: "inspect", target: "graph" }],
-      [{ type: "edit", changes: 'modify operator source: scan("data/new.csv")' }, { type: "execute" }, read],
+      [{ type: "edit", changes: 'update operator source: scan("data/new.csv")' }, { type: "execute" }, read],
       [read],
     ]);
     await s.agent.sendMessage("Read, revise, and read again.");
@@ -334,7 +334,7 @@ describe("dataflow action integration", () => {
   test("a rejected atomic edit stops the batch and preserves the unchanged graph result", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [{ type: "edit", changes: "modify operator source: scan()" }, { type: "execute" }, read],
+      [{ type: "edit", changes: "update operator source: scan()" }, { type: "execute" }, read],
       [read],
     ]);
     await s.agent.sendMessage("Try a bad revision.");
@@ -351,7 +351,7 @@ describe("action history and model loop", () => {
   test("two executions in one call keep each retrieved version and preserve prior snapshots", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [read, { type: "edit", changes: 'modify operator source: scan("data/new.csv")' }, { type: "execute" }, read],
+      [read, { type: "edit", changes: 'update operator source: scan("data/new.csv")' }, { type: "execute" }, read],
     ]);
     await s.agent.sendMessage("Compare the old and new file.");
     expect(s.executions()).toBe(2);
@@ -546,7 +546,7 @@ test("LATEST preserves a retrieved table that a later action supersedes", async 
       { type: "edit", changes: 'create operator source: scan("data/old.csv")' },
       { type: "execute" },
       { type: "retrieve", operator_id: "source" },
-      { type: "edit", changes: 'modify operator source: scan("data/new.csv")' },
+      { type: "edit", changes: 'update operator source: scan("data/new.csv")' },
     ],
   ]);
   await s.agent.sendMessage("Read the old source, then revise it.");

@@ -126,7 +126,7 @@ automatically after operator edits.
 
 | Mode | Tools the model sees | What one call does |
 |---|---|---|
-| `native` (default) | `dataflow` | `dataflow({reasoning, actions})`: an ordered list of `inspect`, `edit`, `execute`, `retrieve`, or `answer`. Edits use explicit `create/modify/delete operator` and `create/delete edge` commands over the 15-operator catalog. Operator expressions contain parameters; named ports define connections. Each Edit is atomic, and deleting an operator also deletes its incident edges. `filter`, `map`, and `process` carry Python functions and a required `doc`. Edits do not execute; retrieval reads stored results; Answer ends the loop. |
+| `native` (default) | `dataflow` | `dataflow({reasoning, actions})`: an ordered list of `inspect`, `edit`, `execute`, `retrieve`, or `answer`. Edits use explicit `create/update/delete operator` and `create/delete edge` commands over the 15-operator catalog. Operator expressions contain parameters; named ports define connections. Each Edit is atomic, and deleting an operator also deletes its incident edges. `filter`, `map`, and `process` carry Python functions and a required `doc`. Edits do not execute; retrieval reads stored results; Answer ends the loop. |
 | `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
 
 Optional pull tools in either mode, all off by default: `recallState`

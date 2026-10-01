@@ -175,11 +175,11 @@ export async function planGraphEdit(
     for (const [index, command] of parsed.commands!.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
       const { operation, id } = command;
-      if (operation === "create_operator" || operation === "modify_operator") {
+      if (operation === "create_operator" || operation === "update_operator") {
         const existing = nodes.get(id);
         if (operation === "create_operator" && existing)
-          throw new Error(`Operator ${id} already exists; use modify operator.`);
-        if (operation === "modify_operator") required(id);
+          throw new Error(`Operator ${id} already exists; use update operator.`);
+        if (operation === "update_operator") required(id);
         const view = definition(command, existing?.profileCollection ?? context.settings?.nativeProfileCollection);
         nodes.set(id, view);
         changed.add(id);
@@ -187,7 +187,7 @@ export async function planGraphEdit(
           id,
           op: command.statement.op,
           status: existing ? "modified" : "added",
-          message: `${existing ? "modified" : "added"} ${command.statement.op} operator \`${id}\``,
+          message: `${existing ? "updated" : "added"} ${command.statement.op} operator \`${id}\``,
         });
         receipts.push({ operation, operator_id: id });
       } else if (operation === "delete_operator") {

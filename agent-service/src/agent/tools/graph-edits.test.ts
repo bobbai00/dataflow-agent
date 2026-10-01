@@ -50,15 +50,16 @@ test("graph edits keep definitions separate from edges and expose named ports", 
   expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
 });
 
-test("create and modify are distinct and invalid edits are atomic", async () => {
+test("create and update are distinct and invalid edits are atomic", async () => {
   const state = new WorkflowState();
   await edit(state, chain);
   const before = state.getWorkflowContent();
   for (const bad of [
     'create operator source: scan("b.csv")',
-    'modify operator absent: scan("b.csv")',
+    'update operator absent: scan("b.csv")',
     'create operator extra: scan("b.csv")\ncreate edge absent.out -> total.in',
-    "delete operator selected\nmodify operator absent: limit(1)",
+    "delete operator selected\nupdate operator absent: limit(1)",
+    "update edge source.out -> total.in",
     "modify edge source.out -> total.in",
     "create operator bad: limit(source, 1)",
   ]) {
@@ -85,12 +86,16 @@ test("an indented graph command reports its own line and leaves the graph intact
   expect(state.getWorkflowContent()).toEqual(before);
 });
 
-test("modify preserves incoming and outgoing connections and invalidates descendants", async () => {
+test.each(["update", "modify"])("%s preserves connections and invalidates descendants", async verb => {
   const state = new WorkflowState();
   await edit(state, chain);
   const before = state.getWorkflowContent();
-  await edit(state, 'modify operator selected: project(keep=["region", "amount"], rename={"amount": "value"})');
+  const result = await edit(
+    state,
+    `${verb} operator selected: project(keep=["region", "amount"], rename={"amount": "value"})`
+  );
   const after = state.getWorkflowContent();
+  expect(result.changes).toEqual([{ operation: "update_operator", operator_id: "selected" }]);
   expect(after.links).toEqual(before.links);
   expect(state.getOperator("selected")!.nativeOp!.inputs).toEqual(["source"]);
   expect(computeStaleResultOps(before, after)).toEqual(new Set(["selected", "total"]));
@@ -147,7 +152,7 @@ create edge source.out -> combined.right`
   expect(view.inputs).toEqual(["source", "source"]);
   const code = compileNativeOp(view, "combined").code;
   expect(code).toContain("def process(_input_0, _input_1)");
-  await expect(edit(state, 'modify operator combined: project(keep=["id"])')).rejects.toThrow();
+  await expect(edit(state, 'update operator combined: project(keep=["id"])')).rejects.toThrow();
 });
 
 test("union inputs are ordered, can grow, and gaps remain explicitly unconnected", async () => {

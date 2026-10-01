@@ -118,13 +118,13 @@ export function renderOperators(): string {
 
 \`\`\`text
 create operator <id>: <operator>(parameters)
-modify operator <id>: <operator>(parameters)
+update operator <id>: <operator>(parameters)
 delete operator <id>
 create edge <source>.out -> <target>.<input_port>
 delete edge <source>.out -> <target>.<input_port>
 \`\`\`
 
-Create requires a new identifier. Modify replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be modified; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction; Execute requires complete inputs and an acyclic graph.
+Create requires a new identifier. Update replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be updated; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction; Execute requires complete inputs and an acyclic graph.
 
 ## Catalog (${NATIVE_OPERATORS.length} operators)
 
@@ -144,7 +144,7 @@ ${graphCatalogText()}
 
 Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. Every callback operator requires doc, describing the output's meaning.
 
-Indent complete function definitions under the operator that uses them. Helpers belong in the same block, and imports belong inside functions. Definitions do not carry across operators or modifications.
+Indent complete function definitions under the operator that uses them. Helpers belong in the same block, and imports belong inside functions. Definitions do not carry across operators or updates.
 
 \`\`\`dataflow
 create operator correlation: process(fn=correlate, doc="Pearson correlation between yearly changes")

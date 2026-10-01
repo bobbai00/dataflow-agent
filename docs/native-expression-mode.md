@@ -52,20 +52,23 @@ observation belong in the next call.
 
 ```text
 create operator <id>: <operator>(parameters)
-modify operator <id>: <operator>(parameters)
+update operator <id>: <operator>(parameters)
 delete operator <id>
 create edge <source>.out -> <target>.<input_port>
 delete edge <source>.out -> <target>.<input_port>
 ```
 
 Identifiers contain letters, digits and underscores and start with a letter or
-underscore. Create requires a new ID; Modify requires an existing one. Modify
+underscore. Create requires a new ID; Update requires an existing one. Update
 supplies the complete definition, preserves the ID and all connections, and
 resets omitted parameters to defaults. An incompatible definition is rejected.
 
+Saved `modify operator` edits remain replayable as a legacy spelling. New calls
+and observations use `update operator`.
+
 Operator expressions contain parameters only; edges supply all input tables.
 Delete automatically removes every incident edge and lists them in its receipt.
-Consumers remain in the graph with unconnected inputs. Edges cannot be modified:
+Consumers remain in the graph with unconnected inputs. Edges cannot be updated:
 delete the old edge and create its replacement.
 
 Commands are staged in order. Each Edit is atomic: a missing operator, invalid
@@ -102,7 +105,7 @@ output may feed any number of inputs, including both sides of a self-join.
 To change the calculation while keeping the edge:
 
 ```dataflow
-modify operator total: aggregate(total_amount=sum("amount"))
+update operator total: aggregate(total_amount=sum("amount"))
 ```
 
 Given another source named `replacement`, rewire explicitly:
@@ -131,7 +134,7 @@ All three require a `doc` describing the output's meaning.
 Functions are lambdas or complete definitions indented under the operator that
 uses them. Helpers belong in the same block and imports belong inside functions.
 There are no shared definitions between operators. Include required functions
-again when modifying an operator.
+again when updating an operator.
 
 ```dataflow
 create operator correlation: process(fn=correlate, doc="Pearson correlation of x and y")

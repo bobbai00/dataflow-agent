@@ -14,7 +14,7 @@ Call `dataflow(reasoning, actions)`. State the next objective in one brief sente
 
 Actions run in list order and return an ordered list of observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions whose arguments you already know, such as edit, execute, retrieve. Make decisions that depend on returned information in the next call. Read the final result before answering.
 
-An invalid Edit applies no changes; correct and resubmit its whole batch. A failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Failed, missing or stale results remain unavailable. Before executing again, modify the failing operator or remove its obsolete branch. Creating a replacement leaves the original branch in the graph, and Execute will retry it. Inspect the graph if you need to check its connections.
+An invalid Edit applies no changes; correct and resubmit its whole batch. A failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Failed, missing or stale results remain unavailable. Before executing again, update the failing operator or remove its obsolete branch. Creating a replacement leaves the original branch in the graph, and Execute will retry it. Inspect the graph if you need to check its connections.
 
 ## Editing the graph
 
@@ -22,23 +22,23 @@ Put graph commands in the `changes` string of an action whose `type` is `edit`. 
 
 ```text
 create operator <id>: <operator>(parameters)
-modify operator <id>: <operator>(parameters)
+update operator <id>: <operator>(parameters)
 delete operator <id>
 create edge <source>.out -> <target>.<input_port>
 delete edge <source>.out -> <target>.<input_port>
 ```
 
-Use unique identifiers made of letters, digits and underscores, starting with a letter or underscore. `create` requires a new identifier; `modify` requires an existing one. A modification supplies the complete definition, with omitted parameters taking their defaults, and preserves the identifier and all connections. A definition incompatible with those connections is rejected.
+Use unique identifiers made of letters, digits and underscores, starting with a letter or underscore. `create` requires a new identifier; `update` requires an existing one. An update supplies the complete definition, with omitted parameters taking their defaults, and preserves the identifier and all connections. A definition incompatible with those connections is rejected.
 
 Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source.
 
-An input accepts one edge. To change a connection, delete its old edge and create a new one. Edges cannot be modified directly. Deleting an operator automatically deletes every incoming and outgoing edge; the observation lists those edges. Other operators remain, including consumers whose inputs are now unconnected.
+An input accepts one edge. To change a connection, delete its old edge and create a new one. Edges cannot be updated directly. Deleting an operator automatically deletes every incoming and outgoing edge; the observation lists those edges. Other operators remain, including consumers whose inputs are now unconnected.
 
 Commands are staged in order and committed together after validation. Missing operators, invalid ports, occupied inputs and cycles reject the entire Edit. Unconnected operators are allowed while editing; connect all required inputs or delete unused operators before Execute. Editing a definition or incoming edge invalidates that operator's results and everything downstream.
 
 ## Python within operators
 
-`filter` and `map` accept a lambda or a named function. `process(fn=name, doc="...")` names an attached `def name(...)` taking one pandas DataFrame per input and returning one DataFrame. Indent complete function definitions under the operator that uses them; include them again when modifying that operator. Helper functions belong in the same indented block. Put imports inside functions. There are no shared Python variables between operators.
+`filter` and `map` accept a lambda or a named function. `process(fn=name, doc="...")` names an attached `def name(...)` taking one pandas DataFrame per input and returning one DataFrame. Indent complete function definitions under the operator that uses them; include them again when updating that operator. Helper functions belong in the same indented block. Put imports inside functions. There are no shared Python variables between operators.
 
 A row's missing values are `None`; handle them explicitly. A map returns scalar values or `None` under the same keys for every row. A process returns unique string column names and one compatible scalar type per column, with timezone-aware datetimes. For custom diagnostic tables, serialize mixed or nested values as text. Check column names and empty selections before indexing. These three operators require `doc`, a short description of the output's meaning.
 
@@ -140,20 +140,20 @@ Preview a file, execute and read its raw header:
 If that preview shows one preamble line, use these commands in the next Edit, followed by Execute and Retrieve for `totals`:
 
 ```dataflow
-modify operator orders: scan("data/orders.csv", skip_lines=1)
+update operator orders: scan("data/orders.csv", skip_lines=1)
 create operator selected: project(keep=["region", "amount"])
 create operator totals: aggregate(by=["region"], total=sum("amount"))
 create edge orders.out -> selected.in
 create edge selected.out -> totals.in
 ```
 
-To compute averages instead, send another Edit, Execute and Retrieve. The modification keeps `selected.out -> totals.in` connected:
+To compute averages instead, send another Edit, Execute and Retrieve. The update keeps `selected.out -> totals.in` connected:
 
 ```json
 {
   "reasoning": "Compute the average amount for each region.",
   "actions": [
-    {"type": "edit", "changes": "modify operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
+    {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "totals"}
   ]

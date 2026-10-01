@@ -41,7 +41,7 @@ def parse_graph_changes(source):
                 indent -= 1
             elif token.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.ENDMARKER):
                 if (not depth and indent and token.type == tokenize.NAME
-                        and re.match(r"^(create|modify|delete) (operator|edge)\b", lines[token.start[0] - 1].lstrip())):
+                        and re.match(r"^(create|update|modify|delete) (operator|edge)\b", lines[token.start[0] - 1].lstrip())):
                     raise ValueError(
                         f"Line {token.start[0]}: start graph commands without indentation; indent only attached Python functions."
                     )
@@ -60,9 +60,13 @@ def parse_graph_changes(source):
             end = starts[index + 1] - 1 if index + 1 < len(starts) else len(lines)
             block = lines[start - 1:end]
             heading = block[0]
-            operator = re.match(rf"^(create|modify) operator ({ID}):\s*(.*)$", heading)
+            operator = re.match(rf"^(create|update|modify) operator ({ID}):\s*(.*)$", heading)
             if operator:
                 verb, identifier, first = operator.groups()
+                # Replay saved graph edits without exposing the old spelling in
+                # new prompts or receipts.
+                if verb == "modify":
+                    verb = "update"
                 newline = next(t for t in tokens if t.type == tokenize.NEWLINE and t.start[0] >= start)
                 expression_lines = [first, *lines[start:newline.start[0]]]
                 expression = "\n".join(expression_lines).strip()
@@ -98,7 +102,7 @@ def parse_graph_changes(source):
                 commands.append(dict(operation=f"{verb}_edge", source=source_id, sourcePort=source_port,
                                      target=target_id, targetPort=target_port, line=start))
             else:
-                raise ValueError(f"Line {start}: use create/modify/delete operator, or create/delete edge. Edges cannot be modified.")
+                raise ValueError(f"Line {start}: use create/update/delete operator, or create/delete edge. Edges cannot be updated.")
         return dict(ok=True, commands=commands)
     except (ValueError, SyntaxError, tokenize.TokenError, IndentationError) as error:
         return dict(ok=False, error=str(error))

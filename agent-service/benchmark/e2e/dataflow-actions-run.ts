@@ -263,7 +263,7 @@ async function probes() {
   }
   const leaf = await run(
     "leaf edit keeps ancestors cached",
-    [edit('modify operator total: aggregate(sum_x=sum("x"), n=count())'), execute, retrieve("total")],
+    [edit('update operator total: aggregate(sum_x=sum("x"), n=count())'), execute, retrieve("total")],
     ["ok", "ok", "ok"],
     2
   );
@@ -272,7 +272,7 @@ async function probes() {
   assert.equal((leaf.snapshot.results.other as any).state, "CompletedFromCache");
   await run(
     "stale retrieval fails and skips execute",
-    [edit(loader(4, "modify")), retrieve("total"), execute],
+    [edit(loader(4, "update")), retrieve("total"), execute],
     ["ok", "error", "skipped"],
     0
   );

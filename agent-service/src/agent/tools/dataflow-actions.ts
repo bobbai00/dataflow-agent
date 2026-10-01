@@ -95,12 +95,12 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "edit",
-          'Create, modify or delete operators and edges through commands in changes, with type="edit". Atomic; does not execute.',
+          'Apply operator create/update/delete commands and edge create/delete commands in changes, with type="edit". Atomic; does not execute.',
           {
             changes: {
               ...text,
               description:
-                "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes.",
+                "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes.",
             },
           }
         ),
@@ -135,8 +135,9 @@ function validationMessage(input: any): string {
     for (const [index, item] of input.actions.entries()) {
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
       if (!candidates.length) {
-        if (["create", "modify", "delete"].includes(item?.type)) {
-          const changes = `${item.type} operator <id>${item.type === "delete" ? "" : ": <expression>"}`;
+        if (["create", "update", "modify", "delete"].includes(item?.type)) {
+          const verb = item.type === "modify" ? "update" : item.type;
+          const changes = `${verb} operator <id>${verb === "delete" ? "" : ": <expression>"}`;
           return `Action ${index + 1}: ${JSON.stringify(item.type)} is a graph command. Put it inside an edit action: ${JSON.stringify({ type: "edit", changes })}. No actions ran.`;
         }
         return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;

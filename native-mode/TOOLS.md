@@ -86,14 +86,14 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes."
+                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes."
               }
             },
             "required": [
               "type",
               "changes"
             ],
-            "description": "Create, modify or delete operators and edges through commands in changes, with type=\"edit\". Atomic; does not execute."
+            "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
           },
           {
             "type": "object",
