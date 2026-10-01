@@ -149,7 +149,7 @@ ${graphCatalogText()}
 
 Keep loading, deriving columns, filtering, joining and aggregation in separate predefined operators. Use process for one operation the catalog cannot express. A custom calculation consumes connected tables; a source process loads an unsupported format and returns a parsed table for downstream operators. Build a known chain and its edges in one Edit.
 
-Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. Every callback operator requires doc, describing the output's meaning.
+Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. For a process with exactly one parameter, in is an alias stored as in[0]. Every callback operator requires doc, describing the output's meaning.
 
 Indent complete function definitions under the operator that uses them. Helpers belong in the same block, and imports belong inside functions. Definitions do not carry across operators or updates.
 

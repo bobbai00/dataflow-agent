@@ -218,7 +218,11 @@ function aggregateSemantics(
     const example = record(d.example);
     facts.push([
       `flow.aggregate.key.${d.column}`,
-      `group key ${json(keys)} determines ${json(d.column)} in most groups but not in ${d.split} of ${d.groups}: e.g. ${json(names(example.key).length === 1 ? names(example.key)[0] : example.key)} has ${json(d.column)} = ${names(example.values).map(v => json(v)).join(", ")}; those rows are pooled into one group.`,
+      `group key ${json(keys)} determines ${json(d.column)} in most groups but not in ${d.split} of ${d.groups}: e.g. ${json(names(example.key).length === 1 ? names(example.key)[0] : example.key)} has ${json(d.column)} = ${names(
+        example.values
+      )
+        .map(v => json(v))
+        .join(", ")}; those rows are pooled into one group.`,
     ]);
   }
   // Columns never read on the way here: over the rows this aggregate reduces
@@ -960,7 +964,9 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
           id: `sample.${i}`,
           family: "data",
           kind: "measurement",
-          text: `Sample stored row ${i + 1}: ${rowLine(sampleRow, fields)}`,
+          // The retained sample can omit interior rows. Its array index is
+          // not a position in the full table, even when the table is sorted.
+          text: `Sample record: ${rowLine(sampleRow, fields)}`,
           priority: rank === 0 ? 105 : 35 - rank,
         };
         if (sampleChars + fact.text.length + 1 <= sampleBudget && append(fact.text, fact.id)) {

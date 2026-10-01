@@ -44,7 +44,7 @@ delete edge <source>.out -> <target>.<input_port>
 
 Use unique identifiers made of letters, digits and underscores, starting with a letter or underscore. `create` requires a new identifier; `update` requires an existing one. An update supplies the complete definition, with omitted parameters taking their defaults, and preserves the identifier and all connections. A definition incompatible with those connections is rejected.
 
-Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source.
+Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source. For a process with exactly one parameter, `in` is also accepted and stored as `in[0]`.
 
 An input accepts one edge. To change a connection, delete its old edge and create a new one. Edges cannot be updated directly. Deleting an operator automatically deletes every incoming and outgoing edge; the observation lists those edges. Other operators remain, including consumers whose inputs are now unconnected.
 
@@ -58,7 +58,7 @@ A row's missing values are `None`; handle them explicitly. A map returns scalar 
 
 ## Working with data
 
-Use the supplied file paths; check any glob against those paths. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.
+Use the supplied file paths; check any glob against those paths. For a table assembled from multiple files, verify which supplied files were loaded. Inspect unfamiliar filenames before excluding them. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.
 
 Check column meanings, units, missing values and repeated records. Establish which eligibility or exclusion flags define the requested population before aggregating. Normalize keys before joining and check what one row represents after a join or grouping. Apply the requested formula, check the result's scale, and round only at the end.
 
@@ -91,9 +91,9 @@ aggregate(by=[], name=reducer("col"), ...)
     Ports: in -> out.
     One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.
 
-join(on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
+join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
     Ports: left, right -> out.
-    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one. Colliding right columns get suffix; output order is unspecified.
+    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified.
 
 union(schema="strict")
     Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).
@@ -130,7 +130,7 @@ process(fn=function, doc="what it does")
 
 ## Reading results
 
-Retrieval returns the table's row count, typed columns and records within the display budget. An incomplete view is a sample: compute counts and averages on the full table. Errors name the failing operator and include a repair hint.
+Retrieval returns the table's row count, typed columns and records within the display budget. An incomplete view is a sample; its record order does not establish table positions. Compute on the full table. To see a small report completely, project the required columns or select rows by key, then execute and retrieve it. Repeating Retrieve returns the same saved view. Errors name the failing operator and include a repair hint.
 
 Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.
 
@@ -258,6 +258,8 @@ Enabling stateHistory adds the following instructions and historical actions:
 All user tasks share this graph. Each task is a user request, numbered from 1 in conversation order. Completed tasks retain their operator definitions, incoming edges, custom functions, and available result observations. Earlier answers can be incorrect; check the computation you reuse.
 
 Before a task that refers to an earlier stage, identify the population, formula and eligibility gates it requires. Use existing results when they match. Inspect history when a prior definition or input is uncertain; avoid reconstructing a saved gate or copying numbers from prose.
+
+When narrowing a working population, connect from its existing eligible table so prior filters remain ancestors unless the user replaces them. Check the incoming edges, not just the operator's name or description. Reuse a saved eligibility flag instead of testing only one component of its decision. Keep the full reusable population separate from a limited report; future analysis should branch from the full table unless the user requests that displayed subset.
 
 - Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition and historical connections. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
 - Find operators in a task: set task_id to that task and operator_id to null. Set both to null only when you need the completed task list. No history index is inserted automatically.

@@ -29,7 +29,7 @@ Create requires a new identifier. Update replaces the definition and preserves i
 | `filter` | in -> out | fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns. |
 | `map` | in -> out | fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values. |
 | `aggregate` | in -> out | One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation. |
-| `join` | left, right -> out | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one. Colliding right columns get suffix; output order is unspecified. |
+| `join` | left, right -> out | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified. |
 | `union` | in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255) | Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first. |
 | `distinct` | in -> out | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
 | `sort` | in -> out | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
@@ -68,9 +68,9 @@ aggregate(by=[], name=reducer("col"), ...)
     Ports: in -> out.
     One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.
 
-join(on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
+join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
     Ports: left, right -> out.
-    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one. Colliding right columns get suffix; output order is unspecified.
+    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified.
 
 union(schema="strict")
     Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).
@@ -109,7 +109,7 @@ process(fn=function, doc="what it does")
 
 Keep loading, deriving columns, filtering, joining and aggregation in separate predefined operators. Use process for one operation the catalog cannot express. A custom calculation consumes connected tables; a source process loads an unsupported format and returns a parsed table for downstream operators. Build a known chain and its edges in one Edit.
 
-Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. Every callback operator requires doc, describing the output's meaning.
+Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. For a process with exactly one parameter, in is an alias stored as in[0]. Every callback operator requires doc, describing the output's meaning.
 
 Indent complete function definitions under the operator that uses them. Helpers belong in the same block, and imports belong inside functions. Definitions do not carry across operators or updates.
 

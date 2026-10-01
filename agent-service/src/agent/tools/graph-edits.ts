@@ -213,6 +213,12 @@ export async function planGraphEdit(
           target: command.target,
           targetPort: command.targetPort,
         };
+        // A one-parameter process has one unambiguous input. Store its
+        // canonical name so aliases cannot bypass occupancy or deletion.
+        const target = required(edge.target);
+        if (edge.targetPort === "in" && target.type === "Process" && ports(target).length === 1) {
+          edge.targetPort = ports(target)[0];
+        }
         const key = edgeText(edge);
         if (operation === "delete_edge") {
           if (!edges.delete(key)) throw new Error(`Edge ${key} does not exist.`);

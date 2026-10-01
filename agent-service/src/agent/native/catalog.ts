@@ -645,12 +645,12 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "join",
     brief:
-      "on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one. Colliding right columns get suffix; output order is unspecified.",
+      'on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified.',
     type: "Join",
     inputs: 2,
     rowEffect: "multiply",
-    signature: 'join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")',
-    doc: 'Joins on explicit keys: `on="id"`, `on=["a", "b"]`, or `on=[("left_col", "right_col")]` when the names differ. how is inner, left, right, full, or cross (no keys). Null keys do not match unless nulls_equal=True. validate (one_to_one, one_to_many, many_to_one) fails the operator when the keys are not unique on the required side. Right-side columns that collide get `suffix`. No output order is promised: sort afterwards.',
+    signature: 'join(L, R, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")',
+    doc: 'Joins on explicit keys: `on="id"`, `on=["a", "b"]`, or `on=[("left_col", "right_col")]` when the names differ. how is inner, left, right, full, or cross. Cross joins form every pair of rows: omit on or use None/[] and keep validate="many_to_many". A cross join with a single-row benchmark attaches that value to every left row. Other joins require nonempty keys. Null keys do not match unless nulls_equal=True. validate (one_to_one, one_to_many, many_to_one) fails the operator when the keys are not unique on the required side. Right-side columns that collide get `suffix`. No output order is promised: sort afterwards.',
     schema: object({
       type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
       on: {
@@ -674,7 +674,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       if (rest.length > 1) fail("join takes the left and right tables, then keywords.");
       const props: Record<string, unknown> = {};
       const on = rest[0] ?? kwargs.on;
-      if (on) {
+      const cross = kwargs.how?.kind === "const" && kwargs.how.value === "cross";
+      const noKeys = (on?.kind === "const" && on.value === null) || (on?.kind === "list" && on.items.length === 0);
+      if (on && !(cross && noKeys)) {
         if (on.kind === "const") props.on = str(on, "on");
         else if (on.kind === "list" && on.items.every(item => item.kind === "const")) props.on = strList(on, "on", 1);
         else if (on.kind === "list" && on.items.every(item => item.kind === "list" && item.items.length === 2))

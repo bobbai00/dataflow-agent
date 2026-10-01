@@ -210,3 +210,43 @@ last"""
   expect(state.getAllOperators().map(o => o.operatorID)).toEqual(["source", "loaded"]);
   expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
 });
+
+test("a single-input process accepts in as shorthand but stores canonical ports", async () => {
+  const state = new WorkflowState();
+  const added = await edit(
+    state,
+    `create operator source: scan("a.csv")
+create operator alternative: scan("b.csv")
+create operator shaped: process(fn=shape, doc="Keep the input table")
+    def shape(table):
+        return table
+create edge source.out -> shaped.in`
+  );
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(["source.out -> shaped.in[0]"]);
+  expect(added.changes.at(-1)?.edge).toBe("source.out -> shaped.in[0]");
+  expect(state.getOperator("shaped")!.nativeOp!.inputs).toEqual(["source"]);
+  await expect(edit(state, "create edge alternative.out -> shaped.in[0]")).rejects.toThrow("occupied");
+  await expect(edit(state, "create edge alternative.out -> shaped.in")).rejects.toThrow("occupied");
+  const rewired = await edit(state, "delete edge source.out -> shaped.in\ncreate edge alternative.out -> shaped.in[0]");
+  expect(rewired.changes[0].edge).toBe("source.out -> shaped.in[0]");
+  expect(state.getOperator("shaped")!.nativeOp!.inputs).toEqual(["alternative"]);
+  expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
+});
+
+test("in never guesses a multi-input process, join, or union port", async () => {
+  const state = new WorkflowState();
+  await edit(
+    state,
+    `create operator source: scan("a.csv")
+create operator combined: join(on="id")
+create operator stacked: union(schema="align")
+create operator compared: process(fn=compare, doc="Compare tables")
+    def compare(left, right):
+        return left`
+  );
+  const before = state.getWorkflowContent();
+  for (const id of ["combined", "stacked", "compared"]) {
+    await expect(edit(state, `create edge source.out -> ${id}.in`)).rejects.toThrow("Unknown input port");
+    expect(state.getWorkflowContent()).toEqual(before);
+  }
+});

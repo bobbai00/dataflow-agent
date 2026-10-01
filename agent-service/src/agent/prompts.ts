@@ -268,6 +268,8 @@ All user tasks share this graph. Each task is a user request, numbered from 1 in
 
 Before a task that refers to an earlier stage, identify the population, formula and eligibility gates it requires. Use existing results when they match. Inspect history when a prior definition or input is uncertain; avoid reconstructing a saved gate or copying numbers from prose.
 
+When narrowing a working population, connect from its existing eligible table so prior filters remain ancestors unless the user replaces them. Check the incoming edges, not just the operator's name or description. Reuse a saved eligibility flag instead of testing only one component of its decision. Keep the full reusable population separate from a limited report; future analysis should branch from the full table unless the user requests that displayed subset.
+
 - Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition and historical connections. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
 - Find operators in a task: set task_id to that task and operator_id to null. Set both to null only when you need the completed task list. No history index is inserted automatically.
 - Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible"}. Retrieval never executes or substitutes today's output. Saved observations may be samples, just like current retrievals.
