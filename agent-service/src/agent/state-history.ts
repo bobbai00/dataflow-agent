@@ -18,12 +18,14 @@
  */
 
 import type { OperatorInfo } from "../types/execution";
+import type { ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { compileNativeOp, nativeRevision } from "./native/codegen";
 import { NATIVE_BY_TYPE, nativeOperatorName, type NativeOpView } from "./native/catalog";
 import { executionFingerprints, workflowExecutionPlan } from "./native/result-versions";
 import { inspectGraph, missingGraphInputs, type GraphEditPlan } from "./tools/graph-edits";
+import { asDataflowActionsResult } from "./tools/dataflow-actions";
 
 /** Addresses the existing snapshot tree; no separate task catalog is stored. */
 export interface HistoricalTask {
@@ -31,6 +33,8 @@ export interface HistoricalTask {
   stepId: string;
   request: string;
   answer: string;
+  /** Existing receipts, used only when a task overview is explicitly requested. */
+  steps?: readonly Pick<ReActStep, "id" | "toolResults">[];
 }
 
 export interface StateQuery {
@@ -44,6 +48,8 @@ interface StateVersion {
   operator_id: string;
   deleted?: boolean;
   expression?: string;
+  type?: string;
+  description?: unknown;
   revision?: string;
   subgraph_hash?: string;
   inputs?: string[];
@@ -51,6 +57,85 @@ interface StateVersion {
   connections?: string[];
   result?: { available: boolean; state: string; rows?: number; result_version?: string; producing_step?: string };
   implementation?: unknown;
+  input_definitions?: StateVersion[];
+}
+
+/** Successful actions describe activity, not proof that a read caused an answer.
+ * Keep each read's original identity: its version may differ from task-end state. */
+function taskActivity(task: HistoricalTask) {
+  let hasReceipts = false;
+  const changed = new Set<string>();
+  const localReads = new Set<string>();
+  const retrieved: Record<string, unknown>[] = [];
+  for (const step of task.steps ?? []) {
+    for (const receipt of step.toolResults ?? []) {
+      const result = asDataflowActionsResult(receipt.output);
+      if (!result) continue;
+      hasReceipts = true;
+      for (const item of result.actions) {
+        if (item.status !== "ok" || !item.output || typeof item.output !== "object") continue;
+        const output = item.output as Record<string, any>;
+        if (item.action.type === "edit" || item.action.type === "fork") {
+          for (const op of output.operators ?? []) if (typeof op.id === "string") changed.add(op.id);
+        }
+        if (item.action.type === "retrieve" && typeof output.operator_id === "string") {
+          const read: Record<string, unknown> = { operator_id: output.operator_id, read_at_step: step.id };
+          for (const key of ["historical_state", "revision", "result_version", "superseded_in_call"])
+            if (output[key] !== undefined) read[key] = output[key];
+          retrieved.push(read);
+          if (!output.historical_state) localReads.add(output.operator_id);
+        }
+      }
+    }
+  }
+  return { hasReceipts, changed, localReads, retrieved };
+}
+
+function describeStateOperator(
+  storage: WorkflowSnapshotStorage,
+  task: HistoricalTask,
+  workflow: WorkflowContent,
+  operatorId: string,
+  includeImplementation: boolean,
+  graph: ReturnType<typeof inspectGraph>,
+  hashes?: ReturnType<typeof fingerprints>
+): StateVersion {
+  const op = workflow.operators.find(o => o.operatorID === operatorId)!;
+  const info = storage.getResolvedOperatorResult(task.stepId, op.operatorID);
+  const node = graph.operators.find(o => o.id === op.operatorID);
+  const functions = op.nativeOp?.functions ?? {};
+  const callback = op.nativeOp?.properties.func ?? op.nativeOp?.properties.code ?? null;
+  return {
+    task_id: task.taskId,
+    operator_id: op.operatorID,
+    type: node?.type,
+    description: op.nativeOp?.properties.doc,
+    expression: op.nativeOp?.source,
+    revision: op.nativeOp?.revision,
+    subgraph_hash: hashes?.get(op.operatorID)?.subgraphHash,
+    inputs: op.nativeOp?.inputs,
+    ports: node?.ports,
+    connections: graph.edges.filter(
+      edge => edge.startsWith(`${op.operatorID}.`) || edge.includes(` -> ${op.operatorID}.`)
+    ),
+    result: {
+      available: completed(info?.value),
+      state: info?.value.state ?? "unavailable",
+      rows: info?.value.totalRowCount,
+      result_version: info?.value.resultVersion?.id,
+      producing_step: info?.sourceStepId,
+    },
+    ...(includeImplementation
+      ? {
+          implementation: op.nativeOp
+            ? {
+                functions,
+                ...(Object.values(functions).includes(callback as string) ? {} : { callback }),
+              }
+            : { code: op.operatorProperties.code ?? null },
+        }
+      : {}),
+  };
 }
 
 const fingerprints = (workflow: WorkflowContent) => executionFingerprints(workflowExecutionPlan(workflow));
@@ -74,11 +159,35 @@ export function inspectState(storage: WorkflowSnapshotStorage, tasks: readonly H
   if (query.operator_id === null) {
     const task = selected[0];
     const workflow = storage.getWorkflow(task.stepId);
+    const graph = inspectGraph(workflow);
+    const activity = taskActivity(task);
+    const relevant = new Set([...activity.changed, ...activity.localReads]);
+    const nodes = graph.operators.filter(op => !activity.hasReceipts || relevant.has(op.id));
     return {
       task_id: task.taskId,
       request: task.request,
       answer: task.answer,
-      ...inspectGraph(workflow),
+      scope: activity.hasReceipts ? "task_activity" : "whole_graph_no_action_receipts",
+      note: "Definitions and row counts are at task completion. Retrieved records below identify earlier reads, not answer dependencies. Inspect a specific operator for its expression and immediate input definitions; follow input IDs to explore further.",
+      total_operator_count: graph.operators.length,
+      omitted_operator_count: graph.operators.length - nodes.length,
+      changed_operators: [...activity.changed],
+      retrieved: activity.retrieved,
+      operators: nodes.map(node => {
+        const detail = describeStateOperator(storage, task, workflow, node.id, query.include_implementation, graph);
+        return {
+          id: node.id,
+          type: node.type,
+          description: detail.description,
+          inputs: detail.inputs,
+          result: { available: detail.result!.available, state: detail.result!.state, rows: detail.result!.rows },
+          ...(query.include_implementation
+            ? { expression: detail.expression, implementation: detail.implementation }
+            : {}),
+        };
+      }),
+      edges: graph.edges.filter(edge => nodes.some(node => edge.includes(` -> ${node.id}.`))),
+      unconnected_inputs: graph.unconnected_inputs.filter(port => nodes.some(node => port.startsWith(`${node.id}.`))),
     };
   }
   let seen = false;
@@ -95,36 +204,16 @@ export function inspectState(storage: WorkflowSnapshotStorage, tasks: readonly H
     }
     seen = true;
     const graph = inspectGraph(workflow);
-    const info = storage.getResolvedOperatorResult(task.stepId, op.operatorID);
+    const hashes = fingerprints(workflow);
+    const inputs = new Set(
+      workflow.links.filter(link => link.target.operatorID === operatorId).map(link => link.source.operatorID)
+    );
     return [
       {
-        task_id: task.taskId,
-        operator_id: op.operatorID,
-        expression: op.nativeOp?.source,
-        revision: op.nativeOp?.revision,
-        subgraph_hash: fingerprints(workflow).get(op.operatorID)?.subgraphHash,
-        inputs: op.nativeOp?.inputs,
-        ports: graph.operators.find(o => o.id === op.operatorID)?.ports,
-        connections: graph.edges.filter(
-          edge => edge.startsWith(`${op.operatorID}.`) || edge.includes(` -> ${op.operatorID}.`)
+        ...describeStateOperator(storage, task, workflow, operatorId, query.include_implementation, graph, hashes),
+        input_definitions: [...inputs].map(id =>
+          describeStateOperator(storage, task, workflow, id, query.include_implementation, graph, hashes)
         ),
-        result: {
-          available: completed(info?.value),
-          state: info?.value.state ?? "unavailable",
-          rows: info?.value.totalRowCount,
-          result_version: info?.value.resultVersion?.id,
-          producing_step: info?.sourceStepId,
-        },
-        ...(query.include_implementation
-          ? {
-              implementation: op.nativeOp
-                ? {
-                    functions: op.nativeOp.functions ?? {},
-                    callback: op.nativeOp.properties.func ?? op.nativeOp.properties.code ?? null,
-                  }
-                : { code: op.operatorProperties.code ?? null },
-            }
-          : {}),
       },
     ];
   });

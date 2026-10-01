@@ -363,7 +363,7 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "operator_id",
               "include_implementation"
             ],
-            "description": "Read completed task state without execution. A task with null operator lists its graph; an operator with null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions."
+            "description": "Read completed task state without execution. A task with null operator shows changed/retrieved operators, saved row counts and read identities. A specific operator includes its immediate input definitions; null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions."
           },
           {
             "type": "object",

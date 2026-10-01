@@ -136,7 +136,7 @@ const STATE_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
 STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action(
     "inspect",
-    "Read completed task state without execution. A task with null operator lists its graph; an operator with null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions.",
+    "Read completed task state without execution. A task with null operator shows changed/retrieved operators, saved row counts and read identities. A specific operator includes its immediate input definitions; null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions.",
     {
       target: { type: "string", const: "state" },
       task_id: { anyOf: [taskId, { type: "null" }] },

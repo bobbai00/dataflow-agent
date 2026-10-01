@@ -70,6 +70,85 @@ test("history exposes upstream changes even when an operator expression is uncha
   expect(output.versions![1].result!.available).toBe(false);
 });
 
+test("operator inspection exposes immediate input definitions from the same historical task", async () => {
+  const { storage, tasks } = await fixture();
+  const before = JSON.stringify(storage.getWorkflow("s1"));
+  const output = inspectState(storage, tasks, { task_id: 1, operator_id: "total", include_implementation: true });
+  const input = output.versions![0].input_definitions![0];
+  expect(input.operator_id).toBe("eligible");
+  expect(input.expression).toContain('row["quality"]');
+  expect(input.inputs).toEqual(["source"]);
+  expect(input.implementation).toBeDefined();
+  expect(input.input_definitions).toBeUndefined();
+  const source = inspectState(storage, tasks, { task_id: 1, operator_id: "eligible", include_implementation: false });
+  expect(source.versions![0].input_definitions![0].expression).toContain("old.csv");
+  expect(source.versions![0].input_definitions![0].implementation).toBeUndefined();
+  expect(JSON.stringify(storage.getWorkflow("s1"))).toBe(before);
+});
+
+test("task overview uses successful receipts and distinguishes historical reads from task-end state", async () => {
+  const { storage, tasks } = await fixture();
+  const action = (type: string, output: unknown, status = "ok") => ({
+    index: 1,
+    action: { type, operator_id: "total" },
+    status,
+    output,
+  });
+  tasks[1].steps = [
+    {
+      id: "s2",
+      toolResults: [
+        {
+          toolCallId: "call",
+          output: {
+            kind: "dataflow-actions",
+            status: "error",
+            operators: [],
+            observe: [],
+            observationErrors: [],
+            actions: [
+              action("edit", { operators: [{ id: "source", status: "modified" }] }),
+              action("retrieve", {
+                operator_id: "total",
+                historical_state: { task_id: 1, operator_id: "total" },
+                revision: "r1",
+              }),
+              action("retrieve", { operator_id: "eligible", superseded_in_call: true }),
+              action("edit", { operators: [{ id: "phantom", status: "added" }] }, "error"),
+              action("retrieve", { operator_id: "not_read" }, "skipped"),
+            ],
+          },
+        },
+      ],
+    },
+  ];
+  const output = inspectState(storage, tasks, { task_id: 2, operator_id: null, include_implementation: false });
+  expect(output.scope).toBe("task_activity");
+  expect(output.total_operator_count).toBe(3);
+  expect(output.operators!.map(op => op.id)).toEqual(["source", "eligible"]);
+  expect(output.operators![0].inputs).toEqual([]);
+  expect(output.retrieved).toEqual([
+    {
+      operator_id: "total",
+      read_at_step: "s2",
+      historical_state: { task_id: 1, operator_id: "total" },
+      revision: "r1",
+    },
+    { operator_id: "eligible", read_at_step: "s2", superseded_in_call: true },
+  ]);
+  expect(JSON.stringify(output)).not.toContain("phantom");
+  expect(JSON.stringify(output)).not.toContain("not_read");
+});
+
+test("old traces without receipts keep a discoverable graph and honor implementation requests", async () => {
+  const { storage, tasks } = await fixture();
+  const output = inspectState(storage, tasks, { task_id: 1, operator_id: null, include_implementation: true });
+  expect(output.scope).toBe("whole_graph_no_action_receipts");
+  expect(output.operators).toHaveLength(3);
+  expect(output.operators!.find(op => op.id === "eligible")!.expression).toContain('row["quality"]');
+  expect(output.operators!.find(op => op.id === "total")!.result).toMatchObject({ available: true, rows: 1 });
+});
+
 test("fork preserves the complete historical dependency closure and original graph", async () => {
   const { state, storage, tasks, first, second } = await fixture();
   const before = structuredClone(state.getWorkflowContent());
