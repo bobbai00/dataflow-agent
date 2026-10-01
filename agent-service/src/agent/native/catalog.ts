@@ -375,6 +375,16 @@ const SCAN_KEYWORDS: Record<string, string> = {
   file_column: "fileColumn",
   preview: "preview",
 };
+const SCAN_NONE_DEFAULTS = new Set([
+  "names",
+  "delim",
+  "comment",
+  "widths",
+  "sheet",
+  "encoding",
+  "file_column",
+  "preview",
+]);
 
 export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
@@ -421,6 +431,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
         Object.keys(SCAN_KEYWORDS).filter(k => k !== "files")
       );
       for (const [key, value] of Object.entries(options)) {
+        // Explicit None has the same meaning as omitting an optional setting.
+        if (value.kind === "const" && value.value === null && SCAN_NONE_DEFAULTS.has(key)) continue;
         const target = SCAN_KEYWORDS[key];
         switch (key) {
           case "format":

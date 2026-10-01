@@ -79,6 +79,19 @@ print(results[sys.argv[1]].to_json(orient='records'))
 }
 
 describe("program → operator definitions", () => {
+  test("scan accepts the None defaults advertised in its signature", async () => {
+    const v = await views(`
+source = scan("data/a.csv", names=None, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)
+bad_header = scan("data/a.csv", header=None)
+bad_skip = scan("data/a.csv", skip_lines=None)
+`);
+    expect(v.source.error).toBeUndefined();
+    // Omit disabled options so the runtime cannot add a column named null.
+    expect(v.source.view!.properties).toEqual({ files: "data/a.csv" });
+    expect(v.bad_header.error).toBeDefined();
+    expect(v.bad_skip.error).toBeDefined();
+  });
+
   test("every operator normalizes from its expression to the runtime properties", async () => {
     const v = await views(`
 def rank_value(row):
