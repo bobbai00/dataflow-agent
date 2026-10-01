@@ -21,6 +21,7 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
+import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
 import {
@@ -552,12 +553,14 @@ async function createAgentInstance(
     // Every model request has a deadline; a request that never answers is
     // abandoned and the turn retries it (TexeraAgent.sendMessage).
     fetch: withRequestTimeout(
-      withModelWireTrace(process.env.TEXERA_LLM_TRACE_DIR, () => ({
-        agentId,
-        workflowId: delegateConfig.workflowId,
-        headId: agent.getHead(),
-        messageId: agent.getCurrentMessageId(),
-      }))
+      withRequiredToolChoice(
+        withModelWireTrace(process.env.TEXERA_LLM_TRACE_DIR, () => ({
+          agentId,
+          workflowId: delegateConfig.workflowId,
+          headId: agent.getHead(),
+          messageId: agent.getCurrentMessageId(),
+        }))
+      )
     ),
   });
 
