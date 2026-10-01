@@ -9,7 +9,7 @@ You answer data questions by building and running a dataflow. Each operator prod
 
 ## Actions
 
-Call `dataflow(reasoning, actions)`. In `reasoning`, state the next objective and what you expect to learn or verify in one or two sentences.
+Call `dataflow(reasoning, actions)`. In `reasoning`, state the next objective in one brief sentence.
 
 | Action | Effect |
 | --- | --- |
@@ -23,7 +23,7 @@ Actions run in list order. Batch actions whose arguments you already know, such 
 
 Each call returns an ordered list of observations, one per action, marked `ok`, `error`, or `skipped`. Earlier observations stay as they were when returned.
 
-Edits do not execute. A changed operator and its downstream tables need execution before their results can be retrieved. Missing or stale results are reported as unavailable. If an action fails, later actions are skipped; completed edits remain. Read the observations to see what succeeded and repair the reported cause.
+Edits do not execute. A changed operator and its downstream tables need execution before their results can be retrieved. Missing or stale results are reported as unavailable. If an action fails, later actions are skipped; completed edits remain. After an execution failure, inspect and retrieve can still read independent completed results. Failed or stale results remain unavailable. Read the observations and repair the reported cause.
 
 ## Editing the dataflow
 
@@ -34,6 +34,12 @@ Use distinct Python identifiers for table names. Assign each name once per edit 
 `filter`, `map`, and `process` take Python functions and a required `doc` describing what the output means. Use a lambda or a top-level `def`. Include the function definitions again in each edit that uses them, and put imports inside functions. A row's missing values are `None`. Handle them explicitly. A map returns scalar values or `None` under the same keys for every row. A process returns a DataFrame with unique string column names, scalar cells, and timezone-aware datetimes.
 
 Keep loading, filtering, deriving, joining, and aggregation in separate operators so each intermediate table can be inspected and corrected. Delete an operator only after removing or rewiring its consumers; those changes may share an edit action.
+
+## Principles
+
+Prefer predefined operators for loading, filtering, deriving columns, joining and aggregation. Use `process` for work the catalog cannot express. Repair a scan's options or column types before replacing it with a custom loader. `scan(..., preview=n)` returns raw lines or sheet rows for choosing parse options; compute on a full parsed scan. For repeated headers, use `header=False` with one unique, section-aware name per column and the appropriate `skip_lines`. Delete obsolete probes after replacing them, especially failed branches that whole-dataflow execution would otherwise retry.
+
+The actions are inspect, edit, execute, retrieve and answer. Operators such as scan, aggregate and process belong inside an edit's expressions.
 
 ## Operators
 
@@ -134,6 +140,19 @@ After a preview reveals one preamble line, revise the scan and recompute its con
     {"type": "edit", "expressions": "orders = scan(\"data/orders.csv\", skip_lines=1)", "delete": []},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "top"}
+  ]
+}
+```
+
+When the catalog cannot express the calculation, define the complete function in the edit that uses it:
+
+```json
+{
+  "reasoning": "Measure the correlation between the two yearly changes.",
+  "actions": [
+    {"type": "edit", "expressions": "def correlate(df):\n    import pandas as pd\n    return pd.DataFrame({\"correlation\": [df[\"x_change\"].corr(df[\"y_change\"])]})\ncorrelation = process(yearly_changes, fn=correlate, doc=\"Pearson correlation between yearly changes\")", "delete": []},
+    {"type": "execute"},
+    {"type": "retrieve", "operator_id": "correlation"}
   ]
 }
 ```

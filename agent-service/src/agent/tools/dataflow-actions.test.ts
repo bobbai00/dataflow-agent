@@ -84,7 +84,7 @@ describe("ordered dataflow actions", () => {
     expect(called).toEqual(["edit", "execute", "retrieve", "retrieve"]);
   });
 
-  test("a failure skips later actions and retains completed outcomes", async () => {
+  test("an execution failure permits reads and retains completed outcomes", async () => {
     const result = prepareDataflowActions({
       reasoning: "Run.",
       actions: [edit, { type: "execute" }, { type: "retrieve", operator_id: "source" }],
@@ -93,10 +93,49 @@ describe("ordered dataflow actions", () => {
       if (action.type === "execute") throw new Error("worker unavailable");
       return { status: "ok", output: "created" };
     });
-    expect(result.actions.map(a => a.status)).toEqual(["ok", "error", "skipped"]);
+    expect(result.actions.map(a => a.status)).toEqual(["ok", "error", "ok"]);
     expect(result.actions[0].output).toBe("created");
     expect(result.error).toContain("worker unavailable");
     expect(result.status).toBe("error");
+  });
+
+  test("partial execution preserves independent retrievals while skipping later mutations", async () => {
+    const s = session([
+      [
+        { type: "edit", expressions: 'good = scan("ok.csv")\nbad = scan("missing.csv")', delete: [] },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "bad" },
+        { type: "retrieve", operator_id: "good" },
+        { type: "edit", expressions: 'never = scan("never.csv")', delete: [] },
+      ],
+    ]);
+    (s.agent as any).executePostStepChanges = async () => {
+      for (const id of ["good", "bad"])
+        s.agent.getSnapshotStorage().setOperatorResult(s.agent.getHead()!, id, {
+          state: id === "good" ? "Completed" : "Failed",
+          inputTuples: 0,
+          outputTuples: 1,
+          resultMode: "table",
+          result: [{ value: 42 }],
+          resultSchema: [{ name: "value", type: "int", encoding: "" }],
+          ...(id === "bad" ? { error: "missing file" } : {}),
+        });
+    };
+    await s.agent.sendMessage("Read the independent result.");
+    expect(s.outcomes[0].actions.map(a => a.status)).toEqual(["ok", "error", "error", "ok", "skipped"]);
+    expect(JSON.stringify(s.outcomes[0].actions[3].output)).toContain("42");
+    expect(s.agent.getWorkflowState().getOperator("never")).toBeUndefined();
+  });
+
+  test("validation identifies the offending action without unrelated schema alternatives", () => {
+    const badType = prepareDataflowActions({ reasoning: "Read.", actions: [{ type: "process" }] });
+    expect(badType.error).toContain("Action 1");
+    expect(badType.error).toContain("inside an edit");
+    expect(badType.error!.length).toBeLessThan(300);
+    const missingDelete = prepareDataflowActions({ reasoning: "Read.", actions: [{ type: "edit", expressions: "" }] });
+    expect(missingDelete.error).toContain("delete");
+    expect(missingDelete.error).not.toContain("operator_id");
+    expect(missingDelete.actions).toEqual([]);
   });
 
   test("an answer is accepted only on its own and ends the batch", async () => {
@@ -465,7 +504,7 @@ test("an aborted execution cannot attach late results or run the next action", a
   }
 });
 
-test("an execution failure includes the operator diagnostic and skips retrieval", async () => {
+test("an execution failure permits retrieval but rejects the failed result", async () => {
   const s = session([
     [
       { type: "edit", expressions: 'source = scan("data/missing.csv")', delete: [] },
@@ -484,7 +523,7 @@ test("an execution failure includes the operator diagnostic and skips retrieval"
     throw new Error("Engine stopped");
   };
   await s.agent.sendMessage("Read the file.");
-  expect(s.outcomes[0].actions.map(a => a.status)).toEqual(["ok", "error", "skipped"]);
+  expect(s.outcomes[0].actions.map(a => a.status)).toEqual(["ok", "error", "error"]);
   expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("Missing source file");
   expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("Engine stopped");
 });

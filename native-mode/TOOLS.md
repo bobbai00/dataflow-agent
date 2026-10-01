@@ -6,7 +6,7 @@ Native mode exposes one dataflow tool with a brief rationale and an ordered acti
 
 ## `dataflow`
 
-Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure stops the remaining actions; completed edits remain. Answer must be the only action in its call.
+Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. Answer must be the only action in its call.
 
 ```json
 {
@@ -17,7 +17,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
       "type": "string",
       "minLength": 1,
       "pattern": "\\S",
-      "description": "One or two sentences: the next objective and what you expect to learn or verify."
+      "description": "One brief sentence stating the next objective."
     },
     "actions": {
       "type": "array",
@@ -170,7 +170,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
 
 ## Execution rules
 
-The whole request is validated before actions begin. Actions then run in order, stopping at the first failure; later actions are marked skipped. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.
+The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.
 
 Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.
 

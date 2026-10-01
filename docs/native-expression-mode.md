@@ -102,8 +102,8 @@ For example:
 ```
 
 The request is validated before any action runs. Actions run in order and
-stop at the first failure; later actions are marked skipped. Completed
-changes remain. Within an edit, deletion happens first and independent
+skip later actions after a failure, except that inspect and retrieve may read
+independent completed results after an execution failure. Completed changes remain. Within an edit, deletion happens first and independent
 valid statements still land when another statement fails. Repeated identical
 invalid revisions pause until corrected arguments arrive.
 

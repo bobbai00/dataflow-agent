@@ -89,7 +89,7 @@ export function renderTools(): string {
       .map(t => `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n`)
       .join("\n") +
     "\n## Execution rules\n\n" +
-    "The whole request is validated before actions begin. Actions then run in order, stopping at the first failure; later actions are marked skipped. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.\n\n" +
+    "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
     "Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit expressions define edges; changing those references replaces the corresponding edges.\n\n" +
     "Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.\n"

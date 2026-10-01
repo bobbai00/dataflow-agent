@@ -182,13 +182,13 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
       "added: added scan operator `notes`",
     ]);
     // This fixture has no engine connection: execution is an explicit error,
-    // retrieval is skipped, and the parsed sources remain available for repair.
+    // retrieval reports unavailable results, and the sources remain available for repair.
     expect(batch.observe).toEqual([]);
     expect((seed!.toolResults![0]!.output as any).actions.map((a: any) => a.status)).toEqual([
       "ok",
       "error",
-      "skipped",
-      "skipped",
+      "error",
+      "error",
     ]);
     expect(seed!.operatorAccess?.[0]?.addedOperatorIds).toEqual(["roman_cities", "notes"]);
     // The scans are real operators of the DAG the model then builds on.

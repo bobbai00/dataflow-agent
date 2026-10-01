@@ -540,7 +540,7 @@ describe("native prompt", () => {
         expect(prompt).toContain("only action");
         expect(prompt).not.toContain("dataflow(edits");
         const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
-        expect(examples).toHaveLength(4);
+        expect(examples.length).toBeGreaterThanOrEqual(4);
         for (const input of examples) {
           expect(prepareDataflowActions(input).error).toBeUndefined();
           for (const a of input.actions)

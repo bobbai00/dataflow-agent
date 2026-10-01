@@ -174,7 +174,8 @@ displaces rows; a complete small table suppresses redundant data facts.
 in native mode. Every call requires a brief rationale and an ordered list of
 `inspect`, `edit`, `execute`, `retrieve`, or `answer` actions. Edits do not
 execute; retrieval never executes; Answer must be the sole action and ends
-the loop. A failure skips later actions while completed edits remain.
+the loop. A failure skips later actions while completed edits remain. After
+an execution failure, inspect and retrieve may read independent completed results.
 `inspectResult` is never exposed. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) and
 [docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark

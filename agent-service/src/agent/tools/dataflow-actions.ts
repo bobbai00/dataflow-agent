@@ -57,7 +57,7 @@ export interface DataflowActionsResult {
 }
 
 const text = { type: "string", minLength: 1, pattern: "\\S" };
-const object = (properties: Record<string, unknown>) => ({
+const object = <T extends Record<string, unknown>>(properties: T) => ({
   type: "object",
   additionalProperties: false,
   properties,
@@ -71,7 +71,7 @@ const action = (type: DataflowAction["type"], description: string, properties = 
 export const DATAFLOW_ACTIONS_SCHEMA = object({
   reasoning: {
     ...text,
-    description: "One or two sentences: the next objective and what you expect to learn or verify.",
+    description: "One brief sentence stating the next objective.",
   },
   actions: {
     type: "array",
@@ -126,11 +126,34 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
 
 const ajv = new Ajv({ allErrors: true });
 const validate = ajv.compile<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA);
+const actionValidators = DATAFLOW_ACTIONS_SCHEMA.properties.actions.items.anyOf.map(schema => ({
+  schema,
+  validate: ajv.compile(schema),
+}));
+
+function validationMessage(input: any): string {
+  if (Array.isArray(input?.actions)) {
+    for (const [index, item] of input.actions.entries()) {
+      const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
+      if (!candidates.length)
+        return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;
+      const selected = candidates.find(
+        v => !("target" in v.schema.properties) || (v.schema.properties as any).target.const === item?.target
+      );
+      if (!selected) return `Action ${index + 1} (inspect): target must be graph or operator.`;
+      if (!selected.validate(item))
+        return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;
+    }
+  }
+  validate(input);
+  return `Invalid dataflow arguments: ${ajv.errorsText(validate.errors?.slice(0, 1))}`;
+}
 
 export const DATAFLOW_ACTIONS_DESCRIPTION =
   "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
   "Start with a brief reasoning description. Edits do not run the graph; retrieval reads existing results. " +
-  "Batch actions whose arguments are already known. A failure stops the remaining actions; completed edits remain. " +
+  "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
+  "After an execution failure, inspect and retrieve may still read independent completed results. " +
   "Answer must be the only action in its call.";
 
 /** Validate first. The agent resolves this receipt after creating the step's
@@ -147,7 +170,7 @@ export function prepareDataflowActions(input: unknown): DataflowActionsResult {
   };
   if (!validate(input)) {
     result.status = "error";
-    result.error = `Invalid dataflow arguments: ${ajv.errorsText(validate.errors)}`;
+    result.error = validationMessage(input);
     return result;
   }
   const request = input as DataflowActionsInput;
@@ -179,8 +202,9 @@ export async function runDataflowActions(
   run: (action: DataflowAction, index: number) => Promise<ActionOutcome>
 ): Promise<void> {
   if (result.status !== "pending") return;
+  let allowReads = false;
   for (const item of result.actions) {
-    if (result.error) {
+    if (result.error && !(allowReads && (item.action.type === "inspect" || item.action.type === "retrieve"))) {
       item.status = "skipped";
       item.output = "Not run because an earlier action failed.";
       continue;
@@ -190,13 +214,14 @@ export async function runDataflowActions(
       item.status = outcome.status;
       item.output = structuredClone(outcome.output);
       if (outcome.status === "error")
-        result.error = `Action ${item.index} (${item.action.type}) failed: ${typeof outcome.output === "string" ? outcome.output : JSON.stringify(outcome.output)}`;
+        result.error ??= `Action ${item.index} (${item.action.type}) failed: ${typeof outcome.output === "string" ? outcome.output : JSON.stringify(outcome.output)}`;
       else if (item.action.type === "answer") result.answer = item.action.content;
     } catch (error) {
       item.status = "error";
       item.output = error instanceof Error ? error.message : String(error);
-      result.error = `Action ${item.index} (${item.action.type}) failed: ${item.output}`;
+      result.error ??= `Action ${item.index} (${item.action.type}) failed: ${item.output}`;
     }
+    if (item.action.type === "execute" && item.status === "error") allowReads = true;
   }
   result.status = result.error ? "error" : "completed";
 }
