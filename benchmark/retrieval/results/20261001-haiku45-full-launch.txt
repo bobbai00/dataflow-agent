@@ -1,0 +1,53 @@
+Claude Haiku 4.5 full KramaBench launch — 2026-10-01
+
+All 104 original top-level KramaBench tasks, six domains, one repetition.
+Model: claude-haiku-4.5 -> claude-haiku-4-5-20251001.
+Retrieval arm: sample_stats_flow0. Statistics enabled, automatic flow evidence
+disabled. Only sample_stats is available; this is a fixed-view experiment.
+Samples are bounded by 2,000 characters and five rows per operator. Data
+statistics have a separate 2,000-character budget. Execution retains up to
+100,000 characters of results. Native graph actions, DELTA context, profile
+collection enabled, maxSteps=25, thought replay and snapshot code disabled.
+No extended-thinking configuration on this model alias.
+
+Scoring uses the original KramaBench evaluator. Full pass threshold: official
+score >=1.0. Original per-task scores and failures remain preserved. There
+are no outcome-selected retries or extra repetitions. Cost is stats.json
+cost_usd, with cache-read discounts and cache-creation charges; evaluator
+calls and infrastructure resources are excluded. No final score is available
+at launch. Unscored timeouts must be reported explicitly during aggregation.
+
+Agent and runner revision: 59bd80573.
+Frozen checkout: /tmp/texera-haiku45-full-20261001-agent
+Agent: localhost:3077, launched with bin/local-dev.sh and its isolated profile.
+Branch backend: web8080, engine8085, computing-unit service8888.
+Engine revisions: 04e85b581 JVM; 41a3a4516 Python profiler.
+KramaBench revision: 4658eb92db753805e0df3edc207ca46379eda43b.
+Existing branch agents on 3075 and 3076 remain untouched.
+
+Four workers; at most one task with >=100 MB of declared source files in
+flight. Harness timeout: 900 seconds per task. All attempts write directly
+to /tmp, avoiding duplicate large traces on the nearly full /home disk.
+Launches pause during backend outages, low disk space, settings drift or
+context/profile invariant failures. Analytical mistakes remain recorded.
+Each owned computing unit is terminated when its worker finishes.
+
+Controller: /tmp/texera-haiku45-full-20261001-control
+Results: /tmp/texera-haiku45-full-20261001-results
+Convenience links under .claude/artifacts/:
+  retrieval-haiku45-full-20261001
+  retrieval-haiku45-full-20261001-control
+Controller files: command.json, pids.json, supervisor.py.log, stack-health.jsonl.
+Campaign files: manifest.json, progress.json, logs/, system_scratch/.
+Each task retains settings, prompt/tools, trace, workflow, snapshot, original
+evaluation, usage/cost and attempt-audit.json when available.
+
+The controller runs independently of the interactive shell. It monitors
+service reachability and identities throughout the run, then automatically
+runs aggregate analysis, profile audit, renderer replay and evidence-delivery
+checks. These checks complement manual trace review; they do not certify the
+analytical correctness of answers. Supervisor-result.json records which
+post-run checks completed successfully. No provider credentials are recorded.
+
+Started: 2026-10-01T19:40 UTC. Initial four task processes started successfully;
+the frozen agent and branch backend passed preflight health checks.
