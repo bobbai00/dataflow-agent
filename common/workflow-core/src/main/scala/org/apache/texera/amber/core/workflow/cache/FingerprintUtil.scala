@@ -41,7 +41,7 @@ case class Fingerprint(fingerprintJson: String, subdagHash: String)
   * The fingerprint payload captures:
   *   - target output port,
   *   - all upstream physical operators (sorted),
-  *   - their exec init info (proto string),
+  *   - SHA-256 of each operator's exec init info (proto string),
   *   - their output schemas (string form when available),
   *   - all edges between those operators (sorted).
   *
@@ -107,6 +107,10 @@ object FingerprintUtil {
       target: GlobalPortIdentity
   ): ObjectNode = {
     val root = objectMapper.createObjectNode()
+    // Version 2 stores a digest per execution definition. Repeating the full
+    // generated program in every downstream key made cachedOutputs retain
+    // hundreds of megabytes on long workflows. Old entries safely miss.
+    root.put("version", 2)
     root.put("targetPort", target.toString)
 
     val nodeArray = objectMapper.createArrayNode()
@@ -187,12 +191,13 @@ object FingerprintUtil {
   }
 
   /**
-    * Serialize op init info deterministically using its proto string.
+    * Hash the complete execution definition, including its language and schema
+    * mode. The program remains in the workflow; cache metadata needs only its
+    * identity. Bound payload size independently of generated program length.
     */
   private def serializeOpExec(opExecInitInfo: OpExecInitInfo): ObjectNode = {
     val n = objectMapper.createObjectNode()
-    // Use canonical proto string for determinism.
-    n.put("protoString", opExecInitInfo.asMessage.toProtoString)
+    n.put("protoSha256", sha256Hex(opExecInitInfo.asMessage.toProtoString))
     n
   }
 }
