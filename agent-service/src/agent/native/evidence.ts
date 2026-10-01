@@ -305,8 +305,8 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
     depth: 1,
   }));
   const seen = new Set([context.op.operatorID]);
-  let summaries = 0;
-  for (let visited = 0; queue.length && visited < 32 && summaries < 3; visited++) {
+  const summaries: NativeEvidenceFact[] = [];
+  for (let visited = 0; queue.length && visited < 32; visited++) {
     const { input, depth } = queue.shift()!;
     const { op, info } = input;
     if (seen.has(op.operatorID)) continue;
@@ -325,27 +325,32 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
       Process: "Process row/column mapping unknown; upstream calculation summary stops here",
     };
+    // Continue past nearby projections to find measured conversion losses.
+    // The graph walk and the number of displayed summaries stay bounded.
+    const local = collectLocalEvidence(input);
+    const losses = local.facts.filter(f => f.id.startsWith("flow.cast.") && f.priority === 100);
+    if (losses.length) semantic.Cast = "Cast produced nulls for values it could not convert";
     if (semantic[view.type]) {
-      const local = collectLocalEvidence(input);
       const measurements = local.facts
         .filter(f => f.family === "flow" && f.kind === "measurement" && f.priority >= 94)
-        .slice(0, view.type === "Aggregate" ? 2 : 1);
+        .sort((a, b) => b.priority - a.priority)
+        .slice(0, view.type === "Aggregate" || view.type === "Cast" ? 2 : 1);
       const version = info.resultVersion!;
-      result.facts.push({
+      summaries.push({
         id: `flow.upstream.${op.operatorID}.${version.id}`,
         family: "flow",
         kind: measurements.length ? "measurement" : view.type === "Process" ? "warning" : "guarantee",
         text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
-        priority: 98 - depth / 10,
+        priority: (losses.length ? 101 : 98) - depth / 10,
         upstream: { operatorId: op.operatorID, resultVersion: version.id },
       });
-      summaries++;
     }
     if (view.type === "Process") continue;
     if (depth < 8) queue.push(...boundInputs(input).map(next => ({ input: next, depth: depth + 1 })));
     else if (view.inputs.length) result.omissions.push("upstream_depth_bound");
   }
-  if (queue.length) result.omissions.push("upstream_summary_bound");
+  result.facts.push(...summaries.sort((a, b) => b.priority - a.priority).slice(0, 3));
+  if (queue.length || summaries.length > 3) result.omissions.push("upstream_summary_bound");
   return result;
 }
 
@@ -427,12 +432,13 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         );
       if (c.frequencies?.values.length) {
         const f = c.frequencies;
+        const compactCategory = !f.truncated && f.values.length <= 8 && c.nonnullCount >= 2 * f.values.length;
         add(
           `data.column.${name}.values`,
           "data",
           "measurement",
           `${json(name)} (${scope}): ${f.truncated ? "top values (not exhaustive)" : "nonnull values"}=${f.values.map(v => `${scalarText(v.value)}:${v.count}`).join(", ")}; other=${f.otherCount}.`,
-          priority - 20
+          priority - 20 + (compactCategory ? 8 : 0)
         );
       }
     }
@@ -456,15 +462,12 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     omissions.push(...profile.omissions);
   }
 
-  /** The author's `doc` of a custom operator (filter, map, process) leads its guarantee. */
-  const docOf = (props: Record<string, unknown>): string =>
-    typeof props.doc === "string" && props.doc ? `${props.doc}; ` : "";
   const contract: Record<string, string> = {
     Scan: "source creation; preview is not the full parsed source",
     Project: `row identities preserved, same order; selection/rename=${json(p)}`,
     Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
-    Map: `${docOf(p)}row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
-    Filter: `${docOf(p)}stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
+    Map: `row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
+    Filter: `stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
     Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
     Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
     Union: "concatenation preserves all rows and input-port order; no deduplication",
@@ -474,14 +477,20 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Window: `row identities preserved, input order restored; partition keys=${json(p.partitionBy ?? [])}; stable order=${json(p.orderBy ?? [])}, nulls last; outputs=${json(p.columns ?? [])}`,
     Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
     Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
-    Process: `${docOf(p)}row/column mapping unknown; equal row counts do not prove preservation`,
+    Process: "row/column mapping unknown; equal row counts do not prove preservation",
   };
   // Contracts that only restate what the operator name says (a sort keeps
-  // rows, a project keeps order) are not rendered; the rest carry parameters
-  // or the author's doc.
+  // rows, a project keeps order) are not rendered. Author descriptions express
+  // intent and cannot establish a guarantee about the computation.
   const RESTATES = new Set(["Scan", "Project", "Cast", "Union", "Distinct", "Limit", "Sort"]);
   if (contract[view.type] && !RESTATES.has(view.type))
-    add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
+    add(
+      "flow.contract",
+      "flow",
+      view.type === "Process" ? "warning" : "guarantee",
+      `${view.type}: ${contract[view.type]}.`,
+      25
+    );
 
   const inputs = view.inputs.map(resolveInput);
   const inputsMatch =
@@ -1072,6 +1081,13 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   // sentences they were collected as; the rest of the data lines follow.
   // One table per coverage scope (full vs partial prefix), each contiguous.
   const scopes = new Map<string, NativeEvidenceFact[]>();
+  const dataBudget = context.dataMaxChars ?? evidenceBudget;
+  // Wide count tables otherwise consume the entire display allocation. Leave
+  // room for distributions/ranges while retaining the existing small-budget
+  // behavior and prioritizing counts for columns used by the graph.
+  const countsBudget =
+    dataBudget >= 600 && dataCandidates.some(f => !f.columnCount) ? Math.floor(dataBudget / 2) : dataBudget;
+  const countsStart = used(dataLines);
   for (const fact of dataCandidates.filter(f => f.columnCount).sort(byPriority))
     scopes.set(fact.columnCount!.scope, [...(scopes.get(fact.columnCount!.scope) ?? []), fact]);
   for (const [scope, counts] of scopes) {
@@ -1080,6 +1096,10 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     for (const fact of counts) {
       const c = fact.columnCount!;
       const row = `${json(c.column)} | ${c.nulls} | ${c.nonnull} | ${c.distinct ?? "unknown"}`;
+      if (used(dataLines) - countsStart + (shown ? 0 : header.length + 1) + row.length + 1 > countsBudget) {
+        result.omitted.push({ id: fact.id, reason: "budget" });
+        continue;
+      }
       if (!shown && used(dataLines) + header.length + row.length + 2 > (context.dataMaxChars ?? evidenceBudget)) {
         result.omitted.push({ id: fact.id, reason: "budget" });
         continue;

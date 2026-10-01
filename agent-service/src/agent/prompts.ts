@@ -226,11 +226,11 @@ export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEviden
   const parts: string[] = [];
   if (options.dataEvidence)
     parts.push(
-      "Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics."
+      'Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.'
     );
   if (options.flowEvidence)
     parts.push(
-      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Use these and the upstream grouping keys to check the calculation. Retrieve an intermediate table if the evidence suggests a problem. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
+      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Check these against the intended population and grouping keys. For example, if a cast converts 18 of 100 values to null, inspect those inputs and repair formatting or justify their exclusion before using the aggregate. A successful execution does not validate that choice. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
     );
   if (parts.length)
     parts.push(

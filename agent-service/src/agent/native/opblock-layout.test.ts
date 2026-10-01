@@ -218,8 +218,9 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
   // The observed operator shows its body, with its operator semantics intact.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
   expect(blockFor(messages, "selected")).toContain("Flow measurement: Filter kept=3/5");
-  // The author's doc leads the guarantee of a custom operator.
-  expect(blockFor(messages, "selected")).toContain("Flow guarantee: Filter: legacy fixture; stable subset");
+  // Author descriptions stay in definitions; guarantees describe the contract.
+  expect(blockFor(messages, "selected")).toContain("Flow guarantee: Filter: stable subset");
+  expect(blockFor(messages, "selected")).not.toContain("Flow guarantee: Filter: legacy fixture");
 
   // The two the agent did not ask for carry a row count and nothing else. An
   // unobserved table is not leaked just because the layout retains bodies.

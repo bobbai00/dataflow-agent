@@ -72,11 +72,11 @@ A row's missing values are `None`; handle them explicitly. A map returns scalar 
 
 Use the supplied file paths; check any glob against those paths. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.
 
-Check column meanings, units, missing values and repeated records. Establish which eligibility or exclusion flags define the requested population before aggregating. Normalize keys before joining and check what one row represents after a join or grouping. Apply the requested formula, check the result's scale, and round only at the end.
+Check column meanings, units, missing-value markers and repeated records. Clean numeric formatting before casting. Use `errors="null"` only for values you intend to exclude, then check how many were lost. Establish eligibility flags before aggregating. Normalize join keys and check the row grain. Apply the requested formula and round only at the end.
 
 ## Operators and ports
 
-The catalog lists every operator's parameters, ports and meaning. Column names are strings. Reducer and window-function arguments name columns. Defaults are shown. For parameter names containing spaces or punctuation, use a quoted dictionary: `cast(**{"Age (years)": float64}, errors="null")`.
+The catalog lists every operator's parameters, ports and meaning. Column names are strings. Reducer and window-function arguments name columns. Defaults are shown. For parameter names containing spaces or punctuation, use a quoted dictionary: `cast(**{"Age (years)": float64})`.
 
 ```text
 {{OPERATOR_CATALOG}}

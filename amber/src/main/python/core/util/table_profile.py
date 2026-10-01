@@ -384,12 +384,27 @@ class ProfileAccumulator:
         payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             result["omissions"] = sorted(set(result["omissions"]) | {"payload_budget"})
-            for column in result["columns"].values():
+            # Drop the largest value dictionaries first. A wide table should
+            # not lose a two-value eligibility flag because unrelated columns
+            # contain hundreds of distinct values. Keep frequencies and their
+            # merge dictionaries together for exact cross-worker aggregation.
+            size = len(_json(result).encode("utf-8"))
+            candidates = sorted(
+                (c for c in result["columns"].values() if c["mergeValues"] is not None or c["frequencies"] is not None),
+                key=lambda c: len(_json([c["mergeValues"], c["frequencies"]]).encode("utf-8")),
+                reverse=True,
+            )
+            for column in candidates:
+                before = len(_json(column).encode("utf-8"))
                 column["mergeValues"] = None
                 column["frequencies"] = None
                 column["omissions"] = sorted(
                     set(column["omissions"]) | {"frequency_payload_budget", "merge_values_payload_budget"}
                 )
+                size += len(_json(column).encode("utf-8")) - before
+                # Leave room for the payloadBytes field to change width.
+                if size + 32 <= self.limits.max_payload_bytes:
+                    break
             payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             result["native"] = None

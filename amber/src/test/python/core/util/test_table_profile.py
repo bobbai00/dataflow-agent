@@ -166,6 +166,24 @@ def test_metadata_identity_and_serialized_bytes_are_bounded():
     assert len(decoded["producerId"]) == 32
 
 
+def test_payload_budget_preserves_small_frequencies_and_exact_counts():
+    frame = pd.DataFrame({f"value{i}": [f"value-{j:03d}" for j in range(100)] for i in range(12)})
+    frame["eligible"] = ["Yes"] * 80 + ["No"] * 20
+    profile, original = collect(frame, limits=ProfileLimits(max_payload_bytes=12000, max_seconds=10))
+    payload = profile.encode()
+    result = json.loads(payload)
+    assert len(payload.encode()) <= 12000
+    assert result["cost"]["payloadBytes"] == len(payload.encode())
+    assert "payload_budget" in result["omissions"]
+    assert result["columns"]["eligible"] == original["columns"]["eligible"]
+    assert result["columns"]["eligible"]["frequencies"]["otherCount"] == 0
+    assert any(c["mergeValues"] is None for c in result["columns"].values())
+    for name, column in result["columns"].items():
+        for field in ["nullCount", "nonnullCount", "distinctCount", "rowsProcessed", "min", "max"]:
+            assert column[field] == original["columns"][name][field]
+    assert profile.snapshot() == original
+
+
 def test_collection_time_budget_stops_optional_work_not_execution():
     # The collector checks its clock before each bounded row block.
     ticks = iter([0.0, 1.0, 1.0, 1.0])

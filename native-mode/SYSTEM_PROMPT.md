@@ -60,11 +60,11 @@ A row's missing values are `None`; handle them explicitly. A map returns scalar 
 
 Use the supplied file paths; check any glob against those paths. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.
 
-Check column meanings, units, missing values and repeated records. Establish which eligibility or exclusion flags define the requested population before aggregating. Normalize keys before joining and check what one row represents after a join or grouping. Apply the requested formula, check the result's scale, and round only at the end.
+Check column meanings, units, missing-value markers and repeated records. Clean numeric formatting before casting. Use `errors="null"` only for values you intend to exclude, then check how many were lost. Establish eligibility flags before aggregating. Normalize join keys and check the row grain. Apply the requested formula and round only at the end.
 
 ## Operators and ports
 
-The catalog lists every operator's parameters, ports and meaning. Column names are strings. Reducer and window-function arguments name columns. Defaults are shown. For parameter names containing spaces or punctuation, use a quoted dictionary: `cast(**{"Age (years)": float64}, errors="null")`.
+The catalog lists every operator's parameters, ports and meaning. Column names are strings. Reducer and window-function arguments name columns. Defaults are shown. For parameter names containing spaces or punctuation, use a quoted dictionary: `cast(**{"Age (years)": float64})`.
 
 ```text
 scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)
@@ -250,8 +250,8 @@ Enabling evidence adds the matching paragraphs below. The default exposes neithe
 
 
 
-Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics.
+Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
 
-Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Use these and the upstream grouping keys to check the calculation. Retrieve an intermediate table if the evidence suggests a problem. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
+Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Check these against the intended population and grouping keys. For example, if a cast converts 18 of 100 values to null, inspect those inputs and repair formatting or justify their exclusion before using the aggregate. A successful execution does not validate that choice. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
 
 These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.

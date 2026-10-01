@@ -566,7 +566,7 @@ test("equijoin distinguishes matched output contribution from row and key covera
   expect(collectNativeEvidence(f).facts.some(x => x.id.startsWith("flow.join."))).toBe(false);
 });
 
-test("guarantees render where they carry parameters or a doc, UDF remains unknown at equal row counts", () => {
+test("guarantees describe contracts, UDF remains unknown at equal row counts", () => {
   for (const kind of ["Project", "Map", "Cast", "Sort"]) {
     const f = fixture(kind);
     f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
@@ -579,6 +579,46 @@ test("guarantees render where they carry parameters or a doc, UDF remains unknow
   f.info.totalRowCount = 5;
   expect(factText(f)).toContain("row/column mapping unknown");
   expect(factText(f)).not.toContain("row identities preserved");
+});
+
+test("an author's description is never presented as an engine guarantee", () => {
+  for (const type of ["Map", "Filter", "Process"]) {
+    const f = fixture(type, { doc: "Every excluded participant has been removed" });
+    const text = factText(f);
+    expect(text).not.toContain("Every excluded participant has been removed");
+    if (type === "Process") {
+      expect(text).toContain("Flow warning: Process");
+      expect(text).not.toContain("Flow guarantee: Process");
+    }
+  }
+});
+
+test("wide data views leave room for compact category values and relevant ranges", () => {
+  const f = fixture("Scan");
+  f.info.resultSchema = Array.from({ length: 80 }, (_, i) => ({ name: `c${i}`, type: "int64", encoding: "number" }));
+  f.info.tableProfile!.columns = Object.fromEntries(f.info.resultSchema.map(c => [c.name, column(100, 0)]));
+  f.info.tableProfile!.columns.c0 = {
+    ...column(100, 0),
+    type: "str",
+    min: null,
+    max: null,
+    distinctCount: 2,
+    frequencies: {
+      values: [
+        { value: { type: "str", value: "Yes" }, count: 80 },
+        { value: { type: "str", value: "No" }, count: 20 },
+      ],
+      otherCount: 0,
+      truncated: false,
+    },
+  };
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 100;
+  f.info.tableProfile!.coverage.rowsProcessed = 100;
+  const selection = observe(f, { view: "sample_stats", flow: false, dataMaxChars: 2000 });
+  expect(selection.selected).toContain("data.column.c0.counts");
+  expect(selection.selected).toContain("data.column.c0.values");
+  expect(selection.selected.some(id => id.endsWith(".range"))).toBe(true);
+  expect(selection.omitted.some(f => f.id.endsWith(".counts") && f.reason === "budget")).toBe(true);
 });
 
 test("complete small tables outrank redundant data profiles but retain useful input evidence", () => {
@@ -848,6 +888,62 @@ test("observed final count includes bound upstream group grain, not hidden table
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(true);
   expect(observe(f, { flow: false }).text).not.toContain("account");
   expect(selection.text.length).toBeLessThanOrEqual(2000);
+});
+
+test("upstream conversion losses survive nearby summaries and remain version bound", () => {
+  const f = calculationFixture();
+  const raw = f.workflow.operators.find(op => op.operatorID === "raw")!;
+  const source = { ...structuredClone(raw), operatorID: "source" };
+  f.workflow.operators.unshift(source);
+  Object.assign(raw.nativeOp!, {
+    type: "Cast",
+    inputs: ["source"],
+    properties: { columns: [{ column: "x", dtype: "int64" }], errors: "null" },
+  });
+  const rawInfo = f.results.get("raw")!;
+  const sourceInfo = structuredClone(rawInfo);
+  Object.assign(sourceInfo.resultVersion!, { id: "source".padEnd(64, "0"), operatorId: "source", inputs: [] });
+  sourceInfo.tableProfile!.resultVersion = sourceInfo.resultVersion!.id;
+  f.results.set("source", sourceInfo);
+  rawInfo.resultVersion!.inputs = [
+    { inputIndex: 0, operatorId: "source", outputPort: 0, resultVersion: sourceInfo.resultVersion!.id },
+  ];
+  rawInfo.tableProfile!.native = {
+    operatorType: "Cast",
+    inputOperators: ["source"],
+    inputRows: [10],
+    outputRows: 10,
+    operations: { conversionFailures: { x: 6 } },
+  };
+  // Add enough nearby projections to exhaust the old first-three-ancestors rule.
+  for (let i = 0; i < 3; i++) {
+    const id = `project${i}`;
+    const previous = f.op.nativeOp!.inputs[0];
+    const previousInfo = f.results.get(previous)!;
+    const op = { ...structuredClone(source), operatorID: id };
+    Object.assign(op.nativeOp!, { type: "Project", inputs: [previous], properties: { keep: ["x"] } });
+    const info = structuredClone(previousInfo);
+    Object.assign(info.resultVersion!, {
+      id: id.padEnd(64, "0"),
+      operatorId: id,
+      inputs: [{ inputIndex: 0, operatorId: previous, outputPort: 0, resultVersion: previousInfo.resultVersion!.id }],
+    });
+    info.tableProfile!.resultVersion = info.resultVersion!.id;
+    info.tableProfile!.native = null;
+    f.workflow.operators.push(op);
+    f.results.set(id, info);
+    f.op.nativeOp!.inputs = [id];
+    f.info.resultVersion!.inputs = [
+      { inputIndex: 0, operatorId: id, outputPort: 0, resultVersion: info.resultVersion!.id },
+    ];
+  }
+  const selected = observe(f, { data: false, flowMaxChars: 1000 });
+  expect(selected.text).toContain("Flow upstream raw:");
+  expect(selected.text).toContain('"x" conversion failures=6/10');
+  expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
+  expect(selected.text).not.toContain("UNOBSERVED_ROW_CANARY");
+  rawInfo.resultVersion!.inputs[0].resultVersion = "stale";
+  expect(observe(f).text).not.toContain("conversion failures");
 });
 
 test("upstream summaries stop at stale edges and opaque UDFs", () => {
