@@ -50,10 +50,15 @@ class RetrievalSystem(_NativeExpressionBase):
         base = Path(self.output_dir) / job["task"]
         endpoint = agent.agent_service_endpoint + "/api/agents/" + agent.agent_id
         settings = {**manifest["settings"], **arm}
-        response = requests.patch(endpoint + "/settings", json=settings, timeout=30)
-        response.raise_for_status()
         save(base / "resources.json", {"agent_id": agent.agent_id, "workflow_id": agent._workflow_id,
                                       "computing_unit_id": agent._computing_unit_id})
+        # Code visibility is set by the inherited creation protocol and is not
+        # accepted by PATCH. Still verify its actual value below.
+        patch = {k: v for k, v in settings.items() if k != "enableCodeInSnapshot"}
+        response = requests.patch(endpoint + "/settings", json=patch, timeout=30)
+        if not response.ok:
+            agent.cleanup()
+            raise RuntimeError(f"Retrieval settings rejected: {response.status_code} {response.text[:1200]}")
         save(base / "provenance.json", {"agent_revision": manifest["agent_revision"],
                                        "harness_revision": manifest["harness_revision"], "job": job})
         for route in ["system-info", "settings"]:

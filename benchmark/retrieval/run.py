@@ -44,6 +44,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--endpoint", default="http://localhost:3075")
+    parser.add_argument("--agent-revision", help="Revision served by the frozen agent; defaults to this checkout")
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=900)
@@ -80,7 +81,8 @@ def main():
                                   "flowEvidence": bool(flow), "dataEvidence": view in ["sample_stats", "adaptive"]}
             for view in ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]}
     manifest = {
-        "agent_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
+        "agent_revision": args.agent_revision or subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
+        "runner_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "harness_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "endpoint": args.endpoint, "task_ids": args.tasks, "repetitions": args.repetitions,
         "models": {m: "gpt-5.6-" + m.lower() for m in args.models},
