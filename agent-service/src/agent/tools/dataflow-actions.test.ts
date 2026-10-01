@@ -32,6 +32,22 @@ import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 const edit = { type: "edit", changes: 'create operator source: scan("data/orders.csv")' };
 
 describe("ordered dataflow actions", () => {
+  test("only available views validate and unavailable requests run no actions", async () => {
+    const tool = createDataflowTool(["sample_stats"]);
+    const schema = asSchema(tool.inputSchema).jsonSchema as any;
+    const retrieve = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "retrieve");
+    expect(retrieve.properties.view.enum).toEqual(["sample_stats"]);
+    expect(retrieve.required).toContain("view");
+    const invalid = prepareDataflowActions(
+      { reasoning: "Read.", actions: [edit, { type: "retrieve", operator_id: "source", view: "full" }] },
+      ["sample_stats"]
+    );
+    expect(invalid.error).toContain("unavailable");
+    expect(invalid.actions).toEqual([]);
+    expect(
+      prepareDataflowActions({ reasoning: "Read.", actions: [{ type: "retrieve", operator_id: "source" }] }).error
+    ).toContain("view");
+  });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
@@ -55,7 +71,7 @@ describe("ordered dataflow actions", () => {
       { reasoning: "", actions: [edit] },
       { reasoning: "load", actions: [] },
       { reasoning: "load", actions: [edit, { type: "execute", force: true }] },
-      { reasoning: "load", actions: [{ type: "retrieve", operator_id: 5 }] },
+      { reasoning: "load", actions: [{ type: "retrieve", view: "sample", operator_id: 5 }] },
       { reasoning: "load", actions: [edit, { type: "answer", content: "42" }] },
     ])
       expect(prepareDataflowActions(input).error).toBeDefined();
@@ -65,7 +81,7 @@ describe("ordered dataflow actions", () => {
     const called: string[] = [];
     const result = prepareDataflowActions({
       reasoning: "Load and read the table.",
-      actions: [edit, { type: "execute" }, { type: "retrieve", operator_id: "source" }],
+      actions: [edit, { type: "execute" }, { type: "retrieve", view: "sample", operator_id: "source" }],
     });
     await runDataflowActions(result, async action => {
       called.push(action.type);
@@ -76,7 +92,7 @@ describe("ordered dataflow actions", () => {
     expect(result.status).toBe("completed");
     const read = prepareDataflowActions({
       reasoning: "Read again.",
-      actions: [{ type: "retrieve", operator_id: "source" }],
+      actions: [{ type: "retrieve", view: "sample", operator_id: "source" }],
     });
     await runDataflowActions(read, async action => {
       called.push(action.type);
@@ -88,7 +104,7 @@ describe("ordered dataflow actions", () => {
   test("an execution failure permits reads and retains completed outcomes", async () => {
     const result = prepareDataflowActions({
       reasoning: "Run.",
-      actions: [edit, { type: "execute" }, { type: "retrieve", operator_id: "source" }],
+      actions: [edit, { type: "execute" }, { type: "retrieve", view: "sample", operator_id: "source" }],
     });
     await runDataflowActions(result, async action => {
       if (action.type === "execute") throw new Error("worker unavailable");
@@ -105,8 +121,8 @@ describe("ordered dataflow actions", () => {
       [
         { type: "edit", changes: 'create operator good: scan("ok.csv")\ncreate operator bad: scan("missing.csv")' },
         { type: "execute" },
-        { type: "retrieve", operator_id: "bad" },
-        { type: "retrieve", operator_id: "good" },
+        { type: "retrieve", view: "sample", operator_id: "bad" },
+        { type: "retrieve", view: "sample", operator_id: "good" },
         { type: "edit", changes: 'create operator never: scan("never.csv")' },
       ],
     ]);
@@ -217,12 +233,34 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("changing retrieval views reads the same result and freezes each observation", async () => {
+    const s = session([
+      [
+        { type: "edit", changes: 'create operator source: scan("x.csv")' },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "source", view: "sample" },
+      ],
+      [{ type: "retrieve", operator_id: "source", view: "full" }],
+      [{ type: "retrieve", operator_id: "source", view: "sample_stats" }],
+    ]);
+    s.agent.updateSettings({ retrievalViews: ["full", "sample", "sample_stats"], maxResultRows: 1 });
+    await s.agent.sendMessage("Read three views.");
+    expect(s.executions()).toBe(1);
+    expect(s.outcomes.map(o => (o.actions.at(-1)!.output as any).view)).toEqual(["sample", "full", "sample_stats"]);
+    for (let i = 1; i < s.contexts.length; i++)
+      expect(s.contexts[i].slice(0, s.contexts[i - 1].length)).toEqual(s.contexts[i - 1]);
+    const steps = s.agent.getVisibleReActSteps().filter(step => step.toolCalls?.length);
+    for (const [i, step] of steps.entries()) {
+      const saved = s.agent.getSnapshotStorage().getAssociatedSnapshot(step.id);
+      expect(saved?.nativeObservations?.source.options.view).toBe((["sample", "full", "sample_stats"] as const)[i]);
+    }
+  });
   const source: DataflowAction = {
     type: "edit",
     changes:
       'create operator source: scan("data/orders.csv")\ncreate operator last: limit(1)\ncreate edge source.out -> last.in',
   };
-  const read: DataflowAction = { type: "retrieve", operator_id: "last" };
+  const read: DataflowAction = { type: "retrieve", view: "sample", operator_id: "last" };
 
   test("edits are deferred from execution, unavailable reads fail, and later cached reads do not execute", async () => {
     const s = session([
@@ -292,7 +330,7 @@ describe("dataflow action integration", () => {
             "create operator good: limit(1)\ncreate operator bad: limit(1)\ncreate operator blocked: limit(1)\ncreate edge source.out -> good.in\ncreate edge missing.out -> bad.in\ncreate edge bad.out -> blocked.in",
         },
         { type: "execute" },
-        { type: "retrieve", operator_id: "good" },
+        { type: "retrieve", view: "sample", operator_id: "good" },
       ],
     ]);
     await s.agent.sendMessage("Check a missing dependency.");
@@ -346,7 +384,7 @@ describe("dataflow action integration", () => {
 
 describe("action history and model loop", () => {
   const source: DataflowAction = { type: "edit", changes: 'create operator source: scan("data/old.csv")' };
-  const read: DataflowAction = { type: "retrieve", operator_id: "source" };
+  const read: DataflowAction = { type: "retrieve", view: "sample", operator_id: "source" };
 
   test("two executions in one call keep each retrieved version and preserve prior snapshots", async () => {
     const s = session([
@@ -521,7 +559,7 @@ test("an execution failure permits retrieval but rejects the failed result", asy
     [
       { type: "edit", changes: 'create operator source: scan("data/missing.csv")' },
       { type: "execute" },
-      { type: "retrieve", operator_id: "source" },
+      { type: "retrieve", view: "sample", operator_id: "source" },
     ],
   ]);
   (s.agent as any).executePostStepChanges = async () => {
@@ -545,7 +583,7 @@ test("LATEST preserves a retrieved table that a later action supersedes", async 
     [
       { type: "edit", changes: 'create operator source: scan("data/old.csv")' },
       { type: "execute" },
-      { type: "retrieve", operator_id: "source" },
+      { type: "retrieve", view: "sample", operator_id: "source" },
       { type: "edit", changes: 'update operator source: scan("data/new.csv")' },
     ],
   ]);

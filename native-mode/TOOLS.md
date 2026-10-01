@@ -121,13 +121,21 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "sample"
+                ]
               }
             },
             "required": [
               "type",
-              "operator_id"
+              "operator_id",
+              "view"
             ],
-            "description": "Read an operator's existing output records and enabled runtime profiles. Never executes. Missing or stale outputs need a successful execute; failed operators must first be repaired."
+            "description": "Read an existing result: full requests all records up to its character cap; sample returns a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
           },
           {
             "type": "object",

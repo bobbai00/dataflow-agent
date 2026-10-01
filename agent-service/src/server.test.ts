@@ -402,7 +402,38 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(clearedBody.frontierDecayConfig).toBeUndefined();
   });
 
-  test("only the two evidence controls survive create, GET, and PATCH", async () => {
+  test("retrieval capabilities and budgets survive create, GET, and PATCH", async () => {
+    const settings = {
+      retrievalViews: ["full", "sample", "sample_stats"],
+      fullResultCharLimit: 100000,
+      maxOperatorResultCharLimit: 1500,
+      maxResultRows: 5,
+      dataEvidenceCharLimit: 1000,
+      flowEvidenceCharLimit: 1200,
+      flowEvidence: true,
+    };
+    const created = await readJson<any>(await createAgent({ settings }));
+    expect(created.settings).toMatchObject(settings);
+    const patch = { retrievalViews: ["sample_stats"], fullResultCharLimit: 80000 };
+    expect((await patchJson(`${API}/agents/${created.id}/settings`, patch)).status).toBe(200);
+    expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+      ...settings,
+      ...patch,
+    });
+    for (const bad of [
+      { retrievalViews: [] },
+      { retrievalViews: ["sample", "sample"] },
+      { fullResultCharLimit: 100001 },
+    ]) {
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, bad)).status).toBeGreaterThanOrEqual(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+        ...settings,
+        ...patch,
+      });
+    }
+  });
+
+  test("the two evidence controls survive create, GET, and PATCH", async () => {
     const created = await readJson<any>(
       await createAgent({
         settings: {

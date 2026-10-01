@@ -165,6 +165,16 @@ the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
 graph inspection is built into `dataflow`. See [README.md §2](README.md) for
 the full table.
 
+Native Retrieve requires a `view`: `full`, `sample`, or `sample_stats`. Session
+`retrievalViews` controls the available choices and takes precedence over
+`dataEvidence`; when omitted, full/sample are available and `dataEvidence`
+additionally enables sample_stats. `fullResultCharLimit` defaults to 100,000;
+`maxOperatorResultCharLimit` and `maxResultRows` bound samples. Statistics and
+automatic flow metadata have separate `dataEvidenceCharLimit` and
+`flowEvidenceCharLimit` budgets (2,000 each). Execution retains the large
+bounded result for every arm; switching views never executes. See
+[docs/retrieval-views.md](docs/retrieval-views.md).
+
 Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
 `allowedOperatorTypes`, and the old level/statistics overlays) produce an
 error, not a compatibility mapping. Schema and samples fill one result budget;

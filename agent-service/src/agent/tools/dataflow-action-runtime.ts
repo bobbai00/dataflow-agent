@@ -21,7 +21,8 @@ import type { AgentSettings } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
-import { selectNativeObservation } from "../native/evidence";
+import { selectNativeObservation, type NativeObservation } from "../native/evidence";
+import { retrievalOptions } from "../native/retrieval";
 import { nativeCheckLines } from "../native/checks";
 import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
@@ -58,7 +59,7 @@ export async function executeDataflowActionBatch(
     signal?.throwIfAborted();
     if (!runtime.isCurrent()) throw new DOMException("The active workflow changed during this action.", "AbortError");
   };
-  const retrieved = new Map<number, { operatorId: string; info: OperatorInfo }>();
+  const retrieved = new Map<number, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
   const errorText = (id: string, info: OperatorInfo) =>
     formatOperatorResult(id, info, state, {
@@ -157,19 +158,22 @@ export async function executeDataflowActionBatch(
       if (!["Completed", "CompletedFromCache"].includes(info.state))
         throw new Error(`Result for ${action.operator_id} is ${info.state}; use execute to obtain a completed result.`);
       const observation = selectNativeObservation({
-        ...options,
+        ...retrievalOptions(settings, action.view),
         op,
         info,
         workflow: state.getWorkflowContent(),
         resolveInput: current,
       });
-      retrieved.set(index, { operatorId: action.operator_id, info });
+      retrieved.set(index, { operatorId: action.operator_id, info, observation });
       return {
         status: "ok",
         output: {
           operator_id: action.operator_id,
           revision: op.nativeOp?.revision,
           result_version: info.resultVersion?.id,
+          view: action.view,
+          table: observation.table,
+          evidence: observation.selected.filter(id => id.startsWith("data.") || id.startsWith("flow.")),
           text: observation.text,
         },
       };
@@ -192,5 +196,14 @@ export async function executeDataflowActionBatch(
         .map(({ operatorId }) => operatorId)
     ),
   ];
-  storage.captureNativeObservations(stepId, result.observe, options);
+  storage.captureNativeObservations(
+    stepId,
+    result.observe,
+    options,
+    new Map(
+      [...retrieved.values()]
+        .filter(({ operatorId, info }) => current(operatorId) === info)
+        .map(({ operatorId, observation }) => [operatorId, observation])
+    )
+  );
 }

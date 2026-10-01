@@ -29,8 +29,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import { ContextMode, type AgentSettings, type LocalToolDialect } from "../types/agent";
+import { ContextMode, type AgentSettings, type LocalToolDialect, type RetrievalSettings } from "../types/agent";
 import { graphCatalogText } from "./native/catalog";
+import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, nativeResultTransportLimit } from "./native/retrieval";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -204,7 +205,9 @@ export function buildCodeModeSystemPrompt(
 // ============================================================================
 const NATIVE_MODE_TEMPLATE: string = rd("native-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
-export interface NativePromptLayoutOptions {
+export interface NativePromptLayoutOptions extends RetrievalSettings {
+  maxOperatorResultCharLimit?: number;
+  maxResultRows?: number;
   versioned?: boolean;
   session?: boolean;
   recall?: boolean;
@@ -227,13 +230,34 @@ export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEviden
     );
   if (options.flowEvidence)
     parts.push(
-      "Flow measurement lines describe rows kept, joined, or grouped, reducer denominators, and relevant upstream operations. They can also identify suspicious headers, grouping keys that combine different entities, or flags that no operation used. Flow guarantees describe operator contracts; custom functions include their doc."
+      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Use these and the upstream grouping keys to check the calculation. Retrieve an intermediate table if the evidence suggests a problem. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
     );
   if (parts.length)
     parts.push(
       "These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct."
     );
   return parts.length ? "\n\n" + parts.join("\n\n") : "";
+}
+
+export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): string {
+  const views = availableRetrievalViews(options);
+  const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
+  const rows = options.maxResultRows ? ` and at most ${options.maxResultRows} records` : "";
+  const descriptions = {
+    full: `- \`full\`: request all records, bounded by ${nativeResultTransportLimit(options)} characters. Use it when you need every record or a complete small result. Check completeness; a capped full view is still partial.`,
+    sample: `- \`sample\`: schema and a small record view, bounded by ${sampleLimit} characters${rows}. Use it to check record structure and example values.`,
+    sample_stats: `- \`sample_stats\`: the same small record view (${sampleLimit} characters${rows}) plus up to ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT} characters of data statistics. Use it to inspect large tables when missingness, ranges, distinct counts or value frequencies are more useful than many records.`,
+  };
+  return [
+    "Choose the `view` on every Retrieve. Available views:",
+    ...views.map(v => descriptions[v]),
+    "Changing the view reads the same existing result without execution. Compute aggregates and searches through operators over the full data; displayed samples do not define the population.",
+    ...(options.flowEvidence
+      ? [
+          `Automatic flow evidence has a separate ${options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget in every view.`,
+        ]
+      : []),
+  ].join("\n");
 }
 
 export function buildNativeModeSystemPrompt(
@@ -251,7 +275,16 @@ export function buildNativeModeSystemPrompt(
     ? "\n\nA check line reports a suspicious header, records repeated across sources, or an empty or duplicating operation inside a custom function. Examine the finding before using its result."
     : "";
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
-    .replace("{{EVIDENCE}}", nativeEvidenceText(options) + checks)
+    .replace("{{RETRIEVAL}}", nativeRetrievalText(options))
+    .replaceAll(
+      "{{RETRIEVE_EXAMPLE_VIEW}}",
+      availableRetrievalViews(options).includes("sample") ? "sample" : availableRetrievalViews(options)[0]
+    )
+    .replace(
+      "{{EVIDENCE}}",
+      nativeEvidenceText({ ...options, dataEvidence: availableRetrievalViews(options).includes("sample_stats") }) +
+        checks
+    )
     .replace("{{CONTEXT_LAYOUT}}", context)
     .replace(
       "{{RECALL_TOOL}}",

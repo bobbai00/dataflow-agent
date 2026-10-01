@@ -23,6 +23,7 @@ import { NATIVE_BY_TYPE } from "./catalog";
 import { scanLines } from "./checks";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
+import type { RetrievalView } from "../../types/agent";
 import { compactNativeObservation, type NativeColumnCount, type NativeUpstreamIdentity } from "./evidence-compaction";
 
 export interface NativeEvidenceContext {
@@ -53,6 +54,9 @@ export interface NativeObservationOptions {
   maxRows?: number;
   detail?: "shape" | "sample";
   columns?: readonly string[];
+  view?: RetrievalView;
+  dataMaxChars?: number;
+  flowMaxChars?: number;
 }
 
 /** Audit metadata is not appended to model text. Full version references are
@@ -63,6 +67,13 @@ export interface NativeObservation {
   inputs: ResultVersion["inputs"];
   options: NativeObservationOptions;
   text: string;
+  table?: {
+    totalRows: number | null;
+    returnedRows: number;
+    totalColumns: number;
+    columnsShown: number;
+    complete: boolean;
+  };
   selected: string[];
   /** Atomic render units retained for monotone historical compaction. */
   chunks: Array<{ id: string; text: string; members?: string[]; upstream?: NativeUpstreamIdentity }>;
@@ -218,7 +229,11 @@ function aggregateSemantics(
     const example = record(d.example);
     facts.push([
       `flow.aggregate.key.${d.column}`,
-      `group key ${json(keys)} determines ${json(d.column)} in most groups but not in ${d.split} of ${d.groups}: e.g. ${json(names(example.key).length === 1 ? names(example.key)[0] : example.key)} has ${json(d.column)} = ${names(example.values).map(v => json(v)).join(", ")}; those rows are pooled into one group.`,
+      `group key ${json(keys)} determines ${json(d.column)} in most groups but not in ${d.split} of ${d.groups}: e.g. ${json(names(example.key).length === 1 ? names(example.key)[0] : example.key)} has ${json(d.column)} = ${names(
+        example.values
+      )
+        .map(v => json(v))
+        .join(", ")}; those rows are pooled into one group.`,
     ]);
   }
   // Columns never read on the way here: over the rows this aggregate reduces
@@ -287,6 +302,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
     const view = op.nativeOp!;
     const p = view.properties;
     const semantic: Record<string, string> = {
+      Project: `Project selection/rename=${json(p)}; rows preserved`,
       Aggregate: `Aggregate group keys=${json(p.groupBy ?? [])}`,
       Join: `Join type=${p.type ?? "inner"}, keys=${json(p.on ?? [])}`,
       Filter: `Filter predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
@@ -851,6 +867,9 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       maxRows: context.maxRows,
       detail: context.detail,
       columns: context.columns ? [...context.columns] : undefined,
+      ...(context.view
+        ? { view: context.view, dataMaxChars: context.dataMaxChars, flowMaxChars: context.flowMaxChars }
+        : {}),
     },
     text: "",
     selected: [],
@@ -874,8 +893,8 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     };
   let evidenceBudget = 0;
   const append = pushTo(lines, () => maxChars);
-  const appendData = pushTo(dataLines, () => evidenceBudget);
-  const appendFlow = pushTo(flowLines, () => evidenceBudget);
+  const appendData = pushTo(dataLines, () => context.dataMaxChars ?? evidenceBudget);
+  const appendFlow = pushTo(flowLines, () => context.flowMaxChars ?? evidenceBudget);
   const rows = info.result ?? [];
   const rawPreview = op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0;
   const schema =
@@ -887,7 +906,8 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     result.omitted.push({ id: "table", reason: "budget" });
     return result;
   }
-  const rowLimit = context.maxRows && context.maxRows > 0 ? Math.floor(context.maxRows) : rows.length;
+  const rowLimit =
+    context.view !== "full" && context.maxRows && context.maxRows > 0 ? Math.floor(context.maxRows) : rows.length;
   const schemaLine = (fields: typeof schema) => `Columns: ${fields.map(c => `${json(c.name)}:${c.type}`).join("\t")}`;
   const rowLine = (row: Record<string, unknown>, fields: typeof schema) =>
     fields.map(c => cellText(own(row, c.name) ? row[c.name] : undefined, c.type)).join("\t");
@@ -906,6 +926,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     );
   const table = [schemaLine(schema), "Complete table (all rows):", ...rows.map(row => rowLine(row, schema))].join("\n");
   const completeVisible = complete && append(table, "table.complete");
+  let columnsShown = completeVisible ? schema.length : 0;
   const evidence = collectNativeEvidence(context);
   result.omitted.push(...evidence.omissions.map(id => ({ id, reason: "unavailable" as const })));
   // Rows that overflow the sample reserve fill the rest of the table's budget,
@@ -913,7 +934,16 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const rowCandidates: NativeEvidenceFact[] = [];
   const dataCandidates: NativeEvidenceFact[] = [];
   const flowCandidates: NativeEvidenceFact[] = [];
-  if (!completeVisible) {
+  if (!completeVisible && context.view === "full") {
+    // Preserve stored order and cell contents. The transport may itself be
+    // truncated; a full request must never label that partial result complete.
+    const reserve = "View incomplete; unshown rows/columns or evidence omitted.".length + 1;
+    const appendRecord = pushTo(lines, () => Math.max(0, maxChars - reserve));
+    if (appendRecord(schemaLine(schema), "table.schema")) {
+      columnsShown = schema.length;
+      for (const [i, row] of rows.entries()) if (!appendRecord(rowLine(row, schema), `record.${i}`)) break;
+    } else appendRecord("Columns omitted: budget", "table.schema_omitted");
+  } else if (!completeVisible) {
     const relevant = relevance(context);
     const allowed = schema.filter(c => !context.columns?.length || context.columns.includes(c.name));
     // Relevant columns first, then the table's own order: a lexical tie-break
@@ -931,6 +961,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
         selected.push(c);
     // Keep the declared schema order within the selected column subset.
     const fields = schema.filter(c => selected.includes(c));
+    columnsShown = fields.length;
     if (fields.length)
       append(
         `${schemaLine(fields)}${fields.length === schema.length ? "" : ` (shown=${fields.length}/${schema.length})`}`,
@@ -999,7 +1030,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     for (const fact of counts) {
       const c = fact.columnCount!;
       const row = `${json(c.column)} | ${c.nulls} | ${c.nonnull} | ${c.distinct ?? "unknown"}`;
-      if (!shown && used(dataLines) + header.length + row.length + 2 > evidenceBudget) {
+      if (!shown && used(dataLines) + header.length + row.length + 2 > (context.dataMaxChars ?? evidenceBudget)) {
         result.omitted.push({ id: fact.id, reason: "budget" });
         continue;
       }
@@ -1015,6 +1046,13 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   // Text order = chunk order: the table, the data lines, the flow lines, then the notice.
   const tableLines = notice ? lines.slice(0, -1) : lines;
   result.text = [...tableLines, ...dataLines, ...flowLines, ...(notice ? lines.slice(-1) : [])].join("\n");
+  result.table = {
+    totalRows: total ?? null,
+    returnedRows: completeVisible ? rows.length : result.selected.filter(id => /^(sample|record)\./.test(id)).length,
+    totalColumns: schema.length,
+    columnsShown,
+    complete: !!completeVisible,
+  };
   return compactNativeObservation(result, evidence.facts);
 }
 
@@ -1033,7 +1071,7 @@ export function restrictNativeObservation(
   const chunks: string[] = [];
   let sampleRows = 0;
   for (const chunk of observation.chunks) {
-    if (chunk.id.startsWith("sample.") && (limits.detail === "shape" || sampleRows++ >= rowLimit)) continue;
+    if (/^(sample|record)\./.test(chunk.id) && (limits.detail === "shape" || sampleRows++ >= rowLimit)) continue;
     let text = chunk.text;
     if (chunk.id === "table.complete") {
       const [schema, , ...rows] = text.split("\n");

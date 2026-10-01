@@ -137,6 +137,43 @@ const factText = (f: ReturnType<typeof fixture>) =>
 const observe = (f: ReturnType<typeof fixture>, options = {}) =>
   selectNativeObservation({ ...f, data: true, flow: true, maxChars: 2000, ...options });
 
+test("full retrieval preserves long cells and reports a bounded incomplete table", () => {
+  const f = fixture("Scan", {});
+  f.info.resultSchema = [{ name: "x", type: "string", encoding: "string" }];
+  f.info.result = Array.from({ length: 12 }, (_, i) => ({ x: `${i}:` + "z".repeat(180) }));
+  f.info.totalRowCount = 12;
+  f.info.truncated = false;
+  const full = observe(f, { view: "full", data: false, flow: false, maxChars: 1100, maxRows: 1 });
+  expect(full.text).toContain("z".repeat(180));
+  expect(full.text.length).toBeLessThanOrEqual(1100);
+  expect(full.table?.complete).toBe(false);
+  expect(full.table?.totalRows).toBe(12);
+  expect(full.table!.returnedRows).toBeGreaterThan(1);
+  expect(full.table!.returnedRows).toBeLessThan(12);
+  expect(full.text).toContain("View incomplete");
+});
+
+test("sample_stats preserves the sample and has its own statistics budget", () => {
+  const f = fixture();
+  const sample = observe(f, { view: "sample", data: false, flow: false, maxChars: 200, dataMaxChars: 800 });
+  const stats = observe(f, { view: "sample_stats", data: true, flow: false, maxChars: 200, dataMaxChars: 800 });
+  const records = (o: typeof sample) => o.chunks.filter(c => c.id.startsWith("sample.") || c.id.startsWith("table."));
+  expect(records(stats)).toEqual(records(sample));
+  expect(stats.text).toContain("Data measurement");
+  expect(sample.text).not.toContain("Data measurement");
+});
+
+test("flow evidence remains available when a full record view fills its budget", () => {
+  const f = fixture();
+  f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
+  f.info.truncated = false;
+  const full = observe(f, { view: "full", data: false, maxChars: 100, flowMaxChars: 700 });
+  expect(full.text).toContain("Flow measurement");
+  expect(full.text).toContain("kept=3/5");
+  expect(full.table?.returnedRows).toBe(3);
+  expect(full.table?.complete).toBe(true);
+});
+
 test("compact counts share coverage labels without losing unknown or null counts", () => {
   const f = fixture("Scan");
   f.info.tableProfile!.columns = {
@@ -795,7 +832,11 @@ test("aggregate semantics: what a distinct count counts, a key that pools entiti
     min: null,
     max: null,
     frequencies: values
-      ? { values: values.map(([value, count]) => ({ value: { type: "str", value }, count })), otherCount: 0, truncated: false }
+      ? {
+          values: values.map(([value, count]) => ({ value: { type: "str", value }, count })),
+          otherCount: 0,
+          truncated: false,
+        }
       : null,
   });
   const f = fixture("Aggregate", {
@@ -821,9 +862,7 @@ test("aggregate semantics: what a distinct count counts, a key that pools entiti
       groupCount: 3,
       groupSizes: { min: 2, max: 6, total: 12 },
       aggregateNonNull: { areas: { total: 12, min: 2, max: 6 } },
-      keyDependencies: [
-        { column: "Community", groups: 3, split: 1, example: { key: ["CA"], values: ["a", "b"] } },
-      ],
+      keyDependencies: [{ column: "Community", groups: 3, split: 1, example: { key: ["CA"], values: ["a", "b"] } }],
     },
   });
   const text = factText(f);
@@ -831,7 +870,9 @@ test("aggregate semantics: what a distinct count counts, a key that pools entiti
     '"areas" = count_distinct("GlobalID"): "GlobalID" is unique on every one of the 12 input rows, so it counts rows; input columns with fewer values: "GACCName" (2)'
   );
   expect(text).toContain('group key ["state"] determines "Community" in most groups but not in 1 of 3');
-  expect(text).toContain('input column "Case_excluded" was read by no operator on the way here; over the 12 rows reduced it is "No":11, "Yes":1.');
+  expect(text).toContain(
+    'input column "Case_excluded" was read by no operator on the way here; over the 12 rows reduced it is "No":11, "Yes":1.'
+  );
   // A flag the lineage filtered on has been read: no line.
   f.workflow.operators[0].nativeOp!.properties = { keep: ["Case_excluded", "GlobalID", "GACCName", "state"] };
   expect(factText(f)).not.toContain("was read by no operator");

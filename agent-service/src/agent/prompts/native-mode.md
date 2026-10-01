@@ -84,7 +84,9 @@ The catalog lists every operator's parameters, ports and meaning. Column names a
 
 ## Reading results
 
-Retrieval returns the table's row count, typed columns and records within the display budget. An incomplete view is a sample: compute counts and averages on the full table. Errors name the failing operator and include a repair hint.{{EVIDENCE}}
+{{RETRIEVAL}}
+
+Retrieval reports returned and total rows and columns, and whether the view is complete. Errors name the failing operator and include a repair hint.{{EVIDENCE}}
 
 {{CONTEXT_LAYOUT}}{{RECALL_TOOL}}
 
@@ -98,7 +100,7 @@ Preview a file, execute and read its raw header:
   "actions": [
     {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "orders"}
+    {"type": "retrieve", "operator_id": "orders", "view": "{{RETRIEVE_EXAMPLE_VIEW}}"}
   ]
 }
 ```
@@ -121,7 +123,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals"}
+    {"type": "retrieve", "operator_id": "totals", "view": "{{RETRIEVE_EXAMPLE_VIEW}}"}
   ]
 }
 ```

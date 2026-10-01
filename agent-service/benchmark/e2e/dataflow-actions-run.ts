@@ -231,7 +231,7 @@ async function probes() {
     log(`PASS ${name}: ${newExecutions} new backend executions`);
     return { snapshot, result };
   };
-  const retrieve = (operator_id: string): DataflowAction => ({ type: "retrieve", operator_id });
+  const retrieve = (operator_id: string): DataflowAction => ({ type: "retrieve", operator_id, view: "sample" });
   const edit = (changes: string): DataflowAction => ({ type: "edit", changes });
   const execute: DataflowAction = { type: "execute" };
   const loader = (last: number, verb = "create") =>
@@ -369,6 +369,69 @@ create edge utc_dates.out -> utc_hour.in`),
   save("probe-trace.json", (await getReActSteps(agentId, baseUrl)).steps);
 }
 
+async function retrievalProbes() {
+  const { agentId, wid } = await provision("retrieval-views");
+  const settings = await fetch(`${baseUrl}/api/agents/${agentId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      retrievalViews: ["full", "sample", "sample_stats"],
+      fullResultCharLimit: 100000,
+      maxOperatorResultCharLimit: 2000,
+      maxResultRows: 5,
+      dataEvidenceCharLimit: 2000,
+      flowEvidenceCharLimit: 2000,
+      flowEvidence: true,
+    }),
+  });
+  assert.equal(settings.status, 200);
+  await debug(agentId, [
+    {
+      type: "edit",
+      changes: `create operator wide: process(fn=load_rows, doc="One thousand records")
+    def load_rows():
+        import pandas as pd
+        return pd.DataFrame({"x": [None if i % 100 == 0 else i for i in range(1000)], "label": ["record-" + str(i) + "q" * 32 for i in range(1000)]})
+create operator projected: project(keep=["x"])
+create operator filtered: filter(lambda row: row["x"] is not None and row["x"] > 500, doc="Values above 500")
+create edge wide.out -> projected.in
+create edge projected.out -> filtered.in`,
+    },
+    { type: "execute" },
+  ]);
+  const before = await history(wid);
+  const versions: string[] = [];
+  const outputs: Record<string, any> = {};
+  for (const view of ["sample", "full", "sample_stats"] as const) {
+    await debug(agentId, [{ type: "retrieve", operator_id: "wide", view }]);
+    const trace = await getReActSteps(agentId, baseUrl);
+    const result = trace.steps.flatMap(s => s.toolResults ?? []).at(-1)!.output as DataflowActionsResult;
+    assert.equal(result.status, "completed");
+    const output = result.actions[0].output as any;
+    versions.push(output.result_version);
+    outputs[view] = output;
+  }
+  assert.ok(versions[0] && versions.every(v => v === versions[0]), "Views changed producing result identity");
+  assert.equal(outputs.sample.table.returnedRows, 5);
+  assert.equal(outputs.full.table.returnedRows, 1000);
+  assert.equal(outputs.full.table.complete, true);
+  assert.ok(outputs.full.text.length > 2000, "Full view did not read beyond the old sample limit");
+  assert.equal(outputs.sample_stats.table.returnedRows, 5);
+  assert.ok(outputs.sample_stats.text.includes("Data measurement"));
+  assert.ok(!outputs.sample.text.includes("Data measurement"));
+  await debug(agentId, [{ type: "retrieve", operator_id: "filtered", view: "sample" }]);
+  const trace = await getReActSteps(agentId, baseUrl);
+  const flow = trace.steps.flatMap(s => s.toolResults ?? []).at(-1)!.output as DataflowActionsResult;
+  assert.ok(JSON.stringify(flow).includes("Project selection/rename"), "Missing intermediate projection evidence");
+  assert.equal((await history(wid)).length, before.length, "Retrieval triggered an execution");
+  save("retrieval-views.json", { outputs, versions, flow, executions: before.length });
+  checks.push({
+    name: "three retrieval views, automatic upstream evidence, stable version and no execution",
+    passed: true,
+  });
+  log("PASS three retrieval views: full=1000 rows, sample=5 rows, stable version, zero new executions");
+}
+
 try {
   token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
   const cu = await createComputingUnit(token, `actions-live-${Date.now()}`, {
@@ -377,7 +440,8 @@ try {
   });
   cuid = cu.computingUnit.cuid;
   if (!Bun.argv.includes("--probes-only")) await task();
-  await probes();
+  if (!Bun.argv.includes("--retrieval-only")) await probes();
+  await retrievalProbes();
   save("summary.json", { passed: true, model, checks });
   log(`All checks passed. Artifacts: ${directory}`);
 } catch (error) {

@@ -20,13 +20,15 @@
 import Ajv from "ajv";
 import { jsonSchema, tool } from "ai";
 import type { NativeBatchOutcome } from "./native-batch-tools";
+import type { RetrievalView } from "../../types/agent";
+import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
 
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
   | { type: "edit"; changes: string }
   | { type: "execute" }
-  | { type: "retrieve"; operator_id: string }
+  | { type: "retrieve"; operator_id: string; view: RetrievalView }
   | { type: "answer"; content: string };
 
 export interface DataflowActionsInput {
@@ -110,8 +112,8 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "retrieve",
-          "Read an operator's existing output records and enabled runtime profiles. Never executes. Missing or stale outputs need a successful execute; failed operators must first be repaired.",
-          { operator_id: text }
+          "Read an existing result using an available view: full requests all records up to its character cap; sample returns a small record view; sample_stats adds data statistics to the same sample. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.",
+          { operator_id: text, view: { type: "string", enum: [...RETRIEVAL_VIEWS] } }
         ),
         action(
           "answer",
@@ -164,7 +166,10 @@ export const DATAFLOW_ACTIONS_DESCRIPTION =
 /** Validate first. The agent resolves this receipt after creating the step's
  * snapshot, in onStepFinish, before another model request or stop decision.
  * This preserves the same ownership boundary as post-step execution in code mode. */
-export function prepareDataflowActions(input: unknown): DataflowActionsResult {
+export function prepareDataflowActions(
+  input: unknown,
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
+): DataflowActionsResult {
   const result: DataflowActionsResult = {
     kind: "dataflow-actions",
     status: "pending",
@@ -179,6 +184,12 @@ export function prepareDataflowActions(input: unknown): DataflowActionsResult {
     return result;
   }
   const request = input as DataflowActionsInput;
+  const unavailable = request.actions.find(a => a.type === "retrieve" && !views.includes(a.view));
+  if (unavailable?.type === "retrieve") {
+    result.status = "error";
+    result.error = `Retrieve view ${JSON.stringify(unavailable.view)} is unavailable. Use ${views.join(", ")}. No actions ran.`;
+    return result;
+  }
   if (request.actions.some(a => a.type === "answer") && request.actions.length !== 1) {
     result.status = "error";
     result.error = "Answer must be the only action. Retrieve results in an earlier call before answering.";
@@ -188,12 +199,21 @@ export function prepareDataflowActions(input: unknown): DataflowActionsResult {
   return result;
 }
 
-export function createDataflowTool() {
+export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
+  const schema = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
+  const retrieve = schema.properties.actions.items.anyOf.find(a => a.properties.type.const === "retrieve")!;
+  (retrieve.properties as any).view.enum = [...views];
+  const descriptions = {
+    full: "full requests all records up to its character cap",
+    sample: "sample returns a small record view",
+    sample_stats: "sample_stats adds data statistics to the small record view",
+  };
+  retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
   return tool({
     description: DATAFLOW_ACTIONS_DESCRIPTION,
     strict: true,
-    inputSchema: jsonSchema<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA as any),
-    execute: async input => prepareDataflowActions(input),
+    inputSchema: jsonSchema<DataflowActionsInput>(schema as any),
+    execute: async input => prepareDataflowActions(input, views),
   });
 }
 
@@ -241,6 +261,8 @@ export function renderDataflowActionsResult(result: DataflowActionsResult): stri
         const output = item.output as Record<string, any>;
         if (item.action.type === "retrieve" && typeof output.text === "string") {
           body = `Operator ${output.operator_id}${output.revision ? ` (revision ${output.revision})` : ""}\n${output.text}`;
+          if (output.view && output.table)
+            body = `View ${output.view}: ${output.table.returnedRows}/${output.table.totalRows ?? "?"} rows, ${output.table.columnsShown}/${output.table.totalColumns} columns; ${output.table.complete ? "complete" : "incomplete"}.\n${body}`;
           if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
         } else if (item.action.type === "edit" && Array.isArray(output.changes)) {
           body = [

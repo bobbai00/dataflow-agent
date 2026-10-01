@@ -45,17 +45,41 @@ const REMOVED_SETTINGS = [
 
 /** Deliberate breaking change: never silently reinterpret old experiments. */
 export function validateEvidenceSettings(settings: object): void {
+  const supplied = settings as Record<string, unknown>;
+  if (supplied.retrievalViews !== undefined) {
+    const views = supplied.retrievalViews;
+    if (
+      !Array.isArray(views) ||
+      views.length === 0 ||
+      new Set(views).size !== views.length ||
+      views.some(v => !["full", "sample", "sample_stats"].includes(v))
+    )
+      throw new NativeCatalogSettingsError(
+        "retrievalViews must be a nonempty list of unique full, sample, or sample_stats views"
+      );
+  }
+  for (const key of ["fullResultCharLimit", "dataEvidenceCharLimit", "flowEvidenceCharLimit"]) {
+    const value = supplied[key];
+    if (value !== undefined && (!Number.isInteger(value) || Number(value) < 128 || Number(value) > 100000))
+      throw new NativeCatalogSettingsError(`${key} must be an integer between 128 and 100000`);
+  }
   for (const key of REMOVED_SETTINGS) {
     if (Object.hasOwn(settings, key))
       throw new NativeCatalogSettingsError(
         key === "nativeToolMode" || key === "nativeCatalogVersion"
-          ? `${key} was removed; native mode is the expression program with the single catalog`
+          ? `${key} was removed; native mode uses explicit graph commands with the single catalog`
           : key === "allowedOperatorTypes"
             ? "allowedOperatorTypes was removed with the general mode; the modes are native and code"
             : `${key} was removed; use dataEvidence and flowEvidence booleans`
       );
   }
-  for (const key of ["dataEvidence", "flowEvidence", "nativeProfileCollection", "dataflowReasoning", "nativeChecks"] as const) {
+  for (const key of [
+    "dataEvidence",
+    "flowEvidence",
+    "nativeProfileCollection",
+    "dataflowReasoning",
+    "nativeChecks",
+  ] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);

@@ -97,7 +97,7 @@ output may feed any number of inputs, including both sides of a self-join.
   "actions": [
     {"type": "edit", "changes": "create operator source: scan(\"data/orders.csv\")\ncreate operator total: aggregate(n=count())\ncreate edge source.out -> total.in"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "total"}
+    {"type": "retrieve", "operator_id": "total", "view": "sample"}
   ]
 }
 ```

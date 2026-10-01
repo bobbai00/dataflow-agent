@@ -124,6 +124,8 @@ import {
 } from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import { createDataflowTool, asDataflowActionsResult } from "./tools/dataflow-actions";
+import type { RetrievalSettings } from "../types/agent";
+import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
 import { planGraphEdit } from "./tools/graph-edits";
 import {
@@ -582,6 +584,12 @@ export class TexeraAgent {
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
         checks: this.settings.nativeChecks === true,
+        retrievalViews: availableRetrievalViews(this.settings),
+        fullResultCharLimit: this.settings.fullResultCharLimit,
+        maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
+        maxResultRows: this.settings.maxResultRows,
+        dataEvidenceCharLimit: this.settings.dataEvidenceCharLimit,
+        flowEvidenceCharLimit: this.settings.flowEvidenceCharLimit,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -613,8 +621,14 @@ export class TexeraAgent {
       userToken: this.delegateConfig.userToken,
       workflowId: this.delegateConfig.workflowId,
       computingUnitId: this.delegateConfig.computingUnitId,
-      maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
-      maxOperatorResultCellCharLimit: this.settings.maxOperatorResultCellCharLimit,
+      maxOperatorResultCharLimit:
+        this.settings.agentMode === AgentMode.NATIVE
+          ? nativeResultTransportLimit(this.settings)
+          : this.settings.maxOperatorResultCharLimit,
+      maxOperatorResultCellCharLimit:
+        this.settings.agentMode === AgentMode.NATIVE
+          ? Math.min(nativeResultTransportLimit(this.settings), 20000)
+          : this.settings.maxOperatorResultCellCharLimit,
       executionTimeoutMs: this.settings.executionTimeoutMs,
       // Structured (versioned, profiled) results are what native operators
       // produce; a delegated GUI workflow of plain Texera operators keeps the
@@ -673,7 +687,7 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool();
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings));
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1373,69 +1387,71 @@ export class TexeraAgent {
     return { ...this.settings };
   }
 
-  updateSettings(updates: {
-    maxOperatorResultCharLimit?: number;
-    maxOperatorResultCellCharLimit?: number;
-    operatorResultSerializationMode?: OperatorResultSerializationMode;
-    toolTimeoutMs?: number;
-    executionTimeoutMs?: number;
-    disabledTools?: Set<string>;
-    maxSteps?: number;
-    maxOperatorEdits?: number;
-    agentMode?: AgentMode;
-    nativeProfileCollection?: boolean;
-    dataEvidence?: boolean;
-    flowEvidence?: boolean;
-    dataflowReasoning?: boolean;
-    nativeChecks?: boolean;
-    resultSelection?: ResultSelection;
-    contextMode?: ContextMode;
-    parallelToolCalls?: boolean;
-    includeOperatorProperties?: boolean;
-    thoughtReplay?: boolean;
-    thoughtReplayK?: number;
-    agentTurns?: boolean;
-    contextWindowTokens?: number;
-    compactionStrategy?: CompactionStrategy;
-    deckSampleRatio?: number;
-    errorReflection?: boolean;
-    errorReflectionThreshold?: number;
-    fewShotPrompt?: boolean;
-    maxResultRows?: number;
-    attemptReflection?: boolean;
-    toolDialect?: LocalToolDialect;
-    summarizeParams?: SummarizeParamsPatch | null;
-    selectorConfig?: SelectorConfig | null;
-    frontierDecayConfig?: FrontierDecayConfig | null;
-    foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
-    probeRetirementConfig?: ProbeRetirementConfig | null;
-    rolePolicyConfig?: RolePolicyConfig | null;
-    learnedConfig?: LearnedConfig | null;
-    enableInspectTool?: boolean;
-    enableRenderPrefs?: boolean;
-    enableCodeInSnapshot?: boolean;
-    sourceProvenanceHint?: boolean;
-    enableCompactTool?: boolean;
-    compactKeepLastSteps?: number;
-    staticCompaction?: boolean;
-    userTaskPlacement?: "top" | "bottom";
-    turnHistory?: "full" | "index";
-    enableRecallTool?: boolean;
-    indexRichTables?: number;
-    indexDetailedOperators?: number;
-    enableResumeTool?: boolean;
-    enableAnswerGrounding?: boolean;
-    seedSources?: boolean;
-    messageLayout?: AgentSettings["messageLayout"];
-    versionedMode?: boolean;
-    versionedHeads?: boolean;
-    sessionTurns?: boolean;
-    recallMaxResultChars?: number;
-    recallOperatorLevel?: boolean;
-    specAudit?: boolean;
-    indexThinObservations?: boolean;
-    tunerConfig?: TunerConfig | null;
-  }): void {
+  updateSettings(
+    updates: {
+      maxOperatorResultCharLimit?: number;
+      maxOperatorResultCellCharLimit?: number;
+      operatorResultSerializationMode?: OperatorResultSerializationMode;
+      toolTimeoutMs?: number;
+      executionTimeoutMs?: number;
+      disabledTools?: Set<string>;
+      maxSteps?: number;
+      maxOperatorEdits?: number;
+      agentMode?: AgentMode;
+      nativeProfileCollection?: boolean;
+      dataEvidence?: boolean;
+      flowEvidence?: boolean;
+      dataflowReasoning?: boolean;
+      nativeChecks?: boolean;
+      resultSelection?: ResultSelection;
+      contextMode?: ContextMode;
+      parallelToolCalls?: boolean;
+      includeOperatorProperties?: boolean;
+      thoughtReplay?: boolean;
+      thoughtReplayK?: number;
+      agentTurns?: boolean;
+      contextWindowTokens?: number;
+      compactionStrategy?: CompactionStrategy;
+      deckSampleRatio?: number;
+      errorReflection?: boolean;
+      errorReflectionThreshold?: number;
+      fewShotPrompt?: boolean;
+      maxResultRows?: number;
+      attemptReflection?: boolean;
+      toolDialect?: LocalToolDialect;
+      summarizeParams?: SummarizeParamsPatch | null;
+      selectorConfig?: SelectorConfig | null;
+      frontierDecayConfig?: FrontierDecayConfig | null;
+      foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
+      probeRetirementConfig?: ProbeRetirementConfig | null;
+      rolePolicyConfig?: RolePolicyConfig | null;
+      learnedConfig?: LearnedConfig | null;
+      enableInspectTool?: boolean;
+      enableRenderPrefs?: boolean;
+      enableCodeInSnapshot?: boolean;
+      sourceProvenanceHint?: boolean;
+      enableCompactTool?: boolean;
+      compactKeepLastSteps?: number;
+      staticCompaction?: boolean;
+      userTaskPlacement?: "top" | "bottom";
+      turnHistory?: "full" | "index";
+      enableRecallTool?: boolean;
+      indexRichTables?: number;
+      indexDetailedOperators?: number;
+      enableResumeTool?: boolean;
+      enableAnswerGrounding?: boolean;
+      seedSources?: boolean;
+      messageLayout?: AgentSettings["messageLayout"];
+      versionedMode?: boolean;
+      versionedHeads?: boolean;
+      sessionTurns?: boolean;
+      recallMaxResultChars?: number;
+      recallOperatorLevel?: boolean;
+      specAudit?: boolean;
+      indexThinObservations?: boolean;
+      tunerConfig?: TunerConfig | null;
+    } & RetrievalSettings
+  ): void {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
@@ -1449,6 +1465,17 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
+    for (const key of [
+      "retrievalViews",
+      "fullResultCharLimit",
+      "dataEvidenceCharLimit",
+      "flowEvidenceCharLimit",
+    ] as const) {
+      if (updates[key] !== undefined) {
+        Object.assign(this.settings, { [key]: structuredClone(updates[key]) });
+        promptNeedsRebuild = true;
+      }
+    }
     this.settings.nativeProfileCollection = collection;
     // The native prompt documents exactly the evidence kinds that are on.
     if (updates.dataEvidence !== undefined && updates.dataEvidence !== this.settings.dataEvidence) {
@@ -1471,6 +1498,7 @@ export class TexeraAgent {
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
+      promptNeedsRebuild = true;
     }
     if (updates.maxOperatorResultCellCharLimit !== undefined) {
       this.settings.maxOperatorResultCellCharLimit = updates.maxOperatorResultCellCharLimit;
@@ -1530,6 +1558,7 @@ export class TexeraAgent {
     }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
+      promptNeedsRebuild = true;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
     }
     if (updates.thoughtReplay !== undefined) {
@@ -2591,12 +2620,14 @@ export class TexeraAgent {
     if (!tool || typeof tool.execute !== "function") return false;
     const stepId = this.generateStepId();
     const toolCallId = `call-${stepId}-seed`;
+    const views = availableRetrievalViews(this.settings);
+    const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : "full";
     const input = {
       reasoning: "Load the supplied source files.",
       actions: [
         { type: "edit", changes: plan.program.replace(/^(\w+) = /gm, "create operator $1: ") },
         { type: "execute" },
-        ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id })),
+        ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id, view })),
       ],
     };
     let output: unknown;

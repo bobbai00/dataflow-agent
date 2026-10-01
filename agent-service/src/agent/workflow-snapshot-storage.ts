@@ -181,7 +181,12 @@ export class WorkflowSnapshotStorage {
   /** Finalize the successful observation frame after execution (including a
    * cached observe with no execution). DELTA replays this exact selection even
    * after settings, downstream relevance, or the current DAG have changed. */
-  captureNativeObservations(reactStepId: string, ids: Iterable<string>, options: NativeObservationOptions): void {
+  captureNativeObservations(
+    reactStepId: string,
+    ids: Iterable<string>,
+    options: NativeObservationOptions,
+    recorded?: ReadonlyMap<string, NativeObservation>
+  ): void {
     const snapshotId = this.snapshotByReactStepId.get(reactStepId);
     if (!snapshotId) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
     const snapshot = this.snapshots.get(snapshotId)!;
@@ -193,13 +198,14 @@ export class WorkflowSnapshotStorage {
       if (!op?.nativeOp || !info || info.error) continue;
       observations.push([
         id,
-        selectNativeObservation({
-          ...options,
-          op,
-          info,
-          workflow: snapshot.workflow,
-          resolveInput: input => snapshot.results.get(input)?.info,
-        }),
+        recorded?.get(id) ??
+          selectNativeObservation({
+            ...options,
+            op,
+            info,
+            workflow: snapshot.workflow,
+            resolveInput: input => snapshot.results.get(input)?.info,
+          }),
       ]);
     }
     snapshot.nativeObservations = freezeSnapshotValue(Object.fromEntries(observations));

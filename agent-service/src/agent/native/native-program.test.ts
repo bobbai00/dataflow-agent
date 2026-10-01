@@ -526,6 +526,26 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
+  test("retrieval choices, limits and examples follow the session configuration", async () => {
+    const { prepareDataflowActions } = await import("../tools/dataflow-actions");
+    for (const view of ["full", "sample", "sample_stats"] as const) {
+      const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+        retrievalViews: [view],
+        fullResultCharLimit: 90000,
+        maxOperatorResultCharLimit: 750,
+        maxResultRows: 4,
+        dataEvidenceCharLimit: 900,
+      });
+      expect(prompt).toContain(`- \`${view}\``);
+      for (const other of ["full", "sample", "sample_stats"].filter(v => v !== view))
+        expect(prompt).not.toContain(`- \`${other}\``);
+      expect(prompt.includes("Data measurement")).toBe(view === "sample_stats");
+      expect(prompt).not.toContain("automatically adds selected flow evidence");
+      expect(prompt).toContain(view === "full" ? "90000 characters" : "750 characters");
+      for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
+        expect(prepareDataflowActions(JSON.parse(json), [view]).error).toBeUndefined();
+    }
+  });
   test("all layouts describe the action contract and every JSON example validates", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {

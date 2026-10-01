@@ -130,7 +130,12 @@ process(fn=function, doc="what it does")
 
 ## Reading results
 
-Retrieval returns the table's row count, typed columns and records within the display budget. An incomplete view is a sample: compute counts and averages on the full table. Errors name the failing operator and include a repair hint.
+Choose the `view` on every Retrieve. Available views:
+- `full`: request all records, bounded by 100000 characters. Use it when you need every record or a complete small result. Check completeness; a capped full view is still partial.
+- `sample`: schema and a small record view, bounded by 2000 characters. Use it to check record structure and example values.
+Changing the view reads the same existing result without execution. Compute aggregates and searches through operators over the full data; displayed samples do not define the population.
+
+Retrieval reports returned and total rows and columns, and whether the view is complete. Errors name the failing operator and include a repair hint.
 
 Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.
 
@@ -144,7 +149,7 @@ Preview a file, execute and read its raw header:
   "actions": [
     {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "orders"}
+    {"type": "retrieve", "operator_id": "orders", "view": "sample"}
   ]
 }
 ```
@@ -167,7 +172,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals"}
+    {"type": "retrieve", "operator_id": "totals", "view": "sample"}
   ]
 }
 ```
@@ -245,6 +250,6 @@ Enabling evidence adds the matching paragraphs below. The default exposes neithe
 
 Data measurement lines report null and distinct counts, ranges, and value frequencies. Read their coverage labels: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero.
 
-Flow measurement lines describe rows kept, joined, or grouped, reducer denominators, and relevant upstream operations. They can also identify suspicious headers, grouping keys that combine different entities, or flags that no operation used. Flow guarantees describe operator contracts; custom functions include their doc.
+Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Use these and the upstream grouping keys to check the calculation. Retrieve an intermediate table if the evidence suggests a problem. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
 
 These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.
