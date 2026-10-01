@@ -192,8 +192,48 @@ These are mostly recoverable model-generated definitions. One no-tool/no-Answer
 protocol failure remains unexplained at the provider/gateway level. We have not
 claimed that every remaining failure or every possible anomaly is eliminated.
 
-Validation: 1,137 agent-service tests pass, typecheck passes, 35 Scala structured
+The capacity probe also found a nonempty source whose profile budget expired
+before collecting any rows. A subsequent renderer fix marks its data statistics
+unavailable and suppresses zero column counts; independently measured flow
+counters remain usable. This fix was not served in either model cohort. The
+capacity snapshots were replayed against it: 29 tables, zero invariant failures.
+
+Validation: 1,139 agent-service tests pass, typecheck passes, 35 Scala structured
 result/serialization tests pass, and the live retrieval and cache probes pass.
+
+Largest-input capacity probe (separate from the matrix)
+------------------------------------------------------
+wildfire-hard-19, adaptive retrieval, flow off, one attempt per model:
+  Model  Full passes  Official score  Model USD  Wall seconds
+  Luna   0/1          0.5             0.007800   168.5
+  Terra  0/1          0.5             0.050446   623.9
+Both completed without watchdog timeouts or engine replacement. Both scans
+processed 8,627,181 weather records; the full input was not subsampled. The two
+attempts cost $0.058246. This is a capacity test of one retrieval policy, not
+another full-versus-sample ablation.
+
+Both returned 0.00; the official reference is 32.76. The numeric evaluator's
+score of 0.5 is not a full pass. The traces use a fixed 0.5 km radius (from a
+1 km diameter), whereas the reference code uses fire area divided by 100 as
+a distance threshold. It also matches event intervals in local time; the
+agents match start dates in UTC. These specification/reference and analytical
+differences make this a poor case for attributing accuracy to retrieval.
+
+Luna filtered weather to 2016 before conversion and used bulk pandas date
+parsing inside its spatial matcher. Terra cast over two million precipitation
+records before matching dates and used nested row loops. The elapsed interval
+between Terra's weather-filter and date-cast materializations was about 394
+seconds, including input/processing/output overhead. A local 10,000-value
+probe measured 0.252 s for the current scalar cast and 0.001 s for bulk pandas,
+with identical values on those valid inputs. This identifies a performance
+opportunity; it is not a complete conversion implementation or validation of
+invalid-input/DST behavior. Model-cost savings do not imply lower engine cost.
+
+Capacity artifacts: .claude/artifacts/retrieval-large-capacity-20261001 and
+20261001-large-capacity.json. Profile/version checks covered 29 final profiles
+and 242 columns with zero checked violations. Three successful sample, four
+sample_stats and eight full retrievals were observed across the two attempts.
+The profile limits and partial-coverage caveats above still apply.
 
 Service ownership
 -----------------
@@ -205,6 +245,8 @@ separate processes and configuration. This branch uses database 5432 and
 storage 9000. Launcher profiles pin endpoints; ownership/reachability samples
 are retained in .claude/artifacts/retrieval-audit-20261001/stack-health.jsonl.
 The stacks still share machine resources. The capacity probe uses one worker.
+No service identity or reachability changes occurred during monitoring, which
+started at 09:59 UTC after the first part of the primary matrix had completed.
 
 Artifacts and scope of claims
 -----------------------------

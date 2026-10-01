@@ -1,0 +1,329 @@
+{
+  "manifest": {
+    "agent_revision": "04e85b581",
+    "engine_revision": "04e85b581",
+    "runner_revision": "f3a395929db1b2dacc50c5058ad654015a73f8a0",
+    "harness_revision": "4658eb92db753805e0df3edc207ca46379eda43b",
+    "endpoint": "http://localhost:3075",
+    "task_ids": [
+      "wildfire-hard-19"
+    ],
+    "repetitions": 1,
+    "models": {
+      "Luna": "gpt-5.6-luna",
+      "Terra": "gpt-5.6-terra"
+    },
+    "arms": {
+      "adaptive_flow0": {
+        "retrievalViews": [
+          "full",
+          "sample",
+          "sample_stats"
+        ],
+        "flowEvidence": false,
+        "dataEvidence": true
+      }
+    },
+    "pass_threshold": 1.0,
+    "settings": {
+      "agentMode": "native",
+      "contextMode": "delta",
+      "nativeProfileCollection": true,
+      "maxSteps": 25,
+      "maxOperatorResultCharLimit": 2000,
+      "maxResultRows": 5,
+      "fullResultCharLimit": 100000,
+      "dataEvidenceCharLimit": 2000,
+      "flowEvidenceCharLimit": 2000,
+      "thoughtReplay": false,
+      "enableCodeInSnapshot": false
+    },
+    "selection": "Separate capacity pilot on the largest original task by source bytes: wildfire-hard-19 (1.09 GB). Complete original question, no input subsampling. Both Luna and Terra, adaptive retrieval without flow, one repetition each, one worker. Chosen in the source inventory before outcomes. Retain both outcomes; do not pool this capacity test with the matched three-task retrieval comparison.",
+    "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
+    "task_timeout_seconds": 900,
+    "workers": 1,
+    "jobs": [
+      {
+        "model": "Terra",
+        "arm": "adaptive_flow0",
+        "task": "wildfire-hard-19",
+        "rep": 1,
+        "sut": "DataflowSystemTerra_retrieval_large_capacity_20261001_adaptive_flow0_Rep1"
+      },
+      {
+        "model": "Luna",
+        "arm": "adaptive_flow0",
+        "task": "wildfire-hard-19",
+        "rep": 1,
+        "sut": "DataflowSystemLuna_retrieval_large_capacity_20261001_adaptive_flow0_Rep1"
+      }
+    ]
+  },
+  "summary": [
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow0",
+      "attempts": 1,
+      "passes": 0,
+      "scored": 1,
+      "mean_score": 0.5,
+      "cost_usd": 0.0078,
+      "costs_known": 1,
+      "model_calls": 7,
+      "retrieval_views": {
+        "sample": 3,
+        "sample_stats": 2,
+        "full": 4
+      },
+      "retrieval_chars": 8574,
+      "reads_with_data": 2,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 7,
+      "no_answer": 0,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "input_tokens": 66867,
+      "output_tokens": 3975,
+      "cached_tokens": 57465,
+      "reasoning_tokens": 1446,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8593925254609898,
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 9,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 18,
+        "error": 4
+      },
+      "edit_operations": {
+        "create_operator": 11,
+        "create_edge": 7,
+        "update_operator": 4
+      },
+      "operators_created": {
+        "scan": 5,
+        "filter": 2,
+        "project": 1,
+        "cast": 1,
+        "process": 1,
+        "aggregate": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow0",
+      "attempts": 1,
+      "passes": 0,
+      "scored": 1,
+      "mean_score": 0.5,
+      "cost_usd": 0.050446,
+      "costs_known": 1,
+      "model_calls": 4,
+      "retrieval_views": {
+        "full": 6,
+        "sample_stats": 2
+      },
+      "retrieval_chars": 11203,
+      "reads_with_data": 2,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 8,
+      "no_answer": 0,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "input_tokens": 33259,
+      "output_tokens": 2528,
+      "cached_tokens": 25782,
+      "reasoning_tokens": 1170,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.7751886707357407,
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 8,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 15
+      },
+      "edit_operations": {
+        "create_operator": 18,
+        "create_edge": 14
+      },
+      "operators_created": {
+        "scan": 5,
+        "project": 2,
+        "filter": 3,
+        "cast": 2,
+        "process": 1,
+        "distinct": 1,
+        "aggregate": 2,
+        "sort": 1,
+        "limit": 1
+      }
+    }
+  ],
+  "rows": [
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow0",
+      "task": "wildfire-hard-19",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_retrieval_large_capacity_20261001_adaptive_flow0_Rep1",
+      "score": 0.5,
+      "pass": false,
+      "cost_usd": 0.050446,
+      "input_tokens": 33259,
+      "output_tokens": 2528,
+      "cached_tokens": 25782,
+      "reasoning_tokens": 1170,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "views": {
+        "full": 6,
+        "sample_stats": 2
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 8,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 15
+      },
+      "edit_operations": {
+        "create_operator": 18,
+        "create_edge": 14
+      },
+      "operators_created": {
+        "scan": 5,
+        "project": 2,
+        "filter": 3,
+        "cast": 2,
+        "process": 1,
+        "distinct": 1,
+        "aggregate": 2,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow0",
+      "task": "wildfire-hard-19",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_retrieval_large_capacity_20261001_adaptive_flow0_Rep1",
+      "score": 0.5,
+      "pass": false,
+      "cost_usd": 0.0078,
+      "input_tokens": 66867,
+      "output_tokens": 3975,
+      "cached_tokens": 57465,
+      "reasoning_tokens": 1446,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 7,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "views": {
+        "sample": 3,
+        "sample_stats": 2,
+        "full": 4
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 9,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 18,
+        "error": 4
+      },
+      "edit_operations": {
+        "create_operator": 11,
+        "create_edge": 7,
+        "update_operator": 4
+      },
+      "operators_created": {
+        "scan": 5,
+        "filter": 2,
+        "project": 1,
+        "cast": 1,
+        "process": 1,
+        "aggregate": 1
+      }
+    }
+  ],
+  "profile_audit": {
+    "profile_checks": {
+      "profiles": 29,
+      "available": 18,
+      "columns": 242,
+      "partial": 11
+    },
+    "violations": [],
+    "adaptive_choices": {
+      "Terra": {
+        "reads": 8,
+        "views": {
+          "full": 6,
+          "sample_stats": 2
+        },
+        "full_at_most_2000_chars": 5,
+        "full_over_10000_chars": 0,
+        "full_incomplete": 0,
+        "stats_reads": 2,
+        "stats_with_data": 2,
+        "stats_with_partial_coverage": 1
+      },
+      "Luna": {
+        "reads": 7,
+        "views": {
+          "sample": 3,
+          "sample_stats": 2,
+          "full": 2
+        },
+        "full_at_most_2000_chars": 2,
+        "full_over_10000_chars": 0,
+        "full_incomplete": 0,
+        "stats_reads": 2,
+        "stats_with_data": 2,
+        "stats_with_partial_coverage": 2
+      }
+    }
+  },
+  "renderer_replay": {
+    "replayed": 29,
+    "partialProfiles": 11,
+    "recordedCompleteness": 29,
+    "inferredIncomplete": 0,
+    "failures": [],
+    "scope": "Tables with recorded completeness flags, plus provably incomplete historical tables. Rendering only, no new executions or model calls."
+  },
+  "cast_microbenchmark": {
+    "rows": 10000,
+    "current_cast_seconds": 0.2521478409980773,
+    "bulk_pandas_seconds": 0.0009929699990607332,
+    "values_identical": true,
+    "scope": "One local timing on the first 10,000 valid source timestamps; bulk candidate is not implemented or served. Does not validate invalid-value/DST contracts or predict full workflow speed."
+  },
+  "stack_monitor": {
+    "first_sample": "2026-10-01T09:59:39.471432+00:00",
+    "last_sample": "2026-10-01T10:21:44.792177+00:00",
+    "samples": 89,
+    "identity_or_reachability_changes": 0,
+    "scope": "Monitoring began partway through the corrected primary matrix and covered both capacity attempts; pilot agent will be stopped after this record."
+  },
+  "resource_cleanup": "All five experiment-owned computing units terminated; frozen pilot agent on 3075 stopped after runs. Branch backend and other stack left running."
+}
