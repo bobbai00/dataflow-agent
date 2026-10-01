@@ -932,6 +932,7 @@ export class TexeraAgent {
           stepId: end.id,
           request: steps.find(step => step.role === "user")?.content ?? "",
           answer: end.content,
+          steps: steps.slice(0, steps.indexOf(end) + 1),
         },
       ];
     });

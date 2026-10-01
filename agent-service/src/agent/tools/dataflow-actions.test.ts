@@ -19,6 +19,7 @@
 
 import { describe, expect, test, spyOn } from "bun:test";
 import * as executionTools from "./workflow-execution-tools";
+import * as compileApi from "../../api/compile-api";
 import { asSchema } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
@@ -425,6 +426,22 @@ describe("dataflow action integration", () => {
     expect((reads.actions[1].output as any).superseded_in_call).toBeUndefined();
     expect(s.agent.getWorkflowState().getOperator("source")!.nativeOp!.source).toContain("new.csv");
     expect(s.agent.getWorkflowState().getOperator("earlier")!.nativeOp!.source).toContain("old.csv");
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "inspect", target: "state", task_id: 3, operator_id: null, include_implementation: false }],
+      [{ type: "answer", content: "Located the earlier reads." }]
+    );
+    await s.agent.sendMessage("Locate the operators used in the comparison.");
+    const overview = s.outcomes.at(-2)!.actions[0].output as any;
+    expect(overview.scope).toBe("task_activity");
+    expect(overview.changed_operators).toEqual(["earlier"]);
+    expect(overview.retrieved).toHaveLength(3);
+    expect(overview.retrieved[0].historical_state).toEqual({ task_id: 1, operator_id: "source" });
+    expect(overview.retrieved[1].historical_state).toEqual({ task_id: 1, operator_id: "source" });
+    expect(overview.retrieved[2].historical_state).toBeUndefined();
+    expect(overview.operators.map((op: any) => op.id).sort()).toEqual(["earlier", "source"]);
+    expect(s.executions()).toBe(2);
   });
   const source: DataflowAction = {
     type: "edit",
@@ -908,6 +925,7 @@ test("import does not apply an edit that failed before committing any statements
 
 test("native multi-task requests preserve every earlier request as a prefix", async () => {
   const s = session([]);
+  s.agent.updateSettings({ stateHistory: true });
   const requests: any[][] = [];
   const model = new MockLanguageModelV3({
     doGenerate: async options => {
@@ -949,17 +967,24 @@ test("native multi-task requests preserve every earlier request as a prefix", as
       messageLayout: "native",
       userTaskPlacement: "bottom",
     });
-  await s.agent.sendMessage("First question: read the first file.");
-  await s.agent.sendMessage("Second question: read a different file.");
-  expect(requests).toHaveLength(4);
-  for (let i = 1; i < requests.length; i++) {
-    expect(requests[i].slice(0, requests[i - 1].length)).toEqual(requests[i - 1]);
+  // This is a mocked model/engine test; do not contact a developer's compiler.
+  const compilation = spyOn(compileApi, "compileWorkflowAsync").mockResolvedValue(null);
+  try {
+    await s.agent.sendMessage("First question: read the first file.");
+    await s.agent.sendMessage("Second question: read a different file.");
+    expect(requests).toHaveLength(4);
+    for (let i = 1; i < requests.length; i++) {
+      expect(requests[i].slice(0, requests[i - 1].length)).toEqual(requests[i - 1]);
+    }
+    expect(JSON.stringify(requests[3]).split("First question:")).toHaveLength(2);
+    expect(JSON.stringify(requests[3]).split("Second question:")).toHaveLength(2);
+    expect(JSON.stringify(requests[3])).toContain("operators completed");
+    expect(JSON.stringify(requests[3])).toContain("result-1");
+    expect(JSON.stringify(requests[3])).toContain("result-2");
+    expect(JSON.stringify(requests[3])).not.toContain("changed_operators");
+  } finally {
+    compilation.mockRestore();
   }
-  expect(JSON.stringify(requests[3]).split("First question:")).toHaveLength(2);
-  expect(JSON.stringify(requests[3]).split("Second question:")).toHaveLength(2);
-  expect(JSON.stringify(requests[3])).toContain("operators completed");
-  expect(JSON.stringify(requests[3])).toContain("result-1");
-  expect(JSON.stringify(requests[3])).toContain("result-2");
 });
 
 test("a failed model turn is not advertised as a completed historical answer", async () => {
