@@ -40,6 +40,17 @@ def test_a_skip_past_the_header_reports_the_header_row_above(tmp_path):
     assert "headerCheck" not in operations(scan(path, skipLines=2))["scan"]["sources"][0]
 
 
+def test_suggested_header_names_match_the_repaired_schema_exactly(tmp_path):
+    path = tmp_path / "spaced.csv"
+    path.write_text('Title,,,\n,,,\nRank,Category, # of Reports ,Percentage\n1,A,"1,353",20%\n2,B,845,13%\n')
+    check = operations(scan(path, skipLines=3))["scan"]["sources"][0]["headerCheck"]
+    suggestion = check["suggest"]
+    repaired = scan(path, skipLines=suggestion["skipLines"])
+    # Hints name columns the agent can reference, including significant spaces.
+    assert suggestion["header"] == list(repaired.columns)
+    assert suggestion["header"][2] == " # of Reports "
+
+
 def test_year_headers_and_repeated_header_rows(tmp_path):
     wide = tmp_path / "wide.csv"
     wide.write_text("state,2019,2020\nOhio,1,2\n")

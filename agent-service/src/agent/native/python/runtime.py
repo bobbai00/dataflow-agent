@@ -1862,8 +1862,10 @@ def _data_like(name):
     return not re.fullmatch(r"(1[89]|20)\d\d", text.replace(",", ""))
 
 
-def _header_cells(values, width):
-    cells = ["" if _missing(value) else str(value).strip() for value in values]
+def _header_cells(values, width, *, strip=True):
+    cells = ["" if _missing(value) else str(value) for value in values]
+    if strip:
+        cells = [cell.strip() for cell in cells]
     return (cells + [""] * width)[:width]
 
 
@@ -1903,7 +1905,7 @@ def _header_check(raw, before, skip):
             issues["repeats"] = int(len(rows))
     if not issues:
         return None
-    result = {"header": current[:8], **issues}
+    result = {"header": _header_cells(raw.iloc[0], width, strip=False)[:8], **issues}
     if "dataLike" in issues or "blank" in issues:
         above = [] if before is None else list(before.itertuples(index=False, name=None))
         candidates = [(i - len(above), row) for i, row in enumerate(above)]
@@ -1915,7 +1917,9 @@ def _header_check(raw, before, skip):
             better = empty < blanks if "blank" in issues and not data_like else empty <= blanks
             if like == 0 and unique and better and empty * 2 <= width:
                 if best is None or abs(offset) < abs(best[0]):
-                    best = (offset, cells)
+                    # Score normalized labels, but report names exactly as
+                    # the repaired scan will expose them to graph operators.
+                    best = (offset, _header_cells(row, width, strip=False))
         if best:
             result["suggest"] = {"skipLines": skip + best[0], "header": best[1][:8]}
     return result

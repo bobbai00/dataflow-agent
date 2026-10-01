@@ -38,7 +38,7 @@ describe("nativeCheckLines", () => {
               path: "/data/legal/2024_CSN_Report_Categories.csv",
               headerCheck: {
                 dataLike: ["1", "1,353,175", "20.91%"],
-                suggest: { skipLines: 2, header: ["Rank", "Category", "# of Reports", "Percentage"] },
+                suggest: { skipLines: 2, header: ["Rank", "Category", " # of Reports ", "Percentage"] },
               },
             },
           ],
@@ -46,7 +46,7 @@ describe("nativeCheckLines", () => {
       })
     );
     expect(lines).toEqual([
-      'the header of `2024_CSN_Report_Categories.csv` reads as data ("1", "1,353,175", "20.91%"); skip_lines=2 gives the header "Rank", "Category", "# of Reports", "Percentage".',
+      'the header of `2024_CSN_Report_Categories.csv` reads as data ("1", "1,353,175", "20.91%"); skip_lines=2 gives the header "Rank", "Category", " # of Reports ", "Percentage".',
     ]);
   });
 
