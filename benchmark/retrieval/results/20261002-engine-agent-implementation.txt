@@ -1,0 +1,266 @@
+Engine and Dataflow agent implementation and verification
+=========================================================
+Recorded: 2026-10-02 UTC
+Branch: feat/dataflow-actions
+Implementation revision: c8eb4f696
+Reviewed source branch: feat/operator-history-lean
+Reviewed source revision: ea1594d5d360e33b326bf6dbc1548084c6a8c501
+
+Outcome
+-------
+Implemented the approved engine repairs and agent improvements. The combined
+candidate passed focused JVM/Python tests, the full agent-service test suite,
+typechecking, three deterministic live suites, and a final evidence e2e recheck.
+Eight first valid model attempts on two complete KramaBench questions produced
+seven passes. This is a diagnostic pilot, not a full benchmark result or proof
+of a causal accuracy/cost gain.
+
+The detailed prior review is 20261002-engine-agent-review.txt. The machine-readable
+companion to this report retains all eight task results and artifact locations.
+
+1. Engine changes
+-----------------
+Imported all six repair measures from engine-stall-repairs-20261002.json, plus
+the reviewed branch's two earlier cache fixes. The changes are packaged in
+five engine/diagnostic commits; the original commit mapping is in the companion.
+
+- Cached reader identity includes the destination input port and internal-channel
+  flag in both Python and JVM code. Two inputs reading the same cached producer
+  no longer overwrite each other's channel registration.
+- Cached reads use the synthetic sender for partitioning. Reader failures reach
+  paused worker queues and report CACHE_INPUT_READ instead of waiting for a
+  generic execution deadline.
+- Runtime-statistics writes and close are serialized. Shutdown drains accepted
+  writes; synchronous execution flushes terminal statistics before returning.
+- Added a follow-up repair: ordinary persistence failures are retained, the
+  writer closes safely, and the close future reports the failure. A slow close
+  cannot silently become a successful flush.
+- Recovery after registry cleanup resolves the exact producing execution,
+  operator and output port. It does not substitute a newer result for that ID.
+- Fingerprints hash operator definitions rather than repeatedly embedding their
+  complete code. Payload version 2 intentionally misses old engine-cache entries.
+  This transition is separate from provider prompt/prefix caching.
+- Timeout classification requires deadline evidence. A library source line
+  containing the word "timeout" is insufficient.
+
+Python/JVM identity changes were deployed together. No protobuf definitions were
+changed; generated Python stubs were present in the validation checkout.
+
+Remaining engine limit: statistics flush waits for the storage writer to close.
+The tests cover slow close, drain ordering and surfaced write/close failures, but
+do not establish a finite bound for a permanently hung storage call. A storage-I/O
+deadline and cancellation policy would need a separate lifecycle design.
+
+2. Agent, context and tool changes
+---------------------------------
+Multiline context and Answer:
+- Fixed a multiline regex that truncated pending response text at the first line.
+  The existing bounded MissingAnswerAction repair retains lists and fenced text.
+- The native benchmark wrapper now requests a sole dataflow Answer action and
+  extracts only its successful receipt. A completion flag or diagnostic error
+  text cannot become a submitted benchmark answer. Historical scoring logic and
+  recorded runs were not rewritten.
+
+Scoped execution:
+  {"type":"execute","operator_ids":["result"]}
+Runs those operators and their complete upstream dependency closure. Unrelated
+failed/unconnected branches do not block this scope. Omitted targets execute the
+whole graph. Empty, duplicate, unknown or disabled targets are rejected before
+execution; required-input validation applies within the selected closure.
+
+Targeted retrieval:
+  {"type":"retrieve","operator_id":"eligible","view":"sample_stats",
+   "columns":["year","value"]}
+Selects displayed fields and available retained profiles without executing or
+recollecting statistics. The selection works for full, sample and sample_stats.
+Unavailable profiles are explicit; selecting fewer columns does not falsely mark
+the original table complete. Profiles remain tied to the producing revision.
+
+Flow evidence:
+- Prioritize measured conversion and deduplication losses among ancestors.
+- Reserve space across input branches so projections on one branch do not crowd
+  out relevant measurements on another. Traversal stays bounded: 32 visited
+  operators, depth 8, at most three ancestor summaries, unchanged display budget.
+- Distinct retains exact row-loss counters and adds bounded examples of conflicting
+  non-key attributes: first 256 input rows, at most eight key components/eight
+  non-key columns, three conflict examples and two values each. Counts/values are
+  typed and explicitly refer to the inspected prefix. No example is not proof
+  that no conflict exists. Optional examples are trimmed before exact counters.
+- Existing Map/Filter telemetry remains available. Custom code's internal semantic
+  correctness is not inferred from row/column counts.
+
+Provider compatibility and diagnosis:
+- OpenAI rejected uniqueItems in the public tool schema during qualification.
+  Remove that unsupported keyword from the provider schema while retaining local
+  uniqueness validation before actions execute.
+- Invalid target/column lists now report their actual constraint instead of a
+  misleading forbidden-field error from another action variant.
+- Store bounded, redacted response diagnostics with finish reasons and raw/parsed
+  argument agreement. They are trace metadata, never additional model context,
+  and require no extra provider call.
+
+Observations and edit behavior:
+The ordered action receipt contract is retained. Each Edit is atomic. A failure
+skips later actions, except independent inspect/retrieve after execution failure.
+Deleting an operator reports its automatically deleted incident edges. Connections
+are changed by deleting and creating edges. Regression and live tests cover these
+rules, stale result guards and independent completed results.
+
+3. Prompt and efficiency
+------------------------
+The rendered references are native-mode/SYSTEM_PROMPT.txt,
+SYSTEM_PROMPT_WITH_EVIDENCE.txt, TOOLS.md and OPERATORS.md.
+
+Guidance is neutral and independent of benchmark questions: one operator per
+operation, predefined operators first, explicit dependencies, batch known graph
+construction, verify population/time/grain, compute the final quantity and units
+in the graph, and submit Answer directly. Retrieval examples select layout-only
+samples, targeted sample_stats, or small final full tables. Evidence explains
+coverage, unknown counts, bounded examples and producing versions. It cannot
+establish that the model selected the right population or formula.
+
+The implementation avoids mandatory extra verification calls. Targeted retrieval
+uses existing results/profiles; selected execution avoids unrelated branches;
+ancestor evidence and optional conflict examples have fixed collection/display
+bounds. Data and flow evidence retain separate budgets, so neither displaces
+sample records. Existing complete-small-table suppression remains in place.
+
+Pilot settings: native/delta, full/sample/sample_stats available, flow enabled,
+2,000-character samples and five rows; full capped at 100,000 characters; data
+and flow evidence each capped at 2,000 characters; 25 steps. Collection is bounded
+independently of displayed samples, with partial coverage explicitly reported.
+
+4. Validation
+-------------
+Regression tests were written and observed failing before the relevant repairs.
+Final passing checks:
+- agent-service: 1,175 Bun tests, zero failures; 93 files, eight snapshots.
+- TypeScript: tsc --noEmit passed.
+- WorkflowCore: 22 focused Scala tests; WorkflowExecutionService: 60 focused tests.
+- Python: 62 reader/cache/identity/materialization tests and 23 profile tests.
+  A later 39-test rerun overlaps these suites and is not added to the total.
+- Benchmark harness: 13 tests plus four subtests for native Answer and the
+  single-attempt protocol. Build/stage and execution-service distribution passed.
+
+An accidental repository-root Bun invocation also tried to run Angular frontend
+tests with the wrong runner and failed. The supported agent-service invocation
+above subsequently passed. No full frontend or complete Scala suite is claimed.
+
+Live suite A: cached multi-input replay, zero model calls
+  /tmp/cache-stall-replay-jYj2ha/checks.json
+  task30 port counts: [86,86,76], completed in 2.153 seconds.
+  task36 port counts: [76,86,86,12], completed in 2.124 seconds.
+  Both used cached producers. Original analytical callbacks surfaced their actual
+  missing-column errors in 1.822/1.794 seconds. Removing only disposable probe-owned
+  cache data returned CACHE_INPUT_READ in 1.438 seconds; restoring it allowed
+  completion in 1.897 seconds. No execution timeout was required. Timings include
+  diagnostic actions and receipt reads, rather than isolated engine CPU time.
+
+Live suite B: semantic evidence and selected execution, zero model calls
+  /tmp/evidence-repairs-xKoSdW/checks.json
+  Final implementation recheck: /tmp/evidence-repairs-vKQtfr/checks.json
+  Selected execution excluded unrelated failing/unconnected branches. Exact year
+  ranges/frequencies, Distinct row loss/conflict examples, both input branches and
+  aggregate 60 matched the synthetic fixture. Targeted full rendering selected
+  only its requested field. Switching views did not add backend executions or
+  change producing versions. Reexecution used cached results. Atomic invalid
+  edits and deletion of two incident edges produced the expected observations.
+
+Live suite C: existing ordered-action/cache suite, zero model calls
+  /tmp/dataflow-actions-live-Ja1byK/summary.json
+  Passed retrieval without execution, unchanged execution cache reuse, leaf and
+  ancestor invalidation, stale retrieval/skipped suffix, preserved independent
+  results, atomic edit rejection, edge replacement, duplicate-source Join ports,
+  deletion/reconnection, datetime transport, and 1,000 full versus five sample
+  rows with stable producing versions. Disconnected groups can generate separate
+  backend execution requests; this is graph partitioning, not a cache failure.
+
+5. First valid model attempts: two complete KramaBench questions each
+-------------------------------------------------------------------
+Tasks were chosen before valid solver calls:
+- archeology-easy-6: 44,691 world-city rows; find the largest city in the southern
+  and western hemispheres. Correct answer: Sao Paulo.
+- environment-hard-7: 187 town population records and 16,258 water-test records;
+  compare marine-beach exceedance rates for high/low EJ-population groups.
+  Correct answer: 10.87 percentage points.
+
+Model       Passes   Agent cost, USD   Model calls   Cached input share
+Sonnet 5.5   1/2          0.087979            7             78.2%
+Haiku 4.5    2/2          0.044462           11             83.9%
+Luna         2/2          0.006109            8             78.3%
+Terra        2/2          0.050628            7             77.1%
+Total        7/8          0.189178           33
+
+One valid attempt per task/model, no solver recovery reruns. Original KramaBench
+scores were used, with pass threshold >=1. Costs are the recorded agent stats.json
+costs using the manifests' pricing, excluding judge and engine expenses. This is
+two selected questions per model, not a 104-task benchmark accuracy estimate.
+
+Trace checks:
+- All eight submitted a sole successful Answer; zero plain-reply repair calls.
+- 25 stable-prefix checks, zero violations; zero raw/parsed argument mismatches.
+- 65 retained profiles/518 profiled columns: no count/frequency/version violations.
+- Independently recomputed 998 source-statistics checks over 12 parsed source
+  tables; zero discrepancies. These checks cover the actual profiled prefixes,
+  not unmeasured tails. For example, Sonnet's city profile covered 16,000/44,691
+  rows and its water-test profile 9,728/16,258; coverage was labeled partial.
+- No engine stalls or cached-read failures in valid model attempts.
+- Full views were small results/targeted subsets, not large unfiltered record dumps.
+- Haiku made one incorrect Join-column assumption. The engine surfaced it, a
+  following retrieval reported the unavailable result, and the model repaired it.
+
+Sonnet's remaining failure:
+It found the correct populations/counts (low: 140/3,295; high: 312/2,063) but
+subtracted proportional rates and submitted 0.11 rather than converting to 10.87
+percentage points. Statistics and flow evidence were correct; no transport/schema
+error caused this result. It did the final subtraction in its answer rather than
+an operator despite neutral guidance. The same unit mistake occurred in the
+earlier Sonnet comparison. The failure is retained without an outcome-selected
+retry. The other three models converted rates and passed.
+
+Qualification failures, preserved separately:
+The first launch used a gateway missing these aliases; all eight attempts failed
+before any model call. After choosing the existing gateway with the required
+aliases, Anthropic ran normally but OpenAI rejected uniqueItems before model
+calls. The provider-schema repair enabled the first four valid OpenAI attempts.
+These zero-call qualification failures are excluded from the solver pilot table,
+and their artifact directories remain available. Anthropic ran at 6d129eb29;
+OpenAI ran at 558807023 with the same prompt/runtime and supported public schema.
+The final c8eb4f696 change affects invalid-list error messages only.
+
+Cost comparison limits:
+On these same two questions, earlier Sonnet cost was $0.077940 versus $0.087979
+now (+12.9%). Calls fell from nine to seven and plain-reply corrections from two
+to zero. The city task had materially less cached input in the new attempt.
+This pair therefore shows protocol-call savings, but no net dollar saving.
+One repetition, changed prefix/cache warmth and no evidence-off control prevent
+attributing a cost/accuracy difference to the new evidence. Do not extrapolate
+these eight runs to the previous full campaign.
+
+6. Provenance, ownership and next evaluation
+-------------------------------------------
+Validation root: /var/tmp/texera-dataflow-actions-repairs-20261002
+Consolidated audit: valid-model-pilot-audit.json
+Independent source audit: independent-source-audit.json
+Build/test logs: scala-build.log, dist.log, agent-bun-final.log, typecheck.log,
+harness-tests.log; Python logs: /tmp/dataflow-engine-python.log and
+/tmp/dataflow-profile-green.log. Live logs: cache-replay-fault.log,
+actions-e2e.log, evidence-e2e.log and evidence-e2e-final.log.
+
+Branch-owned engine: REST 38087, actor 32559; branch-owned agent: 3080.
+Only these processes were started/restarted through bin/local-dev.sh. Existing
+web/compiler/config/CU-manager services and the established gateway were reused.
+The operator-history-lean stack at engine 38086/agent 3037 was left untouched.
+Disposable workflow/computing units were cleaned up by the e2e scripts. An early
+replay interrupted by our agent watch reload and a wrong Distinct fixture argument
+are retained separately; stable final probes passed.
+
+The next useful experiment is a matched, predeclared task set with evidence-on/off
+arms, the same revisions and budgets, balanced cache warming, and repeated runs.
+Measure original scores, billed cache-aware cost, action repairs, context bytes
+and operator use. Keep unit/population failures visible rather than adding
+benchmark-specific answer rules. Separately test bounded storage-I/O cancellation
+before promising finite statistics-flush latency under arbitrary remote failures.
+
+Implementation is committed on feat/dataflow-actions. Existing unrelated
+paraphrase_cache.json and amber/de421.bsp changes were preserved.

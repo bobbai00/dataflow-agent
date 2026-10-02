@@ -1,0 +1,728 @@
+{
+  "protocol": "Two complete questions per model, one valid solver attempt; no recovery model runs. Gateway and schema qualification failures preserved in separate directories and had no model calls. Anthropic attempts at 6d129eb29; OpenAI attempts at 558807023; same prompt and runtime, provider schema uniqueItems removed. No evidence-off or engine-off controls.",
+  "summary": [
+    {
+      "model": "Sonnet55",
+      "tasks": 2,
+      "passes": 1,
+      "mean_score": 0.5,
+      "cost_usd": 0.087979,
+      "model_calls": 7,
+      "cached_input_share": 0.7821614523337788,
+      "plain_replies": 0,
+      "prefix_checks": 5,
+      "targeted_execution": 3,
+      "targeted_retrieval": 1
+    },
+    {
+      "model": "Haiku45",
+      "tasks": 2,
+      "passes": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.044462,
+      "model_calls": 11,
+      "cached_input_share": 0.8389663889148956,
+      "plain_replies": 0,
+      "prefix_checks": 9,
+      "targeted_execution": 0,
+      "targeted_retrieval": 2
+    },
+    {
+      "model": "Luna",
+      "tasks": 2,
+      "passes": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.006109,
+      "model_calls": 8,
+      "cached_input_share": 0.7830615793445097,
+      "plain_replies": 0,
+      "prefix_checks": 6,
+      "targeted_execution": 4,
+      "targeted_retrieval": 0
+    },
+    {
+      "model": "Terra",
+      "tasks": 2,
+      "passes": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.050628000000000006,
+      "model_calls": 7,
+      "cached_input_share": 0.7706815437778426,
+      "plain_replies": 0,
+      "prefix_checks": 5,
+      "targeted_execution": 5,
+      "targeted_retrieval": 1
+    }
+  ],
+  "rows": [
+    {
+      "model": "Sonnet55",
+      "arm": "adaptive_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSonnet55_model_pilot_gateway_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.040147,
+      "seconds": 20.897749670999474,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 2,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 2,
+        "profiles": 4,
+        "columns": 44
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/model-pilot-gateway-fixed/system_scratch/DataflowSystemSonnet55_model_pilot_gateway_fixed_adaptive_flow1_Rep1/archeology-easy-6",
+      "answer": "São Paulo",
+      "stats": {
+        "input_tokens": 32927,
+        "output_tokens": 583,
+        "total_tokens": 33510,
+        "reasoning_tokens": 0,
+        "cached_tokens": 20868,
+        "cache_creation_tokens": 12051,
+        "cost_usd": 0.040147,
+        "num_steps": 3,
+        "elapsed_seconds": 17.82
+      },
+      "model_calls": 3,
+      "plain_replies": 0,
+      "targeted_execution": 1,
+      "targeted_retrieval": 1,
+      "action_distribution": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Haiku45",
+      "arm": "adaptive_flow1",
+      "task": "environment-hard-7",
+      "rep": 1,
+      "sut": "DataflowSystemHaiku45_model_pilot_gateway_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.035291,
+      "seconds": 49.14349308599776,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 6,
+        "action_errors": 2,
+        "text_replies": 0,
+        "retrievals": 8,
+        "profiles": 11,
+        "columns": 107
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/model-pilot-gateway-fixed/system_scratch/DataflowSystemHaiku45_model_pilot_gateway_fixed_adaptive_flow1_Rep1/environment-hard-7",
+      "answer": "10.87",
+      "stats": {
+        "input_tokens": 84401,
+        "output_tokens": 1633,
+        "total_tokens": 86034,
+        "reasoning_tokens": 0,
+        "cached_tokens": 68122,
+        "cache_creation_tokens": 16139,
+        "cost_usd": 0.035291,
+        "num_steps": 7,
+        "elapsed_seconds": 46.09
+      },
+      "model_calls": 7,
+      "plain_replies": 0,
+      "targeted_execution": 0,
+      "targeted_retrieval": 2,
+      "action_distribution": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 9,
+        "answer": 1
+      },
+      "views": {
+        "sample": 2,
+        "sample_stats": 4,
+        "full": 3
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Sonnet55",
+      "arm": "adaptive_flow1",
+      "task": "environment-hard-7",
+      "rep": 1,
+      "sut": "DataflowSystemSonnet55_model_pilot_gateway_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 0.0,
+      "cost_usd": 0.047832,
+      "seconds": 33.71855598599359,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 4,
+        "profiles": 8,
+        "columns": 66
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/model-pilot-gateway-fixed/system_scratch/DataflowSystemSonnet55_model_pilot_gateway_fixed_adaptive_flow1_Rep1/environment-hard-7",
+      "answer": "0.11",
+      "stats": {
+        "input_tokens": 53885,
+        "output_tokens": 2130,
+        "total_tokens": 56015,
+        "reasoning_tokens": 0,
+        "cached_tokens": 47033,
+        "cache_creation_tokens": 6842,
+        "cost_usd": 0.047832,
+        "num_steps": 4,
+        "elapsed_seconds": 31.3
+      },
+      "model_calls": 4,
+      "plain_replies": 0,
+      "targeted_execution": 2,
+      "targeted_retrieval": 0,
+      "action_distribution": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 4,
+        "answer": 1
+      },
+      "views": {
+        "sample_stats": 2,
+        "full": 2
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Haiku45",
+      "arm": "adaptive_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemHaiku45_model_pilot_gateway_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.009171,
+      "seconds": 17.641498211,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 3,
+        "profiles": 4,
+        "columns": 44
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/model-pilot-gateway-fixed/system_scratch/DataflowSystemHaiku45_model_pilot_gateway_fixed_adaptive_flow1_Rep1/archeology-easy-6",
+      "answer": "São Paulo",
+      "stats": {
+        "input_tokens": 33090,
+        "output_tokens": 569,
+        "total_tokens": 33659,
+        "reasoning_tokens": 0,
+        "cached_tokens": 30449,
+        "cache_creation_tokens": 2562,
+        "cost_usd": 0.009171,
+        "num_steps": 4,
+        "elapsed_seconds": 15.46
+      },
+      "model_calls": 4,
+      "plain_replies": 0,
+      "targeted_execution": 0,
+      "targeted_retrieval": 0,
+      "action_distribution": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "views": {
+        "sample": 2,
+        "full": 1
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_openai_pilot_schema_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.002191,
+      "seconds": 18.344277479001903,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 2,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 2,
+        "profiles": 5,
+        "columns": 55
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/openai-pilot-schema-fixed/system_scratch/DataflowSystemLuna_openai_pilot_schema_fixed_adaptive_flow1_Rep1/archeology-easy-6",
+      "answer": "São Paulo",
+      "stats": {
+        "input_tokens": 18349,
+        "output_tokens": 475,
+        "total_tokens": 18824,
+        "reasoning_tokens": 84,
+        "cached_tokens": 11380,
+        "cache_creation_tokens": 0,
+        "cost_usd": 0.002191,
+        "num_steps": 3,
+        "elapsed_seconds": 16.18
+      },
+      "model_calls": 3,
+      "plain_replies": 0,
+      "targeted_execution": 2,
+      "targeted_retrieval": 0,
+      "action_distribution": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "views": {
+        "sample": 1,
+        "full": 1
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1",
+      "task": "environment-hard-7",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_openai_pilot_schema_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.038579,
+      "seconds": 36.9213977670006,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 5,
+        "profiles": 13,
+        "columns": 66
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/openai-pilot-schema-fixed/system_scratch/DataflowSystemTerra_openai_pilot_schema_fixed_adaptive_flow1_Rep1/environment-hard-7",
+      "answer": "10.87",
+      "stats": {
+        "input_tokens": 29821,
+        "output_tokens": 1298,
+        "total_tokens": 31119,
+        "reasoning_tokens": 332,
+        "cached_tokens": 20355,
+        "cache_creation_tokens": 0,
+        "cost_usd": 0.038579,
+        "num_steps": 4,
+        "elapsed_seconds": 33.21
+      },
+      "model_calls": 4,
+      "plain_replies": 0,
+      "targeted_execution": 3,
+      "targeted_retrieval": 1,
+      "action_distribution": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 5,
+        "answer": 1
+      },
+      "views": {
+        "sample": 2,
+        "full": 2,
+        "sample_stats": 1
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_openai_pilot_schema_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.012049,
+      "seconds": 18.64465428001131,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 2,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 2,
+        "profiles": 6,
+        "columns": 48
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/openai-pilot-schema-fixed/system_scratch/DataflowSystemTerra_openai_pilot_schema_fixed_adaptive_flow1_Rep1/archeology-easy-6",
+      "answer": "São Paulo",
+      "stats": {
+        "input_tokens": 18217,
+        "output_tokens": 468,
+        "total_tokens": 18685,
+        "reasoning_tokens": 109,
+        "cached_tokens": 16667,
+        "cache_creation_tokens": 0,
+        "cost_usd": 0.012049,
+        "num_steps": 3,
+        "elapsed_seconds": 16.38
+      },
+      "model_calls": 3,
+      "plain_replies": 0,
+      "targeted_execution": 2,
+      "targeted_retrieval": 0,
+      "action_distribution": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "views": {
+        "sample": 1,
+        "full": 1
+      },
+      "raw_argument_mismatches": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1",
+      "task": "environment-hard-7",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_openai_pilot_schema_fixed_adaptive_flow1_Rep1",
+      "exit_code": 0,
+      "timeout": false,
+      "score": 1.0,
+      "cost_usd": 0.003918,
+      "seconds": 42.830901652996545,
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 4,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 7,
+        "profiles": 14,
+        "columns": 88
+      },
+      "artifact_directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/openai-pilot-schema-fixed/system_scratch/DataflowSystemLuna_openai_pilot_schema_fixed_adaptive_flow1_Rep1/environment-hard-7",
+      "answer": "10.87",
+      "stats": {
+        "input_tokens": 42613,
+        "output_tokens": 1616,
+        "total_tokens": 44229,
+        "reasoning_tokens": 617,
+        "cached_tokens": 36357,
+        "cache_creation_tokens": 0,
+        "cost_usd": 0.003918,
+        "num_steps": 5,
+        "elapsed_seconds": 39.93
+      },
+      "model_calls": 5,
+      "plain_replies": 0,
+      "targeted_execution": 2,
+      "targeted_retrieval": 0,
+      "action_distribution": {
+        "edit": 4,
+        "execute": 4,
+        "retrieve": 7,
+        "answer": 1
+      },
+      "views": {
+        "sample": 2,
+        "sample_stats": 2,
+        "full": 3
+      },
+      "raw_argument_mismatches": 0
+    }
+  ],
+  "total_cost_usd": 0.189178,
+  "independent_source_audit": {
+    "checks": 998,
+    "failures": [],
+    "systems": [
+      {
+        "sut": "DataflowSystemHaiku45_model_pilot_gateway_fixed_adaptive_flow1_Rep1",
+        "sources": [
+          {
+            "task": "archeology-easy-6",
+            "operator": "source",
+            "source_rows": 44691,
+            "profile_rows": 16768,
+            "columns": 11,
+            "checks": 61
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "ej_populations",
+            "source_rows": 187,
+            "profile_rows": 187,
+            "columns": 9,
+            "checks": 103
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "water_testing",
+            "source_rows": 16258,
+            "profile_rows": 9472,
+            "columns": 11,
+            "checks": 84
+          }
+        ],
+        "failures": []
+      },
+      {
+        "sut": "DataflowSystemSonnet55_model_pilot_gateway_fixed_adaptive_flow1_Rep1",
+        "sources": [
+          {
+            "task": "archeology-easy-6",
+            "operator": "src",
+            "source_rows": 44691,
+            "profile_rows": 16000,
+            "columns": 11,
+            "checks": 61
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "ej",
+            "source_rows": 187,
+            "profile_rows": 187,
+            "columns": 9,
+            "checks": 103
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "wt",
+            "source_rows": 16258,
+            "profile_rows": 9728,
+            "columns": 11,
+            "checks": 86
+          }
+        ],
+        "failures": []
+      },
+      {
+        "sut": "DataflowSystemLuna_openai_pilot_schema_fixed_adaptive_flow1_Rep1",
+        "sources": [
+          {
+            "task": "archeology-easy-6",
+            "operator": "cities_preview",
+            "source_rows": 44691,
+            "profile_rows": 16384,
+            "columns": 11,
+            "checks": 61
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "ej",
+            "source_rows": 187,
+            "profile_rows": 187,
+            "columns": 9,
+            "checks": 103
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "water",
+            "source_rows": 16258,
+            "profile_rows": 9856,
+            "columns": 11,
+            "checks": 86
+          }
+        ],
+        "failures": []
+      },
+      {
+        "sut": "DataflowSystemTerra_openai_pilot_schema_fixed_adaptive_flow1_Rep1",
+        "sources": [
+          {
+            "task": "archeology-easy-6",
+            "operator": "cities",
+            "source_rows": 44691,
+            "profile_rows": 16256,
+            "columns": 11,
+            "checks": 61
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "ej_source",
+            "source_rows": 187,
+            "profile_rows": 187,
+            "columns": 9,
+            "checks": 103
+          },
+          {
+            "task": "environment-hard-7",
+            "operator": "water_source",
+            "source_rows": 16258,
+            "profile_rows": 9856,
+            "columns": 11,
+            "checks": 86
+          }
+        ],
+        "failures": []
+      }
+    ]
+  },
+  "provenance": {
+    "report_date_utc": "2026-10-02",
+    "branch": "feat/dataflow-actions",
+    "implementation_revision": "c8eb4f6963a36ca2805c51c2966cccced35f8f2f",
+    "source_worktree": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/operator-history-lean",
+    "source_revision": "ea1594d5d360e33b326bf6dbc1548084c6a8c501",
+    "source_report": "benchmark/longds/reports/engine-stall-repairs-20261002.json",
+    "agent_revision_anthropic": "6d129eb29",
+    "agent_revision_openai": "558807023",
+    "engine_source_revision": "516442f40",
+    "harness_revision": "c2f8ace4e442a5ee87a86be431c24cec7cf2883c",
+    "artifact_root": "/var/tmp/texera-dataflow-actions-repairs-20261002",
+    "source_imports": [
+      {
+        "source": "0ca4a7e52",
+        "destination": "7fb5af197",
+        "change": "Bounded versioned cache fingerprints"
+      },
+      {
+        "source": "29958c4c1",
+        "destination": "4facec160",
+        "change": "Exact cached producer recovery"
+      },
+      {
+        "source": "924e42e90",
+        "destination": "ef915bcc1",
+        "change": "Port-specific cached channels and error delivery"
+      },
+      {
+        "source": "3bede8dd3",
+        "destination": "6da7cd406",
+        "change": "Serialized statistics persistence lifecycle"
+      },
+      {
+        "source": "574719aca",
+        "destination": "a60c85491",
+        "change": "Cache-read/deadline classification"
+      },
+      {
+        "source": "2cf15ca9f",
+        "destination": "e85c0512b",
+        "change": "Deterministic cached-input replay"
+      },
+      {
+        "source": "174e24c12",
+        "destination": "516442f40",
+        "change": "Selected Execute, adapted without history tools"
+      }
+    ],
+    "qualification_failures": [
+      {
+        "directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/model-pilot",
+        "cause": "Gateway missing aliases",
+        "model_calls": 0,
+        "cost_usd": 0
+      },
+      {
+        "directory": "/var/tmp/texera-dataflow-actions-repairs-20261002/model-pilot-gateway-fixed",
+        "models": [
+          "Luna",
+          "Terra"
+        ],
+        "cause": "OpenAI rejected public schema uniqueItems",
+        "model_calls": 0,
+        "cost_usd": 0
+      }
+    ]
+  },
+  "tests": {
+    "agent_service_bun": {
+      "passed": 1175,
+      "failed": 0,
+      "log": "/var/tmp/texera-dataflow-actions-repairs-20261002/agent-bun-final.log"
+    },
+    "typecheck": {
+      "passed": true,
+      "log": "/var/tmp/texera-dataflow-actions-repairs-20261002/typecheck.log"
+    },
+    "scala": {
+      "workflow_core_passed": 22,
+      "workflow_execution_service_passed": 60,
+      "log": "/var/tmp/texera-dataflow-actions-repairs-20261002/scala-build.log"
+    },
+    "python_reader_cache_identity_materialization": {
+      "passed": 62,
+      "log": "/tmp/dataflow-engine-python.log"
+    },
+    "python_profiles": {
+      "passed": 23,
+      "log": "/tmp/dataflow-profile-green.log"
+    },
+    "harness": {
+      "passed": 13,
+      "subtests_passed": 4,
+      "log": "/var/tmp/texera-dataflow-actions-repairs-20261002/harness-tests.log"
+    },
+    "deterministic_e2e": [
+      {
+        "name": "cached_multi_input_fault_and_recovery",
+        "passed": true,
+        "model_calls": 0,
+        "artifact": "/tmp/cache-stall-replay-jYj2ha/checks.json"
+      },
+      {
+        "name": "ordered_actions_and_cache",
+        "passed": true,
+        "model_calls": 0,
+        "artifact": "/tmp/dataflow-actions-live-Ja1byK/summary.json"
+      },
+      {
+        "name": "evidence_selected_execution_final",
+        "passed": true,
+        "model_calls": 0,
+        "artifact": "/tmp/evidence-repairs-vKQtfr/checks.json"
+      }
+    ]
+  },
+  "scope_and_limits": [
+    "Two selected complete KramaBench questions per model; not full benchmark accuracy",
+    "One first valid attempt per task and model; valid Sonnet failure retained without retry",
+    "No evidence-off control; no causal cost/accuracy gain inferred",
+    "Statistics checks apply to actual profiled prefixes; collection may be partial",
+    "Sonnet rate difference remained a fraction rather than requested percentage points",
+    "Stats flush has no independent finite deadline for a permanently hung storage close",
+    "Recorded agent costs exclude judge and engine expenses"
+  ],
+  "paired_sonnet_cost_check": {
+    "tasks": [
+      "archeology-easy-6",
+      "environment-hard-7"
+    ],
+    "previous_agent_cost_usd": 0.07794,
+    "new_agent_cost_usd": 0.087979,
+    "previous_model_calls": 9,
+    "new_model_calls": 7,
+    "previous_plain_replies": 2,
+    "new_plain_replies": 0,
+    "interpretation": "Fewer protocol corrections, no net dollar saving; cache warmth and one repetition confound comparison"
+  }
+}
