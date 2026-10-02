@@ -160,9 +160,17 @@ function validationMessage(input: any): string {
         }
         return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;
       }
-      const selected = candidates.find(
+      const eligible = candidates.filter(
         v => !("target" in v.schema.properties) || (v.schema.properties as any).target.const === item?.target
       );
+      const keys = new Set(Object.keys(item ?? {}));
+      const distance = (candidate: (typeof candidates)[number]) => {
+        const fields = new Set(Object.keys(candidate.schema.properties));
+        return [...keys].filter(k => !fields.has(k)).length + [...fields].filter(k => !keys.has(k)).length;
+      };
+      // Select the intended shape before showing its validation error. An
+      // invalid target/column list must not look like a forbidden argument.
+      const selected = eligible.sort((a, b) => distance(a) - distance(b))[0];
       if (!selected) return `Action ${index + 1} (inspect): target must be graph or operator.`;
       if (!selected.validate(item))
         return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;

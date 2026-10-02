@@ -71,6 +71,15 @@ describe("ordered dataflow actions", () => {
     }
   });
 
+  test("invalid list arguments report their actual constraint rather than forbidding the field", () => {
+    for (const action of [
+      { type: "execute", operator_ids: ["total", "total"] },
+      { type: "retrieve", operator_id: "total", view: "sample", columns: ["value", "value"] },
+    ]) {
+      expect(prepareDataflowActions({ reasoning: "Read.", actions: [action] }).error).toContain("duplicate items");
+    }
+  });
+
   test("system-info exports the same action schema sent to the model", () => {
     const s = session([]);
     const exported = s.agent.getSystemInfo().tools.find(tool => tool.name === "dataflow");
