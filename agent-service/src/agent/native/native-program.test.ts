@@ -29,7 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ContextMode } from "../../types/agent";
-import { buildNativeModeSystemPrompt } from "../prompts";
+import { buildNativeModeSystemPrompt, nativeRetrievalExamples } from "../prompts";
 import type { WorkflowState } from "../workflow-state";
 import { NATIVE_OPERATORS, nativeCatalogText, graphCatalogText } from "./catalog";
 import { compileNativeOp } from "./codegen";
@@ -539,6 +539,77 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
+  test("evidence examples show retrieval, diagnosis and repair only when enabled", async () => {
+    const { prepareDataflowActions } = await import("../tools/dataflow-actions");
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: ["full", "sample", "sample_stats"],
+      flowEvidence: true,
+    });
+    const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(([, json]) => JSON.parse(json));
+    expect(
+      examples.some(e => e.actions.some((a: any) => a.operator_id === "eligible" && a.view === "sample_stats"))
+    ).toBe(true);
+    expect(examples.some(e => e.actions.some((a: any) => a.operator_id === "final_rows" && a.view === "full"))).toBe(
+      true
+    );
+    expect(prompt).toContain("other=0");
+    expect(prompt).toContain("failed-value examples");
+    expect(prompt).toContain("unmatched-key examples");
+    expect(prompt).toContain("resolved offsets");
+    expect(prompt).toContain("Resolve the finding before using the aggregate");
+    for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
+      expect(prepareDataflowActions(JSON.parse(json), ["full", "sample", "sample_stats"]).error).toBeUndefined();
+    const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
+    expect(plain).not.toContain("failed-value examples");
+    expect(plain).not.toContain('"view": "full"');
+    expect(plain).not.toContain('"view": "sample_stats"');
+  });
+  test("new evidence examples use synthetic fields and conditional repair rules", () => {
+    const examples = nativeRetrievalExamples({
+      retrievalViews: ["full", "sample", "sample_stats"],
+      flowEvidence: true,
+    });
+    expect(examples).not.toMatch(/KramaBench|ChromaBench|Case_excluded|North Carolina|APP-Z|PLK1|\bdata\//i);
+    expect(examples).toContain("Normalize only if the source definitions establish the same identity");
+    expect(examples).toContain("duplicates can be legitimate");
+    expect(examples).toContain("task's missing-value policy");
+    expect(examples).not.toMatch(
+      /\b(?:legal|biomedical|environment|archeology|wildfire|astronomy)-(?:easy|hard)-\d+\b/
+    );
+  });
+  test("the synthetic decimal repair runs and preserves graph connections", async () => {
+    const examples = nativeRetrievalExamples({ retrievalViews: ["sample_stats"], flowEvidence: true });
+    const repair = [...examples.matchAll(/```json\n([\s\S]*?)\n```/g)]
+      .map(([, json]) => JSON.parse(json))
+      .find(e => e.actions.some((a: any) => a.type === "edit"));
+    const directory = mkdtempSync(join(tmpdir(), "native-evidence-prompt-"));
+    try {
+      const path = join(directory, "values.csv");
+      writeFileSync(path, "value\n1.5\n2.5\n" + "1\n".repeat(18));
+      const { state } = nativeTestTools();
+      const metadataStore = new WorkflowSystemMetadata();
+      metadataStore.seedCodeModeDefaults();
+      const initial = await planGraphEdit(
+        state.getWorkflowContent(),
+        `
+create operator source: scan(${JSON.stringify(path)}, all_text=True)
+create operator typed: cast(value=int64, errors="null")
+create operator total: aggregate(average=mean("value"))
+create edge source.out -> typed.in
+create edge typed.out -> total.in
+`,
+        { metadataStore }
+      );
+      state.setWorkflowContent(initial.workflow);
+      expect(execute(state, "total")).toEqual([{ average: 1 }]);
+      const updated = await planGraphEdit(state.getWorkflowContent(), repair.actions[0].changes, { metadataStore });
+      state.setWorkflowContent(updated.workflow);
+      expect(updated.workflow.links).toEqual(initial.workflow.links);
+      expect(execute(state, "total")).toEqual([{ average: 1.1 }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   test("retrieval guidance separates source previews, table sampling and computation", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
       retrievalViews: ["full", "sample", "sample_stats"],
@@ -552,23 +623,25 @@ describe("native prompt", () => {
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
-    for (const view of ["full", "sample", "sample_stats"] as const) {
-      const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
-        retrievalViews: [view],
-        fullResultCharLimit: 90000,
-        maxOperatorResultCharLimit: 750,
-        maxResultRows: 4,
-        dataEvidenceCharLimit: 900,
-      });
-      expect(prompt).toContain(`- \`${view}\``);
-      for (const other of ["full", "sample", "sample_stats"].filter(v => v !== view))
-        expect(prompt).not.toContain(`- \`${other}\``);
-      expect(prompt.includes("Data measurement")).toBe(view === "sample_stats");
-      expect(prompt).not.toContain("automatically adds selected flow evidence");
-      expect(prompt).toContain(view === "full" ? "90000 characters" : "750 characters");
-      for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
-        expect(prepareDataflowActions(JSON.parse(json), [view]).error).toBeUndefined();
-    }
+    for (const flowEvidence of [false, true])
+      for (const view of ["full", "sample", "sample_stats"] as const) {
+        const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+          retrievalViews: [view],
+          fullResultCharLimit: 90000,
+          maxOperatorResultCharLimit: 750,
+          maxResultRows: 4,
+          dataEvidenceCharLimit: 900,
+          flowEvidence,
+        });
+        expect(prompt).toContain(`- \`${view}\``);
+        for (const other of ["full", "sample", "sample_stats"].filter(v => v !== view))
+          expect(prompt).not.toContain(`- \`${other}\``);
+        expect(prompt.includes("Data measurement")).toBe(view === "sample_stats");
+        expect(prompt.includes("automatically adds selected flow evidence")).toBe(flowEvidence);
+        expect(prompt).toContain(view === "full" ? "90000 characters" : "750 characters");
+        for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
+          expect(prepareDataflowActions(JSON.parse(json), [view]).error).toBeUndefined();
+      }
   });
   test("all layouts describe the action contract and every JSON example validates", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");

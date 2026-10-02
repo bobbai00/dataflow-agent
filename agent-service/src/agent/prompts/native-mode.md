@@ -96,6 +96,8 @@ Retrieval reports returned and total rows and columns, and whether the view is c
 
 ## Examples
 
+{{RETRIEVAL_EXAMPLES}}
+
 Preview a file, execute and read its raw header:
 
 ```json
@@ -127,7 +129,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals", "view": "{{RETRIEVE_EXAMPLE_VIEW}}"}
+    {"type": "retrieve", "operator_id": "totals", "view": "{{FINAL_RETRIEVE_EXAMPLE_VIEW}}"}
   ]
 }
 ```

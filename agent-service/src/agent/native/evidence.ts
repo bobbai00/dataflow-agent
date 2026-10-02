@@ -22,6 +22,7 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { NATIVE_BY_TYPE } from "./catalog";
 import { scanLines } from "./checks";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
+import { nativeWitnessSchema, type NativeWitness } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
 import type { RetrievalView } from "../../types/agent";
 import { compactNativeObservation, type NativeColumnCount, type NativeUpstreamIdentity } from "./evidence-compaction";
@@ -92,6 +93,25 @@ const json = (x: unknown) => JSON.stringify(x);
 const fraction = (n: number, d: number) => `${n}/${d}${d === 0 ? " (undefined)" : ""}`;
 const scalarText = (x: ProfileScalar) => (x.type === "int64" ? x.value : json(x.value));
 const lexical = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Validate optional diagnostics separately: bad examples must never suppress
+ * valid counts. They describe a bounded subset, not the complete key domain. */
+function witnesses(value: unknown, width: number, rows: number, minimum = 1): NativeWitness[] {
+  if (!Array.isArray(value) || value.length > 3 || !width) return [];
+  const parsed = value.map(v => nativeWitnessSchema.safeParse(v));
+  if (parsed.some(p => !p.success)) return [];
+  const examples = parsed.map(p => p.data!);
+  return examples.every(
+    w => w.values.length === Math.min(width, 8) && (width <= 8 || w.truncated) && w.count >= minimum && w.count <= rows
+  ) && examples.reduce((n, w) => n + w.count, 0) <= rows
+    ? examples
+    : [];
+}
+
+function witnessText(example: NativeWitness, key = false): string {
+  const values = example.values.map(v => (v === null ? "null" : scalarText(v)));
+  return `${key ? `[${values.join(", ")}]` : values[0]}${example.truncated ? " (clipped)" : ""} × ${example.count}`;
+}
 
 /** Declared dependencies only: no SQL/source parsing or benchmark vocabulary. */
 function declaredColumns(op: OperatorPredicate): string[] {
@@ -323,6 +343,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       Union: "Union concatenates inputs without deduplication",
       Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
+      Window: `Window partition keys=${json(p.partitionBy ?? [])}, order=${json(p.orderBy ?? [])}`,
       Process: "Process row/column mapping unknown; upstream calculation summary stops here",
     };
     // Continue past nearby projections to find measured conversion losses.
@@ -334,7 +355,15 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       const measurements = local.facts
         .filter(f => f.family === "flow" && f.kind === "measurement" && f.priority >= 94)
         .sort((a, b) => b.priority - a.priority)
-        .slice(0, view.type === "Aggregate" || view.type === "Cast" ? 2 : 1);
+        .slice(0, view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window"].includes(view.type) ? 2 : 1);
+      // Keep coverage counters ahead of optional examples. Long compound keys
+      // remain available on direct retrieval without crowding ancestor summaries.
+      if (view.type === "Join")
+        measurements.push(
+          ...local.facts
+            .filter(f => /^flow\.join\.\d+\.unmatched\.examples$/.test(f.id) && f.text.length <= 320)
+            .slice(0, 2)
+        );
       const version = info.resultVersion!;
       summaries.push({
         id: `flow.upstream.${op.operatorID}.${version.id}`,
@@ -669,15 +698,35 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           `Join matched contribution=${join.matchedOutputRows} (sum L(k)*R(k)); output=${out}, including outer unmatched rows as declared.`,
           96
         );
-        sides.forEach((s, i) =>
+        sides.forEach((s, i) => {
           add(
             `flow.join.${i}`,
             "flow",
             "measurement",
             `${i ? "right" : "left"} matched rows=${fraction(s.matchedRows, s.rows)}, unmatched rows=${s.unmatchedRows}; matched keys=${fraction(s.matchedKeys, s.distinctKeys)}, unmatched keys=${s.unmatchedKeys}; null-key rows=${s.nullKeyRows}, max eligible multiplicity=${s.maxMultiplicity}.`,
             95
-          )
-        );
+          );
+          const keys = typeof p.on === "string" ? [p.on] : Array.isArray(p.on) ? p.on : [];
+          for (const [kind, rows, minimum] of [
+            ["unmatched", s.unmatchedRows, 1],
+            ["duplicate", s.eligibleRows, 2],
+          ] as const) {
+            const examples = witnesses(s[`${kind}Examples`], keys.length, rows, minimum);
+            if (
+              !examples.length ||
+              (kind === "unmatched" && examples.length > s.unmatchedKeys) ||
+              examples.some(w => w.count > s.maxMultiplicity || (!join.nullsEqual && w.values.includes(null)))
+            )
+              continue;
+            add(
+              `flow.join.${i}.${kind}.examples`,
+              "flow",
+              "measurement",
+              `${i ? "right" : "left"} ${kind === "unmatched" ? "eligible unmatched" : "duplicate"}-key examples (not exhaustive): ${examples.map(w => witnessText(w, true)).join("; ")}.`,
+              92
+            );
+          }
+        });
       } else omissions.push("invalid_join_counters");
     }
   } else if (view.type === "Union") {
@@ -723,8 +772,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             `flow.window.${c.as}`,
             "flow",
             "measurement",
-            `${json(c.as)} boundary nulls=${fraction(counter.boundaryNulls, out)}, total nulls=${fraction(counter.nullOutputs, out)}; existing null cells may also propagate.`,
-            93
+            `${json(c.as)} boundary nulls=${fraction(counter.boundaryNulls, out)}, total nulls=${fraction(counter.nullOutputs, out)}; ${c.fn}(${json(c.col)}, offset=${c.offset ?? 1}); existing null cells may also propagate.`,
+            96
           );
         } else omissions.push("window_output_counters_unavailable");
       }
@@ -826,7 +875,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")
       for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
-        if (count(failures) && failures <= ns[0] && (p.errors === "null" || failures === 0))
+        if (count(failures) && failures <= ns[0] && (p.errors === "null" || failures === 0)) {
           add(
             `flow.cast.${name}`,
             "flow",
@@ -834,6 +883,21 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             `${json(name)} conversion failures=${failures}/${ns[0]} rows (errors=${p.errors ?? "raise"}).`,
             failures ? 100 : 50
           );
+          const sample = record(record(operations.conversionFailureExamples)[name]);
+          const examples = witnesses(sample.examples, 1, failures);
+          if (
+            examples.length &&
+            count(sample.otherCount) &&
+            examples.reduce((sum, w) => sum + w.count, sample.otherCount) === failures
+          )
+            add(
+              `flow.cast.examples.${name}`,
+              "flow",
+              "measurement",
+              `${json(name)} failed-value examples (not exhaustive): ${examples.map(w => witnessText(w)).join("; ")}; other failures=${sample.otherCount}.`,
+              99
+            );
+        }
       }
     const input = inputs[0]!;
     for (const [name, after] of Object.entries(profile!.columns)) {

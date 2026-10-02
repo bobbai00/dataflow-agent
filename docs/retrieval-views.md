@@ -49,6 +49,36 @@ versions, includes at most three ancestors, and stops at opaque custom stages.
 The metadata describes the executed calculation; it does not certify that the
 calculation answers the task.
 
+### Bounded failure and key examples
+
+With profile collection enabled, Cast retains examples for at most eight
+converted columns: the first three distinct failed values, their occurrence
+counts, and the remaining failure count. Join retains up to three eligible
+unmatched keys and three duplicate keys on each side. These are examples in
+encounter order, not random samples or the most frequent values. Counts use
+the original typed values. Display clipping never changes conversion, key
+identity, join matching or counts.
+
+Examples use the lossless scalar encoding, including decimal strings for
+large int64 values and UTC timestamps. Unrepresentable values are omitted
+from examples while their failures remain in the counters. Text is capped at
+96 characters and compound keys at eight components; clipped examples are labeled. Join null
+keys follow `nullsEqual`: excluded null keys contribute to the existing
+null/unmatched-row counters, but are not eligible-key examples.
+
+Direct retrieval can show these diagnostics within the flow budget. Selected
+upstream summaries include Cast failures/examples, Join coverage and short
+unmatched-key examples, and Window lag/lead offsets and boundary-null counts.
+All refer to the producing result versions. Invalid or absent examples do
+not suppress valid counters; old profiles remain readable. The collector
+drops optional witnesses before other profile information when its payload
+budget is exceeded and records `native_witness_payload_budget`.
+
+The prompt uses synthetic fields and operator contracts to illustrate
+retrieval and repair. A failed conversion does not prescribe a cleaning rule;
+unmatched or duplicate keys do not automatically justify normalization or
+deduplication. Those choices depend on the task and source definitions.
+
 ## Session settings
 
 ```json

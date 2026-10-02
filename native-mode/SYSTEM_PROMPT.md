@@ -147,6 +147,8 @@ Your history contains earlier calls and their results. Each result describes the
 
 ## Examples
 
+
+
 Preview a file, execute and read its raw header:
 
 ```json
@@ -178,7 +180,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals", "view": "sample"}
+    {"type": "retrieve", "operator_id": "totals", "view": "full"}
   ]
 }
 ```
@@ -250,12 +252,12 @@ LATEST context replaces the context paragraph with:
 
 Your context shows the current dataflow and its available results. The latest action receipt records what just completed. Earlier execution events may be collapsed; use inspect to recover operator details.
 
-Enabling evidence adds the matching paragraphs below. The default exposes neither family.
+Enabling evidence adds the matching paragraphs below. The default exposes neither family. [SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.
 
 
 
 Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
 
-Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Check these against the intended population and grouping keys. For example, if a cast converts 18 of 100 values to null, inspect those inputs and repair formatting or justify their exclusion before using the aggregate. A successful execution does not validate that choice. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
+Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention, reducer denominators and Window offsets/boundary nulls; flow guarantees describe operator contracts. Cast failed-value examples and Join unmatched-key examples or duplicate-key examples show bounded, first-encountered values with counts. Examples may be clipped and are not an exhaustive distribution. Compare the measurements with the task's population, key identity and calculation. Repair a transformation or justify the exclusions before using its aggregate. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
 
 These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.

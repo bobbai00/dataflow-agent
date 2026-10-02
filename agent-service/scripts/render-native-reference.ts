@@ -78,7 +78,8 @@ export function renderSystemPrompt(): string {
     "LATEST context replaces the context paragraph with:\n\n" +
     differing.join("\n") +
     "\n\n" +
-    "Enabling evidence adds the matching paragraphs below. The default exposes neither family.\n\n" +
+    "Enabling evidence adds the matching paragraphs below. The default exposes neither family. " +
+    "[SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.\n\n" +
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
     "\n"
   );
@@ -169,6 +170,10 @@ export function renderAll(): Record<string, string> {
   return {
     "SYSTEM_PROMPT.md": renderSystemPrompt(),
     "SYSTEM_PROMPT.txt": buildNativeModeSystemPrompt(ContextMode.DELTA),
+    "SYSTEM_PROMPT_WITH_EVIDENCE.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: ["full", "sample", "sample_stats"],
+      flowEvidence: true,
+    }),
     "TOOLS.md": renderTools(),
     "OPERATORS.md": renderOperators(),
   };

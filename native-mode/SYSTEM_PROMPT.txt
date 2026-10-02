@@ -140,6 +140,8 @@ Your history contains earlier calls and their results. Each result describes the
 
 ## Examples
 
+
+
 Preview a file, execute and read its raw header:
 
 ```json
@@ -171,7 +173,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals", "view": "sample"}
+    {"type": "retrieve", "operator_id": "totals", "view": "full"}
   ]
 }
 ```
