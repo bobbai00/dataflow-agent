@@ -44,7 +44,7 @@ from core.models import (
     StateFrame,
     Schema,
 )
-from core.models.internal_queue import DataElement, ECMElement
+from core.models.internal_queue import DataElement, ECMElement, InputPortReadError
 from core.storage.document_factory import DocumentFactory
 from core.storage.iceberg.iceberg_document import IcebergDocument
 from core.storage.iceberg.iceberg_utils import (
@@ -58,6 +58,7 @@ from core.util.virtual_identity import get_from_actor_id_for_input_port_storage
 from proto.org.apache.texera.amber.core import (
     ActorVirtualIdentity,
     ChannelIdentity,
+    PortIdentity,
     EmbeddedControlMessageIdentity,
 )
 from proto.org.apache.texera.amber.engine.architecture.rpc import (
@@ -92,6 +93,7 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         queue: InternalQueue,
         worker_actor_id: ActorVirtualIdentity,
         partitioning: Partitioning,
+        port_id: PortIdentity,
         on_schema: Optional[Callable[[Schema], None]] = None,
     ):
         """
@@ -104,12 +106,8 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         self.uri = uri
         self.queue = queue
         self.worker_actor_id = worker_actor_id
-        from_actor_id = get_from_actor_id_for_input_port_storage(
-            self.uri, self.worker_actor_id
-        )
-        self.channel_id = ChannelIdentity(
-            from_actor_id, self.worker_actor_id, is_control=False
-        )
+        from_actor_id = get_from_actor_id_for_input_port_storage(self.uri, self.worker_actor_id, port_id)
+        self.channel_id = ChannelIdentity(from_actor_id, self.worker_actor_id, is_control=False)
         self._stopped = False
         self._finished = False
         self.materialization = None
@@ -131,7 +129,7 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         self.partitioner: Partitioner = (
             partitioner(the_partitioning)
             if partitioner != OneToOnePartitioner
-            else partitioner(the_partitioning, self.worker_actor_id)
+            else partitioner(the_partitioning, from_actor_id.name)
         )
 
     def finished(self) -> bool:
@@ -235,6 +233,15 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
             self._finished = True
         except Exception as err:
             logger.exception(err)
+            # A detached reader cannot fail the worker by raising here. Wake
+            # its main loop on a control channel, including when a data channel
+            # is disabled for alignment, so the error reaches the coordinator.
+            self.queue.put(
+                InputPortReadError(
+                    tag=ChannelIdentity(self.channel_id.from_worker_id, self.worker_actor_id, True),
+                    exception=err,
+                )
+            )
 
     def reads_columnar(self) -> bool:
         """Whether the stored rows can go to this worker as whole Arrow

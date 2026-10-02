@@ -81,6 +81,7 @@ trait PrepareCheckpointHandler {
         case WorkflowWorker.FIFOMessageElement(msg)           => queuedMsgs.append(msg)
         case WorkflowWorker.TimerBasedControlElement(control) => // skip
         case WorkflowWorker.ActorCommandElement(cmd)          => // skip
+        case WorkflowWorker.InputPortReadError(error)         => throw error
       }
       chkpt.save(SerializedState.DP_QUEUED_MSG_KEY, queuedMsgs)
       // get all output messages from worker.transferService

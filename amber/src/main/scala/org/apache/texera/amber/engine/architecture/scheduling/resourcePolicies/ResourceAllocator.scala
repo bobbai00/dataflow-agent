@@ -106,7 +106,11 @@ class DefaultResourceAllocator(
                 val toWorkerActorIds =
                   operatorConfigs(globalPortId.opId).workerConfigs.map(_.workerId)
                 val fromVirtualThreadActorIds = toWorkerActorIds.map(toWorkerActorId =>
-                  getFromActorIdForInputPortStorage(inputMatUri.toString, toWorkerActorId)
+                  getFromActorIdForInputPortStorage(
+                    inputMatUri.toString,
+                    toWorkerActorId,
+                    globalPortId.portId
+                  )
                 )
                 // Extract the input port partitionInfo defined in the physicalOp, defaulting to UnknownPartition.
                 val inputPortPartitionInfo = region

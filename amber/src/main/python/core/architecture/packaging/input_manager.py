@@ -96,6 +96,7 @@ class InputManager:
                     queue=self._input_queue,
                     worker_actor_id=ActorVirtualIdentity(self.worker_id),
                     partitioning=partitioning,
+                    port_id=port_id,
                     on_schema=lambda schema: self._ports[port_id].set_schema(schema),
                 )
                 for uri, partitioning in zip(uris, partitionings)

@@ -142,6 +142,10 @@ class DPThread(
         val elem = internalQueue.take
         waitingForInput = false
         elem match {
+          case WorkflowWorker.InputPortReadError(error) =>
+            // Forward the detached reader's failure through the worker actor's
+            // supervisor instead of waiting indefinitely for missing input.
+            throw error
           case WorkflowWorker.FIFOMessageElement(msg) =>
             val channel = dp.inputGateway.getChannel(msg.channelId)
             channel.acceptMessage(msg)

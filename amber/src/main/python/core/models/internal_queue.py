@@ -53,6 +53,11 @@ class ECMElement(InternalQueueElement):
     payload: EmbeddedControlMessage
 
 
+@dataclass
+class InputPortReadError(InternalQueueElement):
+    exception: Exception
+
+
 T = TypeVar("T", bound=InternalQueueElement)
 
 
@@ -81,7 +86,7 @@ class InternalQueue(IQueue):
                 self._queue_ids.add(item.tag)
             if isinstance(item, (DataElement, InternalMarker, ECMElement)):
                 self._queue.put(item.tag, item)
-            elif isinstance(item, DCMElement):
+            elif isinstance(item, (DCMElement, InputPortReadError)):
                 self._queue.put(item.tag, item)
             else:
                 raise ValueError(f"item {item} is not recognized by internal queue")
