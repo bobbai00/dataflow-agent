@@ -21,11 +21,48 @@ package org.apache.texera.web.service
 
 import org.scalatest.flatspec.AnyFlatSpec
 
-import java.util.concurrent.{CountDownLatch, TimeUnit}
+import java.util.concurrent.{CountDownLatch, ExecutionException, TimeUnit, TimeoutException}
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.mutable.ArrayBuffer
 
 class RuntimeStatisticsPersistenceSpec extends AnyFlatSpec {
+  "RuntimeStatisticsPersistence" should "report write failures after safely closing the writer" in {
+    val closes = new AtomicInteger()
+    val persistence = new RuntimeStatisticsPersistence(() => { closes.incrementAndGet(); () })
+    val failure = new IllegalStateException("storage unavailable")
+    persistence.persist { throw failure }
+    val error = intercept[ExecutionException] { persistence.close().get(5, TimeUnit.SECONDS) }
+    assert(error.getCause eq failure)
+    assert(closes.get() == 1)
+  }
+
+  it should "wait for slow close without declaring the writer safe for deletion" in {
+    val started = new CountDownLatch(1)
+    val release = new CountDownLatch(1)
+    val persistence = new RuntimeStatisticsPersistence(() => {
+      started.countDown()
+      assert(release.await(5, TimeUnit.SECONDS))
+    })
+    try {
+      val completion = persistence.close()
+      assert(started.await(5, TimeUnit.SECONDS))
+      intercept[TimeoutException] { completion.get(10, TimeUnit.MILLISECONDS) }
+      assert(!completion.isDone)
+      release.countDown()
+      completion.get(5, TimeUnit.SECONDS)
+    } finally release.countDown()
+  }
+
+  it should "expose a close failure and close only once" in {
+    val closes = new AtomicInteger()
+    val failure = new IllegalStateException("flush failed")
+    val persistence = new RuntimeStatisticsPersistence(() => { closes.incrementAndGet(); throw failure })
+    val error = intercept[ExecutionException] { persistence.close().get(5, TimeUnit.SECONDS) }
+    assert(error.getCause eq failure)
+    assert(persistence.close().isCompletedExceptionally)
+    assert(closes.get() == 1)
+  }
+
   "RuntimeStatisticsPersistence" should "drain accepted writes before closing and ignore later events" in {
     val started = new CountDownLatch(1)
     val release = new CountDownLatch(1)

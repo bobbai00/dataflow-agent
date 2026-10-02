@@ -67,16 +67,23 @@ import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
 
 import java.time.Instant
 import java.util.concurrent.{CompletableFuture, Executors}
+import scala.util.control.NonFatal
 
 /** Own the statistics writer on one thread, including its final flush. */
 private[service] final class RuntimeStatisticsPersistence(closeWriter: () => Unit) {
   private val executor = Executors.newSingleThreadExecutor()
   private var acceptingWrites = true
   private val closed = new CompletableFuture[Unit]()
+  // Accessed only by the writer thread. Drain and close even after a failed
+  // write, then expose the failure to the caller awaiting safe cleanup.
+  private var failure: Option[Throwable] = None
 
   def persist(write: => Unit): Unit =
     synchronized {
-      if (acceptingWrites) executor.execute(() => write)
+      if (acceptingWrites) executor.execute(() => {
+        try write
+        catch { case NonFatal(e) => if (failure.isEmpty) failure = Some(e) }
+      })
     }
 
   def close(): CompletableFuture[Unit] =
@@ -86,7 +93,10 @@ private[service] final class RuntimeStatisticsPersistence(closeWriter: () => Uni
         executor.execute(() => {
           try {
             closeWriter()
-            closed.complete(())
+            failure match {
+              case Some(e) => closed.completeExceptionally(e)
+              case None    => closed.complete(())
+            }
           } catch {
             case e: Throwable => closed.completeExceptionally(e)
           } finally executor.shutdown()
@@ -120,12 +130,7 @@ class ExecutionStatsService(
     writer
   }
 
-  private val metricsPersistence = new RuntimeStatisticsPersistence(() => {
-    try runtimeStatsWriter.close()
-    catch {
-      case e: Exception => logger.error("Failed to close runtime statistics writer", e)
-    }
-  })
+  private val metricsPersistence = new RuntimeStatisticsPersistence(() => runtimeStatsWriter.close())
 
   private var lastPersistedMetrics: Map[String, OperatorMetrics] =
     Map.empty[String, OperatorMetrics]
