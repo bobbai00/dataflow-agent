@@ -54,9 +54,14 @@ ANSWER_CONTRACT = (
     "reasoning as the answer.\n"
     "Your last line MUST BE: **Final Answer: <single-line JSON>**"
 )
+NATIVE_ANSWER_CONTRACT = (
+    "Put a single-line JSON object in answer.content containing exactly the "
+    "quantities requested. Follow the task's rounding and scale rules. "
+    "Submit Answer as the sole action in its batch after observing the evidence."
+)
 
 
-def build_turn_1_prompt(manifest: dict, turn: dict) -> str:
+def build_turn_1_prompt(manifest: dict, turn: dict, *, agent_mode: str = "code") -> str:
     """Turn 1 also establishes the session contract; later turns are content only.
 
     The file inventory is mandatory here: the agent has no file-listing tool, so
@@ -65,6 +70,14 @@ def build_turn_1_prompt(manifest: dict, turn: dict) -> str:
     worker, which runs with the dataflow-agent repo root as its cwd.
     """
     files = "\n".join(f" - {p}" for p in manifest["files"])
+    native = agent_mode == "native"
+    persistence = (
+        "Editing definitions or edges invalidates affected results; explicitly execute "
+        "before retrieving current results. Retrieval never executes."
+        if native else
+        "Editing an operator recomputes whatever depends on it, so you do not have to rebuild downstream work by hand."
+    )
+    answer_contract = NATIVE_ANSWER_CONTRACT if native else ANSWER_CONTRACT
     return f"""You are an expert data scientist working through a long analysis with me. I will send you a series of requests, one at a time, about the same data.
 
 Data files available (use these paths verbatim, they are relative — no leading slash):
@@ -72,28 +85,29 @@ Data files available (use these paths verbatim, they are relative — no leading
 
 How this session works:
 - The operators you create stay available to my later requests. Name them meaningfully so you and I can refer back to them.
-- Editing an operator recomputes whatever depends on it, so you do not have to rebuild downstream work by hand.
+- {persistence}
 - Do not use plotting libraries. Use text summaries and statistics.
 - Use code for every calculation rather than doing arithmetic yourself.
 - Answer only when you have evidence for the answer.
 
-{ANSWER_CONTRACT}
+{answer_contract}
 
 {turn['context']}
 Question: {turn['question']}"""
 
 
-def build_turn_n_prompt(turn: dict) -> str:
+def build_turn_n_prompt(turn: dict, *, agent_mode: str = "code") -> str:
     """Verbatim LongDS turn content, plus the answer-format reminder.
 
     Upstream joins context and question as `f"{context}\\nQuestion: {question}"`;
     that join is reproduced exactly so the model reads the same text the paper's
     models read.
     """
+    answer_contract = NATIVE_ANSWER_CONTRACT if agent_mode == "native" else ANSWER_CONTRACT
     return f"""{turn['context']}
 Question: {turn['question']}
 
-{ANSWER_CONTRACT}"""
+{answer_contract}"""
 
 
 def extract_answer(response: str) -> str:
@@ -259,7 +273,10 @@ def main() -> int:
         # it (two concurrent runs of the same task raced exactly once, and the
         # loser died mid-turn on a bare mkdir).
         tdir.mkdir(parents=True, exist_ok=True)
-        prompt = build_turn_1_prompt(manifest, turn) if idx == 0 else build_turn_n_prompt(turn)
+        prompt = (
+            build_turn_1_prompt(manifest, turn, agent_mode=sut.agent_mode)
+            if idx == 0 else build_turn_n_prompt(turn, agent_mode=sut.agent_mode)
+        )
         (tdir / "prompt.txt").write_text(prompt)
 
         t0 = time.time()

@@ -29,6 +29,7 @@ import { WorkflowState } from "../../src/agent/workflow-state";
 import { env } from "../../src/config/env";
 import { ActionMonitor, compareRequests } from "../e2e/state-history-diagnostics";
 import { requiredToolChoiceRecovery } from "../../src/agent/llm-drivers/required-tool-choice";
+import { buildLongDSPrompt } from "./longds-prompt";
 
 const [preparedArg, outputArg, arm, limitArg] = Bun.argv.slice(2);
 assert.ok(
@@ -164,8 +165,6 @@ save("protocol.json", {
     : {}),
   settings,
 });
-const answerContract =
-  "Report the answer as a single-line JSON object holding exactly the quantities this question asks for, and nothing else. For numerical answers, provide the exact value requested (rounded as specified if mentioned). Do not restate the whole chain of reasoning as the answer.\nYour last line MUST BE: **Final Answer: <single-line JSON>**";
 function prompt(turn: any, first: boolean) {
   if (matchedPrompts) {
     const matches = matchedPrompts.filter(p => p.turn_id === turn.turn_id);
@@ -174,11 +173,7 @@ function prompt(turn: any, first: boolean) {
     return matches[0].prompt;
   }
   if (first && firstPrompt !== undefined) return firstPrompt;
-  const question = `[Task ${turn.turn_id}]\n${turn.context}\nQuestion: ${turn.question}`;
-  if (!first) return question;
-  const persistence =
-    "Operators remain available across requests in one dataflow. Name them meaningfully. After editing definitions or edges, explicitly execute before retrieving current results.";
-  return `You are an expert data scientist working through a long analysis with me. I will send you a series of requests, one at a time, about the same data.\n\nData files available (use these paths verbatim; never modify input files):\n${manifest.files.map((f: string) => ` - ${f}`).join("\n")}\n\n${persistence}\nDo not use plotting libraries. Use text summaries and statistics. Use code for every calculation. Answer when you have evidence.\n\n${answerContract}\n\n${question}`;
+  return buildLongDSPrompt(manifest, turn, first);
 }
 const seenWire = new Set<string>();
 function auditWire() {
