@@ -235,7 +235,22 @@ export function resolveNativeDiagnostic(
           : "The worker process crashed; inspect that operator's inputs before retrying unchanged code.",
       retryable: true,
     };
-  if (/timed?\s*out|timeout/i.test(raw))
+  if (/input_port_materialization_reader_runnable\.py|Error reading cached input/.test(raw))
+    return {
+      ...base,
+      code: "CACHE_INPUT_READ",
+      stage: "infrastructure",
+      message: clipped(raw.trim().split("\n").at(-1) ?? raw, 320),
+      hint: "Check the stored input. Restore its materialization or recompute the producer before retrying.",
+      retryable: false,
+    };
+  // Tracebacks can contain fut.result(timeout) even for a FileNotFoundError.
+  // Require a deadline report, rather than the name of a library parameter.
+  if (
+    /\btimed?\s+out\b|\bTimeoutError\b|\bEXECUTION_TIMEOUT\b|\btimeout\s+after\b|\bkilled\s*\(timeout\)|\b(?:request|execution|workflow|engine|worker|operation|connection)\s+timeout\b/i.test(
+      raw
+    )
+  )
     return {
       ...base,
       code: "EXECUTION_TIMEOUT",

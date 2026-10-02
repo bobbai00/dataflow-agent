@@ -161,6 +161,39 @@ test("V2 opaque infrastructure errors do not masquerade as callback/syntax failu
   expect(rendered).not.toContain("GENERATED_BOILERPLATE");
 });
 
+test("a timeout parameter in a library traceback does not classify an unrelated error as a timeout", () => {
+  const { op, info, state } = fixture();
+  info.error =
+    'Traceback (most recent call last):\n  File "concurrent/futures/_base.py", line 456, in result\n    return fut.result(timeout)\nRuntimeError: failed to decode input';
+  const rendered = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(rendered).toContain("EXECUTION_ERROR");
+  expect(rendered).not.toContain("EXECUTION_TIMEOUT");
+});
+
+test("a missing cached input is a storage failure even when its traceback contains timeout arguments", () => {
+  const { op, info, state } = fixture();
+  info.error =
+    'Traceback (most recent call last):\n  File "core/storage/runnables/input_port_materialization_reader_runnable.py", line 220, in run\n    self.emit_columnar()\n  File "concurrent/futures/_base.py", line 456, in result\n    return fut.result(timeout)\nFileNotFoundError: cached parquet does not exist';
+  const rendered = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(rendered).toContain("CACHE_INPUT_READ");
+  expect(rendered).toContain("infrastructure");
+  expect(rendered).toContain("FileNotFoundError: cached parquet does not exist");
+  expect(rendered).toContain("retryable: false");
+  expect(rendered).not.toContain("EXECUTION_TIMEOUT");
+});
+
+test("actual engine deadlines and timeout exceptions still classify as execution timeouts", () => {
+  const { op, info, state } = fixture();
+  for (const error of [
+    "Timeout after 15 seconds",
+    "TimeoutError: request deadline",
+    "Workflow execution was killed (timeout).",
+  ]) {
+    info.error = error;
+    expect(formatOperatorResult("answer", info, state, { operatorAtEvent: op })).toContain("EXECUTION_TIMEOUT");
+  }
+});
+
 test("a Python worker that died mid-run is WORKER_EXITED, named, and not a timeout", () => {
   const sentence =
     "The Python worker for operator weather exited with code 143 (killed by signal 15, SIGTERM) while the operator was running; the operator produced no complete result.";
