@@ -115,6 +115,31 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
             "properties": {
               "type": {
                 "type": "string",
+                "const": "execute"
+              },
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "type",
+              "operator_ids"
+            ],
+            "description": "Run these operators and their upstream dependencies, materializing that scope and reusing valid cached results. Other branches remain in the graph. Returns status and errors; retrieve tables separately."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "retrieve"
               },
               "operator_id": {
@@ -135,7 +160,47 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Optional columns selects displayed fields and existing profiles, without new collection. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "retrieve"
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "sample"
+                ]
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "maxItems": 128,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "type",
+              "operator_id",
+              "view",
+              "columns"
+            ],
+            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Optional columns selects displayed fields and existing profiles, without new collection. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
           },
           {
             "type": "object",

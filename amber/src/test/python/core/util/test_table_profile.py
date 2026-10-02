@@ -38,6 +38,19 @@ def scalar(kind, value):
     return {"type": kind, "value": value}
 
 
+def test_distinct_examples_are_optional_under_payload_pressure():
+    profile = ProfileAccumulator("worker-0", {
+        "operatorId": "distinct", "operatorRevision": "0123456789abcdef",
+        "operations": {"removedRows": 1, "distinctConflicts": {"examples": ["x" * 4000]}},
+    }, limits=ProfileLimits(max_payload_bytes=3000))
+    profile.add(pd.DataFrame({"x": [1]}))
+    profile.finish()
+    result = json.loads(profile.encode())
+    assert result["native"]["operations"]["removedRows"] == 1
+    assert "distinctConflicts" not in result["native"]["operations"]
+    assert "native_witness_payload_budget" in result["omissions"]
+
+
 def test_typed_counts_values_ranges_and_zero_denominators():
     _, result = collect(
         pd.DataFrame(

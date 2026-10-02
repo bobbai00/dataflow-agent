@@ -35,6 +35,7 @@ import { generateText, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
 import { MissingAnswerActionError } from "./types";
 import type { TokenUsage } from "../../types/agent";
+import { responseDiagnostics } from "./response-diagnostics";
 
 export interface VercelToolUseDriverOptions {
   model: LanguageModel;
@@ -83,7 +84,7 @@ export class VercelToolUseDriver implements LLMDriver {
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
-      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
+      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response, finishReason }) => {
         // Anthropic cache WRITES (billed 1.25x input). LiteLLM reports them as
         // prompt_tokens_details.cache_creation_tokens, a non-standard extension
         // the SDK's typed usage object drops — but the raw parsed HTTP body is
@@ -97,6 +98,7 @@ export class VercelToolUseDriver implements LLMDriver {
         const before = new Map(toolResults?.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
         await input.onStepFinish({
           text: text || "",
+          responseDiagnostics: responseDiagnostics(finishReason, (response as any)?.body, toolCalls ?? []),
           reasoningText: reasoningText || undefined,
           toolCalls: toolCalls?.map(tc => ({
             toolName: tc.toolName,

@@ -232,11 +232,11 @@ export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEviden
   const parts: string[] = [];
   if (options.dataEvidence)
     parts.push(
-      'Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column\'s "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.'
+      'Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column\'s "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check eligibility fields, time coverage and the valid count of the measured column. Retrieve can select columns from the retained result; unavailable profiles are reported without new collection.'
     );
   if (options.flowEvidence)
     parts.push(
-      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention, reducer denominators and Window offsets/boundary nulls; flow guarantees describe operator contracts. Cast failed-value examples and Join unmatched-key examples or duplicate-key examples show bounded, first-encountered values with counts. Examples may be clipped and are not an exhaustive distribution. Compare the measurements with the task's population, key identity and calculation. Repair a transformation or justify the exclusions before using its aggregate. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
+      "Retrieval automatically adds selected flow evidence about the result and its intermediate operators. Flow measurement lines describe conversion failures, join matching, filter retention, deduplication losses, reducer denominators and Window offsets/boundary nulls; guarantees describe operator contracts. Cast and Join examples show bounded, first-encountered values with counts. Distinct may show conflicting attributes within its first 256 input rows; these examples are not exhaustive. Compare these facts with the task's population, key identity and calculation. Repair a transformation or justify exclusions before using its aggregate. Evidence refers to producing versions. Custom functions have unknown internal row/column mapping."
     );
   if (parts.length)
     parts.push(
@@ -259,7 +259,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
     ...views.map(v => descriptions[v]),
     ...(views.includes("sample_stats")
       ? [
-          "For a large parsed table, start with `sample_stats` when checking data quality or distributions. Project to relevant columns if a wide table hides the needed statistics.",
+          "For a large parsed table, start with `sample_stats` to check data quality or distributions. Optional `columns` selects displayed fields and available profiles without execution; it cannot collect omitted profiles.",
         ]
       : []),
     ...(views.includes("full")
@@ -296,7 +296,7 @@ export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {})
   if (views.includes("sample_stats"))
     parts.push(
       "Check the selected population and measurement validity before reducing it:",
-      call("Check the selected rows and valid values.", [retrieve("eligible", "sample_stats")]),
+      call("Check time coverage and valid measurements.", [{ ...retrieve("eligible", "sample_stats"), columns: ["year", "value"] }]),
       'For a numeric column named value, full-coverage null=4/20 means mean("value") uses 16 nonnull values. Check whether excluding those four nulls matches the task\'s missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.'
     );
   if (views.includes("full"))
@@ -311,7 +311,7 @@ export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {})
       'Suppose the task requires decimal measurements and the graph is source -> typed -> total. A Cast reports conversion failures=2/20 and failed-value examples "1.5" × 1; "2.5" × 1. The current integer conversion conflicts with that requirement. Resolve the finding before using the aggregate:',
       call("Use the decimal type required by the task and recompute the dependent result.", [
         { type: "edit", changes: "update operator typed: cast(value=float64)" },
-        { type: "execute" },
+        { type: "execute", operator_ids: ["total"] },
         retrieve("total", view),
       ]),
       'For a Join, unmatched-key examples ["A 1"] and ["A1"] suggest checking key representation. Normalize only if the source definitions establish the same identity. Duplicate-key examples require checking the intended join cardinality; duplicates can be legitimate.',

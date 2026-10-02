@@ -320,14 +320,17 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
   omissions: string[];
 } {
   const result = collectLocalEvidence(context);
-  const queue = (context.op.nativeOp?.type === "Process" ? [] : boundInputs(context)).map(input => ({
+  const roots = context.op.nativeOp?.type === "Process" ? [] : boundInputs(context);
+  const queue = roots.map((input, index) => ({
     input,
     depth: 1,
+    branch: roots.length > 1 ? `${context.op.operatorID}:${index}` : (undefined as string | undefined),
   }));
   const seen = new Set([context.op.operatorID]);
   const summaries: NativeEvidenceFact[] = [];
+  const branchBySummary = new Map<string, string>();
   for (let visited = 0; queue.length && visited < 32; visited++) {
-    const { input, depth } = queue.shift()!;
+    const { input, depth, branch } = queue.shift()!;
     const { op, info } = input;
     if (seen.has(op.operatorID)) continue;
     seen.add(op.operatorID);
@@ -355,7 +358,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       const measurements = local.facts
         .filter(f => f.family === "flow" && f.kind === "measurement" && f.priority >= 94)
         .sort((a, b) => b.priority - a.priority)
-        .slice(0, view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window"].includes(view.type) ? 2 : 1);
+        .slice(0, view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window", "Distinct"].includes(view.type) ? 2 : 1);
       // Keep coverage counters ahead of optional examples. Long compound keys
       // remain available on direct retrieval without crowding ancestor summaries.
       if (view.type === "Join")
@@ -365,20 +368,51 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
             .slice(0, 2)
         );
       const version = info.resultVersion!;
+      const id = `flow.upstream.${op.operatorID}.${version.id}`;
+      if (branch) branchBySummary.set(id, branch);
       summaries.push({
-        id: `flow.upstream.${op.operatorID}.${version.id}`,
+        id,
         family: "flow",
         kind: measurements.length ? "measurement" : view.type === "Process" ? "warning" : "guarantee",
         text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
-        priority: (losses.length ? 101 : 98) - depth / 10,
+        priority:
+          (losses.length
+            ? 101
+            : view.type === "Distinct" && measurements.length
+              ? 100
+              : measurements.length
+                ? 98
+                : 96) -
+          depth / 10,
         upstream: { operatorId: op.operatorID, resultVersion: version.id },
       });
     }
     if (view.type === "Process") continue;
-    if (depth < 8) queue.push(...boundInputs(input).map(next => ({ input: next, depth: depth + 1 })));
-    else if (view.inputs.length) result.omissions.push("upstream_depth_bound");
+    if (depth < 8) {
+      const nextInputs = boundInputs(input);
+      queue.push(
+        ...nextInputs.map((next, index) => ({
+          input: next,
+          depth: depth + 1,
+          branch: branch ?? (nextInputs.length > 1 ? `${op.operatorID}:${index}` : undefined),
+        }))
+      );
+    } else if (view.inputs.length) result.omissions.push("upstream_depth_bound");
   }
-  result.facts.push(...summaries.sort((a, b) => b.priority - a.priority).slice(0, 3));
+  const ranked = summaries.sort((a, b) => b.priority - a.priority);
+  // Keep the strongest finding, then reserve space for each input branch.
+  // Nearby projections on one side must not crowd out losses on the other.
+  const chosen = ranked.slice(0, 1);
+  const represented = new Set(chosen.map(f => branchBySummary.get(f.id)).filter(Boolean));
+  for (const fact of ranked) {
+    const branch = branchBySummary.get(fact.id);
+    if (branch && !represented.has(branch) && chosen.length < 3) {
+      chosen.push(fact);
+      represented.add(branch);
+    }
+  }
+  for (const fact of ranked) if (chosen.length < 3 && !chosen.includes(fact)) chosen.push(fact);
+  result.facts.push(...chosen);
   if (queue.length || summaries.length > 3) result.omissions.push("upstream_summary_bound");
   return result;
 }
@@ -829,6 +863,45 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         94
       );
     else omissions.push("invalid_removal_counters");
+    if (view.type === "Distinct") {
+      const diagnostic = record(operations.distinctConflicts);
+      const keys = names(diagnostic.keys);
+      if (
+        count(diagnostic.rowsExamined) &&
+        diagnostic.rowsExamined <= 256 &&
+        diagnostic.rowsExamined <= ns[0] &&
+        diagnostic.inputRows === ns[0] &&
+        keys.length &&
+        keys.length <= 8 &&
+        diagnostic.exhaustive === false
+      ) {
+        const examples = Array.isArray(diagnostic.examples) ? diagnostic.examples.slice(0, 3) : [];
+        const lines: string[] = [];
+        for (const example of examples) {
+          const item = record(example);
+          const key = witnesses([item.key], keys.length, diagnostic.rowsExamined, 2)[0];
+          const values = witnesses(item.values, 1, key?.count ?? 0);
+          if (
+            key &&
+            values.length === 2 &&
+            typeof item.column === "string" &&
+            names(diagnostic.columnsExamined).includes(item.column) &&
+            !keys.includes(item.column)
+          )
+            lines.push(
+              `key ${witnessText(key, true)}, ${json(item.column)}: ${values.map(value => witnessText(value)).join("; ")}`
+            );
+        }
+        if (lines.length)
+          add(
+            "flow.distinct.conflicts",
+            "flow",
+            "measurement",
+            `Distinct conflicting-attribute examples (first ${diagnostic.rowsExamined}/${ns[0]} input rows, not exhaustive): ${lines.join(" | ")}. Check whether repeated keys represent the same entity before dropping rows.`,
+            97
+          );
+      }
+    }
   } else if (view.type === "Scan") {
     const scan = record(operations.scan);
     if (
@@ -1030,9 +1103,10 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     // truncated; a full request must never label that partial result complete.
     const reserve = noticeChars + 1;
     const appendRecord = pushTo(lines, () => Math.max(0, maxChars - reserve));
-    if (appendRecord(schemaLine(schema), "table.schema")) {
-      columnsShown = schema.length;
-      for (const [i, row] of rows.entries()) if (!appendRecord(rowLine(row, schema), `record.${i}`)) break;
+    const fields = schema.filter(c => !context.columns?.length || context.columns.includes(c.name));
+    if (appendRecord(schemaLine(fields), "table.schema")) {
+      columnsShown = fields.length;
+      for (const [i, row] of rows.entries()) if (!appendRecord(rowLine(row, fields), `record.${i}`)) break;
     } else appendRecord("Columns omitted: budget", "table.schema_omitted");
   } else if (!completeVisible) {
     const relevant = relevance(context);

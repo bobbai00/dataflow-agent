@@ -35,7 +35,7 @@ export interface DataflowActionRuntime {
   stepId: string;
   settings: AgentSettings;
   context: ToolContext;
-  execute: () => Promise<void>;
+  execute: (operatorIds?: readonly string[]) => Promise<void>;
   edited: (ids: string[]) => void;
   isCurrent: () => boolean;
   signal?: AbortSignal;
@@ -111,16 +111,23 @@ export async function executeDataflowActionBatch(
       return { status: "ok", output };
     }
     if (action.type === "execute") {
-      const operators = state.getAllOperators();
+      const workflow = state.getWorkflowContent();
+      if (action.operator_ids) {
+        const invalid = action.operator_ids.filter(id => !state.getOperator(id) || state.getOperator(id)?.isDisabled);
+        if (invalid.length)
+          throw new Error(`Unknown or disabled execution targets: ${invalid.join(", ")}. No execution was started.`);
+      }
+      const scope = action.operator_ids ? { ...workflow, ...state.getSubDAGForTargets(action.operator_ids) } : workflow;
+      const operators = scope.operators;
       if (!operators.length) throw new Error("The dataflow is empty. Add an operator before execute.");
-      const missing = missingGraphInputs(state.getWorkflowContent());
+      const missing = missingGraphInputs(scope);
       if (missing.length)
         throw new Error(
           `Unconnected required inputs: ${missing.join(", ")}. Create edges or delete unused operators before execute.`
         );
       let failure: string | undefined;
       try {
-        await runtime.execute();
+        await runtime.execute(action.operator_ids);
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
       }
@@ -157,8 +164,17 @@ export async function executeDataflowActionBatch(
       if (info.error) throw new Error(errorText(action.operator_id, info));
       if (!["Completed", "CompletedFromCache"].includes(info.state))
         throw new Error(`Result for ${action.operator_id} is ${info.state}; use execute to obtain a completed result.`);
+      if (action.columns) {
+        const names = new Set((info.resultSchema ?? []).map(c => c.name));
+        const unknown = action.columns.filter(name => !names.has(name));
+        if (unknown.length)
+          throw new Error(
+            `Unknown result columns: ${unknown.join(", ")}. Inspect the result schema before selecting columns.`
+          );
+      }
       const observation = selectNativeObservation({
         ...retrievalOptions(settings, action.view),
+        columns: action.columns,
         op,
         info,
         workflow: state.getWorkflowContent(),
@@ -172,6 +188,18 @@ export async function executeDataflowActionBatch(
           revision: op.nativeOp?.revision,
           result_version: info.resultVersion?.id,
           view: action.view,
+          ...(action.columns
+            ? {
+                columns: action.columns,
+                ...(action.view === "sample_stats"
+                  ? {
+                      unavailable_profiles: action.columns.filter(
+                        name => !Object.hasOwn(info.tableProfile?.columns ?? {}, name)
+                      ),
+                    }
+                  : {}),
+              }
+            : {}),
           table: observation.table,
           evidence: observation.selected.filter(id => id.startsWith("data.") || id.startsWith("flow.")),
           text: observation.text,

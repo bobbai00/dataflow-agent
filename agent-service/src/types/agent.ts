@@ -25,6 +25,7 @@ import type { RolePolicyConfig } from "../agent/context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
 import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
+import type { ResponseDiagnostics } from "../agent/llm-drivers/response-diagnostics";
 
 export type RetrievalView = "full" | "sample" | "sample_stats";
 
@@ -83,6 +84,8 @@ export interface ReActStep {
    *  this is display-only — the chat's step list falls back to it when the
    *  model emitted tool calls with no visible text. */
   reasoningText?: string;
+  /** Bounded provider/parsed argument provenance, excluded from model context. */
+  responseDiagnostics?: ResponseDiagnostics;
   isBegin: boolean;
   isEnd: boolean;
   toolCalls?: Array<{

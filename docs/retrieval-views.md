@@ -21,6 +21,10 @@ Every receipt reports the view, returned/total rows and columns, completeness,
 and the producing result version. A capped `full` view is explicitly incomplete.
 Backend cell truncation or unavailable records also prevents a completeness
 claim. Samples use the existing stored-record selection, not uniform sampling.
+Optional `columns: ["year", "value"]` selects displayed fields and already
+collected profiles for any view. Unknown fields are errors. Missing profiles
+are reported explicitly; retrieval never executes or collects new statistics.
+A subset of columns is labeled incomplete relative to the original table.
 Statistics retain their full/partial coverage and unknown-value labels; complete
 small tables suppress redundant data statistics.
 
@@ -48,6 +52,16 @@ the record view and data-statistics budget. Traversal follows exact result
 versions, includes at most three ancestors, and stops at opaque custom stages.
 The metadata describes the executed calculation; it does not certify that the
 calculation answers the task.
+Selection prioritizes measured losses and reserves room for relevant facts
+from different input branches, within the same three-ancestor/display budgets.
+
+Distinct reports exact retained/removed row counts and optional conflicting
+attributes for repeated keys. Examples inspect at most the first 256 rows,
+eight key components and eight non-key columns, and return at most three
+conflicts with two example values each. They never establish that keys identify
+the same entity. Counts describe that prefix; absent examples do not prove
+there are no conflicts. Optional examples are dropped before exact counters
+when the profile payload budget is exceeded.
 
 ### Bounded failure and key examples
 

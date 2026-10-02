@@ -602,6 +602,44 @@ _WITNESS_WIDTH = 8
 _WITNESS_VALUE_CHARS = 96
 
 
+def _distinct_conflicts(source, columns):
+    """First conflicting attributes in a bounded prefix; never an exact table count.
+
+    Keep key identity separate from clipped display. Do not scan a second full
+    table for optional examples. At most 256 rows, 8 keys/attributes, 3 examples.
+    """
+    if not columns or len(columns) > _WITNESS_WIDTH:
+        return None
+    attributes = [c for c in source.columns if c not in columns][:_WITNESS_WIDTH]
+    prefix = source.iloc[:256]
+    groups = {}
+    for key, row_index in zip(_key_rows(prefix, columns), range(len(prefix))):
+        groups.setdefault(key, []).append(row_index)
+    examples = []
+    for key, indices in groups.items():
+        if len(indices) < 2:
+            continue
+        key_example = _witness(list(key), len(indices))
+        if key_example is None:
+            continue
+        for column in attributes:
+            values = {}
+            for index in indices:
+                value = _scalar(prefix[column].iloc[index])
+                values[value] = values.get(value, 0) + 1
+            if len(values) < 2:
+                continue
+            choices = [_witness([value], count) for value, count in list(values.items())[:2]]
+            if all(choice is not None for choice in choices):
+                examples.append(dict(key=key_example, column=column, values=choices))
+            if len(examples) == _WITNESS_LIMIT:
+                break
+        if len(examples) == _WITNESS_LIMIT:
+            break
+    return dict(rowsExamined=len(prefix), inputRows=len(source), columnsExamined=attributes,
+                keys=columns, examples=examples, exhaustive=False)
+
+
 def _witness(values, count):
     """Bound the display, preserving types and counts of the original values.
 
@@ -2332,6 +2370,10 @@ def execute_native(spec, inputs):
         else:
             output = source.iloc[-1:] if props.get("keep") == "last" else source.iloc[:1]
         operations["removedRows"] = len(source) - len(output)
+        if spec.get("profileCollection") is True:
+            conflicts = _distinct_conflicts(source, columns)
+            if conflicts is not None:
+                operations["distinctConflicts"] = conflicts
     elif kind == "Sort":
         _columns(spec, source, [item["col"] for item in props["by"]], "by")
         output = source.copy()

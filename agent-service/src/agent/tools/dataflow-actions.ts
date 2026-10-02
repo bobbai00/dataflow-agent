@@ -27,8 +27,8 @@ export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
   | { type: "edit"; changes: string }
-  | { type: "execute" }
-  | { type: "retrieve"; operator_id: string; view: RetrievalView }
+  | { type: "execute"; operator_ids?: string[] }
+  | { type: "retrieve"; operator_id: string; view: RetrievalView; columns?: string[] }
   | { type: "answer"; content: string };
 
 export interface DataflowActionsInput {
@@ -111,9 +111,23 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
           "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
         ),
         action(
+          "execute",
+          "Run these operators and their upstream dependencies, materializing that scope and reusing valid cached results. Other branches remain in the graph. Returns status and errors; retrieve tables separately.",
+          { operator_ids: { type: "array", items: text, minItems: 1, uniqueItems: true } }
+        ),
+        action(
           "retrieve",
           "Read an existing result using an available view: full requests all records up to its character cap; sample returns a small record view; sample_stats adds data statistics to the same sample. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.",
           { operator_id: text, view: { type: "string", enum: [...RETRIEVAL_VIEWS] } }
+        ),
+        action(
+          "retrieve",
+          "Display only these result columns and their available statistics. This is a view of retained data; it never executes or collects new profiles. Missing profiles are reported.",
+          {
+            operator_id: text,
+            view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
+            columns: { type: "array", items: text, minItems: 1, maxItems: 128, uniqueItems: true },
+          }
         ),
         action(
           "answer",
@@ -204,15 +218,16 @@ export function prepareDataflowActions(
 
 export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
   const schema = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
-  const retrieve = schema.properties.actions.items.anyOf.find(a => a.properties.type.const === "retrieve")!;
-  (retrieve.properties as any).view.enum = [...views];
   const descriptions = {
     full: "full requests records up to its character cap; narrow large tables first",
     sample: "sample checks layout and example values with a small record view",
     sample_stats:
       "sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics",
   };
-  retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
+  for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
+    (retrieve.properties as any).view.enum = [...views];
+    retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Optional columns selects displayed fields and existing profiles, without new collection. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
+  }
   return tool({
     description: DATAFLOW_ACTIONS_DESCRIPTION,
     strict: true,
@@ -268,6 +283,10 @@ export function renderDataflowActionsResult(result: DataflowActionsResult): stri
           if (output.view && output.table)
             body = `View ${output.view}: ${output.table.returnedRows}/${output.table.totalRows ?? "?"} rows, ${output.table.columnsShown}/${output.table.totalColumns} columns; ${output.table.complete ? "complete" : "incomplete"}.\n${body}`;
           if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
+          if (output.unavailable_profiles?.length) {
+            const unavailable = JSON.stringify(output.unavailable_profiles);
+            body += `\nRequested profiles unavailable: ${unavailable.slice(0, 300)}${unavailable.length > 300 ? "…" : ""}. No new profiles were collected.`;
+          }
         } else if (item.action.type === "edit" && Array.isArray(output.changes)) {
           body = [
             ...output.changes.map(

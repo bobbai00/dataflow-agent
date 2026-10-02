@@ -72,6 +72,24 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('crossed', 'Join', ['filtered', 'typed'], type='cross')
     execute('unioned', 'Union', ['typed', 'filled'], schema='strict')
     execute('distinct', 'Distinct', ['unioned'])
+    execute('entities', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':['a','a','b'], 'place':['north','south','east'], 'year':[2020,2021,2020]})")
+    execute('entity_distinct', 'Distinct', ['entities'], columns=['id'])
+    conflicts = frames['entity_distinct'].attrs['native_v2']['operations']['distinctConflicts']
+    assert conflicts['rowsExamined'] == 3 and conflicts['inputRows'] == 3
+    assert conflicts['columnsExamined'] == ['place', 'year']
+    assert conflicts['examples'][0]['column'] == 'place'
+    assert conflicts['examples'][0]['key']['count'] == 2
+    assert [x['values'][0]['value'] for x in conflicts['examples'][0]['values']] == ['north','south']
+    no_profile = dict(version='v2', id='no_profile', revision='0123456789abcdef', type='Distinct', inputs=['entities'], properties=dict(columns=['id']))
+    assert 'distinctConflicts' not in r.execute_native(no_profile,[frames['entities']]).attrs['native_v2']['operations']
+    import pandas as pd
+    large = pd.DataFrame({'id':['a'] * 300, 'value':[0,1] * 150})
+    bounded = r._distinct_conflicts(large,['id'])
+    assert bounded['rowsExamined'] == 256 and bounded['inputRows'] == 300
+    assert [x['count'] for x in bounded['examples'][0]['values']] == [128,128]
+    typed = pd.DataFrame({'id':['a','a'], 'large':pd.Series([9007199254740993,9007199254740995],dtype='Int64'), 'fraction':[0.1,0.2]})
+    typed_example = r._distinct_conflicts(typed,['id'])['examples'][0]
+    assert [x['values'][0]['value'] for x in typed_example['values']] == ['9007199254740993','9007199254740995']
     execute('sorted', 'Sort', ['unioned'], by=[dict(col='x', desc=True)])
     execute('limited', 'Limit', ['sorted'], n=1, offset=1)
     execute('empty', 'Filter', ['typed'], func='def apply(row):\\n    return False', entry='apply')
@@ -256,6 +274,9 @@ print(json.dumps(records, default=str))
   expect(facts.get("crossed")).toContain("1*3=3");
   expect(facts.get("unioned")).toContain("sum=6, output=6");
   expect(facts.get("limited")).toContain("retained=1/6, removed=5");
+  expect(facts.get("entity_distinct")).toContain("retained=2/3, removed=1");
+  expect(facts.get("entity_distinct")).toContain('Distinct conflicting-attribute examples (first 3/3 input rows, not exhaustive)');
+  expect(facts.get("entity_distinct")).toContain('"north" × 1; "south" × 1');
   expect(facts.get("empty_groups")).toContain("groups=0 from 0 rows");
   expect(facts.get("empty_global")).toContain("groups=1 from 0 rows");
   expect(facts.get("udf")).toContain("row/column mapping unknown");

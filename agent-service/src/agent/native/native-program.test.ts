@@ -686,7 +686,7 @@ create edge typed.out -> total.in
     const { runNativePython } = await import("./codegen");
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
     const examples = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)];
-    expect(examples.length).toBe(6);
+    expect(examples.length).toBe(5);
     for (const [, changes] of examples) {
       const parsed = (await runNativePython({ changes })) as any;
       expect(parsed).toMatchObject({ ok: true });

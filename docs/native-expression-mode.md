@@ -37,8 +37,8 @@ The generated references are the source of truth for the public interface:
 | Inspect graph | `target: "graph"` | Operator IDs, types, named ports, edges and unconnected inputs |
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
 | Edit | `changes` | Ordered change receipts, automatically deleted edges, unconnected inputs and invalidated results |
-| Execute | none | Whole-graph execution status; valid cached results can be reused |
-| Retrieve | `operator_id`, `view` | Existing records as `full`, `sample`, or `sample_stats`, with automatic flow evidence when enabled |
+| Execute | optional `operator_ids` | Selected operators and their upstream closure; omitted targets run the whole graph; valid cached results can be reused |
+| Retrieve | `operator_id`, `view`, optional `columns` | Existing records and available profiles for selected fields, with automatic flow evidence when enabled |
 | Answer | `content` | Final response; ends the loop |
 
 The complete request is validated before actions begin. Actions run in order,
@@ -82,6 +82,11 @@ Commands are staged in order. Each Edit is atomic: a missing operator, invalid
 parameter or port, occupied input, or cycle rejects all changes in that Edit.
 Unconnected inputs are allowed during construction. Execute requires every
 required input to be connected. A rejected Edit leaves previous results valid.
+
+`{"type":"execute","operator_ids":["total"]}` validates and runs `total`
+and all its upstream dependencies. Unrelated branches remain in the graph and
+keep their results. Empty, duplicate, unknown or disabled targets are rejected.
+Whole-graph Execute continues to validate every enabled branch.
 
 ### Ports
 

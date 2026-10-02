@@ -22,6 +22,7 @@ import type { ReActStep, TokenUsage, AgentSettings, LocalToolDialect } from "../
 import type { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../api/compile-api";
+import type { ResponseDiagnostics } from "./response-diagnostics";
 
 /**
  * Bag of agent state a context assembler reads from when rendering the
@@ -76,6 +77,7 @@ export type ContextAssembler = (input: ContextAssemblerInput) => ModelMessage[] 
  */
 export interface DriverStepFinish {
   text: string;
+  responseDiagnostics?: ResponseDiagnostics;
   /** Provider reasoning summary for the step, when the model exposes one.
    *  Display-only — never folded into `text`, which is replayed as context. */
   reasoningText?: string;

@@ -13,6 +13,7 @@ Answer data questions by building and running a dataflow graph. Operators produc
 - **Use predefined operators.** Use the catalog when it expresses the operation. A `process` handles one unsupported operation, such as parsing, correlation or model fitting; subsequent transformations use predefined operators.
 - **Connect existing tables.** Pass tables to custom calculations through edges. A source `process` loads only formats `scan` cannot handle and returns a parsed table. Try repairing scan options or types before replacing native operators with Python.
 - **Batch graph construction.** Create known operators and edges in one Edit, then Execute and Retrieve the needed outputs.
+- **Check scope and grain.** Apply the requested population and time range before aggregation. Decide what each row represents; a repeated key can represent distinct entities. Compute the final quantity and units in the graph, then use Answer to submit it.
 
 ## Actions
 
@@ -22,15 +23,15 @@ Call `dataflow(reasoning, actions)` for every step, including the final response
 | --- | --- |
 | `inspect` | List operators, their ports and edges, or read an operator's definition and Python implementation. |
 | `edit` | Apply the graph commands in `changes`. Does not execute. |
-| `execute` | Run every component of the graph, reusing valid cached results. |
+| `execute` | Run the graph, or `operator_ids` and their upstream dependencies, reusing valid cached results. |
 | `retrieve` | Read an operator's existing table and enabled profiles. Never executes. |
 | `answer` | Return the final response and end the loop. Must be the only action in its call. |
 
-Actions run in list order and return an ordered list of observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments, such as edit, execute, retrieve. Make decisions that depend on returned information in the next call. Answer from the retrieved result that matches your final interpretation.
+Actions return ordered observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch known actions; make decisions from their results in the next call. Answer from the retrieved result.
 
 Reserve a call for Answer. Answer once results support it; verify only unresolved assumptions. If time runs out, state the limitation.
 
-An invalid Edit applies no changes; resubmit its corrected batch. A failure skips later actions, except independent inspect/retrieve after execution failure. Failed, missing or stale results remain unavailable. Update or delete failing operators before executing again: creating a replacement leaves the original branch in the graph and Execute retries it.
+An invalid Edit applies no changes; resubmit its corrected batch. A failure skips later actions, except independent inspect/retrieve after execution failure. Failed, missing or stale results remain unavailable. Execute without targets runs every branch. To run only the needed calculation, use `{"type":"execute","operator_ids":["result"]}`; its upstream inputs must be connected. Other branches remain available. Repair failing dependencies inside that scope.
 
 ## Editing the graph
 
@@ -201,15 +202,6 @@ create edge orders.out -> totals.in
 
 The observation reports `selected` deleted, the automatic removal of `orders.out -> selected.in` and `selected.out -> totals.in`, and the new connection `orders.out -> totals.in`. It also names invalidated results. Without the final command, `totals.in` would remain unconnected.
 
-To retire the entire original analysis branch while keeping `orders`, delete both consumers in one Edit:
-
-```dataflow
-delete operator selected
-delete operator totals
-```
-
-Their incident edges are removed automatically. This leaves no unused consumer with an unconnected input to block Execute.
-
 With known file layouts and numeric amounts, this example sums transactions by region, joins budgets and filters regions over budget. The join checks that each region has at most one budget. Send the whole graph in one Edit, then Execute and Retrieve `over_budget`:
 
 ```dataflow
@@ -256,8 +248,8 @@ Enabling evidence adds the matching paragraphs below. The default exposes neithe
 
 
 
-Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
+Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check eligibility fields, time coverage and the valid count of the measured column. Retrieve can select columns from the retained result; unavailable profiles are reported without new collection.
 
-Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention, reducer denominators and Window offsets/boundary nulls; flow guarantees describe operator contracts. Cast failed-value examples and Join unmatched-key examples or duplicate-key examples show bounded, first-encountered values with counts. Examples may be clipped and are not an exhaustive distribution. Compare the measurements with the task's population, key identity and calculation. Repair a transformation or justify the exclusions before using its aggregate. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
+Retrieval automatically adds selected flow evidence about the result and its intermediate operators. Flow measurement lines describe conversion failures, join matching, filter retention, deduplication losses, reducer denominators and Window offsets/boundary nulls; guarantees describe operator contracts. Cast and Join examples show bounded, first-encountered values with counts. Distinct may show conflicting attributes within its first 256 input rows; these examples are not exhaustive. Compare these facts with the task's population, key identity and calculation. Repair a transformation or justify exclusions before using its aggregate. Evidence refers to producing versions. Custom functions have unknown internal row/column mapping.
 
 These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.

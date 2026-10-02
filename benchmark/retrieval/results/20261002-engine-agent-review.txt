@@ -1,0 +1,182 @@
+Engine repairs and Dataflow agent improvements
+=============================================
+Review date: 2026-10-02
+Current branch: feat/dataflow-actions, f104a59c0820fb7876121cfa91f3ac05e968c843
+Reviewed branch: feat/operator-history-lean, ea1594d5d360e33b326bf6dbc1548084c6a8c501
+Common ancestor: 83934bbf2cc222df1c99f21141dc615846a9768d
+
+Decision
+--------
+Bring over all six repair measures in engine-stall-repairs-20261002.json, plus two earlier cache fixes found in the corresponding branch. These eight behaviors are packaged in five fix commits. Their complete patches apply cleanly to our HEAD in sequence in a temporary index. Every selected file then matches the reviewed branch's version, including the engine files and diagnostic classifier.
+The deterministic replay is useful but requires adaptation to our current Execute interface. Selected-operator execution is a separately reviewed feature to port later, with focused tests. The engine repair package can be integrated without importing the branch's operator-history tools or prompts.
+
+This review writes a plan and verifies evidence. Runtime code and services have not been changed, and no new benchmark solver or judge calls were made. Patch applicability is not a completed build or live validation of the integrated candidate.
+
+1. What the stall report establishes
+-----------------------------------
+Source report:
+/home/bob/Desktop/dataflow-agent/.claude/worktrees/operator-history-lean/benchmark/longds/reports/engine-stall-repairs-20261002.json
+
+The report investigated two recorded NFL LongDS layouts. A cached table was connected to more than one input port of the same downstream operator:
+- task30_compare: ports 0/1 both consume task21_scores, 86 rows each; port 2 consumes task25_eval, 76 rows.
+- task36_decomp: port 0 consumes task25_eval, 76 rows; ports 1/2 consume protection_picture, 86 rows each; port 3 consumes task29_compare, 12 rows.
+
+The old reader identity included the storage URI and destination worker, but omitted the destination input port. Two readers therefore shared an identity. Registering the second input overwrote the channel-to-port mapping, leaving one port unable to complete.
+This diagnosis is supported by a control: even callbacks that only counted input rows stalled before the repair. Outside the engine, the saved analytical callbacks failed almost immediately with missing-column KeyErrors. Their calculation was not simply taking a long time.
+
+I inspected the before/after replay receipts and checks.json files, not only the report narrative:
+- Before: both count-only and analytical replays hit the shortened 15-second deadline.
+- After: count-only executions completed in 2.157 and 2.084 seconds, returning exactly [86,86,76] and [76,86,86,12] across the ports.
+- Inputs were CompletedFromCache after repair.
+- Original callback errors surfaced in 1.831 and 1.759 seconds: heavy_weighted_events and event_pressure_pct were absent.
+- Injected missing-cache data failed in 1.398 seconds; restoring that probe-owned data allowed recovery in 1.910 seconds.
+
+Timing includes debug actions, retrieval and trace-receipt reading. These are not isolated CPU timings. CSV exports contained all saved rows, but the report does not assert bit-for-bit floating-point preservation.
+The original campaign had five execution timeouts totaling 1,205 seconds of waiting. The two reproduced layouts establish a specific cause and repair; they do not establish the cause of all five timeouts or every possible stall.
+These fixes do not repair the callbacks' incorrect column assumptions. They make the actual errors available for the agent to repair.
+
+2. Integration inventory
+------------------------
+Commit       Behavior                                                   Recommendation
+924e42e90    Separate cached channels by input port and internal flag;   Import complete patch with Python/JVM tests.
+             use the synthetic sender for one-to-one partitioning;
+             deliver detached-reader failures to worker queues.
+3bede8dd3    Serialize runtime-statistics writes and close; drain        Import complete patch, including synchronous
+             accepted writes; flush before synchronous returns.         return flushing and lifecycle test.
+574719aca    Classify cached input failures as CACHE_INPUT_READ;         Import diagnostic code and regressions.
+             require actual deadline evidence for EXECUTION_TIMEOUT.
+29958c4c1    Recover an exact producing execution/output-port result     Import prior cache-result fix and lookup tests.
+             after registry cleanup, using retained cache metadata.
+0ca4a7e52    Store hashes of full operator execution definitions in      Import prior fingerprint fix, tests and docs.
+             cache fingerprints, with a versioned payload.
+
+The first three commits implement all six repair measures from the requested report. The final two are additional fixes from the corresponding repository, absent from our current branch.
+
+Why the two additional fixes matter:
+- Exact producer lookup: an execution-registry entry may be cleaned up while its cached document remains. Recovery must match the original execution, operator and port. A newer result for the same operator must never silently satisfy an older read. This does not recover physically evicted/deleted data.
+- Bounded fingerprints: repeating complete generated operator code in every downstream cache key can make metadata grow rapidly in long graphs. SHA-256 digests bound each definition's serialized identity. Code, language/schema mode, output schema and input-port position remain part of the cache identity. Payload version 2 intentionally causes old fingerprint entries to miss; expect a transition period with cold engine caches. This is different from LLM prompt caching.
+
+Tests and dependencies:
+- The exact-producer fix uses listBySourceExecutionIds, which already exists in our OperatorPortCacheDao.
+- The channel identity repair must deploy together in Python readers/registration, JVM readers/registration and JVM resource allocation. Mixing old and new runtimes risks inconsistent channel identities.
+- No protobuf definition change is part of these five fixes. Existing generated Python stubs must still be available in the deployment checkout.
+- The source report records 127 Python passes and 1 expected failure; 18 workflow-core tests, 25 execution-service tests, and a final recheck of the statistics lifecycle plus three sync-result tests. Stage build and typecheck passed there. I inspected the corresponding logs; these are source-branch results, not a claim that our combined candidate has already passed.
+
+Replay commit 2cf15ca9f:
+Its file applies cleanly, but its calls include execute.operator_ids. Our action schema currently permits only {type: execute}. Textual patch compatibility therefore does not establish runtime compatibility.
+For the first integration stage, adapt the replay to whole-graph Execute and use separate probe workflows or remove failed probe consumers before fault/recovery checks. Keep full inputs, duplicate source-to-port connections, row-count assertions and prompt error delivery checks. Retain the short diagnostic deadline; do not change production deadlines to make the test pass.
+An alternative after the selected-execution port is to use the replay's existing target lists. Either approach must isolate fault injection to disposable probe-owned files and restore them before cleanup.
+
+Selected execution, commit 174e24c12:
+This feature runs a nonempty, unique list of operators and their complete upstream dependency closure. Omitted targets retain whole-graph execution. Other graph branches remain present. Unknown/disabled targets fail before execution; a failed dependency inside the chosen closure still fails.
+The source implementation includes tests for an unfinished sibling, a failed sibling, and normal whole-graph validation. Its commit also touches history-related fixtures and references. Port the selected-execution behavior into our current native runtime and regenerate our own references, rather than copying the whole history branch.
+Proposed action: {"type":"execute","operator_ids":["final_table"]}.
+
+Remaining validation risks:
+- RuntimeStatisticsPersistence.close().get() is synchronous and unbounded. Add a slow/unavailable-storage shutdown test. A flush must not silently outlive the cleanup guarantee; simply returning early and deleting an open writer's table would reintroduce the race.
+- Verify close exactly once, accepted-write ordering, console-error/deadline cleanup and visible diagnostics for persistence failure.
+- Runtime statistics persistence stores engine execution metrics. It is distinct from the bounded column/table profiles used for sample_stats; this repair does not itself improve the statistical calculations.
+
+3. Agent context and answer changes
+-----------------------------------
+A. Preserve multiline assistant text.
+The current native-frames.ts extractThought regex uses a multiline end-of-line assertion where it needs a real end-of-input boundary. It truncates a multiline response at its first line. I reproduced this through buildNativeFrames itself:
+  Input: The computation is complete. / The result is 10.87 percentage points. / Final Answer: 10.87
+  Retained assistant message: The computation is complete.
+The existing 18 context-frame tests pass, but do not assert preservation of a multiline text-only reply. Add a failing regression before changing the formatter. Cover blank lines, lists, fenced content, an actual Action boundary, and a final value below the first line. Prefer retaining structured recorded assistant content wherever available over extracting it again from rendered text.
+
+B. Align the task wrapper with the native Answer contract.
+The native system requires a sole Answer action. The KramaBench task wrapper still asks for a chat-style final line. Rewrite the native wrapper to place the requested format in answer.content. Keep script/code wrappers appropriate to their own final-answer tools.
+In the Sonnet full run, 101/104 Dataflow tasks required a missing-action correction. The correction responses cost $0.749584, about 13% of the recorded $5.755982 bill. This measured spend identifies an opportunity, not a guaranteed saving. Some useful final-answer tokens would still need to be generated.
+Preserve the complete pending reply for bounded repair. Keep the existing explicit Answer contract and bounded recovery; record unsatisfied submission as a protocol failure. Sonnet 5.5 does not support forced tool choice, so required tool_choice is not the repair.
+In environment-easy-2, the correct year list survived in the first sentence, but the submitted Answer was incomplete. The formatter bug alone does not explain that truncation; raw provider arguments were not retained. Add bounded capture of finish reason and raw/parsed argument provenance to make the next occurrence diagnosable, with credential redaction and no duplicate model request.
+
+C. Keep ordered observations and cache stability.
+Our action runner already returns one indexed receipt per action with ok/error/skipped status. The renderer includes these ordered receipts; retrieval freezes the producing result version, and a later in-call change is marked superseded. Preserve that behavior.
+Regression coverage should include two reads of the same operator with different views, retrieve followed by edit/execute, automatic incident-edge deletion, an atomic invalid edit, and independent completed reads after execution failure.
+Fixing text preservation must retain exactly one matching provider result per tool call, append-only prior messages and a separate current-state tail. Never re-render an old receipt using newer profiles or the latest graph. Cache-aware cost accounting must retain separate fresh input, cache writes, cache reads and outputs.
+The Sonnet audits found normal prompt caching: 88.4% Dataflows and 84.7% script input cache reads, with zero failures in 394/473 prefix checks. We should preserve this behavior while repairing information loss.
+
+D. Improve execution scope and errors.
+After engine verification, port selected Execute with closure-based validation. An obsolete broken branch should not block an explicitly selected independent calculation. Retain whole-graph validation when no targets are given.
+Pair CACHE_INPUT_READ with an actionable storage recovery path. Do not ask the model to change its analytical formula to work around lost storage, and do not substitute the latest version for a historical input. Missing materialization may require infrastructure restoration or explicit producer recomputation. The first integration should surface that distinction clearly, without adding automatic hidden executions to Retrieve.
+
+4. Prompt and evidence improvements
+-----------------------------------
+Keep the existing principles: one operator per operation, prefer predefined operators, explicit edges, atomic edits, update preserves operator identity/connections, and deletion removes all incident edges. Edge changes remain delete plus create. The current Sonnet traces created 631 predefined operators out of 676 (93.3%); wholesale use of monolithic Process is not the principal problem in this campaign.
+
+Use a concise, benchmark-neutral workflow example and three short checks:
+- Scope: use the relevant supplied files and requested time/population restriction.
+- Grain: decide what each row represents; duplicate keys do not automatically mean duplicate entities.
+- Result: calculate the requested quantity and units in the graph, then retrieve the small result and submit it through Answer.
+
+Suggested generic retrieval guidance:
+  Use sample for layout checks and sample_stats to understand a parsed table's quality or distribution. Use full when a decision needs individual records or their associations. For a large table, project, filter or aggregate first. Small final tables can be retrieved directly in full.
+
+Keep 2K-character sample previews and separate evidence budgets. Full stays bounded at 100K characters for the existing experiment. Do not require an extra sample_stats call for a small complete answer table.
+
+Concrete evidence-selection work:
+- Offer targeted column display for Retrieve, using already collected statistics; if a requested profile is unavailable, say so. A display request must not silently execute or claim full coverage. The exact strict schema should be tested on all four providers/models before enabling it.
+- Surface the effect of Distinct, including before/after rows and bounded examples of conflicting attributes for the same key. Show both relevant input branches when summarizing a Join.
+- Make selected time ranges/category coverage easy to see before aggregation.
+- Preserve the existing Filter counters and predicate-column before/after profiles, and Map row-preserving contract/added-dropped columns/null changes. Newly derived Map columns have output statistics, not a fictitious same-name input comparison.
+- Prefer useful loss, matching, population and denominator facts within the current budget. Keep coverage, unknowns, producing versions and omission notices explicit.
+
+The Sonnet traces give concrete motivation:
+- environment-hard-15 reads all 22 years rather than the requested four; the shown group-size max=22 was overlooked.
+- wildfire-hard-17 repairs a zero-match join using flow evidence, then incorrectly deduplicates station IDs. The final evidence omitted the right-side Distinct effect. Its numeric score was still 0.999173, so this is a small numerical regression.
+- environment-hard-7 submits a proportion rather than percentage points.
+- astronomy-easy-2 scans 715 files and retrieves 61,701 characters for a two-file ratio, costing $0.121482 versus script $0.015482.
+These are diagnosis examples and regression fixtures, not task-specific system-prompt rules. Evidence can expose an unexpected effect; it does not certify the intended population or formula.
+
+5. Implementation and validation order
+--------------------------------------
+Stage 1: Engine reliability.
+1. Port 0ca4a7e52, 29958c4c1, 924e42e90, 3bede8dd3 and 574719aca as focused changes with their tests.
+2. Run relevant Python reader/queue/identity tests and JVM WorkflowCore/WorkflowExecutionService tests, including fingerprint identity, exact cached producer lookup and statistics lifecycle. Test slow/erroring statistics storage.
+3. Build the owned engine, then run the adapted no-model replay: repeated cached input on separate ports; cached/fresh fanout; missing-cache failure/recovery; user callback error; immediate workflow cleanup.
+4. Confirm row counts, CompletedFromCache states, rapid causal errors, result versions and clean statistics logs. Record exact JVM/Python revisions.
+
+Stage 2: Context and Answer protocol.
+1. Add the failing multiline regression; repair framing and preserve full pending replies.
+2. Align the native task wrapper and final-answer examples; keep successful Answer distinct from error text.
+3. Add bounded raw/parsed response diagnostics and finish reasons for malformed submissions.
+4. Run Bun tests/typecheck, native reference regeneration/drift checks and matched context-prefix tests.
+5. Run a small cross-model format smoke for Sonnet, Haiku, Luna and Terra. Measure direct Answer submission and repair rate before expanding.
+
+Stage 3: Execution efficiency.
+1. Port selected Execute into our current action runtime without introducing operator-history features.
+2. Verify duplicate/empty/unknown targets, upstream closure, retained unrelated branches, failed dependency behavior, dirty-result invalidation and whole-graph default behavior.
+3. Run the full target-based replay if Stage 1 used the adapted whole-graph probe.
+
+Stage 4: Evidence and retrieval.
+1. Add targeted column display and prioritize version-bound Distinct/time-scope evidence with failing tests first.
+2. Independently recompute affected counters/examples from synthetic and retained complete tables.
+3. Check observation budgets, incomplete profiles, unavailable columns, additive record/data/flow budgets, and neutral prompt examples.
+
+Stage 5: Matched experiments.
+First compare the repaired engine with unchanged solver instructions to isolate reliability effects. Next compare context/Answer fixes with the engine fixed on both sides. Then test selected execution and evidence changes separately. Use representative held-out tasks across domains before a full campaign; include simple both-pass tasks and complex cached graph reuse.
+Keep the same model, task list, official evaluator and declared attempt count in paired arms. For Sonnet script-versus-Dataflows, stabilize malformed-generation handling and apply the same declared output limit, task deadline and step budget to both agents. Keep the chosen guided 5K script preview and declared Dataflow record/evidence budgets explicit. Preserve original attempts and freeze new revisions/settings in separate result directories.
+Report original mean score, exact passes (score>=1), submission failures, callback/storage/deadline categories, model calls, recorded cache-aware cost, median/tail cost and engine execution/queue time separately. Unreturned timeout/retry usage may be unreported; record that limitation. Repeat enough to assess randomness before claiming a causal accuracy or cost improvement from evidence.
+
+6. Stack ownership and experimental boundaries
+----------------------------------------------
+This branch's last Sonnet manifest names agent endpoint http://localhost:3079, proxy http://localhost:4001/v1, agent b044a5535 and inherited JVM build 04e85b581. Reconcile the owned launcher/process configuration before deployment; these revisions are run provenance, not proof of the currently loaded binaries.
+The reviewed repair stack uses engine REST 38086, actor port 32558 and agent 3037. Its existing private/shared services should remain under that worktree's ownership.
+Use bin/local-dev.sh with a separately named, branch-owned stack and nonconflicting endpoints for our validation. Restart only the engine/agent processes explicitly owned by that candidate. Do not bring down shared infrastructure or the other worktree's stack. Keep disposable workflow/computing-unit IDs in the run manifest; fault injection and cleanup must target only those resources.
+A faster execution response does not automatically reduce billed model tokens. The proposed engine repairs can remove waiting and expose repairable errors; their impact on solver accuracy and cost requires a new matched run.
+
+7. Work completed for this review
+--------------------------------
+- Read both repair reports, relevant source commits, tests and saved before/after replay receipts.
+- Applied five fix patches plus the replay file only to a temporary Git index. All applied cleanly; selected staged files matched source HEAD. Our real index and runtime code were not changed.
+- Reran source diagnostics/request-limit tests: 21 passed, 0 failed.
+- Reran our existing native context-frame tests: 18 passed, 0 failed.
+- Reproduced multiline information loss through buildNativeFrames without an LLM call.
+- Inspected source verification logs; no live engine replay or combined-candidate JVM/Python build was performed in this turn.
+- Existing unrelated changes remain: benchmark/Kramabench is dirty and amber/de421.bsp is untracked.
+
+Machine-readable companion:
+benchmark/retrieval/results/20261002-engine-agent-review.json
+Related Sonnet diagnosis:
+/home/bob/texera-sonnet55-comparison-20261001/SONNET_DATAFLOW_IMPROVEMENTS.txt

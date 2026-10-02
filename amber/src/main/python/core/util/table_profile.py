@@ -393,6 +393,9 @@ class ProfileAccumulator:
                 if "conversionFailureExamples" in operations:
                     del operations["conversionFailureExamples"]
                     removed = True
+                if "distinctConflicts" in operations:
+                    del operations["distinctConflicts"]
+                    removed = True
                 join = operations.get("join")
                 if isinstance(join, dict):
                     for port in ("left", "right"):

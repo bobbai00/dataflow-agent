@@ -137,6 +137,18 @@ const factText = (f: ReturnType<typeof fixture>) =>
 const observe = (f: ReturnType<typeof fixture>, options = {}) =>
   selectNativeObservation({ ...f, data: true, flow: true, maxChars: 2000, ...options });
 
+test("targeted full retrieval displays only requested fields without claiming a complete table", () => {
+  const f = fixture("Scan", {});
+  f.info.resultSchema!.push({ name: "hidden", type: "string", encoding: "string" });
+  f.info.result = [{ x: 10, hidden: "sensitive unrelated text" }];
+  f.info.totalRowCount = 1;
+  f.info.truncated = false;
+  const result = observe(f, { view: "full", columns: ["x"], flow: false, data: false });
+  expect(result.text).not.toContain("sensitive unrelated text");
+  expect(result.text).not.toContain('"hidden"');
+  expect(result.table).toMatchObject({ totalColumns: 2, columnsShown: 1, returnedRows: 1, complete: false });
+});
+
 test("full retrieval preserves long cells and reports a bounded incomplete table", () => {
   const f = fixture("Scan", {});
   f.info.resultSchema = [{ name: "x", type: "string", encoding: "string" }];
