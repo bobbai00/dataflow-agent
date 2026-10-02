@@ -72,6 +72,21 @@ const MAP = new Map<number, ReActStep>([
 ]);
 
 describe("buildNativeFrames", () => {
+  test("retains the entire multiline reply for Answer repair", () => {
+    const reply =
+      'The computation is complete.\n\n- The result is 10.87 percentage points.\n- Check units.\n\n```json\n{"value":10.87}\n```\nFinal Answer: 10.87';
+    const text = `# User Task\nFind the answer.\n\n## Agent Event 1\nThought: ${reply}`;
+    const { messages } = buildNativeFrames(text, new Map([[1, step("s1", [])]]));
+    expect(messages.find(m => m.role === "assistant")?.content).toBe(reply);
+    expect(messages.at(-1)?.content).toBe("Continue.");
+  });
+
+  test("multiline rationale stops at the real Action block", () => {
+    const text = CTX.replace("Thought: load the file", "Thought: load the file\n\nThen validate the schema.");
+    const { messages } = buildNativeFrames(text, MAP);
+    expect((messages[1].content as any[])[0].text).toBe("load the file\n\nThen validate the schema.");
+  });
+
   test("emits a real tool-calling transcript", () => {
     const { messages, events } = buildNativeFrames(CTX, MAP);
     expect(events).toBe(2);

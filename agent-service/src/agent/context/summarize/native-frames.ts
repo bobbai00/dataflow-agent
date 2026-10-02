@@ -205,7 +205,9 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
 
 /** The `Thought: …` body of a rendered event, up to the `Action:` block. */
 function extractThought(head: string): string {
-  const m = head.match(/^Thought:\s*([\s\S]*?)(?=\n(?:Action:)\s*$|\n*$)/m);
+  // Under /m, $ matches every line end. Use a true end-of-input assertion
+  // so a text-only response survives intact for the bounded Answer repair.
+  const m = head.match(/^Thought:[ \t]*([\s\S]*?)(?=\nAction:[ \t]*(?:\n|$)|(?![\s\S]))/m);
   return m ? m[1].trim() : "";
 }
 
