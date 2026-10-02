@@ -49,6 +49,10 @@ test("historical examples validate for every retrieval configuration and separat
     expect(prompt).not.toContain("{{");
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
   }
+  const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
+  expect(history).toContain("reviewed or reported subset as the authoritative state");
+  expect(history).toContain("keep rows without its evidence unproven");
+  expect(history).toContain("sampled result view is only partial evidence");
   const control = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: false });
   expect(control).not.toContain("Generic multitask examples");
   expect(control).not.toContain("Historical state across tasks");
