@@ -37,7 +37,7 @@ function examples(view: "full" | "sample" | "sample_stats" = "sample") {
 test("historical examples validate for every retrieval configuration and separate observation-dependent calls", () => {
   for (const view of ["full", "sample", "sample_stats"] as const) {
     const { prompt, section, calls } = examples(view);
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(5);
     for (const call of calls) {
       expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
       const actions: DataflowAction[] = call.actions;
@@ -56,7 +56,7 @@ test("historical examples validate for every retrieval configuration and separat
 
 test("worked edits preserve baseline branches and connect old formulas to current populations", async () => {
   const { calls } = examples();
-  expect(calls).toHaveLength(8);
+  expect(calls).toHaveLength(5);
   const metadataStore = WorkflowSystemMetadata.getInstance();
   metadataStore.seedCodeModeDefaults();
   const context = { metadataStore };
@@ -107,7 +107,6 @@ create operator current_items: scan("current_items.csv")`,
   expect(operator("earlier_items").nativeOp!.source).toBe(
     first.workflow.operators.find(o => o.operatorID === "eligible")!.nativeOp!.source
   );
-  expect(operator("trial_qualified").nativeOp!.source).toContain(">= 20");
   for (const id of ["eligible", "score", "qualified", "current_items"])
     expect(operator(id)).toEqual(second.workflow.operators.find(o => o.operatorID === id)!);
   expect(storage.getWorkflow("s1")).toEqual(first.workflow);

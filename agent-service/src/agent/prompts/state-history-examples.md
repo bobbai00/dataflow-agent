@@ -19,60 +19,34 @@
 
 ### Generic multitask examples
 
-Choose what the request carries forward: a saved output, an earlier population, an earlier formula, or a standing baseline. Use history when the needed version is no longer visible or has changed. Task numbers, operator names and formulas below are illustrative; choose actual references from your conversation and inspections. Each JSON block is a separate model call. Wait for its observations before a dependent call; compose Answer in a later call after reading the requested result.
-
-**1. Read an earlier result without recomputing.** Task 1 produced `regional_totals`; Task 2 changed the calculation. Task 3 asks what the original totals were. With that saved operator ID already known, read Task 1 directly:
+**Recover an earlier baseline.** An eligible population was narrowed after Task 1. Read the original definition and sample/statistics together, without inspecting a whole task:
 
 ```json
-{"reasoning":"Read the original regional totals.","actions":[{"type":"retrieve","task_id":1,"operator_id":"regional_totals","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
+{"reasoning":"Check the original population and saved evidence.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"eligible","include_implementation":false,"view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
 ```
 
-Check the saved identity and completeness. If the requested result is unavailable, inspect its historical definition before deciding whether a fork and recomputation can reproduce it. Do not substitute the latest totals or assume an earlier answer was correct.
-
-**2. Continue from an earlier full population.** Task 1 selected eligible items; Task 2 narrowed eligibility. Task 3 asks for a new summary of the original eligible items. If the original operator ID is unknown, find it:
+If that saved view answers the question, answer next. If new computation is needed, fork after seeing the inspection:
 
 ```json
-{"reasoning":"Find the population used in Task 1.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":null,"include_implementation":false}]}
+{"reasoning":"Summarize the original population while preserving today's branch.","actions":[{"type":"fork","task_id":1,"operator_id":"eligible","new_operator_id":"earlier_items"},{"type":"edit","changes":"create operator earlier_summary: aggregate(n=count())\ncreate edge earlier_items.out -> earlier_summary.in"},{"type":"execute","operator_ids":["earlier_summary"]},{"type":"retrieve","operator_id":"earlier_summary","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
 ```
 
-Suppose the overview identifies `eligible` and a limited display report. Inspect the population, including its input definitions:
+**Apply an old formula to current data.** Task 1 used a score of 2*units+margin; a later task changed both the formula and population. Read the old implementation first:
 
 ```json
-{"reasoning":"Check the original eligibility gates and inputs.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"eligible","include_implementation":true}]}
+{"reasoning":"Recover the earlier score formula and its input binding.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"score","include_implementation":true,"view":null}]}
 ```
 
-After confirming that `eligible` is the full population and `margin` is numeric, copy its historical ancestry and build the requested summary. Preserve all original gates; branch from the full population rather than the display report:
+After confirming the formula, fork it and change only the fork's input to current_items:
 
 ```json
-{"reasoning":"Summarize the original eligible population.","actions":[{"type":"fork","task_id":1,"operator_id":"eligible","new_operator_id":"earlier_items"},{"type":"edit","changes":"create operator earlier_summary: aggregate(n=count(), avg_margin=mean(\"margin\"))\ncreate edge earlier_items.out -> earlier_summary.in"},{"type":"execute","operator_ids":["earlier_summary"]},{"type":"retrieve","operator_id":"earlier_summary","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
+{"reasoning":"Use the old score on current items.","actions":[{"type":"fork","task_id":1,"operator_id":"score","new_operator_id":"old_rule_current"},{"type":"edit","changes":"delete edge old_rule_current__eligible.out -> old_rule_current.in\ncreate edge current_items.out -> old_rule_current.in"},{"type":"execute","operator_ids":["old_rule_current"]},{"type":"retrieve","operator_id":"old_rule_current","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
 ```
 
-**3. Apply an earlier formula to current data.** Task 1 defined `score`; Task 2 changed the formula and the prepared population. Task 3 requests the original formula on `current_items`, retaining current eligibility. Inspect the old computation:
+**Check upstream changes.** The score expression can stay unchanged while eligibility changes. List version changes for both operators in one call; then choose the needed task and read only its relevant saved view:
 
 ```json
-{"reasoning":"Recover the original scoring expression.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"score","include_implementation":true}]}
+{"reasoning":"Locate changes in the score and its population.","actions":[{"type":"inspect","target":"state","task_id":null,"operator_id":["score","eligible"],"include_implementation":false,"view":null}]}
 ```
 
-Suppose it shows `score = 2*units + margin`, and the current input has the required numeric, nonmissing fields. Create the old computation with current edges:
-
-```json
-{"reasoning":"Apply the recovered formula to the current population.","actions":[{"type":"edit","changes":"create operator old_rule_current: map(lambda row: {**row, \"score\": 2*row[\"units\"]+row[\"margin\"]}, doc=\"Original priority formula on current items\")\ncreate edge current_items.out -> old_rule_current.in"},{"type":"execute","operator_ids":["old_rule_current"]},{"type":"retrieve","operator_id":"old_rule_current","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
-```
-
-Forking the entire old branch would also restore old input definitions. If the formula uses ranks, denominators or global anchors from other operators, inspect those dependencies too and decide which must be current. Copying only its last blend can omit part of the calculation.
-
-**4. Make a temporary change and preserve the baseline.** Task 2's standing `qualified` filter requires at least 10 units; Task 3 asks for a temporary 20-unit check. Suppose its definition and inputs have already been inspected: other eligibility gates are upstream. Copy the standing branch:
-
-```json
-{"reasoning":"Preserve the standing population while preparing a temporary branch.","actions":[{"type":"fork","task_id":2,"operator_id":"qualified","new_operator_id":"trial_qualified"}]}
-```
-
-After the fork succeeds, update only its threshold. The copied upstream gates remain connected:
-
-```json
-{"reasoning":"Run the temporary threshold check.","actions":[{"type":"edit","changes":"update operator trial_qualified: filter(lambda row: row[\"units\"] is not None and row[\"units\"] >= 20, doc=\"Temporary twenty-unit threshold\")"},{"type":"execute","operator_ids":["trial_qualified"]},{"type":"retrieve","operator_id":"trial_qualified","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}]}
-```
-
-If Task 4 says to continue the main analysis, use `qualified`, whose standing definition remains intact. Adopt `trial_qualified` only if the user adopts that change. A saved observation of the fork cannot answer the changed threshold; Execute must precede its Retrieve.
-
-When a formula looks unchanged but its result differs, inspect that operator with `task_id:null` and its actual operator ID. Compare dependency hashes and input definitions across completed tasks: a changed population, parent formula or aggregation denominator can change the output without changing this operator's expression. Follow the relevant input IDs rather than fetching every task or rebuilding the analysis from prose.
+**Keep a trial separate.** A request to test a stricter threshold changes a trial branch. Fork the standing definition, modify that fork, and execute its target. Preserve the standing branch so the next request can resume it without reconstructing its earlier rule. Reuse available evidence; an inspection is useful only when the standing version is uncertain.

@@ -205,12 +205,17 @@ request order, starting at 1; only completed tasks have historical state.
 
 | Action | Arguments | Result |
 |---|---|---|
-| Inspect saved operator | `target: "state"`, `task_id`, `operator_id`, `include_implementation` | Historical expression, ports, edges, functions, dependency hash and result availability |
-| Inspect operator history | Same, with `task_id: null` | Definitions and dependency hashes across completed tasks, including deletion |
-| Inspect saved graph | Same, with `operator_id: null` | Operators and edges at that task |
-| List completed tasks | Same, with both IDs `null` | Earlier requests and answers, fetched only on demand |
+| Inspect saved operator | `target: "state"`, `task_id`, nonnull `operator_id`, `include_implementation`, `view` | Historical expression, ports, edges, functions, dependency hash and optional saved result |
+| Inspect operator history | Same, with `task_id: null`, `view: null` | Change points across completed tasks, including upstream changes and deletion; `through_task_id` groups unchanged state |
+| Batch operator inspection | `operator_id: ["eligible", "score"]` | Up to eight named operators, with shared graph-proof computation |
 | Fork | `task_id`, `operator_id`, `new_operator_id` | New copies of the operator and all upstream definitions, with an ID mapping |
-| Retrieve saved output | `operator_id`, `task_id`, `view` | Saved records using an available retrieval view, without execution or fallback to current state |
+
+A specific-task inspection can include `view: "sample_stats"` or `"full"` to
+read its saved output along with the definition. Set `view: null` for definitions
+alone. Saved reads never execute or substitute current state. Missing results
+are explicitly unavailable. There is no task-list, task-overview or task-level
+retrieval action. Operator IDs come from the full append-only conversation or
+ordinary current-graph inspection.
 
 A fork preserves input port positions and assigns new IDs to every dependency.
 It leaves the existing branch intact. Before execution, retrieving the fork can

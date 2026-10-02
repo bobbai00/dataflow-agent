@@ -149,18 +149,18 @@ An agent created with no `settings` uses
 |---|---|---|
 | `agentMode` | `native` | the operator expressions above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `false` | enables the native `sample_stats` choice when `retrievalViews` is omitted; other modes use it to expose data measurements |
-| `retrievalViews` | omitted | native Retrieve exposes `full` and `sample`, plus `sample_stats` when `dataEvidence` is true; an explicit list sets the available choices |
+| `dataEvidence` | `false` | other modes use it to expose data measurements; native actions select data statistics through `sample_stats` |
+| `retrievalViews` | `["sample_stats", "full"]` | inspect samples and statistics first; `sample` can be enabled explicitly |
 | `flowEvidence` | `false` | automatically adds selected flow measurements and operator contracts, including producing ancestors, to retrieved results |
 | `dataflowReasoning` | `true` | retained for archived settings; native action calls always require a brief rationale and normalize this setting to true |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
-| `fullResultCharLimit` | `100000` | native result collection and full-record display cap; incomplete results remain labeled |
+| `fullResultCharLimit` | `5000` | full-record display cap; native transport independently retains up to 100,000 characters; incomplete views remain labeled |
 | `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
 | `maxOperatorResultCellCharLimit` | `2000` | sample cells are clipped and marked; native full retrieval preserves retained cell contents |
 | `maxSteps` | `100` | per-turn step budget |
-| `stateHistory` | `false` | native actions can inspect completed task states, fork historical operator branches, and retrieve saved observations; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
+| `stateHistory` | `false` | native actions can inspect named operators at completed tasks, read saved views in the same inspection, and fork historical operator branches; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |

@@ -99,7 +99,11 @@ async function executions() {
   assert.ok(response.ok);
   return ((await response.json()) as any[]).length;
 }
-const textOf = (receipt: DataflowActionsResult, index: number) => String((receipt.actions[index].output as any).text);
+const textOf = (receipt: DataflowActionsResult, index: number) =>
+  String(
+    (receipt.actions[index].output as any).text ??
+      (receipt.actions[index].output as any).versions?.[0]?.observation?.text
+  );
 
 try {
   agentId = (
@@ -157,8 +161,8 @@ update operator eligible: filter(lambda row: row["net"] > 0, doc="Positive net")
   await debug("Task 3: recover the earlier gate and compare its old and current populations.");
   const before = await executions();
   const read = await actions([
-    { type: "inspect", target: "state", task_id: null, operator_id: "total", include_implementation: true },
-    { type: "retrieve", task_id: 1, operator_id: "total", view: "full" },
+    { type: "inspect", target: "state", task_id: null, operator_id: "total", include_implementation: true, view: null },
+    { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: false, view: "full" },
     { type: "fork", task_id: 1, operator_id: "total", new_operator_id: "old_total" },
     { type: "retrieve", operator_id: "old_total", view: "full" },
     { type: "retrieve", operator_id: "total", view: "full" },
@@ -183,7 +187,9 @@ create edge source.out -> old_total__eligible.in`,
   save("final-snapshot.json", snapshot);
   assert.deepEqual((snapshot.results.old_total as any).sampleRecords, [{ n: 3, amount: 157 }]);
   assert.deepEqual((snapshot.results.total as any).sampleRecords, [{ n: 4, amount: 357 }]);
-  const original = await actions([{ type: "retrieve", task_id: 1, operator_id: "total", view: "full" }]);
+  const original = await actions([
+    { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: false, view: "full" },
+  ]);
   assert.ok(textOf(original, 0).includes("15"));
   // A failed sibling shares the current source; a disconnected consumer has
   // incomplete inputs. Both remain in this persistent graph while selected
@@ -204,7 +210,7 @@ create edge source.out -> old_total__eligible.in`,
     { type: "execute", operator_ids: ["total", "old_total"] },
     { type: "retrieve", operator_id: "total", view: "full" },
     { type: "retrieve", operator_id: "old_total", view: "full" },
-    { type: "retrieve", task_id: 1, operator_id: "total", view: "full" },
+    { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: false, view: "full" },
   ]);
   const outcomes = (isolated.actions[0].output as any).operators;
   assert.ok(outcomes.every((op: any) => op.status === "ok"));

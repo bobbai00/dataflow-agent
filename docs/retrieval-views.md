@@ -35,10 +35,10 @@ prefix. Counts and ranges describe that prefix; they are not population estimate
 If profiling measured no rows of a nonempty table, its data statistics are
 marked unavailable. Independently measured operator counters remain usable.
 
-The prompt recommends sample statistics for large parsed tables, projections
-to relevant columns, and graph computations before requesting large record
-views. It reserves `full` for decisions that need individual records and small
-final results. Workbook header inspection uses a one-row preview; increasing
+The default views are `sample_stats` and `full`. The prompt starts with samples
+and statistics; when they suffice, no full read is needed. Project relevant
+columns and compute aggregates in the graph before requesting individual
+records. The default full display cap is 5,000 characters. Workbook header inspection uses a one-row preview; increasing
 its length reads data rows from each sheet as well.
 
 `flowEvidence` independently appends bounded metadata about the requested
@@ -86,7 +86,7 @@ deduplication. Those choices depend on the task and source definitions.
   "agentMode": "native",
   "nativeProfileCollection": true,
   "retrievalViews": ["full", "sample", "sample_stats"],
-  "fullResultCharLimit": 100000,
+  "fullResultCharLimit": 5000,
   "maxOperatorResultCharLimit": 2000,
   "maxResultRows": 5,
   "dataEvidenceCharLimit": 2000,
@@ -106,15 +106,15 @@ If `retrievalViews` is omitted, the default exposes `full` and `sample`;
 interface, data statistics are shown only when the selected view is
 `sample_stats`. Historical runs must use their recorded revisions.
 
-The three new character limits default to 100,000 / 2,000 / 2,000 respectively
+The three new character limits default to 5,000 / 2,000 / 2,000 respectively
 and accept integers from 128 through 100,000. `maxResultRows: 0` leaves sample
 size bounded only by characters. Row limits apply to sample views only.
 
 ## Storage, execution and history
 
-Every native execution retains results up to `fullResultCharLimit`, regardless
-of which views are available. This keeps record collection identical across
-the experimental arms. Native cell transport uses up to 20,000 characters,
+Every native execution retains results up to 100,000 characters, independently
+of `fullResultCharLimit` and the available views. A smaller display cap therefore
+preserves the bounded materialization for later reads. Native cell transport uses up to 20,000 characters,
 the backend ceiling. This implementation fetches the bounded result during
 execution; Retrieve renders it without a backend execution or a new row fetch.
 Increasing a limit later does not recover records absent from an earlier

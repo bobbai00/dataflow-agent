@@ -581,7 +581,7 @@ describe("native prompt", () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const view of ["full", "sample", "sample_stats"] as const) {
       const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-      const example = prompt.match(/Read an earlier output: (\{[^\n}]*\})/)![1];
+      const example = prompt.match(/Read a version and its saved result together: (\{[^\n}]*\})/)![1];
       const action = JSON.parse(example);
       expect(action.view).toBe(view);
       expect(prepareDataflowActions({ reasoning: "Read saved state.", actions: [action] }, [view], true).status).toBe(
@@ -666,7 +666,7 @@ create edge typed.out -> total.in
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
       retrievalViews: ["full", "sample", "sample_stats"],
     });
-    expect(prompt).toContain("For a large parsed table, start with `sample_stats`");
+    expect(prompt).toContain("Start with `sample_stats`");
     expect(prompt).toContain("project, filter or aggregate before requesting `full`");
     expect(prompt).toContain("A complete preview is still only a preview of the source");
     expect(prompt).toContain("not a random sample");
@@ -784,10 +784,13 @@ create edge typed.out -> total.in
   });
 
   test("only enabled evidence kinds are described", () => {
-    const data = buildNativeModeSystemPrompt(ContextMode.DELTA, { dataEvidence: true });
-    const flow = buildNativeModeSystemPrompt(ContextMode.DELTA, { flowEvidence: true });
-    const both = buildNativeModeSystemPrompt(ContextMode.DELTA, { dataEvidence: true, flowEvidence: true });
-    const none = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    const data = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample_stats"] });
+    const flow = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"], flowEvidence: true });
+    const both = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: ["sample_stats"],
+      flowEvidence: true,
+    });
+    const none = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
     expect(data).toContain("Data measurement");
     expect(data).not.toContain("Flow measurement");
     expect(flow).toContain("Flow measurement");
@@ -800,7 +803,7 @@ create edge typed.out -> total.in
 
   test("the prompt stays concise, generic, and documents result freshness", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    expect(prompt.length).toBeLessThan(16000);
+    expect(prompt.length).toBeLessThan(19000);
     expect(prompt).toContain("stale");
     expect(prompt).toContain("preview");
     expect(prompt).toContain("None");

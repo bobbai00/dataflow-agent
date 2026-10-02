@@ -128,10 +128,10 @@ process(fn=function, doc="what it does")
 ## Reading results
 
 Choose the `view` on every Retrieve. Available views:
-- `full`: records up to 100000 characters. For small final results or decisions requiring individual records; a capped view remains partial.
+- `full`: records up to 5000 characters. Use only for required row associations absent from the sample and statistics; a capped view remains partial.
 - `sample`: schema and example records, bounded by 2000 characters. For layout and type checks.
 - `sample_stats`: the same small record view (2000 characters) plus up to 2000 characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.
-For a large parsed table, start with `sample_stats` when checking data quality or distributions. Project to relevant columns if a wide table hides the needed statistics.
+Start with `sample_stats`. If its sample and statistics establish the answer, do not request `full`. Project to relevant columns if a wide table hides needed fields or statistics.
 For large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.
 Views reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.
 A complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.
@@ -187,7 +187,7 @@ Check the selected population and measurement validity before reducing it:
 
 For a numeric column named value, full-coverage null=4/20 means mean("value") uses 16 nonnull values. Check whether excluding those four nulls matches the task's missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.
 
-Read the associations between identifiers and values in a small final table:
+If the sample omitted required identifier/value associations, project the needed fields and read the small final table:
 
 ```json
 {
@@ -238,7 +238,7 @@ Preview a file, execute and read its raw header:
   "actions": [
     {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "orders", "view": "sample"}
+    {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}
   ]
 }
 ```
@@ -261,7 +261,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals", "view": "full"}
+    {"type": "retrieve", "operator_id": "totals", "view": "sample_stats"}
   ]
 }
 ```

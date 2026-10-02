@@ -76,7 +76,39 @@ export async function executeDataflowActionBatch(
       if (action.target === "graph") return { status: "ok", output: inspectGraph(state.getWorkflowContent()) };
       if (action.target === "state") {
         if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
-        return { status: "ok", output: inspectState(storage, runtime.historicalTasks ?? [], action) };
+        const output = inspectState(storage, runtime.historicalTasks ?? [], action);
+        if (action.view !== null) {
+          const task = historicalTask(runtime.historicalTasks ?? [], action.task_id!);
+          const workflow = storage.getWorkflow(task.stepId);
+          const operators = "operators" in output ? output.operators : [output];
+          for (const operator of operators) {
+            const op = workflow.operators.find(op => op.operatorID === operator.operator_id)!;
+            const info = storage.getOperatorResult(task.stepId, operator.operator_id);
+            const version = operator.versions[0];
+            if (!version.result?.available || !info || info.error) {
+              Object.assign(version, {
+                observation: {
+                  status: "unavailable",
+                  message:
+                    info?.error ??
+                    "No completed saved result. Fork and execute the historical definition if appropriate.",
+                },
+              });
+              continue;
+            }
+            const observation = selectNativeObservation({
+              ...retrievalOptions(settings, action.view),
+              op,
+              info,
+              workflow,
+              resolveInput: id => storage.getOperatorResult(task.stepId, id),
+            });
+            Object.assign(version, {
+              observation: { view: action.view, table: observation.table, text: observation.text },
+            });
+          }
+        }
+        return { status: "ok", output };
       }
       const op = state.getOperator(action.operator_id);
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
@@ -184,14 +216,7 @@ export async function executeDataflowActionBatch(
       let resultStep = stepId;
       let operatorId = action.operator_id;
       let historical: { task_id: number; operator_id: string } | undefined;
-      if (action.task_id !== undefined) {
-        if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
-        const task = historicalTask(runtime.historicalTasks ?? [], action.task_id);
-        resultStep = task.stepId;
-        workflow = storage.getWorkflow(resultStep);
-        historical = { task_id: task.taskId, operator_id: operatorId };
-        savedReads.add(index);
-      } else if (!current(operatorId)) {
+      if (!current(operatorId)) {
         const saved = readForkResult(workflow, storage, operatorId, stepId);
         if (saved) {
           historical = { task_id: saved.taskId, operator_id: saved.operatorId };

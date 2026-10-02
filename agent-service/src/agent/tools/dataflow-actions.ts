@@ -30,13 +30,14 @@ export type DataflowAction =
       type: "inspect";
       target: "state";
       task_id: number | null;
-      operator_id: string | null;
+      operator_id: string | string[];
       include_implementation: boolean;
+      view: RetrievalView | null;
     }
   | { type: "fork"; task_id: number; operator_id: string; new_operator_id: string }
   | { type: "edit"; changes: string }
   | { type: "execute"; operator_ids?: string[] }
-  | { type: "retrieve"; operator_id: string; view: RetrievalView; task_id?: number }
+  | { type: "retrieve"; operator_id: string; view: RetrievalView }
   | { type: "answer"; content: string };
 
 export interface DataflowActionsInput {
@@ -143,12 +144,13 @@ const STATE_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
 STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action(
     "inspect",
-    "Read completed task state without execution. A task with null operator shows changed/retrieved operators, saved row counts and read identities. A specific operator includes its immediate input definitions; null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions.",
+    "Inspect named operators at a completed task, including immediate input definitions. Null task lists their version changes and dependency hashes. Set view to null for definitions only, or a result view with a specific task to read saved data in the same call. Never executes or substitutes current state.",
     {
       target: { type: "string", const: "state" },
       task_id: { anyOf: [taskId, { type: "null" }] },
-      operator_id: { anyOf: [text, { type: "null" }] },
+      operator_id: { anyOf: [text, { type: "array", items: text, minItems: 1, maxItems: 8 }] },
       include_implementation: { type: "boolean" },
+      view: { anyOf: [{ type: "string", enum: [...RETRIEVAL_VIEWS] }, { type: "null" }] },
     }
   ),
   action(
@@ -158,15 +160,6 @@ STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
       task_id: taskId,
       operator_id: text,
       new_operator_id: text,
-    }
-  ),
-  action(
-    "retrieve",
-    "Read this operator's saved result at a completed task. Never executes or substitutes a current result. The returned records may be a sample.",
-    {
-      operator_id: text,
-      view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
-      task_id: taskId,
     }
   )
 );
@@ -240,6 +233,19 @@ export function prepareDataflowActions(
     return result;
   }
   const request = input as DataflowActionsInput;
+  const invalidHistory = request.actions.find(
+    a =>
+      a.type === "inspect" &&
+      a.target === "state" &&
+      ((Array.isArray(a.operator_id) && new Set(a.operator_id).size !== a.operator_id.length) ||
+        (a.task_id === null && a.view !== null))
+  );
+  if (invalidHistory) {
+    result.status = "error";
+    result.error =
+      "History inspection requires unique operator IDs. Use view=null to list versions; select a task before reading a saved result. No actions ran.";
+    return result;
+  }
   const duplicateSelection = request.actions.findIndex(
     a => a.type === "execute" && a.operator_ids && new Set(a.operator_ids).size !== a.operator_ids.length
   );
@@ -248,8 +254,12 @@ export function prepareDataflowActions(
     result.error = `Action ${duplicateSelection + 1}: execute operator_ids must be unique. No actions ran.`;
     return result;
   }
-  const unavailable = request.actions.find(a => a.type === "retrieve" && !views.includes(a.view));
-  if (unavailable?.type === "retrieve") {
+  const unavailable = request.actions.find(
+    a =>
+      (a.type === "retrieve" || (a.type === "inspect" && a.target === "state" && a.view !== null)) &&
+      !views.includes(a.view as RetrievalView)
+  );
+  if (unavailable && "view" in unavailable) {
     result.status = "error";
     result.error = `Retrieve view ${JSON.stringify(unavailable.view)} is unavailable. Use ${views.join(", ")}. No actions ran.`;
     return result;
@@ -273,18 +283,17 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
   };
   for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
     (retrieve.properties as any).view.enum = [...views];
-    const historical = "task_id" in retrieve.properties;
-    const source = historical ? "Read this operator's saved result at a completed task" : "Read an existing result";
-    const freshness = historical
-      ? "Never substitutes a current result. Check completeness; unavailable saved results require forking and executing the historical definitions."
-      : "Check completeness; missing or stale outputs require execute.";
-    retrieve.description = `${source}: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. ${freshness}`;
+    retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
   }
+  for (const inspect of schema.properties.actions.items.anyOf.filter(
+    a => "target" in a.properties && (a.properties as any).target.const === "state"
+  ))
+    (inspect.properties as any).view.anyOf[0].enum = [...views];
   return tool({
     description:
       DATAFLOW_ACTIONS_DESCRIPTION +
       (stateHistory
-        ? " Historical state inspection, retrieval by task_id, and fork are available for completed user tasks."
+        ? " Operator history inspection and fork are available. History inspection requires operator IDs; task_id selects their saved versions."
         : ""),
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

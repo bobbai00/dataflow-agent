@@ -29,9 +29,9 @@ import type { TunerConfig } from "../agent/context/tuner/tuner";
 export type RetrievalView = "full" | "sample" | "sample_stats";
 
 export interface RetrievalSettings {
-  /** Available native Retrieve views. Omitted: full/sample, plus sample_stats when dataEvidence is enabled. */
+  /** Available native Retrieve views. Omitted: sample_stats and full; sample can be enabled explicitly. */
   retrievalViews?: RetrievalView[];
-  /** Record transport and full-view ceiling (engine maximum: 100,000 characters). */
+  /** Full-view display ceiling (default 5,000). Native transport independently retains up to 100,000 characters. */
   fullResultCharLimit?: number;
   /** Separate per-retrieval evidence ceilings; records keep their own budget. */
   dataEvidenceCharLimit?: number;
@@ -526,7 +526,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
-  fullResultCharLimit: 100000,
+  fullResultCharLimit: 5000,
+  retrievalViews: ["sample_stats", "full"],
   dataEvidenceCharLimit: 2000,
   flowEvidenceCharLimit: 2000,
   operatorResultSerializationMode: OperatorResultSerializationMode.TSV,

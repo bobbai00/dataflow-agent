@@ -135,13 +135,18 @@ process(fn=function, doc="what it does")
 ## Reading results
 
 Choose the `view` on every Retrieve. Available views:
-- `full`: records up to 100000 characters. For small final results or decisions requiring individual records; a capped view remains partial.
-- `sample`: schema and example records, bounded by 2000 characters. For layout and type checks.
+- `sample_stats`: the same small record view (2000 characters) plus up to 2000 characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.
+- `full`: records up to 5000 characters. Use only for required row associations absent from the sample and statistics; a capped view remains partial.
+Start with `sample_stats`. If its sample and statistics establish the answer, do not request `full`. Project to relevant columns if a wide table hides needed fields or statistics.
 For large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.
 Views reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.
 A complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.
 
 Retrieval reports returned and total rows and columns, and whether the view is complete. An incomplete view is a sample; its record order does not establish table positions. Compute on the full table. Errors name the failing operator and include a repair hint.
+
+Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
+
+These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.
 
 Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.
 
@@ -149,7 +154,41 @@ Your history contains earlier calls and their results. Each result describes the
 
 ## Examples
 
+### Choosing a result view
 
+Each example below is an independent choice for an existing result.
+
+Check the selected population and measurement validity before reducing it:
+
+```json
+{
+  "reasoning": "Check the selected rows and valid values.",
+  "actions": [
+    {
+      "type": "retrieve",
+      "operator_id": "eligible",
+      "view": "sample_stats"
+    }
+  ]
+}
+```
+
+For a numeric column named value, full-coverage null=4/20 means mean("value") uses 16 nonnull values. Check whether excluding those four nulls matches the task's missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.
+
+If the sample omitted required identifier/value associations, project the needed fields and read the small final table:
+
+```json
+{
+  "reasoning": "Read each identifier and its corresponding result.",
+  "actions": [
+    {
+      "type": "retrieve",
+      "operator_id": "final_rows",
+      "view": "full"
+    }
+  ]
+}
+```
 
 Preview a file, execute and read its raw header:
 
@@ -159,7 +198,7 @@ Preview a file, execute and read its raw header:
   "actions": [
     {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "orders", "view": "sample"}
+    {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}
   ]
 }
 ```
@@ -182,7 +221,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals", "view": "full"}
+    {"type": "retrieve", "operator_id": "totals", "view": "sample_stats"}
   ]
 }
 ```
@@ -254,7 +293,7 @@ LATEST context replaces the context paragraph with:
 
 Your context shows the current dataflow and its available results. The latest action receipt records what just completed. Earlier execution events may be collapsed; use inspect to recover operator details.
 
-Enabling evidence adds the matching paragraphs below. The default exposes neither family. [SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.
+Enabling evidence adds the matching paragraphs below. The default exposes data statistics through sample_stats; flow evidence is optional. [SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.
 
 
 
@@ -268,79 +307,47 @@ Enabling stateHistory adds the following instructions and historical actions:
 
 ## Historical state across tasks
 
-All user tasks share this graph. Each task is a user request, numbered from 1 in conversation order. Completed tasks retain their operator definitions, incoming edges, custom functions, and available result observations. Earlier answers can be incorrect; check the computation you reuse.
+All tasks share one graph and the append-only conversation. Task numbers count user requests from 1. Completed tasks retain operator definitions, incoming edges and available saved results. Prior answers and formulas may be wrong; history preserves state, not correctness. No task catalog or task-level retrieval is provided.
 
-Before editing for a task that reuses an earlier stage, restores a baseline, or runs a sensitivity check, identify the earlier task and Inspect its relevant operator with include_implementation=true. Inspect the task overview first if you do not know the operator ID. Skip another inspection only when the needed definition and input state are already visible and unchanged. Then choose the population, formula and eligibility gates separately; do not reconstruct a saved gate or copy numbers from prose.
+Use known operator IDs from the conversation. Inspect history when an operator has been overwritten, an earlier baseline is requested, or the needed input state is uncertain. Skip inspection when that exact state is already visible. Check population, formula and eligibility separately. Reuse full working populations rather than limited display reports; preserve percentile and global-baseline populations unless the user changes them.
 
-When narrowing a working population, connect from its existing eligible table so prior filters remain ancestors unless the user replaces them. Check the incoming edges, not just the operator's name or description. Reuse a saved eligibility flag instead of testing only one component of its decision. Keep the full reusable population separate from a limited report; future analysis should branch from the full table unless the user requests that displayed subset.
+- List an operator's version changes: {"type":"inspect","target":"state","operator_id":"score","task_id":null,"include_implementation":false,"view":null}. Unchanged versions are grouped through_task_id. A changed upstream dependency can change subgraph_hash even when the expression is unchanged.
+- Read a version and its saved result together: {"type":"inspect","target":"state","operator_id":"eligible","task_id":2,"include_implementation":false,"view":"sample"}. Incoming edges and immediate input definitions refer to that task. Follow their IDs only as needed. Set include_implementation=true for custom formulas. Use view=null for definitions alone. Reading never executes or substitutes current results; unavailable and incomplete results are labeled.
+- Batch known IDs by supplying operator_id as a list, for example ["eligible","score"]. A result view requires a specific completed task; version lists use view=null.
+- To compute from an older branch, use {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This copies the full dependency closure under new IDs and returns its mapping. Retrieve earlier_eligible to read its saved result without execution. Execute only the copied branch if no result is available or its definition changes.
 
-Preserve the row set on which an existing percentile or aggregate was computed; filtering a report is not a request to rebuild its ranks. Inspect the complete score expression before applying an earlier scoring rule, including blend terms from other inputs. Keep global baselines available to every row that needs them, including rows unmatched by an optional join. After a repair changes input edges, Retrieve the affected intermediate result and check row counts and required fields before continuing.
-
-- Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition, immediate input definitions, saved row counts and historical connections. Follow input IDs for deeper dependencies. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
-- Find operators in a task: set task_id to that task and operator_id to null, with include_implementation=false for a compact overview of operators changed or retrieved there. Definitions describe task-end state; retrieved receipts preserve the original read identities, which can refer to older tasks. Activity is a navigation aid, not proof that a read determined the answer. Set both IDs to null only when you need the completed task list. No history index is inserted automatically.
-- Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible","view":"sample"}. The same available views and completeness checks apply. Retrieval never executes or substitutes today's output.
-- Reuse an earlier branch: {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This atomically copies that operator and every upstream definition under new IDs, preserving historical edge positions. The receipt gives the ID mapping. The live branch is unchanged. Retrieve earlier_eligible to read an available saved observation; {"type":"execute","operator_ids":["earlier_eligible"]} recomputes its upstream branch for downstream analysis. Fork preserves definitions, not external file contents; recomputation reads the supplied files.
-
-For a temporary sensitivity check, fork the baseline before editing its copy. Continue later default work from the baseline unless the user adopts the change. To apply an older formula to a current population, inspect the old expression and use Edit to create it with current input edges, or explicitly rewire a fork after inspecting its mapping. A wholesale historical rollback would also restore the older population. Editing a fork or any ancestor invalidates its saved observation; Execute before retrieving its changed output. Keep custom functions limited to one operation so useful intermediate states remain independently addressable.
-
-Inspect results return after the entire action list. Make edits that depend on them in the next call. Fork followed by Retrieve is a valid batch when the source and new IDs are already known.
+Distinguish an old formula on today's population from the old formula on its original population. A fork preserves the original inputs. Rewire the fork's incoming edge explicitly for today's population. A temporary sensitivity check stays on a separate branch until the user adopts it. Inspect results arrive after the call: dependent edits and answers belong in a later call.
 
 ### Generic multitask examples
 
-Choose what the request carries forward: a saved output, an earlier population, an earlier formula, or a standing baseline. Use history when the needed version is no longer visible or has changed. Task numbers, operator names and formulas below are illustrative; choose actual references from your conversation and inspections. Each JSON block is a separate model call. Wait for its observations before a dependent call; compose Answer in a later call after reading the requested result.
-
-**1. Read an earlier result without recomputing.** Task 1 produced `regional_totals`; Task 2 changed the calculation. Task 3 asks what the original totals were. With that saved operator ID already known, read Task 1 directly:
+**Recover an earlier baseline.** An eligible population was narrowed after Task 1. Read the original definition and sample/statistics together, without inspecting a whole task:
 
 ```json
-{"reasoning":"Read the original regional totals.","actions":[{"type":"retrieve","task_id":1,"operator_id":"regional_totals","view":"sample"}]}
+{"reasoning":"Check the original population and saved evidence.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"eligible","include_implementation":false,"view":"sample"}]}
 ```
 
-Check the saved identity and completeness. If the requested result is unavailable, inspect its historical definition before deciding whether a fork and recomputation can reproduce it. Do not substitute the latest totals or assume an earlier answer was correct.
-
-**2. Continue from an earlier full population.** Task 1 selected eligible items; Task 2 narrowed eligibility. Task 3 asks for a new summary of the original eligible items. If the original operator ID is unknown, find it:
+If that saved view answers the question, answer next. If new computation is needed, fork after seeing the inspection:
 
 ```json
-{"reasoning":"Find the population used in Task 1.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":null,"include_implementation":false}]}
+{"reasoning":"Summarize the original population while preserving today's branch.","actions":[{"type":"fork","task_id":1,"operator_id":"eligible","new_operator_id":"earlier_items"},{"type":"edit","changes":"create operator earlier_summary: aggregate(n=count())\ncreate edge earlier_items.out -> earlier_summary.in"},{"type":"execute","operator_ids":["earlier_summary"]},{"type":"retrieve","operator_id":"earlier_summary","view":"sample"}]}
 ```
 
-Suppose the overview identifies `eligible` and a limited display report. Inspect the population, including its input definitions:
+**Apply an old formula to current data.** Task 1 used a score of 2*units+margin; a later task changed both the formula and population. Read the old implementation first:
 
 ```json
-{"reasoning":"Check the original eligibility gates and inputs.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"eligible","include_implementation":true}]}
+{"reasoning":"Recover the earlier score formula and its input binding.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"score","include_implementation":true,"view":null}]}
 ```
 
-After confirming that `eligible` is the full population and `margin` is numeric, copy its historical ancestry and build the requested summary. Preserve all original gates; branch from the full population rather than the display report:
+After confirming the formula, fork it and change only the fork's input to current_items:
 
 ```json
-{"reasoning":"Summarize the original eligible population.","actions":[{"type":"fork","task_id":1,"operator_id":"eligible","new_operator_id":"earlier_items"},{"type":"edit","changes":"create operator earlier_summary: aggregate(n=count(), avg_margin=mean(\"margin\"))\ncreate edge earlier_items.out -> earlier_summary.in"},{"type":"execute","operator_ids":["earlier_summary"]},{"type":"retrieve","operator_id":"earlier_summary","view":"sample"}]}
+{"reasoning":"Use the old score on current items.","actions":[{"type":"fork","task_id":1,"operator_id":"score","new_operator_id":"old_rule_current"},{"type":"edit","changes":"delete edge old_rule_current__eligible.out -> old_rule_current.in\ncreate edge current_items.out -> old_rule_current.in"},{"type":"execute","operator_ids":["old_rule_current"]},{"type":"retrieve","operator_id":"old_rule_current","view":"sample"}]}
 ```
 
-**3. Apply an earlier formula to current data.** Task 1 defined `score`; Task 2 changed the formula and the prepared population. Task 3 requests the original formula on `current_items`, retaining current eligibility. Inspect the old computation:
+**Check upstream changes.** The score expression can stay unchanged while eligibility changes. List version changes for both operators in one call; then choose the needed task and read only its relevant saved view:
 
 ```json
-{"reasoning":"Recover the original scoring expression.","actions":[{"type":"inspect","target":"state","task_id":1,"operator_id":"score","include_implementation":true}]}
+{"reasoning":"Locate changes in the score and its population.","actions":[{"type":"inspect","target":"state","task_id":null,"operator_id":["score","eligible"],"include_implementation":false,"view":null}]}
 ```
 
-Suppose it shows `score = 2*units + margin`, and the current input has the required numeric, nonmissing fields. Create the old computation with current edges:
-
-```json
-{"reasoning":"Apply the recovered formula to the current population.","actions":[{"type":"edit","changes":"create operator old_rule_current: map(lambda row: {**row, \"score\": 2*row[\"units\"]+row[\"margin\"]}, doc=\"Original priority formula on current items\")\ncreate edge current_items.out -> old_rule_current.in"},{"type":"execute","operator_ids":["old_rule_current"]},{"type":"retrieve","operator_id":"old_rule_current","view":"sample"}]}
-```
-
-Forking the entire old branch would also restore old input definitions. If the formula uses ranks, denominators or global anchors from other operators, inspect those dependencies too and decide which must be current. Copying only its last blend can omit part of the calculation.
-
-**4. Make a temporary change and preserve the baseline.** Task 2's standing `qualified` filter requires at least 10 units; Task 3 asks for a temporary 20-unit check. Suppose its definition and inputs have already been inspected: other eligibility gates are upstream. Copy the standing branch:
-
-```json
-{"reasoning":"Preserve the standing population while preparing a temporary branch.","actions":[{"type":"fork","task_id":2,"operator_id":"qualified","new_operator_id":"trial_qualified"}]}
-```
-
-After the fork succeeds, update only its threshold. The copied upstream gates remain connected:
-
-```json
-{"reasoning":"Run the temporary threshold check.","actions":[{"type":"edit","changes":"update operator trial_qualified: filter(lambda row: row[\"units\"] is not None and row[\"units\"] >= 20, doc=\"Temporary twenty-unit threshold\")"},{"type":"execute","operator_ids":["trial_qualified"]},{"type":"retrieve","operator_id":"trial_qualified","view":"sample"}]}
-```
-
-If Task 4 says to continue the main analysis, use `qualified`, whose standing definition remains intact. Adopt `trial_qualified` only if the user adopts that change. A saved observation of the fork cannot answer the changed threshold; Execute must precede its Retrieve.
-
-When a formula looks unchanged but its result differs, inspect that operator with `task_id:null` and its actual operator ID. Compare dependency hashes and input definitions across completed tasks: a changed population, parent formula or aggregation denominator can change the output without changing this operator's expression. Follow the relevant input IDs rather than fetching every task or rebuilding the analysis from prose.
+**Keep a trial separate.** A request to test a stricter threshold changes a trial branch. Fork the standing definition, modify that fork, and execute its target. Preserve the standing branch so the next request can resume it without reconstructing its earlier rule. Reuse available evidence; an inspection is useful only when the standing version is uncertain.

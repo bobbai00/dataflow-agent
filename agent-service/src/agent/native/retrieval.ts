@@ -21,21 +21,20 @@ import type { AgentSettings, RetrievalSettings, RetrievalView } from "../../type
 import type { NativeObservationOptions } from "./evidence";
 
 export const RETRIEVAL_VIEWS: readonly RetrievalView[] = ["full", "sample", "sample_stats"];
-export const FULL_RESULT_CHAR_LIMIT = 100_000;
+export const FULL_RESULT_CHAR_LIMIT = 5000;
+export const RESULT_TRANSPORT_CHAR_LIMIT = 100_000;
 export const EVIDENCE_CHAR_LIMIT = 2000;
 
 export function availableRetrievalViews(
   settings: RetrievalSettings & { dataEvidence?: boolean } = {}
 ): RetrievalView[] {
-  return [
-    ...(settings.retrievalViews ?? (settings.dataEvidence ? RETRIEVAL_VIEWS : ["full", "sample"])),
-  ] as RetrievalView[];
+  return [...(settings.retrievalViews ?? ["sample_stats", "full"])] as RetrievalView[];
 }
 
 /** The same bounded materialization is retained for every view/experiment arm.
  * Reading another view never executes or changes the result's identity. */
-export function nativeResultTransportLimit(settings: RetrievalSettings): number {
-  return settings.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT;
+export function nativeResultTransportLimit(_settings: RetrievalSettings): number {
+  return RESULT_TRANSPORT_CHAR_LIMIT;
 }
 
 export function retrievalOptions(settings: Partial<AgentSettings>, view: RetrievalView): NativeObservationOptions {
@@ -47,7 +46,10 @@ export function retrievalOptions(settings: Partial<AgentSettings>, view: Retriev
     view,
     data: view === "sample_stats",
     flow: settings.flowEvidence === true,
-    maxChars: view === "full" ? nativeResultTransportLimit(settings) : (settings.maxOperatorResultCharLimit ?? 2000),
+    maxChars:
+      view === "full"
+        ? (settings.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT)
+        : (settings.maxOperatorResultCharLimit ?? 2000),
     maxRows: view === "full" ? 0 : settings.maxResultRows,
     dataMaxChars: settings.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
     flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,

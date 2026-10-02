@@ -18,14 +18,12 @@
  */
 
 import type { OperatorInfo } from "../types/execution";
-import type { ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { compileNativeOp, nativeRevision } from "./native/codegen";
 import { NATIVE_BY_TYPE, nativeOperatorName, type NativeOpView } from "./native/catalog";
 import { executionFingerprints, workflowExecutionPlan } from "./native/result-versions";
 import { inspectGraph, missingGraphInputs, type GraphEditPlan } from "./tools/graph-edits";
-import { asDataflowActionsResult } from "./tools/dataflow-actions";
 
 /** Addresses the existing snapshot tree; no separate task catalog is stored. */
 export interface HistoricalTask {
@@ -33,18 +31,17 @@ export interface HistoricalTask {
   stepId: string;
   request: string;
   answer: string;
-  /** Existing receipts, used only when a task overview is explicitly requested. */
-  steps?: readonly Pick<ReActStep, "id" | "toolResults">[];
 }
 
 export interface StateQuery {
   task_id: number | null;
-  operator_id: string | null;
+  operator_id: string | string[];
   include_implementation: boolean;
 }
 
 interface StateVersion {
   task_id: number;
+  through_task_id?: number;
   operator_id: string;
   deleted?: boolean;
   expression?: string;
@@ -58,37 +55,6 @@ interface StateVersion {
   result?: { available: boolean; state: string; rows?: number; result_version?: string; producing_step?: string };
   implementation?: unknown;
   input_definitions?: StateVersion[];
-}
-
-/** Successful actions describe activity, not proof that a read caused an answer.
- * Keep each read's original identity: its version may differ from task-end state. */
-function taskActivity(task: HistoricalTask) {
-  let hasReceipts = false;
-  const changed = new Set<string>();
-  const localReads = new Set<string>();
-  const retrieved: Record<string, unknown>[] = [];
-  for (const step of task.steps ?? []) {
-    for (const receipt of step.toolResults ?? []) {
-      const result = asDataflowActionsResult(receipt.output);
-      if (!result) continue;
-      hasReceipts = true;
-      for (const item of result.actions) {
-        if (item.status !== "ok" || !item.output || typeof item.output !== "object") continue;
-        const output = item.output as Record<string, any>;
-        if (item.action.type === "edit" || item.action.type === "fork") {
-          for (const op of output.operators ?? []) if (typeof op.id === "string") changed.add(op.id);
-        }
-        if (item.action.type === "retrieve" && typeof output.operator_id === "string") {
-          const read: Record<string, unknown> = { operator_id: output.operator_id, read_at_step: step.id };
-          for (const key of ["historical_state", "revision", "result_version", "superseded_in_call"])
-            if (output[key] !== undefined) read[key] = output[key];
-          retrieved.push(read);
-          if (!output.historical_state) localReads.add(output.operator_id);
-        }
-      }
-    }
-  }
-  return { hasReceipts, changed, localReads, retrieved };
 }
 
 function describeStateOperator(
@@ -146,79 +112,91 @@ export function historicalTask(tasks: readonly HistoricalTask[], taskId: number)
   const task = tasks.find(t => t.taskId === taskId);
   if (!task)
     throw new Error(
-      `Task ${taskId} has no completed historical state. Inspect state with null task_id and operator_id to list completed tasks.`
+      `Task ${taskId} has no completed historical state. Use a completed task number from the conversation.`
     );
   return task;
 }
 
 /** Reads always resolve against the requested completed task, never HEAD. */
+type OperatorHistory = { operator_id: string; versions: StateVersion[] };
+export function inspectState(
+  storage: WorkflowSnapshotStorage,
+  tasks: readonly HistoricalTask[],
+  query: StateQuery & { operator_id: string }
+): OperatorHistory;
+export function inspectState(
+  storage: WorkflowSnapshotStorage,
+  tasks: readonly HistoricalTask[],
+  query: StateQuery & { operator_id: string[] }
+): { operators: OperatorHistory[] };
+export function inspectState(
+  storage: WorkflowSnapshotStorage,
+  tasks: readonly HistoricalTask[],
+  query: StateQuery
+): OperatorHistory | { operators: OperatorHistory[] };
 export function inspectState(storage: WorkflowSnapshotStorage, tasks: readonly HistoricalTask[], query: StateQuery) {
-  if (query.task_id === null && query.operator_id === null)
-    return { tasks: tasks.map(t => ({ task_id: t.taskId, request: t.request, answer: t.answer })) };
+  const ids = Array.isArray(query.operator_id) ? query.operator_id : [query.operator_id];
+  if (
+    !ids.length ||
+    ids.length > 8 ||
+    ids.some(id => typeof id !== "string" || !id.trim()) ||
+    new Set(ids).size !== ids.length
+  )
+    throw new Error("Inspect requires one to eight unique operator IDs.");
   const selected = query.task_id === null ? tasks : [historicalTask(tasks, query.task_id)];
-  if (query.operator_id === null) {
-    const task = selected[0];
+  // Compute each task's graph proof once when inspecting several operators.
+  const snapshots = selected.map(task => {
     const workflow = storage.getWorkflow(task.stepId);
-    const graph = inspectGraph(workflow);
-    const activity = taskActivity(task);
-    const relevant = new Set([...activity.changed, ...activity.localReads]);
-    const nodes = graph.operators.filter(op => !activity.hasReceipts || relevant.has(op.id));
-    return {
-      task_id: task.taskId,
-      request: task.request,
-      answer: task.answer,
-      scope: activity.hasReceipts ? "task_activity" : "whole_graph_no_action_receipts",
-      note: "Definitions and row counts are at task completion. Retrieved records below identify earlier reads, not answer dependencies. Inspect a specific operator for its expression and immediate input definitions; follow input IDs to explore further.",
-      total_operator_count: graph.operators.length,
-      omitted_operator_count: graph.operators.length - nodes.length,
-      changed_operators: [...activity.changed],
-      retrieved: activity.retrieved,
-      operators: nodes.map(node => {
-        const detail = describeStateOperator(storage, task, workflow, node.id, query.include_implementation, graph);
-        return {
-          id: node.id,
-          type: node.type,
-          description: detail.description,
-          inputs: detail.inputs,
-          result: { available: detail.result!.available, state: detail.result!.state, rows: detail.result!.rows },
-          ...(query.include_implementation
-            ? { expression: detail.expression, implementation: detail.implementation }
-            : {}),
-        };
-      }),
-      edges: graph.edges.filter(edge => nodes.some(node => edge.includes(` -> ${node.id}.`))),
-      unconnected_inputs: graph.unconnected_inputs.filter(port => nodes.some(node => port.startsWith(`${node.id}.`))),
-    };
-  }
-  let seen = false;
-  const operatorId = query.operator_id;
-  const versions = selected.flatMap<StateVersion>(task => {
-    const workflow = storage.getWorkflow(task.stepId);
-    const op = workflow.operators.find(o => o.operatorID === query.operator_id);
-    if (!op) {
-      if (query.task_id !== null)
-        throw new Error(
-          `Operator ${query.operator_id} did not exist at task ${task.taskId}. Inspect that task's graph to find its operators.`
-        );
-      return seen ? [{ task_id: task.taskId, operator_id: operatorId, deleted: true }] : [];
-    }
-    seen = true;
-    const graph = inspectGraph(workflow);
-    const hashes = fingerprints(workflow);
-    const inputs = new Set(
-      workflow.links.filter(link => link.target.operatorID === operatorId).map(link => link.source.operatorID)
-    );
-    return [
-      {
-        ...describeStateOperator(storage, task, workflow, operatorId, query.include_implementation, graph, hashes),
-        input_definitions: [...inputs].map(id =>
-          describeStateOperator(storage, task, workflow, id, query.include_implementation, graph, hashes)
-        ),
-      },
-    ];
+    return { task, workflow, graph: inspectGraph(workflow), hashes: fingerprints(workflow) };
   });
-  if (!seen) throw new Error(`No completed task contains operator ${query.operator_id}. Inspect a task's graph first.`);
-  return { operator_id: query.operator_id, versions };
+  const operators = ids.map(operatorId => {
+    let seen = false;
+    let previousKey: string | undefined;
+    const versions: StateVersion[] = [];
+    for (const { task, workflow, graph, hashes } of snapshots) {
+      const op = workflow.operators.find(o => o.operatorID === operatorId);
+      if (!op && query.task_id !== null)
+        throw new Error(
+          `Operator ${operatorId} did not exist at task ${task.taskId}. Use an operator ID from the conversation or inspect the current graph.`
+        );
+      if (!op && !seen) continue;
+      const version: StateVersion = op
+        ? {
+            ...describeStateOperator(storage, task, workflow, operatorId, query.include_implementation, graph, hashes),
+            input_definitions: [
+              ...new Set(
+                workflow.links.filter(link => link.target.operatorID === operatorId).map(link => link.source.operatorID)
+              ),
+            ].map(id =>
+              describeStateOperator(storage, task, workflow, id, query.include_implementation, graph, hashes)
+            ),
+          }
+        : { task_id: task.taskId, operator_id: operatorId, deleted: true };
+      seen ||= !!op;
+      // Outgoing edges and task IDs do not change this operator's computation.
+      // A changed ancestor or result availability does change its version.
+      const key = JSON.stringify([
+        version.deleted,
+        version.revision,
+        version.subgraph_hash,
+        version.result?.available,
+        version.result?.state,
+        version.result?.rows,
+        version.result?.result_version,
+      ]);
+      if (query.task_id === null && previousKey === key) versions.at(-1)!.through_task_id = task.taskId;
+      else {
+        versions.push(version);
+        previousKey = key;
+      }
+    }
+    if (!seen)
+      throw new Error(
+        `No completed task contains operator ${operatorId}. Use an operator ID from the conversation or inspect the current graph.`
+      );
+    return { operator_id: operatorId, versions };
+  });
+  return Array.isArray(query.operator_id) ? { operators } : operators[0];
 }
 
 /** Clone definitions and incoming edges as one atomic plan. Every dependency

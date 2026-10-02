@@ -86,67 +86,30 @@ test("operator inspection exposes immediate input definitions from the same hist
   expect(JSON.stringify(storage.getWorkflow("s1"))).toBe(before);
 });
 
-test("task overview uses successful receipts and distinguishes historical reads from task-end state", async () => {
+test("history batches named operators and rejects task-wide discovery", async () => {
   const { storage, tasks } = await fixture();
-  const action = (type: string, output: unknown, status = "ok") => ({
-    index: 1,
-    action: { type, operator_id: "total" },
-    status,
-    output,
+  const output = inspectState(storage, tasks, {
+    task_id: 1,
+    operator_id: ["total", "eligible"],
+    include_implementation: false,
   });
-  tasks[1].steps = [
-    {
-      id: "s2",
-      toolResults: [
-        {
-          toolCallId: "call",
-          output: {
-            kind: "dataflow-actions",
-            status: "error",
-            operators: [],
-            observe: [],
-            observationErrors: [],
-            actions: [
-              action("edit", { operators: [{ id: "source", status: "modified" }] }),
-              action("retrieve", {
-                operator_id: "total",
-                historical_state: { task_id: 1, operator_id: "total" },
-                revision: "r1",
-              }),
-              action("retrieve", { operator_id: "eligible", superseded_in_call: true }),
-              action("edit", { operators: [{ id: "phantom", status: "added" }] }, "error"),
-              action("retrieve", { operator_id: "not_read" }, "skipped"),
-            ],
-          },
-        },
-      ],
-    },
-  ];
-  const output = inspectState(storage, tasks, { task_id: 2, operator_id: null, include_implementation: false });
-  expect(output.scope).toBe("task_activity");
-  expect(output.total_operator_count).toBe(3);
-  expect(output.operators!.map(op => op.id)).toEqual(["source", "eligible"]);
-  expect(output.operators![0].inputs).toEqual([]);
-  expect(output.retrieved).toEqual([
-    {
-      operator_id: "total",
-      read_at_step: "s2",
-      historical_state: { task_id: 1, operator_id: "total" },
-      revision: "r1",
-    },
-    { operator_id: "eligible", read_at_step: "s2", superseded_in_call: true },
-  ]);
-  expect(JSON.stringify(output)).not.toContain("phantom");
-  expect(JSON.stringify(output)).not.toContain("not_read");
+  expect(output.operators.map(op => op.operator_id)).toEqual(["total", "eligible"]);
+  expect(output.operators[0].versions[0].result).toMatchObject({ available: true, rows: 1 });
+  expect(() =>
+    inspectState(storage, tasks, { task_id: 1, operator_id: null as any, include_implementation: false })
+  ).toThrow("operator IDs");
 });
 
-test("old traces without receipts keep a discoverable graph and honor implementation requests", async () => {
-  const { storage, tasks } = await fixture();
-  const output = inspectState(storage, tasks, { task_id: 1, operator_id: null, include_implementation: true });
-  expect(output.scope).toBe("whole_graph_no_action_receipts");
-  expect(output.operators).toHaveLength(3);
-  expect(output.operators!.find(op => op.id === "eligible")!.expression).toContain('row["quality"]');
-  expect(output.operators!.find(op => op.id === "total")!.result).toMatchObject({ available: true, rows: 1 });
+test("unchanged versions are grouped while changed ancestors remain distinct", async () => {
+  const { storage, tasks, second } = await fixture();
+  storage.createSnapshot("s3", second.workflow);
+  tasks.push({ taskId: 3, stepId: "s3", request: "Another question", answer: "Same state" });
+  const output = inspectState(storage, tasks, { task_id: null, operator_id: "total", include_implementation: false });
+  expect(output.versions).toHaveLength(2);
+  expect(output.versions[1]).toMatchObject({ task_id: 2, through_task_id: 3 });
+  expect(output.versions[0].subgraph_hash).not.toBe(output.versions[1].subgraph_hash);
+  const exact = inspectState(storage, tasks, { task_id: 3, operator_id: "total", include_implementation: false });
+  expect(exact.versions[0].task_id).toBe(3);
 });
 
 test("fork preserves the complete historical dependency closure and original graph", async () => {

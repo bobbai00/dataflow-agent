@@ -78,7 +78,7 @@ export function renderSystemPrompt(): string {
     "LATEST context replaces the context paragraph with:\n\n" +
     differing.join("\n") +
     "\n\n" +
-    "Enabling evidence adds the matching paragraphs below. The default exposes neither family. " +
+    "Enabling evidence adds the matching paragraphs below. The default exposes data statistics through sample_stats; flow evidence is optional. " +
     "[SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.\n\n" +
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
     "\n\nEnabling stateHistory adds the following instructions and historical actions:\n\n" +

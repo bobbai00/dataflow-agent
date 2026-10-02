@@ -149,8 +149,8 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "view": {
                 "type": "string",
                 "enum": [
-                  "full",
-                  "sample"
+                  "sample_stats",
+                  "full"
                 ]
               }
             },
@@ -159,7 +159,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+            "description": "Read an existing result: sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics; full requests records up to its character cap; narrow large tables first. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute."
           },
           {
             "type": "object",
@@ -349,8 +349,8 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "view": {
                 "type": "string",
                 "enum": [
-                  "full",
-                  "sample"
+                  "sample_stats",
+                  "full"
                 ]
               }
             },
@@ -359,7 +359,7 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+            "description": "Read an existing result: sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics; full requests records up to its character cap; narrow large tables first. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute."
           },
           {
             "type": "object",
@@ -412,12 +412,33 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
                     "pattern": "\\S"
                   },
                   {
-                    "type": "null"
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "minItems": 1,
+                    "maxItems": 8
                   }
                 ]
               },
               "include_implementation": {
                 "type": "boolean"
+              },
+              "view": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "sample_stats",
+                      "full"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -425,9 +446,10 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "target",
               "task_id",
               "operator_id",
-              "include_implementation"
+              "include_implementation",
+              "view"
             ],
-            "description": "Read completed task state without execution. A task with null operator shows changed/retrieved operators, saved row counts and read identities. A specific operator includes its immediate input definitions; null task lists its versions and dependency hashes. Both null lists completed tasks. Implementation includes custom functions."
+            "description": "Inspect named operators at a completed task, including immediate input definitions. Null task lists their version changes and dependency hashes. Set view to null for definitions only, or a result view with a specific task to read saved data in the same call. Never executes or substitutes current state."
           },
           {
             "type": "object",
@@ -459,39 +481,6 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "new_operator_id"
             ],
             "description": "Copy an operator and its full upstream definitions from a completed task into this graph under new IDs. Keeps current operators unchanged. Does not execute. Retrieve can read available saved observations; execute computes the copied graph for further analysis. Inspect the returned mapping before rewiring an older formula to current inputs."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "retrieve"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              },
-              "view": {
-                "type": "string",
-                "enum": [
-                  "full",
-                  "sample"
-                ]
-              },
-              "task_id": {
-                "type": "integer",
-                "minimum": 1
-              }
-            },
-            "required": [
-              "type",
-              "operator_id",
-              "view",
-              "task_id"
-            ],
-            "description": "Read this operator's saved result at a completed task: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Never substitutes a current result. Check completeness; unavailable saved results require forking and executing the historical definitions."
           }
         ]
       }

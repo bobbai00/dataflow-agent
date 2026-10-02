@@ -119,7 +119,7 @@ describe("compact action observations", () => {
 
   test("requested historical results preserve their exact contents and provenance", async () => {
     const result = await receipt(
-      { type: "retrieve", operator_id: "total", task_id: 2, view: "full" },
+      { type: "retrieve", operator_id: "total", view: "full" },
       {
         operator_id: "total",
         revision: "rev-2",
@@ -138,17 +138,26 @@ describe("ordered dataflow actions", () => {
   test("historical retrieval honors the same available views as current retrieval", () => {
     const schema = asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema as any;
     const retrieves = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.type.const === "retrieve");
-    expect(retrieves).toHaveLength(2);
-    for (const retrieve of retrieves) expect(retrieve.properties.view.enum).toEqual(["sample"]);
-    for (const task of [{}, { task_id: 1 }]) {
-      const input = {
-        reasoning: "Read.",
-        actions: [{ type: "retrieve", operator_id: "total", view: "full", ...task }],
-      };
-      expect(prepareDataflowActions(input, ["sample"], true).error).toContain("unavailable");
-      input.actions[0].view = "sample";
-      expect(prepareDataflowActions(input, ["sample"], true).status).toBe("pending");
-    }
+    expect(retrieves).toHaveLength(1);
+    expect(retrieves[0].properties.view.enum).toEqual(["sample"]);
+    const inspect = schema.properties.actions.items.anyOf.find((a: any) => a.properties.target?.const === "state");
+    expect(inspect.properties.view.anyOf[0].enum).toEqual(["sample"]);
+    const input = {
+      reasoning: "Read.",
+      actions: [
+        {
+          type: "inspect",
+          target: "state",
+          operator_id: "total",
+          task_id: 1,
+          include_implementation: false,
+          view: "full",
+        },
+      ],
+    };
+    expect(prepareDataflowActions(input, ["sample"], true).error).toContain("unavailable");
+    input.actions[0].view = "sample";
+    expect(prepareDataflowActions(input, ["sample"], true).status).toBe("pending");
   });
 
   test("only available views validate and unavailable requests run no actions", async () => {
@@ -169,9 +178,23 @@ describe("ordered dataflow actions", () => {
   });
   test("historical actions are exposed and validated only when enabled", () => {
     const actions = [
-      { type: "inspect", target: "state", task_id: null, operator_id: "total", include_implementation: true },
+      {
+        type: "inspect",
+        target: "state",
+        task_id: null,
+        operator_id: "total",
+        include_implementation: true,
+        view: null,
+      },
       { type: "fork", task_id: 1, operator_id: "total", new_operator_id: "old_total" },
-      { type: "retrieve", task_id: 1, operator_id: "total", view: "full" },
+      {
+        type: "inspect",
+        target: "state",
+        task_id: 1,
+        operator_id: "total",
+        include_implementation: false,
+        view: "full",
+      },
     ];
     expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }).status).toBe("error");
     expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }, undefined, true).status).toBe(
@@ -188,9 +211,9 @@ describe("ordered dataflow actions", () => {
     s.agent.updateSettings({ stateHistory: true });
     const info = s.agent.getSystemInfo();
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
-      asSchema(createDataflowTool(undefined, true).inputSchema).jsonSchema
+      asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("older formula to a current population");
+    expect(s.agent.getSettings().systemPrompt).toContain("old formula on today");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
@@ -205,7 +228,9 @@ describe("ordered dataflow actions", () => {
   test("system-info exports the same action schema sent to the model", () => {
     const s = session([]);
     const exported = s.agent.getSystemInfo().tools.find(tool => tool.name === "dataflow");
-    expect(exported?.inputSchema).toEqual(asSchema(createDataflowTool().inputSchema).jsonSchema);
+    expect(exported?.inputSchema).toEqual(
+      asSchema(createDataflowTool(["full", "sample", "sample_stats"]).inputSchema).jsonSchema
+    );
     expect(exported).toMatchObject({ strict: true });
   });
 
@@ -369,7 +394,7 @@ function session(batches: DataflowAction[][]) {
       },
     },
   });
-  agent.updateSettings({ agentMode: AgentMode.NATIVE });
+  agent.updateSettings({ agentMode: AgentMode.NATIVE, retrievalViews: ["full", "sample", "sample_stats"] });
   (agent as any).executePostStepChanges = async (_calls: unknown, _results: unknown, explicit: boolean) => {
     expect(explicit).toBe(true);
     executions++;
@@ -515,11 +540,27 @@ describe("dataflow action integration", () => {
     batches.splice(
       0,
       batches.length,
-      [{ type: "inspect", target: "state", task_id: null, operator_id: "source", include_implementation: true }],
+      [
+        {
+          type: "inspect",
+          target: "state",
+          task_id: null,
+          operator_id: "source",
+          include_implementation: true,
+          view: null,
+        },
+      ],
       [
         { type: "fork", task_id: 1, operator_id: "source", new_operator_id: "earlier" },
         { type: "retrieve", operator_id: "earlier", view: "full" },
-        { type: "retrieve", task_id: 1, operator_id: "source", view: "sample" },
+        {
+          type: "inspect",
+          target: "state",
+          task_id: 1,
+          operator_id: "source",
+          include_implementation: false,
+          view: "sample",
+        },
         { type: "retrieve", operator_id: "source", view: "full" },
       ],
       [{ type: "answer", content: "Compared the two saved views." }]
@@ -531,7 +572,7 @@ describe("dataflow action integration", () => {
     const reads = s.outcomes.at(-2)!;
     expect(reads.status).toBe("completed");
     expect(reads.actions[1].output).toMatchObject({ historical_state: { task_id: 1, operator_id: "source" } });
-    expect(reads.actions.slice(1).map(a => (a.output as any).view)).toEqual(["full", "sample", "full"]);
+    expect((reads.actions[2].output as any).versions[0].observation.view).toBe("sample");
     const restored = session([]);
     await restored.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
     expect(restored.executions()).toBe(0);
@@ -543,22 +584,6 @@ describe("dataflow action integration", () => {
     expect((reads.actions[1].output as any).superseded_in_call).toBeUndefined();
     expect(s.agent.getWorkflowState().getOperator("source")!.nativeOp!.source).toContain("new.csv");
     expect(s.agent.getWorkflowState().getOperator("earlier")!.nativeOp!.source).toContain("old.csv");
-    batches.splice(
-      0,
-      batches.length,
-      [{ type: "inspect", target: "state", task_id: 3, operator_id: null, include_implementation: false }],
-      [{ type: "answer", content: "Located the earlier reads." }]
-    );
-    await s.agent.sendMessage("Locate the operators used in the comparison.");
-    const overview = s.outcomes.at(-2)!.actions[0].output as any;
-    expect(overview.scope).toBe("task_activity");
-    expect(overview.changed_operators).toEqual(["earlier"]);
-    expect(overview.retrieved).toHaveLength(3);
-    expect(overview.retrieved[0].historical_state).toEqual({ task_id: 1, operator_id: "source" });
-    expect(overview.retrieved[1].historical_state).toEqual({ task_id: 1, operator_id: "source" });
-    expect(overview.retrieved[2].historical_state).toBeUndefined();
-    expect(overview.operators.map((op: any) => op.id).sort()).toEqual(["earlier", "source"]);
-    expect(s.executions()).toBe(2);
   });
   const source: DataflowAction = {
     type: "edit",

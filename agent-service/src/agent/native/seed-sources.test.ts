@@ -168,8 +168,8 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
             'create operator roman_cities: scan("data/archeology/input/roman_cities.csv")\ncreate operator notes: scan("data/archeology/input/notes.txt", format="lines")',
         },
         { type: "execute" },
-        { type: "retrieve", operator_id: "roman_cities", view: "sample" },
-        { type: "retrieve", operator_id: "notes", view: "sample" },
+        { type: "retrieve", operator_id: "roman_cities", view: "sample_stats" },
+        { type: "retrieve", operator_id: "notes", view: "sample_stats" },
       ],
     });
     const batch = seed!.toolResults![0]!.output as {

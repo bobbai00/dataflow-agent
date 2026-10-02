@@ -37,7 +37,7 @@ import {
   type RetrievalView,
 } from "../types/agent";
 import { graphCatalogText } from "./native/catalog";
-import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, nativeResultTransportLimit } from "./native/retrieval";
+import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -251,7 +251,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
   const rows = options.maxResultRows ? ` and at most ${options.maxResultRows} records` : "";
   const descriptions = {
-    full: `- \`full\`: records up to ${nativeResultTransportLimit(options)} characters. For small final results or decisions requiring individual records; a capped view remains partial.`,
+    full: `- \`full\`: records up to ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters. Use only for required row associations absent from the sample and statistics; a capped view remains partial.`,
     sample: `- \`sample\`: schema and example records, bounded by ${sampleLimit} characters${rows}. For layout and type checks.`,
     sample_stats: `- \`sample_stats\`: the same small record view (${sampleLimit} characters${rows}) plus up to ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT} characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.`,
   };
@@ -260,7 +260,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
     ...views.map(v => descriptions[v]),
     ...(views.includes("sample_stats")
       ? [
-          "For a large parsed table, start with `sample_stats` when checking data quality or distributions. Project to relevant columns if a wide table hides the needed statistics.",
+          "Start with `sample_stats`. If its sample and statistics establish the answer, do not request `full`. Project to relevant columns if a wide table hides needed fields or statistics.",
         ]
       : []),
     ...(views.includes("full")
@@ -302,7 +302,7 @@ export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {})
     );
   if (views.includes("full"))
     parts.push(
-      "Read the associations between identifiers and values in a small final table:",
+      "If the sample omitted required identifier/value associations, project the needed fields and read the small final table:",
       call("Read each identifier and its corresponding result.", [retrieve("final_rows", "full")])
     );
   if (options.flowEvidence) {
@@ -342,11 +342,11 @@ export function buildNativeModeSystemPrompt(
     .replace("{{RETRIEVAL_EXAMPLES}}", nativeRetrievalExamples(options))
     .replaceAll(
       "{{RETRIEVE_EXAMPLE_VIEW}}",
-      availableRetrievalViews(options).includes("sample") ? "sample" : availableRetrievalViews(options)[0]
+      availableRetrievalViews(options).includes("sample_stats") ? "sample_stats" : availableRetrievalViews(options)[0]
     )
     .replace(
       "{{FINAL_RETRIEVE_EXAMPLE_VIEW}}",
-      availableRetrievalViews(options).includes("full") ? "full" : availableRetrievalViews(options)[0]
+      availableRetrievalViews(options).includes("sample_stats") ? "sample_stats" : availableRetrievalViews(options)[0]
     )
     .replace(
       "{{EVIDENCE}}",
@@ -364,22 +364,16 @@ export const NATIVE_STATE_HISTORY =
   `
 ## Historical state across tasks
 
-All user tasks share this graph. Each task is a user request, numbered from 1 in conversation order. Completed tasks retain their operator definitions, incoming edges, custom functions, and available result observations. Earlier answers can be incorrect; check the computation you reuse.
+All tasks share one graph and the append-only conversation. Task numbers count user requests from 1. Completed tasks retain operator definitions, incoming edges and available saved results. Prior answers and formulas may be wrong; history preserves state, not correctness. No task catalog or task-level retrieval is provided.
 
-Before editing for a task that reuses an earlier stage, restores a baseline, or runs a sensitivity check, identify the earlier task and Inspect its relevant operator with include_implementation=true. Inspect the task overview first if you do not know the operator ID. Skip another inspection only when the needed definition and input state are already visible and unchanged. Then choose the population, formula and eligibility gates separately; do not reconstruct a saved gate or copy numbers from prose.
+Use known operator IDs from the conversation. Inspect history when an operator has been overwritten, an earlier baseline is requested, or the needed input state is uncertain. Skip inspection when that exact state is already visible. Check population, formula and eligibility separately. Reuse full working populations rather than limited display reports; preserve percentile and global-baseline populations unless the user changes them.
 
-When narrowing a working population, connect from its existing eligible table so prior filters remain ancestors unless the user replaces them. Check the incoming edges, not just the operator's name or description. Reuse a saved eligibility flag instead of testing only one component of its decision. Keep the full reusable population separate from a limited report; future analysis should branch from the full table unless the user requests that displayed subset.
+- List an operator's version changes: {"type":"inspect","target":"state","operator_id":"score","task_id":null,"include_implementation":false,"view":null}. Unchanged versions are grouped through_task_id. A changed upstream dependency can change subgraph_hash even when the expression is unchanged.
+- Read a version and its saved result together: {"type":"inspect","target":"state","operator_id":"eligible","task_id":2,"include_implementation":false,"view":"{{RETRIEVE_EXAMPLE_VIEW}}"}. Incoming edges and immediate input definitions refer to that task. Follow their IDs only as needed. Set include_implementation=true for custom formulas. Use view=null for definitions alone. Reading never executes or substitutes current results; unavailable and incomplete results are labeled.
+- Batch known IDs by supplying operator_id as a list, for example ["eligible","score"]. A result view requires a specific completed task; version lists use view=null.
+- To compute from an older branch, use {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This copies the full dependency closure under new IDs and returns its mapping. Retrieve earlier_eligible to read its saved result without execution. Execute only the copied branch if no result is available or its definition changes.
 
-Preserve the row set on which an existing percentile or aggregate was computed; filtering a report is not a request to rebuild its ranks. Inspect the complete score expression before applying an earlier scoring rule, including blend terms from other inputs. Keep global baselines available to every row that needs them, including rows unmatched by an optional join. After a repair changes input edges, Retrieve the affected intermediate result and check row counts and required fields before continuing.
-
-- Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition, immediate input definitions, saved row counts and historical connections. Follow input IDs for deeper dependencies. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
-- Find operators in a task: set task_id to that task and operator_id to null, with include_implementation=false for a compact overview of operators changed or retrieved there. Definitions describe task-end state; retrieved receipts preserve the original read identities, which can refer to older tasks. Activity is a navigation aid, not proof that a read determined the answer. Set both IDs to null only when you need the completed task list. No history index is inserted automatically.
-- Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible","view":"{{RETRIEVE_EXAMPLE_VIEW}}"}. The same available views and completeness checks apply. Retrieval never executes or substitutes today's output.
-- Reuse an earlier branch: {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This atomically copies that operator and every upstream definition under new IDs, preserving historical edge positions. The receipt gives the ID mapping. The live branch is unchanged. Retrieve earlier_eligible to read an available saved observation; {"type":"execute","operator_ids":["earlier_eligible"]} recomputes its upstream branch for downstream analysis. Fork preserves definitions, not external file contents; recomputation reads the supplied files.
-
-For a temporary sensitivity check, fork the baseline before editing its copy. Continue later default work from the baseline unless the user adopts the change. To apply an older formula to a current population, inspect the old expression and use Edit to create it with current input edges, or explicitly rewire a fork after inspecting its mapping. A wholesale historical rollback would also restore the older population. Editing a fork or any ancestor invalidates its saved observation; Execute before retrieving its changed output. Keep custom functions limited to one operation so useful intermediate states remain independently addressable.
-
-Inspect results return after the entire action list. Make edits that depend on them in the next call. Fork followed by Retrieve is a valid batch when the source and new IDs are already known.
+Distinguish an old formula on today's population from the old formula on its original population. A fork preserves the original inputs. Rewire the fork's incoming edge explicitly for today's population. A temporary sensitivity check stays on a separate branch until the user adopts it. Inspect results arrive after the call: dependent edits and answers belong in a later call.
 ` +
   "\n" +
   rd("state-history-examples.md").replace(/^<!--[\s\S]*?-->\s*/, "");

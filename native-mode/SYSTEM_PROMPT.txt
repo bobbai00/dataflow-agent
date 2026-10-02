@@ -128,13 +128,18 @@ process(fn=function, doc="what it does")
 ## Reading results
 
 Choose the `view` on every Retrieve. Available views:
-- `full`: records up to 100000 characters. For small final results or decisions requiring individual records; a capped view remains partial.
-- `sample`: schema and example records, bounded by 2000 characters. For layout and type checks.
+- `sample_stats`: the same small record view (2000 characters) plus up to 2000 characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.
+- `full`: records up to 5000 characters. Use only for required row associations absent from the sample and statistics; a capped view remains partial.
+Start with `sample_stats`. If its sample and statistics establish the answer, do not request `full`. Project to relevant columns if a wide table hides needed fields or statistics.
 For large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.
 Views reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.
 A complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.
 
 Retrieval reports returned and total rows and columns, and whether the view is complete. An incomplete view is a sample; its record order does not establish table positions. Compute on the full table. Errors name the failing operator and include a repair hint.
+
+Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
+
+These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.
 
 Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.
 
@@ -142,7 +147,41 @@ Your history contains earlier calls and their results. Each result describes the
 
 ## Examples
 
+### Choosing a result view
 
+Each example below is an independent choice for an existing result.
+
+Check the selected population and measurement validity before reducing it:
+
+```json
+{
+  "reasoning": "Check the selected rows and valid values.",
+  "actions": [
+    {
+      "type": "retrieve",
+      "operator_id": "eligible",
+      "view": "sample_stats"
+    }
+  ]
+}
+```
+
+For a numeric column named value, full-coverage null=4/20 means mean("value") uses 16 nonnull values. Check whether excluding those four nulls matches the task's missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.
+
+If the sample omitted required identifier/value associations, project the needed fields and read the small final table:
+
+```json
+{
+  "reasoning": "Read each identifier and its corresponding result.",
+  "actions": [
+    {
+      "type": "retrieve",
+      "operator_id": "final_rows",
+      "view": "full"
+    }
+  ]
+}
+```
 
 Preview a file, execute and read its raw header:
 
@@ -152,7 +191,7 @@ Preview a file, execute and read its raw header:
   "actions": [
     {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "orders", "view": "sample"}
+    {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}
   ]
 }
 ```
@@ -175,7 +214,7 @@ To compute averages instead, send another Edit, Execute and Retrieve. The update
   "actions": [
     {"type": "edit", "changes": "update operator totals: aggregate(by=[\"region\"], average=mean(\"amount\"))"},
     {"type": "execute"},
-    {"type": "retrieve", "operator_id": "totals", "view": "full"}
+    {"type": "retrieve", "operator_id": "totals", "view": "sample_stats"}
   ]
 }
 ```
