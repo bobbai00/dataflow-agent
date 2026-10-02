@@ -124,8 +124,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                   "minLength": 1,
                   "pattern": "\\S"
                 },
-                "minItems": 1,
-                "uniqueItems": true
+                "minItems": 1
               }
             },
             "required": [
@@ -190,8 +189,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                   "pattern": "\\S"
                 },
                 "minItems": 1,
-                "maxItems": 128,
-                "uniqueItems": true
+                "maxItems": 128
               }
             },
             "required": [

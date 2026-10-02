@@ -58,6 +58,19 @@ describe("ordered dataflow actions", () => {
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);
   });
 
+  test("provider schema omits unsupported uniqueness keywords while local validation keeps them", () => {
+    const schema = asSchema(createDataflowTool().inputSchema).jsonSchema;
+    expect(JSON.stringify(schema)).not.toContain('"uniqueItems"');
+    for (const action of [
+      { type: "execute", operator_ids: ["total", "total"] },
+      { type: "retrieve", operator_id: "total", view: "sample", columns: ["value", "value"] },
+    ]) {
+      const result = prepareDataflowActions({ reasoning: "Read.", actions: [action] });
+      expect(result.status).toBe("error");
+      expect(result.actions).toHaveLength(0);
+    }
+  });
+
   test("system-info exports the same action schema sent to the model", () => {
     const s = session([]);
     const exported = s.agent.getSystemInfo().tools.find(tool => tool.name === "dataflow");

@@ -218,6 +218,11 @@ export function prepareDataflowActions(
 
 export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
   const schema = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
+  // OpenAI's strict schema subset rejects uniqueItems. Keep it in the Ajv
+  // schema used by prepareDataflowActions, so duplicate selections still fail
+  // before any actions run, while every provider receives the same contract.
+  for (const variant of schema.properties.actions.items.anyOf)
+    for (const property of Object.values(variant.properties)) delete (property as any).uniqueItems;
   const descriptions = {
     full: "full requests records up to its character cap; narrow large tables first",
     sample: "sample checks layout and example values with a small record view",
