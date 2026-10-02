@@ -121,18 +121,24 @@ def deserialize_global_port_identity(encoded_str: str) -> GlobalPortIdentity:
 
 
 def get_from_actor_id_for_input_port_storage(
-    storage_uri_str: str, to_worker_actor_id: ActorVirtualIdentity
+    storage_uri_str: str, to_worker_actor_id: ActorVirtualIdentity, port_id: PortIdentity
 ) -> ActorVirtualIdentity:
     """
-    Constructs an ActorVirtualIdentity for input port storage.
+    Identify the reader by storage, worker and destination port. One saved
+    output may feed several ports of the same worker; they must have distinct
+    data and completion channels.
 
     Args:
         storage_uri_str (str): The string representation of the storage URI.
+        port_id (PortIdentity): The destination input port.
 
     Returns:
         ActorVirtualIdentity: A new virtual identity created by
         prefixing the storage URI.
     """
     return ActorVirtualIdentity(
-        MATERIALIZATION_READER_ACTOR_PREFIX + storage_uri_str + to_worker_actor_id.name
+        MATERIALIZATION_READER_ACTOR_PREFIX
+        + storage_uri_str
+        + to_worker_actor_id.name
+        + f":input-{port_id.id}-internal-{str(port_id.internal).lower()}"
     )

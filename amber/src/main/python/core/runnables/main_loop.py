@@ -38,6 +38,7 @@ from core.models.internal_queue import (
     DCMElement,
     ECMElement,
     InternalQueueElement,
+    InputPortReadError,
 )
 from core.models.operator import LoopEndOperator, LoopStartOperator, TableOperator
 from core.models.payload import DataFrame as DataFramePayload
@@ -184,6 +185,8 @@ class MainLoop(StoppableQueueBlockingRunnable):
             next_entry = self.interruptible_get()
             match(
                 next_entry,
+                InputPortReadError,
+                self._process_input_read_error,
                 DCMElement,
                 self._process_dcm,
                 ECMElement,
@@ -211,6 +214,8 @@ class MainLoop(StoppableQueueBlockingRunnable):
 
         match(
             next_entry,
+            InputPortReadError,
+            self._process_input_read_error,
             DataElement,
             self._process_data_element,
             DCMElement,
@@ -218,6 +223,10 @@ class MainLoop(StoppableQueueBlockingRunnable):
             ECMElement,
             self._process_ecm,
         )
+
+    def _process_input_read_error(self, entry: InputPortReadError) -> None:
+        self.context.report_exception(entry.exception)
+        self._check_exception()
 
     def process_input_tuple(self) -> None:
         """

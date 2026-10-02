@@ -64,6 +64,8 @@ object WorkflowWorker {
 
   final case class ActorCommandElement(cmd: ActorCommand) extends DPInputQueueElement
 
+  final case class InputPortReadError(error: Throwable) extends DPInputQueueElement
+
   final case class WorkerReplayInitialization(
       restoreConfOpt: Option[StateRestoreConfig] = None,
       faultToleranceConfOpt: Option[FaultToleranceConfig] = None

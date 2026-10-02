@@ -220,8 +220,8 @@ class TestGetFromActorIdForInputPortStorage:
     def test_prefixes_materialization_reader_to_uri_plus_actor_name(self):
         actor = ActorVirtualIdentity(name="Worker:WF1-myOp-main-0")
         virtual_reader = get_from_actor_id_for_input_port_storage(
-            "iceberg:/warehouse/x", actor
+            "iceberg:/warehouse/x", actor, PortIdentity(id=0, internal=False)
         )
         assert virtual_reader.name == (
-            "MATERIALIZATION_READER_iceberg:/warehouse/xWorker:WF1-myOp-main-0"
+            "MATERIALIZATION_READER_iceberg:/warehouse/xWorker:WF1-myOp-main-0:input-0-internal-false"
         )

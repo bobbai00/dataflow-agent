@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.architecture.handlers.control.assign_port_handler import AssignPortHandler
+from core.architecture.packaging.input_manager import InputManager
 from core.models import Schema
 from core.util.virtual_identity import get_from_actor_id_for_input_port_storage
 from proto.org.apache.texera.amber.core import (
@@ -52,7 +53,7 @@ def _expected_channel(uri: str) -> ChannelIdentity:
     the real MATERIALIZATION_READER_<uri><worker> identity rather than a stub."""
     to_actor_id = ActorVirtualIdentity(WORKER_ID)
     return ChannelIdentity(
-        get_from_actor_id_for_input_port_storage(uri, to_actor_id),
+        get_from_actor_id_for_input_port_storage(uri, to_actor_id, PORT_ID),
         to_actor_id,
         False,
     )
@@ -71,6 +72,29 @@ def _make_request(**overrides) -> AssignPortRequest:
 
 
 class TestAssignPortHandler:
+    def test_same_cached_table_can_feed_two_ports_without_losing_completion(self):
+        manager = InputManager(WORKER_ID, MagicMock())
+        handler = AssignPortHandler(SimpleNamespace(input_manager=manager, worker_id=WORKER_ID))
+        uri = "vfs:///wid/23/eid/516/score"
+        ports = [PortIdentity(id=0, internal=False), PortIdentity(id=1, internal=False)]
+        for port in ports:
+            asyncio.run(
+                handler.assign_port(
+                    _make_request(
+                        port_id=port,
+                        storage_uris=[uri],
+                        partitionings=[Partitioning(one_to_one_partitioning=OneToOnePartitioning(batch_size=2))],
+                    )
+                )
+            )
+        readers = manager.get_input_port_mat_reader_threads()
+        channels = [readers[port][0].channel_id for port in ports]
+        assert channels[0] != channels[1], "Each input must have its own data and completion channel"
+        for port, channel in zip(ports, channels):
+            assert manager.get_port_id(channel) == port
+            manager.complete_current_port(channel)
+        assert manager.all_ports_completed()
+
     @pytest.fixture
     def handler(self):
         context = SimpleNamespace(
@@ -124,9 +148,7 @@ class TestAssignPortHandler:
         # identity, and the channel carries data — not control — traffic.
         to_actor_id = ActorVirtualIdentity(WORKER_ID)
         assert channel_id.to_worker_id == to_actor_id
-        assert channel_id.from_worker_id == get_from_actor_id_for_input_port_storage(
-            uri, to_actor_id
-        )
+        assert channel_id.from_worker_id == get_from_actor_id_for_input_port_storage(uri, to_actor_id, PORT_ID)
         assert channel_id.is_control is False
 
     def test_input_registers_a_channel_even_for_an_empty_string_uri(self, handler):

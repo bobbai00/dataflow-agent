@@ -72,6 +72,28 @@ class DPThreadSpec extends AnyFlatSpec with MockFactory {
   private val logManager: ReplayLogManager =
     ReplayLogManager.createLogManager(logStorage, "none", x => {})
 
+  "DP Thread" should "forward a cached-reader failure to the worker actor immediately" in {
+    val inputQueue = new LinkedBlockingQueue[DPInputQueueElement]()
+    val forwarded = new CompletableFuture[MainThreadDelegateMessage]()
+    val error = new IllegalStateException("missing cached input")
+    val dp = new DataProcessor(
+      workerId,
+      {
+        case Left(message: MainThreadDelegateMessage) => forwarded.complete(message); ()
+        case _                                        => ()
+      },
+      inputQueue
+    )
+    val dpThread = new DPThread(workerId, dp, logManager, inputQueue)
+    inputQueue.put(WorkflowWorker.InputPortReadError(error))
+    try {
+      dpThread.start()
+      val message = forwarded.get(3, TimeUnit.SECONDS)
+      val reported = intercept[IllegalStateException](message.closure(null))
+      assert(reported eq error)
+    } finally dpThread.stop()
+  }
+
   "DP Thread" should "handle pause/resume during processing" in {
     val inputQueue = new LinkedBlockingQueue[DPInputQueueElement]()
     val dp = new DataProcessor(workerId, x => {}, inputMessageQueue = inputQueue)

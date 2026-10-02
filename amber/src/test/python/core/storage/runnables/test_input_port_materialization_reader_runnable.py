@@ -19,9 +19,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from loguru import logger
+from pyarrow import Table
 
-from core.models import DataFrame, State, StateFrame, Tuple
-from core.models.internal_queue import DataElement, ECMElement
+from core.models import DataFrame, InternalQueue, State, StateFrame, Tuple
+from core.models.internal_queue import DataElement, ECMElement, InputPortReadError
 from core.models.schema import Schema
 from core.storage.runnables.input_port_materialization_reader_runnable import (
     InputPortMaterializationReaderRunnable,
@@ -29,7 +30,71 @@ from core.storage.runnables.input_port_materialization_reader_runnable import (
 from proto.org.apache.texera.amber.core import (
     ActorVirtualIdentity,
     ChannelIdentity,
+    PortIdentity,
 )
+from proto.org.apache.texera.amber.engine.architecture.sendsemantics import (
+    OneToOnePartitioning,
+    Partitioning,
+)
+
+
+def test_one_to_one_cached_reader_routes_rows_from_its_virtual_actor():
+    worker = ActorVirtualIdentity("worker-1")
+    uri = "vfs:///wid/23/eid/516/score"
+    from core.util.virtual_identity import get_from_actor_id_for_input_port_storage
+
+    port = PortIdentity(id=1, internal=False)
+    channel = ChannelIdentity(get_from_actor_id_for_input_port_storage(uri, worker, port), worker, False)
+    reader = InputPortMaterializationReaderRunnable(
+        uri,
+        MagicMock(),
+        worker,
+        Partitioning(one_to_one_partitioning=OneToOnePartitioning(channels=[channel], batch_size=1)),
+        port_id=port,
+    )
+    reader.tuple_schema = Schema(raw_schema={"x": "INTEGER"})
+    frames = list(reader.tuple_to_batch_with_filter(Tuple({"x": 2}, schema=reader.tuple_schema)))
+    assert frames[0].frame.to_pydict() == {"x": [2]}
+
+
+def test_read_failure_is_delivered_to_worker_instead_of_only_logged():
+    reader = _build_reader(ActorVirtualIdentity("worker-1"))
+    reader.materialization = MagicMock()
+    reader.state_document = MagicMock()
+    reader.state_document.get.return_value = iter([])
+    err = OSError("cached parquet read failed")
+    reader.materialization.get.side_effect = err
+    reader.partitioner.flush.side_effect = lambda receiver, ecm: [ecm]
+    reader.run()
+    failures = [
+        call.args[0] for call in reader.queue.put.call_args_list if getattr(call.args[0], "exception", None) is err
+    ]
+    assert len(failures) == 1, "The main loop must receive the reader failure"
+    assert failures[0].tag.is_control, "A failed read must wake the worker even if data is paused"
+    assert _emitted_ecm_names(reader) == ["StartChannel"], "Failed input must never signal successful completion"
+    assert reader.finished() is False
+
+
+def test_read_failure_wakes_a_worker_with_data_disabled_and_reports_error():
+    from core.architecture.managers.context import Context
+    from core.runnables.main_loop import MainLoop
+
+    worker = ActorVirtualIdentity("Worker:WF23-report-main-0")
+    queue = InternalQueue()
+    data_channel = ChannelIdentity(ActorVirtualIdentity("reader"), worker, False)
+    queue.put(DataElement(tag=data_channel, payload=DataFrame(frame=Table.from_pydict({"x": [1]}))))
+    queue.disable_data(InternalQueue.DisableType.DISABLE_BY_PAUSE)
+    err = OSError("missing cached parquet")
+    entry = InputPortReadError(tag=ChannelIdentity(data_channel.from_worker_id, worker, True), exception=err)
+    queue.put(entry)
+    assert queue.get() is entry
+    loop = MainLoop.__new__(MainLoop)
+    loop.context = Context(worker.name, queue)
+    loop._check_exception = MagicMock()
+    loop.receive(entry)
+    assert loop.context.exception_manager.has_exception()
+    loop._check_exception.assert_called_once()
+
 
 DOCUMENT_FACTORY = (
     "core.storage.runnables.input_port_materialization_reader_runnable.DocumentFactory"
@@ -313,9 +378,8 @@ class TestRunTupleLoop:
 
 
 class TestRunErrorHandling:
-    """run() executes on a detached daemon thread, so it must swallow and
-    log failures instead of propagating them into an unhandled thread
-    exception. A reader that failed must not report itself as finished --
+    """Detached reader failures must reach the worker through its queue.
+    A reader that failed must not report itself as finished --
     otherwise start_input_port_mat_reader_threads would skip retrying it.
     """
 
@@ -337,7 +401,9 @@ class TestRunErrorHandling:
             logger.remove(handler_id)
 
         assert reader.finished() is False
-        reader.queue.put.assert_not_called()
+        reader.queue.put.assert_called_once()
+        assert reader.queue.put.call_args.args[0].tag.is_control
+        assert "catalog unreachable" in str(reader.queue.put.call_args.args[0].exception)
         assert any("catalog unreachable" in str(message) for message in messages)
 
     def test_open_retries_a_failure_then_reads(self, me):
