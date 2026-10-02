@@ -1,0 +1,277 @@
+{
+  "created_at_utc": "2026-10-02T04:35:52.759516+00:00",
+  "scope": "Deterministic engine repair and trace replays. No new benchmark solver or judge calls.",
+  "branch": "feat/operator-history-lean",
+  "workspace": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/operator-history-lean",
+  "base_revision": "0804a33c8",
+  "commits": {
+    "cached_input_channels_routing_and_failures": "924e42e90",
+    "statistics_writer_lifecycle": "3bede8dd3",
+    "cached_read_diagnostics": "574719aca",
+    "deterministic_replay_probe": "2cf15ca9f"
+  },
+  "source_evidence": {
+    "run_root": "/var/tmp/texera-state-broader-20261001/runs/luna-baseline-r1/sports__nfl_big_data_bowl_2023__task1",
+    "snapshots": [
+      "t30/snapshot-1.json",
+      "t36/snapshot-5.json"
+    ],
+    "campaign_latency_audit": "benchmark/longds/reports/operator-history-lean-pilot-20261002.json:latency_audit",
+    "observed_campaign_execution_timeouts": 5,
+    "observed_campaign_timeout_wait_seconds": 1205.126,
+    "input_export": "Full recorded Iceberg materializations exported as CSV; row counts checked against saved snapshots. These are not sampled context rows.",
+    "input_export_limit": "CSV round trips are not asserted to preserve every floating-point bit.",
+    "manifest": "logs/engine-stalls-20261002/replay-manifest.json",
+    "python_callback_replay": [
+      {
+        "operator_id": "task30_compare",
+        "seconds": 0.001724885994917713,
+        "status": "error",
+        "type": "KeyError",
+        "message": "'heavy_weighted_events'"
+      },
+      {
+        "operator_id": "task36_decomp",
+        "seconds": 0.002799242007313296,
+        "status": "error",
+        "type": "KeyError",
+        "message": "'event_pressure_pct'"
+      }
+    ]
+  },
+  "diagnosis": {
+    "confidence": "high",
+    "primary_cause": "A cached-reader identity used URI and destination worker but omitted destination input port. Reusing one cached table on two ports overwrote the channel-to-port mapping, so one port never completed.",
+    "counterfactual_check": "The original multi-port layouts also stalled with callbacks that only count input rows. The saved analysis callbacks fail immediately with column KeyErrors outside the engine.",
+    "input_topologies": [
+      {
+        "operator": "task30_compare",
+        "ports": [
+          {
+            "port": 0,
+            "source": "task21_scores",
+            "full_rows": 86
+          },
+          {
+            "port": 1,
+            "source": "task21_scores",
+            "full_rows": 86
+          },
+          {
+            "port": 2,
+            "source": "task25_eval",
+            "full_rows": 76
+          }
+        ]
+      },
+      {
+        "operator": "task36_decomp",
+        "ports": [
+          {
+            "port": 0,
+            "source": "task25_eval",
+            "full_rows": 76
+          },
+          {
+            "port": 1,
+            "source": "protection_picture",
+            "full_rows": 86
+          },
+          {
+            "port": 2,
+            "source": "protection_picture",
+            "full_rows": 86
+          },
+          {
+            "port": 3,
+            "source": "task29_compare",
+            "full_rows": 12
+          }
+        ]
+      }
+    ],
+    "secondary_issues": [
+      "The one-to-one cached reader used the destination worker rather than its synthetic sender when constructing the partitioner. Python also passed an actor object where a name string was required.",
+      "Detached cached-reader failures were logged without delivering an error to the worker, leaving it waiting for input or completion.",
+      "Runtime statistics writes and close ran on different threads, racing inside the non-thread-safe Iceberg writer.",
+      "Forced sync termination could skip the final statistics callback, allowing workflow deletion before the writer closed.",
+      "The native diagnostic classifier matched timeout parameters in library tracebacks, labeling a 1.4-second FileNotFoundError as EXECUTION_TIMEOUT."
+    ]
+  },
+  "repairs": [
+    "Include input port ID and internal flag in reader channel identities, consistently in Python/JVM registration, readers, and resource allocation.",
+    "Construct one-to-one partitioners with the synthetic sender identity in both runtimes.",
+    "Deliver detached reader failures through worker queues. Python uses a control channel so paused data cannot hide the failure; the JVM worker forwards it to its supervisor.",
+    "Serialize runtime statistics writes and final close on one executor, drain accepted writes, ignore late events, close once, and release the executor.",
+    "Flush statistics before every synchronous execution return, including console errors and deadlines.",
+    "Require explicit deadline evidence for EXECUTION_TIMEOUT and report cached read failures as CACHE_INPUT_READ with a storage recovery hint."
+  ],
+  "paired_live_replay": {
+    "timing_definition": "Seconds for the debug action, including execute/retrieve and reading the trace receipt; not isolated CPU time.",
+    "shortened_execution_deadline_seconds": 15,
+    "before_artifacts": "/tmp/cache-stall-replay-OoJbTh",
+    "before": [
+      {
+        "label": "task30_compare",
+        "counts_status": "error",
+        "counts_seconds": 15.155347628000001,
+        "callback_status": "error",
+        "callback_seconds": 15.140581754,
+        "input_states": {
+          "task21_scores": "Completed",
+          "task25_eval": "Completed"
+        }
+      },
+      {
+        "label": "task36_decomp",
+        "counts_status": "error",
+        "counts_seconds": 15.138990270000003,
+        "callback_status": "error",
+        "callback_seconds": 15.144067714999997,
+        "input_states": {
+          "task25_eval": "Completed",
+          "protection_picture": "Completed",
+          "task29_compare": "Completed"
+        }
+      }
+    ],
+    "after_artifacts": "/tmp/cache-stall-replay-LksHCe",
+    "after": [
+      {
+        "label": "task30_compare",
+        "counts_status": "completed",
+        "counts_seconds": 2.156855554,
+        "callback_status": "error",
+        "callback_seconds": 1.830551121999999,
+        "input_states": {
+          "task21_scores": "CompletedFromCache",
+          "task25_eval": "CompletedFromCache"
+        },
+        "counts": [
+          {
+            "port_0": 86,
+            "port_1": 86,
+            "port_2": 76
+          }
+        ]
+      },
+      {
+        "label": "cached_read_failure",
+        "status": "error",
+        "seconds": 1.3976749990000008
+      },
+      {
+        "label": "cached_read_recovery",
+        "status": "completed",
+        "seconds": 1.9096701940000003
+      },
+      {
+        "label": "task36_decomp",
+        "counts_status": "completed",
+        "counts_seconds": 2.0838213419999994,
+        "callback_status": "error",
+        "callback_seconds": 1.7587581189999983,
+        "input_states": {
+          "task25_eval": "CompletedFromCache",
+          "protection_picture": "CompletedFromCache",
+          "task29_compare": "CompletedFromCache"
+        },
+        "counts": [
+          {
+            "port_0": 76,
+            "port_1": 86,
+            "port_2": 86,
+            "port_3": 12
+          }
+        ]
+      }
+    ],
+    "assertions": "Exact rows on every port, every source CompletedFromCache, no execution timeouts, original callback KeyErrors surfaced, missing cache file reported promptly, same workflow succeeds after restoration.",
+    "fault_isolation": "Only data files belonging to the newly created probe workflow were temporarily renamed; restored in finally before deleting probe resources."
+  },
+  "verification": {
+    "python": {
+      "passed": 127,
+      "xfailed": 1,
+      "seconds": 1.3,
+      "log": "logs/engine-stalls-20261002/python-final.log"
+    },
+    "jvm": {
+      "workflow_core_tests_passed": 18,
+      "execution_service_tests_passed": 25,
+      "additional_sync_result_tests_passed": 3,
+      "statistics_lifecycle_test_rechecked_after_terminal_flush": true,
+      "logs": [
+        "logs/engine-stalls-20261002/scala-tests.log",
+        "logs/engine-stalls-20261002/scala-final.log",
+        "logs/engine-stalls-20261002/scala-terminal-flush-final.log"
+      ],
+      "stage_build": "passed"
+    },
+    "agent_diagnostics_and_request_deadlines": {
+      "passed": 21,
+      "failed": 0,
+      "log": "logs/engine-stalls-20261002/agent-diagnostics-final.log"
+    },
+    "typecheck": "passed",
+    "cached_and_fresh_fanout_control": {
+      "artifacts": "/tmp/cached-fanout-e2e-Eo5G36",
+      "checks": [
+        {
+          "fresh": false,
+          "status": "completed",
+          "seconds": 1.9946690980000004,
+          "errors": []
+        },
+        {
+          "fresh": true,
+          "status": "completed",
+          "seconds": 2.7716995769999992,
+          "errors": []
+        }
+      ],
+      "elapsed_seconds": 7.725106535,
+      "model_calls": 0
+    },
+    "history_engine_smoke": {
+      "artifacts": "/tmp/state-history-e2e-04y27l",
+      "passed": true,
+      "saved_result_read_without_execution": true,
+      "historical_dependency_closure": true,
+      "old_formula_current_population": true,
+      "current_baseline_preserved": true,
+      "failed_sibling_isolated": true,
+      "unfinished_branch_preserved": true,
+      "whole_graph_execution_still_validates_all_inputs": true
+    },
+    "statistics_log_check": {
+      "log": "logs/engine-stalls-20261002/master-final.log",
+      "error_counts": {
+        "ConcurrentModificationException": 0,
+        "NoSuchTableException": 0,
+        "Failed to close runtime statistics writer": 0,
+        "Failed to commit runtime statistics": 0
+      },
+      "checked_lines": 926,
+      "scope": "Final repaired stack after cached reads, callback failures, injected storage failure/recovery, history operations, and workflow deletion.",
+      "runtime_log": "/var/tmp/texera-engine-stall-repair-20261002/stack/logs/computing-unit-master.log"
+    },
+    "model_calls": 0,
+    "judge_calls": 0
+  },
+  "runtime_isolation": {
+    "service": "longds-engine-stall-repair.service",
+    "engine_rest_port": 38086,
+    "engine_actor_port": 32558,
+    "agent_port": 3037,
+    "launch": "bin/local-dev.sh; only the repair service was restarted",
+    "infrastructure": "Existing private experiment database, storage, web and compiler services reused. Other development stacks and the old engine/agents were left running unchanged."
+  },
+  "limitations": [
+    "This establishes the cause and repair of the two reproduced multi-port layouts; it does not prove that every possible engine timeout is solved.",
+    "The original generated callbacks still contain incorrect input assumptions and column names. They now report those errors promptly; this engine change does not repair their analysis formulas.",
+    "No new LongDS accuracy, error-category reduction, or solver-cost improvement is claimed from these deterministic probes.",
+    "The first asynchronous statistics-close attempt still raced with table deletion. Final verification uses serialized close with an explicit synchronous-request flush."
+  ],
+  "next_experiment": "Use this repaired engine for a short matched LongDS repeat, retain the existing solver prompts and judges, inspect the first divergence, and compare accuracy and cost before expanding."
+}
