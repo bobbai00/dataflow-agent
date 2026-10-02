@@ -1,0 +1,255 @@
+{
+  "sut_revision": "1ce84250e69cff6af661c5ee93178ff156fc9446",
+  "merge_base_actions_revision": "83934bbf2",
+  "source_run_root": "/var/tmp/texera-operator-history-lean-20261002/pilot",
+  "data_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+  "judge_model": "deepseek/deepseek-v4-pro",
+  "annotation_model": "gpt-5.5",
+  "annotation_reasoning_effort": "xhigh",
+  "judge_prompt_sha256": "5bb32f993b72cb515a675f55808145247bc81211dd05e7253135bb01b0d2c300",
+  "scope": "one matched diagnostic repeat, Restaurants eight questions per arm; no claim of statistical significance",
+  "settings": {
+    "retrievalViews": [
+      "sample_stats",
+      "full"
+    ],
+    "fullResultCharLimit": 5000,
+    "maxOperatorResultCharLimit": 2000,
+    "maxResultRows": 50,
+    "dataEvidenceCharLimit": 2000,
+    "flowEvidence": false
+  },
+  "runs": [
+    {
+      "arm": "lean-luna-baseline-r1",
+      "questions": 8,
+      "correct": 5,
+      "scores": [
+        1,
+        1,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0
+      ],
+      "seconds": 423.31,
+      "model_seconds": 206.114,
+      "nonmodel_seconds": 217.196,
+      "solver_cost_estimate_usd": 0.06430978,
+      "calls": 43,
+      "missing_usage_calls": 0,
+      "cached_input_fraction": 0.9498179409773791,
+      "prefix_mutations": 0,
+      "historical_actions": 0,
+      "successful_reads_by_view": {
+        "sample_stats": 2,
+        "full": 18
+      },
+      "largest_full_observation_chars": 4996,
+      "annotation_status": "valid",
+      "annotation_seconds": 316.64,
+      "error_categories": {
+        "total_incorrect_tasks": 3,
+        "primary_error_type_counts": {
+          "Statistical / Domain Reasoning Error": 0,
+          "Planning Error": 0,
+          "Instruction Following Error": 1,
+          "Coding / Implementation Error": 1,
+          "Context Memory Error": 0,
+          "State Management Error": 1,
+          "Cascade Error": 0
+        },
+        "all_error_type_counts": {
+          "Statistical / Domain Reasoning Error": 2,
+          "Planning Error": 0,
+          "Instruction Following Error": 3,
+          "Coding / Implementation Error": 1,
+          "Context Memory Error": 0,
+          "State Management Error": 1,
+          "Cascade Error": 1
+        },
+        "cascade_error_count": 1,
+        "main_failure_patterns": [
+          "The agent often identified the right high-level workflow but changed a gating condition or fallback rule inside the dataflow, producing plausible outputs with wrong membership.",
+          "The largest long-horizon failure was incorrect reuse of prior customer-coverage state: Task 6 recomputed coverage for all units instead of preserving the Task 5 verified coverage artifact and the unproven-coverage rule.",
+          "A later rollback/sensitivity task inherited the wrong Task 6 coverage state while also introducing a fresh current-turn reporting error for service-screen diagnostics."
+        ]
+      }
+    },
+    {
+      "arm": "lean-luna-history-r1",
+      "questions": 8,
+      "correct": 4,
+      "scores": [
+        1,
+        1,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "seconds": 255.948,
+      "model_seconds": 173.817,
+      "nonmodel_seconds": 82.131,
+      "solver_cost_estimate_usd": 0.04910366,
+      "calls": 36,
+      "missing_usage_calls": 0,
+      "cached_input_fraction": 0.9470230323878491,
+      "prefix_mutations": 0,
+      "historical_actions": 0,
+      "successful_reads_by_view": {
+        "sample_stats": 3,
+        "full": 14
+      },
+      "largest_full_observation_chars": 4972,
+      "annotation_status": "valid",
+      "annotation_seconds": 329.29,
+      "error_categories": {
+        "total_incorrect_tasks": 4,
+        "primary_error_type_counts": {
+          "Statistical / Domain Reasoning Error": 1,
+          "Planning Error": 0,
+          "Instruction Following Error": 0,
+          "Coding / Implementation Error": 1,
+          "Context Memory Error": 0,
+          "State Management Error": 2,
+          "Cascade Error": 0
+        },
+        "all_error_type_counts": {
+          "Statistical / Domain Reasoning Error": 3,
+          "Planning Error": 0,
+          "Instruction Following Error": 4,
+          "Coding / Implementation Error": 1,
+          "Context Memory Error": 0,
+          "State Management Error": 2,
+          "Cascade Error": 1
+        },
+        "cascade_error_count": 1,
+        "main_failure_patterns": [
+          "The agent repeatedly used the wrong inherited customer-coverage artifact, recomputing reach for all units instead of preserving the limited Task 5 first-customer coverage state and treating missing coverage as unproven.",
+          "The agent misapplied service-screen semantics by comparing day-type-relative slow rates against an incorrect local baseline and then letting those wrong service flags drive later boundary decisions.",
+          "Several wrong answers came from violating explicit current-turn formulas or gates while otherwise using the intended broad workflow."
+        ]
+      }
+    }
+  ],
+  "cost_exclusions": [
+    "correctness judge",
+    "error annotation",
+    "infrastructure"
+  ],
+  "previous_restaurants": {
+    "luna-baseline-r1": {
+      "correct": 6,
+      "solver_cost_estimate_usd": 0.05789194,
+      "calls": 42,
+      "note": "earlier recorded repeat, not a fresh simultaneous comparison"
+    },
+    "luna-history-r1": {
+      "correct": 4,
+      "solver_cost_estimate_usd": 0.058015899999999995,
+      "calls": 40,
+      "note": "earlier recorded repeat, not a fresh simultaneous comparison"
+    },
+    "luna-dsgym-r1": {
+      "correct": 2,
+      "solver_cost_estimate_usd": 0.04757015,
+      "calls": 44,
+      "note": "earlier recorded repeat, not a fresh simultaneous comparison"
+    }
+  },
+  "manual_findings": [
+    {
+      "task_id": 4,
+      "finding": "The sensitivity classification omitted the commercial eligibility gate, adding three hold-to-diagnose units. History reported 13 moved units; reference expects 10.",
+      "evidence": "history t04 actions and answer.json; reference classify_negative"
+    },
+    {
+      "task_id": 6,
+      "finding": "Both arms substituted all-unit recomputed coverage for the first customer-view result, violating the task requirement to keep units without that reviewed evidence unproven.",
+      "evidence": "history risk_coverage input edges and risk_scored function; control E.3 independently identifies same boundary"
+    },
+    {
+      "task_id": 7,
+      "finding": "History used an incorrect comparison for day-type service flags. Its reported identities overlap only two of three required units.",
+      "evidence": "history t07 answer.json and reference flipped_units"
+    },
+    {
+      "task_id": 8,
+      "finding": "History reported eight service-only boundary crossings; reference expects zero. This is a substantive discrepancy in the answer.",
+      "evidence": "history t08 answer.json and reference service_only_change_count"
+    }
+  ],
+  "engine_anomaly": {
+    "kind": "ConcurrentModificationException while closing runtime statistics writer",
+    "stack": "IcebergTableWriter.flushBuffer:126 -> close:145 -> ExecutionStatsService:216",
+    "impact": "effect on answer results and observed missing-result events has not been established",
+    "log": "/var/tmp/texera-state-runtime-repair-20261001/stack/logs/computing-unit-master.log"
+  },
+  "verification": {
+    "focused_tests": 113,
+    "full_unit_tests_passed": 1212,
+    "full_unit_test_seconds": 57.52,
+    "typecheck": "passed",
+    "history_engine_smoke": "passed, no model calls",
+    "cached_fanout_probe": "cached and fresh controls passed; NFL timeout not reproduced",
+    "postpilot_prompt_and_reference_tests": {
+      "passed": 4,
+      "seconds": 0.62
+    }
+  },
+  "later_change": "A generic prompt exception for authoritative reviewed/reported subsets was added after this frozen pilot. Prompt and reference tests pass; no new solver accuracy is claimed for that change.",
+  "decision": "No broad rerun or Terra expansion yet: historical tools were unused and accuracy benefit remains unproven. Verify the reviewed-subset boundary using short focused state cases first.",
+  "runtime_provenance": {
+    "agent_revision": "1ce84250e69cff6af661c5ee93178ff156fc9446",
+    "engine": "existing repaired private stack from d649d7648; no engine rebuild or change during this pilot",
+    "agent_port": 3036,
+    "backend_web_port": 38080,
+    "isolation": "separate agent service using the existing private experiment backend; other development stacks unchanged"
+  },
+  "latency_audit": {
+    "source": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-state-broader-20261001",
+    "sessions": 15,
+    "questions": 426,
+    "solver_wall_seconds": 8899.192757,
+    "correctness_judging_tail_seconds": 666.656127,
+    "execution_timeout_count": 5,
+    "execution_timeout_wait_seconds": 1205.126,
+    "unused_solver_slot_seconds": 4863.369092000001,
+    "scheduling": "Previous controller waited for fixed pairs. A tested as-completed queue now fills freed slots; potential elapsed savings are an estimate, not a measured speedup.",
+    "minimum_available_memory_gib": 13.015464782714844,
+    "prefix_mutations": 0,
+    "nonmodel_note": "Nonmodel time includes execution and harness work. Judge delay includes queueing. Concurrent job times must not be added to campaign wall time.",
+    "storage": {
+      "reclaimed_bytes": 13414334953,
+      "started_at": 1790909233.7582152,
+      "finished_at": 1790909254.398441,
+      "verified_files": 923,
+      "elapsed_seconds": 20.640225887298584,
+      "reclaimed_gib": 12.493072965182364,
+      "initial_free_gib": 4.8,
+      "launch_reserve_gib": 5
+    },
+    "artifact_note": "Only completed generated snapshot duplicates were replaced by verified byte-identical hardlinks. Paths and hashes were retained; linked snapshots must remain immutable.",
+    "changes": [
+      "rolling two-slot solver queue",
+      "health check and explicit runtime PATH before launching paid runs",
+      "hardlink completed generated snapshots into annotation bundles",
+      "fast local tests and deterministic engine probes before a small paid pilot"
+    ]
+  },
+  "solver_cost_estimation": {
+    "model": "gpt-5.6-luna",
+    "recorded_usd_per_million_tokens": {
+      "uncached_input": 0.2,
+      "cache_read": 0.02,
+      "cache_creation": 0.25,
+      "output": 1.2
+    },
+    "note": "Estimates from recorded provider token usage and campaign rates; not provider invoices or total experiment cost."
+  }
+}
