@@ -104,6 +104,14 @@ def main():
                         "data_facts": sum(e.startswith("data.") for e in evidence),
                         "flow_facts": sum(e.startswith("flow.") for e in evidence),
                         "upstream_facts": sum(e.startswith("flow.upstream.") for e in evidence)})
+        script_trace = path / "model-request-trace.jsonl"
+        if script_trace.exists():
+            events = [json.loads(line) for line in script_trace.read_text().splitlines()]
+            row["model_calls"] = sum(event["phase"] == "response" for event in events)
+            requests = [event["request"]["messages"] for event in events if event["phase"] == "request"]
+            for previous_request, current_request in zip(requests, requests[1:]):
+                row["prefix_checks"] += 1
+                row["prefix_failures"] += current_request[:len(previous_request)] != previous_request
         row.update(views=dict(views), actions=dict(types), statuses=dict(statuses),
                    edit_operations=dict(edits), operators_created=dict(created))
         rows.append(row)
@@ -111,7 +119,7 @@ def main():
     for row in rows:
         groups[(row["model"], row["arm"])].append(row)
     summary = []
-    lines = ["Retrieval pilot: official KramaBench scores and model costs", "",
+    lines = ["KramaBench campaign: official scores and model costs", "",
              f"Agent revision: {manifest['agent_revision']}",
              f"Completed: {len(rows)}/{len(manifest['jobs'])}; {manifest['repetitions']} independent repetitions",
              "Pass threshold: official score >= 1.0. Mean score below includes only scored attempts.",
@@ -149,6 +157,8 @@ def main():
     pairs = [("sample_stats_flow0", "full_flow0"), ("sample_stats_flow0", "sample_flow0")]
     pairs += [(f"{view}_flow1", f"{view}_flow0") for view in ["full", "sample", "sample_stats", "adaptive"]]
     pairs += [("adaptive_flow0", "sample_stats_flow0"), ("adaptive_flow1", "sample_stats_flow1")]
+    if manifest.get("script_settings"):
+        pairs.append(("adaptive_flow1", "guided_script"))
     for model in manifest["models"]:
         lookup = {(r["arm"], r["task"], r["rep"]): r for r in rows if r["model"] == model}
         for treatment, control in pairs:

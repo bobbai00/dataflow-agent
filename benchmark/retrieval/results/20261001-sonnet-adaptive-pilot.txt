@@ -1,0 +1,136 @@
+Sonnet 5.5 adaptive retrieval pilot — 2026-10-01
+================================================
+
+Conclusion
+----------
+The current prompt already gives the requested guidance. Sonnet's retrieval
+choices were generally sensible in this small pilot: sample_stats for large
+intermediate results, sample for raw format checks, and full for small result
+sets or filename lookup. It did not retrieve a large parsed table in full.
+Rationales did not always explicitly justify full. Statistics were usually
+requested alongside the final calculation rather than before constructing it.
+
+This is four complete original KramaBench questions, one attempt each, not
+the full 104-task benchmark. All four passed the original evaluator (score
+1.0). No production code or prompt changed, no task retried, and no result
+was overwritten. This pilot tests view selection with flow evidence on;
+it does not establish an accuracy improvement from the guidance.
+
+What the agent was told
+-----------------------
+The actual saved prompts contain:
+- "For a large parsed table, start with `sample_stats` when checking data
+  quality or distributions. Project to relevant columns if a wide table
+  hides the needed statistics."
+- Full is "For small final results or decisions requiring individual records;
+  a capped view remains partial."
+- "For large tables, project, filter or aggregate before requesting `full`.
+  Explain why individual records are needed."
+- Samples are retained records, not random samples. Compute searches,
+  comparisons and aggregates over full data in the graph.
+
+A concise statement of that policy is: Use sample_stats to understand a
+parsed result and check data quality. Use sample for layout checks. Use full
+when you need individual rows, ordering or relationships between columns;
+reduce large tables first. Small final tables can be read directly in full.
+There is no need to retrieve the same small answer twice merely to follow
+an unconditional stats-first rule.
+
+Configuration
+-------------
+Model alias claude-sonnet-5.5; adaptive_flow1, all three views available.
+Native mode, DELTA context, profiles on, flow on; samples 2,000 characters
+and at most five rows. Statistics and flow each have separate 2,000-character
+budgets. Full records bounded at 100,000 characters; max 25 model calls.
+Agent/Python profiler b044a5535; runner 83934bbf2.
+JVM 04e85b581 is inherited build provenance, not a fresh rebuild.
+Same four task IDs as the preceding fixed sample_stats-only Sonnet pilot.
+
+Official scores and recorded model costs
+-----------------------------------------
+Task                    Score   Calls   Cost        Earlier fixed-view cost
+legal-easy-26             1       4     $0.047300          $0.046118
+environment-easy-3        1       4     $0.057691          $0.045358
+wildfire-easy-1           1       5     $0.033190          $0.026654
+legal-hard-14             1       7     $0.063203          $0.059631
+Total                   4/4     20     $0.201384          $0.177761
+
+The adaptive pilot cost 13.3% more, with the same four passes and one extra
+call. This is a descriptive comparison, not a controlled cost estimate.
+The additional cache-creation component is $0.020713 of the $0.023623 gap.
+Both first parallel adaptive tasks began cold; the earlier environment
+pilot reused 8,351 prefix tokens on its first call. The adaptive prompt also
+contains 861 extra characters of view descriptions/examples. Its input cache
+share was 84.3%, versus 87.2% previously. These are normal cache observations;
+all within-task prefix transitions matched exactly. Output tokens rose by
+229, and wildfire needed an additional parsing-recovery call. Costs use the
+same frozen harness rates, including cache reads/writes, and exclude the
+benchmark evaluator and infrastructure.
+
+Actual view choices
+-------------------
+15 successful reads: full 8, sample 4, sample_stats 3. Two further
+sample_stats requests failed because execution had not produced a result;
+these are included in the 17 attempted retrieves, not the success counts.
+
+- Sample_stats: 55 first-per-state rows, 303 monthly records, 30,765 mapped
+  beach records. Five records each; all three include column statistics.
+- Sample: raw file/header previews. These have no parsed-column statistics.
+- Full: a 15-line preview; six output states; one beach count; five ranked
+  windows; six New England state names; two versions of a 15-row metro
+  ranking; 52 filename groups. All were complete, each 248–2,316 characters
+  including flow evidence. Six were below 2,000 characters. The two larger
+  outputs include Cast and Join diagnostics; no bulk parsed table was read.
+
+The filename lookup could be narrowed to relevant states, but its full
+52-row table is only 1,076 characters. The one-row count and five-row ranking would also have been complete as
+samples. Full is reasonable for these small final tables; the prompt allows
+reading them directly without a preliminary statistics call.
+There were no repeated successful reads of the same operator/version/view.
+
+Concrete flow-evidence use
+--------------------------
+In legal-hard-14, the first ranked output showed failed conversions of
+"2,571", "2,613", "1,414", plus other failures: 8/35 rows. The upstream
+Join also reported only four of six requested states matched, explicitly
+naming New Hampshire and Rhode Island as unmatched. Subsequent calls checked
+filename-derived state names and normalized both names and numeric text.
+The new ranking matched all six states and returned the correct top five
+names/counts. Its remaining 24/48 Cast failures were source footer/blank
+rows, independently confirmed. The stale comma-failure examples were absent
+from the new producing version. Sonnet deduplicated overlapping metros in
+its final response rather than adding a graph operator.
+
+In environment-easy-3, full of the one-row count also carried the intermediate
+Join's 1,138 matches and 33/38 unmatched beach keys. The final answer described
+these exclusions correctly. It selected community-plus-name identity before
+receiving those diagnostics, so this supports verification, not a claim that
+metadata caused that key choice.
+
+Checks and remaining issues
+---------------------------
+- 29 final profiles, 141 columns: all count/frequency/version invariants pass.
+- 861 independent retained-table/source profile/counter comparisons, plus
+  57 source checks for the beach prefix/Join and metro Cast/ranking: zero
+  mismatches. The 30,720/30,765-row beach profile is explicitly partial.
+  Some retained tables are incomplete; skips are listed in the JSON audit.
+- All 15 successful observations reached the next model request.
+- All 16 append-only context transitions and Claude cached-prefix accounting
+  checks pass; token sums and frozen-rate costs match stats.json.
+- Two failed executions (CSV metadata and disconnected required ports), with
+  two unsuccessful reads, recovered. No timeouts or worker errors.
+- All four tasks initially answered in plain text. Existing loop feedback
+  recovered valid Answer actions, adding one call each; costs include these.
+- legal-easy-26 trusts source row rank order; wildfire does not explicitly
+  check calendar continuity in its graph. Independent source checks support
+  both assumptions for these files. Passing scores do not prove every
+  intermediate choice is optimal.
+
+Both allocated computing units (369, 370) were terminated. The branch's
+agent service on port 3079 remains available. Other stacks were left alone.
+
+Artifacts
+---------
+/tmp/texera-sonnet-adaptive-pilot-20261001
+The adjacent JSON records settings, actual system prompt, trace hashes,
+per-read choices/rationales, audits and the matched historical comparison.
