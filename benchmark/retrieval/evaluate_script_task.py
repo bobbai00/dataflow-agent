@@ -17,8 +17,10 @@ model responses, execution policy, prompt or official evaluator.
 """
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import runpy
+import signal
 import sys
 import time
 
@@ -28,6 +30,16 @@ from campaign import install_provider_prices
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
+
+
+def save_full_memory(base, memory):
+    """Optional diagnostics must not prevent official grading of a saved answer."""
+    try:
+        save(base / "full-memory.json", memory.get_full_steps())
+    except Exception as exc:
+        save(base / "trace-export-error.json", {
+            "exception": type(exc).__name__, "message": str(exc)[:1000],
+        })
 
 
 def main():
@@ -42,6 +54,18 @@ def main():
     model = manifest["models"][job["model"]]
     pricing = install_provider_prices(cost_utils, [model])
     assert pricing[model] == manifest["pricing_overrides"][model]
+    stopped = False
+
+    def stop_turn(signum, frame):
+        nonlocal stopped
+        stopped = True
+        save(Path("system_scratch") / job["sut"] / job["task"] / "wall-clock-stop.json",
+             {"reason": "Task wall-clock limit reached", "signal": signum})
+        # The existing wrapper catches SystemExit and saves a failed response
+        # with accumulated usage. The official evaluator can then score it.
+        raise SystemExit("Task wall-clock limit reached")
+
+    signal.signal(signal.SIGTERM, stop_turn)
 
     class ScriptSystem(CodeAgentSystem):
         def __init__(self, *args, **kwargs):
@@ -61,6 +85,7 @@ def main():
                 "harness_revision": manifest["harness_revision"], "job": job,
                 "model": model, "endpoint": manifest["script_endpoint"],
                 "smolagents_version": __import__("smolagents").__version__,
+                "adapter_sha256": __import__("hashlib").sha256(Path(__file__).read_bytes()).hexdigest(),
             })
             agent = self.agent._agent
             save(base / "system-info.json", {"systemPrompt": agent.system_prompt})
@@ -71,11 +96,30 @@ def main():
             trace_path = base / "model-request-trace.jsonl"
 
             def append(value):
+                value["timestamp"] = datetime.now(timezone.utc).isoformat()
                 with trace_path.open("a") as stream:
                     stream.write(json.dumps(value, ensure_ascii=False, default=str) + "\n")
 
+            # SDK retries happen inside create(). Observe their HTTP headers
+            # without reading response bodies or recording credentials.
+            def transport_request(request):
+                request.extensions["krama_trace_started"] = time.monotonic()
+                append({"phase": "transport_request", "call": call_number,
+                        "method": request.method, "path": request.url.path})
+
+            def transport_response(response):
+                started = response.request.extensions.get("krama_trace_started", time.monotonic())
+                append({"phase": "transport_headers", "call": call_number,
+                        "status": response.status_code, "seconds": time.monotonic() - started})
+
+            http_client = self.agent._model.client._client
+            http_client.event_hooks["request"].append(transport_request)
+            http_client.event_hooks["response"].append(transport_response)
+
             def recorded_create(*args, **kwargs):
                 nonlocal call_number
+                if stopped:
+                    raise SystemExit("Task wall-clock limit reached")
                 call_number += 1
                 number = call_number
                 started = time.monotonic()
@@ -85,7 +129,7 @@ def main():
                         "request": {key: kwargs[key] for key in fields if key in kwargs}})
                 try:
                     response = original(*args, **kwargs)
-                except Exception as exc:
+                except (Exception, SystemExit) as exc:
                     append({"phase": "error", "call": number,
                             "exception": type(exc).__name__,
                             "status_code": getattr(exc, "status_code", None),
@@ -105,7 +149,7 @@ def main():
             base = Path(self.output_dir) / query_id
             # The inherited summary clips code and observations. Retain the
             # complete memory separately for manual auditing.
-            save(base / "full-memory.json", self.agent._agent.memory.get_full_steps())
+            save_full_memory(base, self.agent._agent.memory)
             save(base / "usage-accumulator.json", self.agent._model.usage_acc)
             return result
 

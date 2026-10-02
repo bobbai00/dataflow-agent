@@ -55,7 +55,9 @@ def audit_script(path):
     for key, value in totals.items():
         if value != stats[key]:
             violations.append("script_usage_mismatch:" + key)
-    if not responses:
+    if (path / "wall-clock-stop.json").exists():
+        warnings.append("task_timeout_usage_incomplete")
+    elif not responses:
         violations.append("no_successful_provider_calls")
     if any(e["phase"] == "error" for e in events):
         warnings.append("provider_request_error")
