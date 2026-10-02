@@ -29,7 +29,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import { ContextMode, type AgentSettings, type LocalToolDialect, type RetrievalSettings } from "../types/agent";
+import {
+  ContextMode,
+  type AgentSettings,
+  type LocalToolDialect,
+  type RetrievalSettings,
+  type RetrievalView,
+} from "../types/agent";
 import { graphCatalogText } from "./native/catalog";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, nativeResultTransportLimit } from "./native/retrieval";
 
@@ -227,11 +233,11 @@ export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEviden
   const parts: string[] = [];
   if (options.dataEvidence)
     parts.push(
-      'Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.'
+      'Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column\'s "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.'
     );
   if (options.flowEvidence)
     parts.push(
-      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Check these against the intended population and grouping keys. For example, if a cast converts 18 of 100 values to null, inspect those inputs and repair formatting or justify their exclusion before using the aggregate. A successful execution does not validate that choice. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
+      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention, reducer denominators and Window offsets/boundary nulls; flow guarantees describe operator contracts. Cast failed-value examples and Join unmatched-key examples or duplicate-key examples show bounded, first-encountered values with counts. Examples may be clipped and are not an exhaustive distribution. Compare the measurements with the task's population, key identity and calculation. Repair a transformation or justify the exclusions before using its aggregate. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
     );
   if (parts.length)
     parts.push(
@@ -272,6 +278,50 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   ].join("\n");
 }
 
+/** Synthetic operator examples only. No dataset, benchmark, answer or domain
+ * convention is needed to explain choosing a view or checking a contract. */
+export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {}): string {
+  const views = availableRetrievalViews(options);
+  // The basic worked graph already previews a source and reads a small final
+  // table. Add the evidence examples only for sessions exposing evidence.
+  if (!views.includes("sample_stats") && !options.flowEvidence) return "";
+  const call = (reasoning: string, actions: unknown[]) =>
+    "```json\n" + JSON.stringify({ reasoning, actions }, null, 2) + "\n```";
+  const retrieve = (operator_id: string, view: RetrievalView) => ({ type: "retrieve", operator_id, view });
+  const parts = ["### Choosing a result view", "Each example below is an independent choice for an existing result."];
+  if (views.includes("sample"))
+    parts.push(
+      "Check column names and example formatting:",
+      call("Check the parsed table's layout.", [retrieve("source", "sample")])
+    );
+  if (views.includes("sample_stats"))
+    parts.push(
+      "Check the selected population and measurement validity before reducing it:",
+      call("Check the selected rows and valid values.", [retrieve("eligible", "sample_stats")]),
+      'For a numeric column named value, full-coverage null=4/20 means mean("value") uses 16 nonnull values. Check whether excluding those four nulls matches the task\'s missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.'
+    );
+  if (views.includes("full"))
+    parts.push(
+      "Read the associations between identifiers and values in a small final table:",
+      call("Read each identifier and its corresponding result.", [retrieve("final_rows", "full")])
+    );
+  if (options.flowEvidence) {
+    const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+    parts.push(
+      "### Acting on flow evidence",
+      'Suppose the task requires decimal measurements and the graph is source -> typed -> total. A Cast reports conversion failures=2/20 and failed-value examples "1.5" × 1; "2.5" × 1. The current integer conversion conflicts with that requirement. Resolve the finding before using the aggregate:',
+      call("Use the decimal type required by the task and recompute the dependent result.", [
+        { type: "edit", changes: "update operator typed: cast(value=float64)" },
+        { type: "execute" },
+        retrieve("total", view),
+      ]),
+      'For a Join, unmatched-key examples ["A 1"] and ["A1"] suggest checking key representation. Normalize only if the source definitions establish the same identity. Duplicate-key examples require checking the intended join cardinality; duplicates can be legitimate.',
+      'For a Window, lag("value", offset=3) with boundary nulls=3/20 in one partition describes three unavailable predecessors. Check the resolved offsets against the requested relationship. A row offset does not establish regular time intervals.'
+    );
+  }
+  return parts.join("\n\n");
+}
+
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.DELTA,
   options: NativePromptLayoutOptions = {}
@@ -289,9 +339,14 @@ export function buildNativeModeSystemPrompt(
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
     .replace("{{RETRIEVAL}}", nativeRetrievalText(options))
     .replace("{{STATE_HISTORY}}", options.stateHistory ? NATIVE_STATE_HISTORY.trim() : "")
+    .replace("{{RETRIEVAL_EXAMPLES}}", nativeRetrievalExamples(options))
     .replaceAll(
       "{{RETRIEVE_EXAMPLE_VIEW}}",
       availableRetrievalViews(options).includes("sample") ? "sample" : availableRetrievalViews(options)[0]
+    )
+    .replace(
+      "{{FINAL_RETRIEVE_EXAMPLE_VIEW}}",
+      availableRetrievalViews(options).includes("full") ? "full" : availableRetrievalViews(options)[0]
     )
     .replace(
       "{{EVIDENCE}}",

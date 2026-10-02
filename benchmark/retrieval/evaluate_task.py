@@ -19,13 +19,20 @@ import sys
 
 import requests
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from campaign import install_provider_prices
+
 sys.path.insert(0, str(Path.cwd()))
 import systems
+from systems import cost_utils
 from systems.native_expression_system import _NativeExpressionBase
 
 manifest = json.loads(Path(os.environ["RETRIEVAL_MANIFEST"]).read_text())
 job = json.loads(os.environ["RETRIEVAL_JOB"])
 arm = manifest["arms"][job["arm"]]
+pricing = install_provider_prices(cost_utils, [manifest["models"][job["model"]]])
+if pricing:
+    assert pricing == {manifest["models"][job["model"]]: manifest["pricing_overrides"][manifest["models"][job["model"]]]}, "Pricing drift"
 
 
 def save(path, data):

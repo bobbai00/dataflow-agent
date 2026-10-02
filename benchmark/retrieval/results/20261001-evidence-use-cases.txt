@@ -1,0 +1,682 @@
+KramaBench: where data statistics and flow evidence help
+======================================================
+Date: 2026-10-01
+Review checkout: feat/dataflow-actions, 99f2bfa3a
+
+Conclusion
+----------
+Both capabilities have real uses. Data statistics describe the values in an
+operator's output. Flow evidence describes how that output was obtained:
+which rows survived, which keys matched, and how many valid values entered
+a reducer. Together they can expose a plausible answer computed over the
+wrong population, even when the displayed output is a single number.
+
+The strongest examples are numeric conversion loss, patient eligibility,
+categorical filtering, duplicated or incomplete joins, and aggregate
+denominators. Existing statistics are often enough to reveal these problems.
+They do not ensure that the model repairs them. Temporal alignment, joint
+missingness and calculations inside a large Process need more information.
+
+This is a diagnostic review, not a new accuracy experiment. The examples
+below are selected after reading outcomes. They identify mechanisms and
+testable opportunities; they cannot establish an average accuracy gain.
+
+Scope and evidence
+------------------
+- All 104 original top-level KramaBench questions, across six domains:
+  legal 30, wildfire 21, environment 20, archeology 12, astronomy 12,
+  biomedical 9. These are whole questions, not their decomposed subtasks.
+- A mechanical census of every available trace in nine recent cohorts:
+  1,604 attempts, 1,597 complete traces and seven watchdog partial traces.
+  Timeouts remain in the inventory.
+- This includes every attempt from the 1,248-job Luna/Terra retrieval/flow
+  campaign and the 104-job Haiku campaign, plus 252 pilot/diagnostic attempts.
+- 9,406 successful Retrieve observations. The census found data evidence
+  in 1,651 observations, flow evidence in 4,014, and upstream flow summaries
+  in 1,166. An observation can contain both kinds of evidence.
+- 32 selected trace cases examined for specific mechanisms. Independent
+  source calculations additionally checked report-count parsing, clinical
+  eligibility, beach category spellings and identity, and capital categories.
+- All 104 questions have trace coverage; each has at least 13 attempts in
+  these cohorts. All have at least one observed flow-evidence exposure;
+  103 have an observed data-evidence exposure.
+
+The census checks recorded observations and final profile snapshots. It does
+not certify every custom transformation or recompute every intermediate
+table. The all-task CSV assigns each question a diagnostic family and lists
+useful evidence and gaps; it is not a success/failure judgment.
+
+No model calls, executions, scoring changes or reruns were made for this
+review. Historical cohorts retain their original agent/engine revisions.
+Their costs and scores are not pooled into a matched model comparison.
+Where an example says it passed, its recorded original score was 1.0.
+Scores and reference answers come from the existing benchmark artifacts;
+this review does not use an LLM judge to relabel success.
+
+Companion files:
+- 20261001-evidence-use-cases-tasks.csv: all 104 questions, data sources,
+  trace coverage, diagnostic family, useful data/flow facts and limits.
+- 20261001-evidence-use-cases.json: cohort provenance, source replays,
+  original scores, trace/snapshot paths, producing result versions,
+  selected observations and compact final DAGs for the 32 cases.
+
+What we actually compute
+-----------------------
+Data statistics, over the profiled rows P:
+- Null count Z; nonnull count P-Z, separately for each profiled column.
+- Distinct nonnull values D while the bounded exact dictionary is retained;
+  otherwise distinct is unknown. Unknown is not zero.
+- Numeric/datetime minimum and maximum.
+- Value frequencies, displaying up to eight values plus an other count.
+  An exhaustive list with full row coverage and other=0 can enumerate a
+  result column even when the displayed records are incomplete. A top-values
+  list is explicitly non-exhaustive. Values across columns are not paired.
+- Extra duplicate-row occurrences beyond the first, all-null rows and
+  all-null columns when their scopes and collection limits permit.
+
+Generic profiles do not automatically include mean, median, variance,
+quantiles, correlations or cross-column validity. Mean, median, stddev and
+other supported reductions can be computed explicitly with Aggregate.
+Literal strings such as NA or M are not counted as null until normalized.
+
+Collection is bounded independently of the record display: 100,000 rows,
+1,000,000 cells, 128 columns, a 0.2-second collection budget and a 64-KiB
+payload budget. Exact per-column distinct collection is bounded at 256
+values. These are limits, not guarantees of complete coverage. Profiles can
+describe a prefix. Retrieving a larger view does not fill uncollected stats.
+
+Flow evidence, from native operator execution and declared contracts:
+- Scan: selected/resolved files, omitted files, output rows, source findings.
+- Cast: conversion-failure counts per column and the selected error policy.
+- Filter: kept/input rows, rejected rows and null predicates; observed
+  predicate columns and available input/output column facts.
+- Join: matched/unmatched rows and keys on each side, null-key rows,
+  maximum eligible multiplicity, and matched output contribution
+  sum over keys of L(k)*R(k), plus outer-join contributions.
+- Aggregate: grouping keys, input/group counts, min/max group sizes and
+  each reducer's nonnull denominator, including min/max per group.
+- Distinct/Limit: retained and removed rows. Union: input counts and
+  alignment of missing columns.
+- Window: row preservation, partitions, ties, and lag/lead boundary-null
+  and total-null counts when the Window is directly retrieved.
+- Unpivot/Pivot: expansion/group counts and null or absent cells.
+- Map: observed input columns, added/dropped columns and available paired
+  input/output null counts.
+- Process: input/output row counts; its internal row/column mapping is
+  unknown. A function's own description is not a verified guarantee.
+
+Current aggregate evidence also includes bounded key-dependency examples,
+warnings about unused/dropped flag-like columns, and a grain warning when
+count_distinct of a unique row ID is just counting rows. These already
+exist; they are not proposed new statistics.
+
+Data and flow evidence have separate display budgets, typically 2,000
+characters each, in addition to the 2,000-character record sample. Flow is
+automatic on Retrieve when enabled. Selected upstream summaries are bound
+to the producing versions, stop at opaque Process calculations, and show
+at most three upstream operators within bounded traversal. Window is
+currently absent from the upstream summary map, although its direct
+retrieval statistics exist.
+
+Choosing a retrieval
+--------------------
+The existing action is:
+  {"type":"retrieve", "operator_id":"eligible", "view":"sample_stats"}
+Several such actions can be put in one ordered Dataflows call. Retrieval
+reuses execution results. Views must be available in the session.
+
+- sample: headers, example records, formatting/type checks.
+- sample_stats: larger parsed intermediate tables, cohort/category checks,
+  missingness and ranges. Project relevant columns before execution if a
+  wide table hides the needed columns.
+- full: a small final list, patient/measurement pairing, contingency table
+  or compact diagnostic table whose actual row associations are needed.
+  Full remains capped, typically at 100,000 characters. It need not mean
+  reading the raw source in full. Small tables can also fit completely in
+  sample/sample_stats, in which case extra data facts may be redundant.
+
+Recommendations below describe graph stages, not a new tool grammar. Each
+case states observed facts separately from the suggested construction.
+
+Concrete cases: legal report tables
+----------------------------------
+1. legal-easy-26: states where Identity Theft is the top category
+   Data: 2024 state/category/report-count CSV, 524 scanned rows and 520
+   data rows. Report counts contain thousands separators.
+   Graph: Scan -> remove footer rows -> normalize counts -> Cast ->
+   Aggregate maximum by state -> Join categories -> Filter -> final states.
+   Retrieve: sample_stats on typed counts; full on the small final list.
+   Data use: null/nonnull counts and ranges reveal lost report values.
+   Flow use: Cast failures identify the transformation responsible, while
+   aggregate denominators show that missing values affected ranking.
+   Observed: the original Luna flow run lost 317/520 values and returned
+   only four states. Independent replay reduces failures to zero by
+   removing commas. The original paired no-flow run normalized counts and
+   passed. This is a clear failure mechanism, not evidence of a flow gain.
+
+2. legal-hard-14: top five distinct New England metros by identity theft
+   Data: per-state metropolitan CSVs plus six New England state names.
+   Graph: Scan -> normalize counts/state keys -> Join eligible states ->
+   Aggregate by metro -> Sort -> Limit five.
+   Retrieve: sample_stats on new_england_reports and top_five.
+   Data use: typed reports had only 11 valid values among 35 joined rows.
+   Flow use: the retrieved top five automatically exposed 150/660 Cast
+   failures and the sum denominator 11/35. The state Join matched 4/6
+   right-side state keys, so geographic coverage was also incomplete.
+   Observed: Terra removed commas, raised the valid count to 19/35 and
+   changed the top five; the official score passed. The 4/6 state match
+   remained. A passing final answer does not certify full state coverage.
+   Gap: counts identify the join problem; unmatched-key examples would
+   make the remaining state-name normalization error easier to repair.
+
+3. legal-hard-1: average theft reports for metros above one million
+   Data: an HTML population table and per-state metro report CSVs;
+   populations must be interpolated to 2023 and names robustly matched.
+   Graph: narrow parsing Process -> normalize metro key -> Join population
+   and reports -> Map interpolated population -> Filter -> Aggregate mean.
+   Retrieve: sample_stats on the Join and eligible metros.
+   Data use: eligible contained 76 rows but only 55 distinct normalized
+   metro keys, with 21 extra duplicate rows. A five-row sample misses this.
+   Flow use: Join multiplicity and the final mean denominator expose that
+   repeated cross-state metro entries change the weighting.
+   Gap: establish metro identity and deduplicate at that grain before the
+   mean. Nonnull values alone cannot validate the interpolation formula.
+
+4. legal-hard-29: highest metro share within a state with >=5 metros
+   Data: state-specific fraud reports; multi-state metros repeat by file.
+   Graph: Scan -> clean/normalize -> Aggregate count and total by state ->
+   Filter eligible states -> Join -> Map share -> Sort -> Limit one.
+   Retrieve: sample_stats on state totals; full on the winning row.
+   Data use: state/source-file distinct counts and report ranges.
+   Flow use: grouping keys and sum denominators check that each metro's
+   numerator and its denominator belong to the same state representation.
+   Observed: 417 cleaned rows, 52 state groups, 35 eligible states and 377
+   joined rows. These facts support coverage checks, but do not decide
+   whether a source repeats a complete cross-state metro total.
+
+5. legal-hard-30: any metro with more identity-theft than fraud reports?
+   Data: two sets of per-state metropolitan tables.
+   Graph: clean -> Aggregate at matching metro grain -> Join -> Filter
+   identity > fraud -> Count.
+   Retrieve: sample_stats on the Join and final count.
+   Data use: key distinct counts, numeric validity and duplicate rows.
+   Flow use: a zero final count is only convincing if comparison coverage
+   is adequate. The trace compared 402 matched rows after constructing
+   404 groups on each side; group size reached 104 because headers/footer
+   or null keys also entered aggregation. Inspect unmatched groups before
+   treating a zero count as proof of absence in all metros.
+
+6. legal-easy-21: Alabama's identity-theft reporter count
+   Data: a small state report table with category/detail rows.
+   Graph: Scan -> Filter Alabama -> normalize numeric values -> Aggregate.
+   Retrieve: full on the seven selected rows or scalar, when available.
+   Data use: record labels distinguish a total from its category details.
+   Flow use: zero conversion loss and the reducer denominator are useful
+   checks. This is a low-benefit control: a small complete result often
+   provides enough information without an additional stats block.
+
+7. legal-easy-25: military branch with the largest median fraud loss
+   Data: a 23-row sectioned table containing currency-formatted values.
+   Graph: Scan -> Map currency normalization -> Filter valid branch rows
+   -> Sort -> Limit one. The supplied median is not recomputed from losses.
+   Retrieve: full on the 12 valid candidates or the winning row.
+   Data use: null/range checks validate parsing; records identify sections.
+   Flow use: candidate retention and numeric validity. Again, extra metadata
+   has limited value once the small cleaned table is completely visible.
+
+Concrete cases: biomedical cohorts
+---------------------------------
+8. biomedical-easy-2: average age of serous tumor patients in the study
+   Data: clinical workbook, 153 rows and 179 columns, including
+   Histologic_type, Proteomics_Tumor_Normal, Case_excluded and Age.
+   Graph: Scan -> Project relevant fields -> Filter eligible serous tumor
+   samples -> normalize/Cast Age -> Aggregate mean.
+   Retrieve: sample_stats on the cohort and the mean.
+   Data use: the selected 14 serous rows contained Case_excluded No:12,
+   Yes:2. Across the source the flag is No:144, Yes:9.
+   Flow use: current diagnostic evidence flagged the unread eligibility
+   field; Cast lost 1/14 age values and the mean used 13/14.
+   Observed: Luna still answered 68.1. Independent replay gives 68.5 for
+   the 12 eligible samples. The evidence exposed the mistake but did not
+   change the model's choice. Wide-column omission is a separate problem:
+   narrow Project makes the eligibility fields reliably profileable.
+
+9. biomedical-hard-5: median variants per Mbp for serous samples
+   Data: clinical and genomic workbook sheets, including a log-scale field.
+   Graph: narrow relevant fields -> eligible cohort -> match sample IDs
+   where needed -> Map from log scale -> Cast -> Aggregate median.
+   Retrieve: sample_stats on eligible typed values; full on the median.
+   Data use: eligibility frequencies, valid measurement count and ranges.
+   Flow use: cohort retention, sample matching and the median denominator.
+   Observed: the trace reduced 14 selected rows using 13 valid values,
+   returning 2.4241486 rather than the reference 2.6563. Statistics can
+   expose the cohort; they cannot validate units or a 2**log2 conversion.
+
+10. biomedical-hard-1: PLK1/CHEK2-S163 Spearman correlation
+    Data: 153 clinical records, 10,999 global-protein rows and 73,212
+    phosphoprotein rows; sample measurements are spread across columns.
+    Suggested graph: select protein rows -> Unpivot selected measurements
+    -> Join by sample ID -> Join eligible clinical IDs -> Filter both
+    measurements valid -> narrow Spearman Process.
+    Retrieve: sample_stats on aligned pairs and the correlation result.
+    Data use: sample-ID distinctness and each measurement's null count.
+    Flow use: join multiplicity, eligibility retention and retained pairs.
+    Observed: Terra used a Process with inputs [1,1,153] and reported 51
+    paired samples. That 51 is function-reported, not independently measured
+    by the engine. Current flow evidence sees only input/output counts.
+    Gap: joint validity counts, or explicit native pairing/filter stages.
+
+11. biomedical-hard-3: age of the patient with the lowest APP-Z score
+    Data: assay scores and clinical ages linked by sample identifier.
+    Graph: clean scores -> Join clinical identity -> Sort APP-Z -> Limit.
+    Retrieve: sample_stats on matched scores; full on the winning row.
+    Data use: APP-Z validity/minimum and identity distinctness.
+    Flow use: one-to-one matching, unmatched samples and ties at the minimum.
+    Limit: separate minimum-score and age frequencies cannot tell which
+    age belongs to which patient. The final record association is needed.
+
+12. biomedical-hard-4: grades of tumors with a specified peptide
+    Data: three peptide/variant sheets and clinical metadata.
+    Graph: Filter target peptide -> split/normalize associated sample IDs
+    if compound -> select or Join clinical IDs -> Project/Distinct grades.
+    Retrieve: sample_stats on matches; full on the compact ID/grade rows.
+    Data use: sample-ID nulls and grade frequencies.
+    Flow use: peptide-filter retention, expansion counts, match coverage
+    and Distinct removal. The selected trace found the peptide in one
+    alternate-splice row and selected three clinical records. ID expansion
+    hidden in a Process would need an exposed result to audit its mapping.
+
+13. biomedical-hard-8: drug-targeted hyperactivated sites in CNV-high tumors
+    Data: clinical subtype/eligibility, hyperactivation and FDA drug targets.
+    Graph: Filter eligible CNV-high endometrioid samples -> Join
+    hyperactivation -> Join drug targets -> Project/Distinct target sites.
+    Retrieve: sample_stats after each important join; full on final sites.
+    Data use: CNV/histology/eligibility categories, sample/protein/gene IDs.
+    Flow use: each join's matching/multiplicity and cohort retention.
+    Observed: the trace selected nine clinical rows, expanded to 46
+    target-joined rows and reduced to two gene labels. Statistics can reveal
+    the expansion but cannot equate gene labels with the requested sites.
+
+Concrete cases: environmental measurements
+------------------------------------------
+14. environment-easy-1: 2013 percentage exceeding bacterial standards
+    Data: 15,388 beach test records with Violation labels.
+    Graph: Scan -> normalize labels -> Aggregate total and exceedance
+    counts -> Map percentage.
+    Retrieve: sample_stats on normalized labels; full on the scalar.
+    Data use: exhaustive values yes:738, no:14,650 establish the numerator.
+    Flow use: row denominator 15,388 shows whether all tests were used.
+    Independent result: 738/15,388*100 = 4.795944892..., rounding to 4.796.
+    Limit: statistics do not perform the final rounding on the agent's
+    behalf. Computing the ratio in the graph avoids manual arithmetic.
+
+15. environment-easy-2: freshwater years above the 2002-2023 average
+    Data: 22 annual files, 319,911 tests; freshwater cohort 154,000 rows.
+    Graph: normalize -> Filter freshwater -> Aggregate annual counts ->
+    compute specified baseline -> Filter higher-rate years.
+    Retrieve: sample_stats on annual rates and the final year list.
+    Data use: the final eight-row result displayed five records but its
+    full-coverage Year frequencies enumerated all eight with other=0:
+    2003, 2011, 2015, 2018, 2020, 2021, 2022, 2023.
+    Observed: Haiku still made four more calls before Answer. This is a
+    concrete opportunity to avoid redundant retrieval, not an observed saving.
+    Flow use: annual denominators and grouping keys; pooled test rates and
+    an unweighted mean of annual rates are different calculations. Exhaustive
+    year values certify the returned list, not the baseline formula.
+
+16. environment-easy-3: beaches worsening between 2012 and 2013
+    Data: annual test records with BeachName and geographic identity fields.
+    Graph: normalize location identity -> Aggregate rate by location/year ->
+    Join comparable years -> Filter increase -> Count.
+    Retrieve: sample_stats on location-level rates and the comparison Join.
+    Data use: independent replay finds 1,155 lowercased names versus 1,171
+    location keys in 2012; 14 names refer to multiple locations. Sandy Beach
+    and Crystal Lake each occur in three locations.
+    Flow use: grouping keys, group sizes and join coverage reveal what a
+    row represents. Luna grouped by name alone, compared 1,124 rows and
+    returned 267 instead of reference 268. A formally one-to-one join can
+    still operate on the wrong entity definition.
+    Gap: requested composite-key diagnostics; existing aggregate
+    key-dependency examples help but do not choose the intended identity.
+
+17. environment-hard-12: beach failures with zero preceding three-day rain
+    Data: eight beach sheets with multiple sampling-point columns and rain.
+    Graph: Scan -> Unpivot sampling points -> normalize/Cast measurements
+    and rain -> Filter dry failures -> Aggregate by beach.
+    Retrieve: sample_stats after reshaping and typing; full on beach counts.
+    Data use: rain numeric validity, missing/censored markers and bacterial
+    ranges. A string "0" is not automatically numeric zero in a predicate.
+    Flow use: Cast failures, Unpivot expansion and Filter retention locate
+    lost/misclassified samples. The trace's final union had 23,292 rows.
+    Limit: the wording/reference differ at the threshold equality boundary;
+    stats cannot decide whether the intended failure condition includes 104.
+
+18. environment-hard-13: 2024 days when Constitution stations disagree
+    Data: per-date values for several sampling points.
+    Graph: Filter year -> normalize point values -> classify each valid
+    point -> Aggregate by date -> Filter mixed valid outcomes -> Count.
+    Retrieve: sample_stats on point results and daily groups.
+    Data use: Date/Location distinctness and bacterial null counts.
+    Flow use: group grain and nonnull versus all-row denominators distinguish
+    a missing station from a passing station. If Unpivot is used, its row
+    count checks the expected point expansion. The trace produced 11 mixed
+    days from 84 dated rows. Threshold semantics still need explicit logic.
+
+19. environment-hard-15: most polluted freshwater beach measured every year
+    Data: 2020-2023 test records; rank by average annual exceedance rate.
+    Graph: Filter freshwater -> Aggregate by beach/year -> Map annual rate
+    -> Aggregate average plus count_distinct(year) by beach -> Filter four
+    years -> Sort -> Limit one.
+    Retrieve: sample_stats on annual rates and the complete-year cohort.
+    Data use: year values and missing labels.
+    Flow use: 29,589 freshwater rows -> 2,189 annual groups -> 607 beaches
+    -> 448 complete-year beaches; group sizes ranged from one to four years.
+    Global coverage of four years does not prove each beach has four years.
+    An explicit per-beach distinct-year count makes the eligibility test clear.
+
+20. environment-hard-18: freshwater exceedance and rainfall trends
+    Data: four annual beach tables and monthly precipitation sheets;
+    missing rainfall is imputed with the month's median in nonmissing years.
+    Graph: normalize flags/missing markers -> annual test rates;
+    Unpivot rainfall -> month-specific imputation -> annual rainfall ->
+    Join years -> compare changes.
+    Retrieve: sample_stats on normalized flags, rain and joined annual values.
+    Data use: 2020 freshwater labels No:6,163/Yes:363; 2021 NO:7,101/YES:505.
+    These exact frequencies expose a case-sensitive filter that misses 2021.
+    Rain marker M is a string until normalized.
+    Flow use: conversion failures, all-year join coverage and sum/mean
+    denominators. Statistics cannot certify the imputation rule inside code.
+
+Concrete cases: city and historical data
+---------------------------------------
+21. archeology-easy-11: average latitude of national capitals
+    Data: worldcities.csv, 44,691 rows; capital is primary/admin/minor/null.
+    Graph: Filter primary -> Sort population within country -> Distinct
+    country -> Aggregate mean latitude.
+    Retrieve: sample_stats on selected capitals; full on the mean.
+    Data use: an initially selected 238-row result contained primary:207,
+    admin:30, minor:1. This directly exposed the wrong capital definition.
+    Flow use: the repaired filter kept 250/44,691; Distinct kept 237/250;
+    mean used 237/237. Independent replay gives 17.4274160338.
+    Observed: Terra built and retrieved that repaired result, but answered
+    the old mean 17.1667. This is model answer selection, not demonstrated
+    stale engine caching. National-capital interpretation follows the
+    benchmark's reference, not the nonempty flag alone.
+
+22. archeology-easy-8: number of unique bibliography sources
+    Data: 1,388 Roman-city rows; Bibliography has 1,385 nonnull cells,
+    often containing several semicolon-separated references.
+    Graph: narrow splitting Process -> normalize reference strings ->
+    Distinct -> Count.
+    Retrieve: sample_stats on expanded references; full on examples if needed.
+    Data use: raw-cell nulls and distinct counts identify scope, but counting
+    distinct raw cells is not counting sources. Distinct can be unknown when
+    profile limits are reached; explicit graph aggregation is still possible.
+    Flow use: expansion counts and Distinct removal expose normalization.
+    Observed: Luna's opaque Process returned 82, versus reference 52.
+    Limit: author/page/punctuation equivalence requires explicit rules.
+
+23. archeology-hard-7: populous modern cities near ancient Roman cities
+    Data: Roman coordinates and modern city coordinates/populations.
+    Graph: Filter modern population >100k -> narrow spatial Process ->
+    expose matched modern IDs -> Distinct -> Count.
+    Retrieve: sample_stats on eligible cities/matches; full on bounded witnesses.
+    Data use: coordinate/population validity and coordinate ranges.
+    Flow use: the native filter kept 5,873/44,691 modern cities. If matches
+    are exposed, Distinct shows whether one modern city was counted for
+    several ancient neighbors. The actual Process returned a scalar, hiding
+    those matches. Distance units and the 0.1-degree rule require diagnostics.
+
+Concrete cases: wildfire data
+----------------------------
+24. wildfire-easy-1: largest consecutive three-month acreage total
+    Data: 303 NOAA monthly rows from 2000 onward.
+    Graph: Sort date -> Window lag(offset=1) and lag(offset=2) -> Map sum ->
+    Filter complete windows -> Sort -> Limit one.
+    Retrieve: sample_stats directly on Window outputs; full on winning
+    month, its two predecessor dates/values and the computed sum.
+    Data use: date coverage, null counts and acreage ranges.
+    Flow use: lag boundary-null counts should distinguish one from two
+    missing predecessors. The original graph accidentally used lag 1 twice;
+    it retained 302/303 windows and displayed prev1=prev2=3,461,087, producing
+    9,397,894. The reference total is 7,805,421.
+    Gap: expose existing Window counters upstream; additionally check that
+    predecessors are consecutive calendar months, not merely adjacent rows.
+
+25. wildfire-hard-16: regional fire-cause chi-square test in January-March
+    Data: 6,658 fires with date, region and cause codes.
+    Graph: Filter known causes/Q1 -> Aggregate counts by region/cause ->
+    Pivot/fill absent cells with zero -> narrow chi-square Process.
+    Retrieve: sample_stats on eligible fires; full on the small contingency
+    table. Six regions and three cause codes yield a compact 6x3 table.
+    Data use: cause/region frequencies and valid category counts.
+    Flow use: filter kept 170/6,658; Aggregate emitted ten nonempty cells,
+    with group sizes 1-118. Frequencies of the ten aggregated rows count
+    cells, not fire events. They do not reconstruct the contingency matrix.
+    Gap: expected-cell minimum and count below five would help assess the
+    test; they would not by themselves establish statistical validity.
+
+26. wildfire-hard-17: average elevation of monitoring stations actually used
+    Data: fire records with station IDs and a 2,965-row RAWS station table.
+    Graph: Project fire station IDs -> normalize/Distinct -> Join station
+    metadata -> Aggregate mean elevation.
+    Retrieve: sample_stats on used-station matches and the mean.
+    Data use: station-ID distinctness and elevation validity/range.
+    Flow use: join coverage and the denominator distinguish one vote per
+    station from one vote per fire, or averaging the entire station table.
+    Observed: Terra averaged all 2,965 stations using 2,949 nonnull elevations,
+    without linking fire usage. Caveat: the reference script reads a different
+    fire filename from the supplied task; this is a diagnostic example,
+    not a clean reference-based accuracy exhibit.
+
+27. wildfire-hard-20: fraction of fires responsible for 90% of damage
+    Data: 2008 fire rows and a residential-property damage proxy.
+    Graph: Filter year -> Sort damage descending -> narrow cumulative-sum
+    Process -> expose threshold crossing and counts -> ratio.
+    Retrieve: sample_stats on typed damage; full on the threshold witness.
+    Data use: damage nulls, zero frequencies and numeric range.
+    Flow use: year retention (473 rows in the trace), valid-damage count and
+    an explicit all-eligible-fire denominator. Native Window does not support
+    cumulative sum; lag/lead/rank are its current functions.
+    Gap: report cumulative damage/total and number of rows required at the
+    crossing. Reference caveat: its script uses an original row index as a
+    count and presents a fraction as a percentage; passing is not proof that
+    the intended statistic is correct.
+
+28. wildfire-easy-15: July fire size versus median wind correlation
+    Data: NOAA dates, fire hectares and wind speed.
+    Graph: Map calendar month from start_date -> Filter month==7 ->
+    Project measurements -> Filter jointly valid -> correlation Process.
+    Retrieve: sample_stats on the July cohort and paired measurements.
+    Data use: month distribution should be July only; both measurements'
+    null/range checks help but do not establish paired validity.
+    Flow use: cohort retention and explicit paired-row denominator.
+    Observed: Haiku used a fixed day-of-year interval and selected 2,003
+    fires; calendar July has 2,000. Fifteen June 30 records leaked in and
+    twelve July 31 records were lost in leap years. Both answers were No,
+    so the official score did not reveal the defect. The original reference
+    also uses an approximate day interval; no score was altered here.
+    Gap: calendar-bin and joint-validity diagnostics.
+
+29. wildfire-hard-19: control-day rain within a fire's assumed area
+    Data: 6,658 fires plus 8,627,181 weather-event rows, about 1.09 GB.
+    Graph: Filter year/date/rain -> narrow spatial/temporal match Process ->
+    expose fire matches -> Distinct fire ID -> Aggregate fraction.
+    Retrieve: sample_stats on narrowed rain events and per-fire matches;
+    full on a few distance/date witnesses.
+    Data use: precipitation/date/coordinate validity. A prefix of the large
+    weather table cannot establish global absence or full-year distribution.
+    Flow use: filters reduced weather to 291,529 events in 2016 and fires
+    to 479; explicit per-fire outputs can expose duplicate counting.
+    Gap: match-distance and time-offset witnesses, unmatched fire counts,
+    and honest profile coverage. Statistics do not repair resource timeouts
+    or verify the spatial calculation hidden inside Process.
+
+Concrete cases: satellite alignment
+-----------------------------------
+30. astronomy-easy-3: 2015 midnight density at 450-500 km initial altitude
+    Data: 715 initial-state rows and 53,259 satellite density rows;
+    n/a and 9.99E32 are invalid measurements.
+    Graph: normalize density -> Filter eligible initial states -> normalize
+    time/file keys -> Join aligned measurements -> Aggregate mean.
+    Retrieve: sample_stats on cleaned density and the Join/mean.
+    Data use: density range reveals fill values; time/file distinctness
+    and valid counts help validate cleaning.
+    Flow use: initial selection kept 120; cleaned density kept 52,817.
+    The first Join matched zero rows. Relaxing to time alone produced 238
+    rows, with right-side multiplicity two; deduplicating yielded 119.
+    Observed: Terra saw these facts but still failed. Making a join nonempty
+    does not establish correct satellite/run identity.
+    Gap: bounded unmatched time/file keys and match-offset witnesses.
+
+31. astronomy-hard-9: best 0-48-hour drag/AP correlation lag
+    Data: TLE orbital states and hourly OMNI AP measurements in May 2024.
+    Graph: parse TLE -> derive semi-major axis -> Sort/Window difference ->
+    round epochs -> Aggregate hourly -> narrow lag evaluation Process.
+    Retrieve: sample_stats on hourly changes/AP; full on the 49-row lag
+    comparison when its coefficients and sample counts are needed.
+    Data use: measurement ranges, constants, timestamp validity.
+    Flow use: hourly group sizes, boundary nulls and alignment matches where
+    the joins are explicit. The trace had 133 selected TLE changes reduced
+    to 125 hours, versus 720 OMNI hours, then an opaque 49-row Process.
+    Gap: valid-pair count and time overlap for each lag. Different lags can
+    otherwise be compared using different effective populations.
+
+32. astronomy-hard-10: strongest satellite hourly-altitude correlation
+    Data: SP3 position records, OMNI variables and density for Oct 1-10.
+    Graph: narrow SP3 parsing -> Map altitude/time -> Aggregate hourly ->
+    Window altitude difference -> Join hourly OMNI/density -> narrow
+    correlation Process -> Sort absolute coefficient -> Limit.
+    Retrieve: sample_stats on hourly joined variables; full on the compact
+    ranked correlations rather than the raw position table.
+    Data use: sentinel/range/null checks and constant-column detection.
+    Flow use: 77,760 parsed positions -> 216 altitude hours; 240 selected
+    OMNI hours; joins produced 216 then 210 rows. Lost hours, duplicate
+    timestamps and effective correlation denominators are auditable.
+    Gap: missing-hour witnesses, valid pairs per feature, and unit contracts.
+    A different Luna attempt profiled only 32,000/77,760 position rows.
+    Neither complete nor partial generic stats validate the SP3 altitude
+    formula, time direction or selection of the strongest absolute value.
+
+Are the current statistics enough?
+----------------------------------
+Enough to expose many input/population mistakes:
+- Nulls/nonnulls plus Cast failures explain the comma conversion loss.
+- Eligibility frequencies plus unread-field warnings explain the serous
+  cohort error. They were delivered in a repaired diagnostic and ignored.
+- Capital categories plus Distinct counts explain the wrong capital cohort.
+- Exact Join matching/multiplicity and group denominators expose empty,
+  incomplete or duplicated comparisons.
+- Exhaustive full-coverage value frequencies can completely identify a
+  final answer column, as in the eight-year freshwater result.
+
+Not enough to prove the analysis:
+- Marginal profiles do not establish paired missingness or row associations.
+- A full profile can accurately describe the wrong population.
+- Generic time ranges do not prove consecutive months, calendar membership,
+  overlap at a specified lag or correct interpolation.
+- A Process can output a correct-looking scalar while hiding every internal
+  eligibility filter and join. More prose cannot reconstruct those stages.
+- A small display budget can omit collected facts; collection limits can
+  prevent relevant facts from existing at all. These are different problems.
+
+Coverage findings:
+- 160 successful observations explicitly reported partial-prefix statistics;
+  21 explicitly reported unavailable statistics. Early pilot renderers used
+  different headers, so these are recognized occurrences, not a universal
+  prevalence estimate across all revisions.
+- Among 15,508 final profiles, 1,431 had partial row coverage and 318 did not
+  profile every known column. Another 73 lacked a known columnCount field.
+  Final snapshots do not include every earlier profile/version.
+- Earlier full-campaign payload/frequency omissions were already investigated
+  and partly repaired. Do not attribute all historical omissions to current
+  code or interpret a later Haiku payload as the same revision as Luna/Terra.
+
+Recommended improvements for review
+-----------------------------------
+First expose and teach the existing measurements better:
+1. Add short worked examples with a real observation and the corresponding
+   repair: conversion loss -> normalize; unused exclusion flag -> inspect
+   eligibility; no join matches -> inspect keys. Current prompt text explains
+   these capabilities but does not work through all three retrieval views or
+   a complete evidence-to-repair sequence. Also show an exhaustive final
+   value list as a sufficient stopping condition when row pairing is irrelevant.
+2. Carry existing Window boundary counters and resolved lag offsets in
+   selected upstream summaries. Currently only direct Window retrieval shows
+   these measurements. Preserve bounded, producing-version provenance.
+3. Encourage narrow native cohort, join and aggregation stages around a
+   specialized Process. This gives the engine meaningful points to measure;
+   it does not require implementing every scientific calculation natively.
+
+Then add small, targeted information:
+4. Cast witnesses: up to three distinct raw values that failed conversion,
+   with counts, next to the existing failure total. Examples would distinguish
+   comma formatting, currency, NA markers and genuinely invalid values.
+5. Join witnesses: up to three unmatched keys per side and a few duplicate
+   keys with multiplicities. Counts already exist; the examples are new.
+   Let callers request composite-key checks at the task's entity grain.
+6. Joint validity for requested measurement pairs: both valid, X only,
+   Y only, neither, and eligible rows. This is more informative for correlation
+   than two independent null counts. It can already be computed with explicit
+   Filter/Aggregate stages; optional profiling would reduce that work.
+7. Temporal diagnostics: missing expected months/hours, gap counts,
+   calendar-month distribution and join time-offset examples. Min/max and
+   lag boundary counts already exist; these continuity/alignment facts do not.
+8. Requested-column collection for wide tables, with explicit coverage.
+   A 179-column sheet needs reliable eligibility/measurement profiles beyond
+   the first 128 columns. Increasing a display budget cannot recover a column
+   that was never collected. Projection is the current workaround.
+
+Lower priority, useful for particular tasks:
+- Bounded quantiles/zero mass for skewed damage or loss distributions.
+- Expected chi-square cell diagnostics, feature-specific correlation pair
+  counts, and explicit time/units metadata. Distinguish engine-derived facts
+  from a custom function's self-reported diagnostics.
+- Version-to-version changes for selected fields: cast loss 317 -> 0, cohort
+  14 -> 12, or join coverage before/after normalization. Existing version
+  tracking permits the comparison; a concise rendered difference is new.
+
+How to test the research claim
+-----------------------------
+Use a fixed task selection and revision for new matched comparisons. Keep
+the official KramaBench evaluator unchanged and additionally audit whether
+the intended cohort, identity, temporal alignment and formula were used.
+
+Data-statistics pilots: legal-easy-26 (conversion), biomedical-easy-2
+(eligibility), archeology-easy-11 (categories), environment-hard-18 (case
+variation/missing markers), environment-easy-2 (complete values without
+complete displayed records). Compare full, sample and sample_stats with
+the same evidence-aware guidance and independent record/stats budgets.
+Include legal-easy-21/easy-25 as small-table controls.
+
+Flow pilots: legal-hard-1 (duplicate weighting), legal-hard-14 (conversion
+and state coverage), environment-hard-15 (year eligibility), astronomy-easy-3
+(join alignment), wildfire-easy-1 (lag offsets). Hold retrieval view fixed
+and toggle automatic flow evidence. Evaluate the evidence-to-repair event,
+not only final score. These cases were selected after outcomes, so label
+them diagnostic pilots and use a separate selection for confirmatory claims.
+
+Record: official score, total/cache-adjusted provider cost, input/output
+tokens, calls/executions/retrievals, bytes per evidence kind, coverage,
+whether a relevant warning was shown, and whether the next edit addressed
+it. A one-repetition comparison can describe a run; it cannot establish
+stable average improvements or distinguish them from stochastic variation.
+
+Source of truth
+---------------
+- Agent evidence: agent-service/src/agent/native/evidence.ts
+- Collection: amber/src/main/python/core/util/table_profile.py
+- Native contracts/runtime: agent-service/src/agent/native/catalog.ts and
+  agent-service/src/agent/native/python/runtime.py
+- Current guidance: agent-service/src/agent/prompts.ts and
+  prompts/native-mode.md
+- Retrieval settings: docs/retrieval-views.md
+- Original definitions/solutions: benchmark/Kramabench/workload and solutions
+- Prior audits: 20261001-mechanisms, 20261001-full, 20261001-large,
+  20261001-haiku45-anomalies and 20261001-claude-state-review in this folder.
+
+Local read-only review scripts and working census are under
+.claude/artifacts/evidence-usecases-20261001/. The JSON preserves the census
+hash, original source paths and selected observation texts. The source
+replays use the branch's empty-only missing-value policy and explicitly
+normalize numeric fields when required. No provider credentials are included.

@@ -597,6 +597,54 @@ def _key_rows(frame, columns):
     return [tuple(map(_scalar, row)) for row in frame[columns].itertuples(index=False, name=None)]
 
 
+_WITNESS_LIMIT = 3
+_WITNESS_WIDTH = 8
+_WITNESS_VALUE_CHARS = 96
+
+
+def _witness(values, count):
+    """Bound the display, preserving types and counts of the original values.
+
+    These are first-encountered examples, not top values or random samples.
+    Clipping never becomes the identity used for counting or joining.
+    """
+    encoded, truncated = [], len(values) > _WITNESS_WIDTH
+    for raw in values[:_WITNESS_WIDTH]:
+        value = _scalar(raw)
+        if value is None:
+            encoded.append(None)
+            continue
+        if isinstance(value, bool):
+            kind = "bool"
+        elif isinstance(value, numbers.Integral):
+            if not -(1 << 63) <= value < (1 << 63):
+                return None
+            kind, value = "int64", str(value)
+        elif isinstance(value, numbers.Real):
+            kind, value = "float64", float(value)
+            if not math.isfinite(value):
+                return None
+        elif isinstance(value, (datetime.datetime, pd.Timestamp, np.datetime64)):
+            stamp = pd.Timestamp(value)
+            if stamp.tzinfo is None:
+                return None
+            stamp = stamp.tz_convert("UTC")
+            kind = "datetime"
+            value = (
+                f"{stamp.year:04d}-{stamp.month:02d}-{stamp.day:02d}T"
+                f"{stamp.hour:02d}:{stamp.minute:02d}:{stamp.second:02d}."
+                f"{stamp.microsecond * 1000 + stamp.nanosecond:09d}+00:00"
+            )
+        elif isinstance(value, str):
+            kind = "str"
+            truncated |= len(value) > _WITNESS_VALUE_CHARS
+            value = value[:_WITNESS_VALUE_CHARS]
+        else:
+            return None
+        encoded.append({"type": kind, "value": value})
+    return {"values": encoded, "count": count, "truncated": truncated}
+
+
 def _groups(frame, columns):
     if not columns:
         return [((), list(range(len(frame))))]
@@ -848,6 +896,22 @@ def _join(spec, left, right, operations):
                 "unmatchedKeys": len(counts[i]) - len(common),
                 "maxMultiplicity": max(counts[i].values(), default=0),
             }
+            if spec.get("profileCollection") is True:
+                unmatched, duplicates = [], []
+                for key, occurrences in counts[i].items():
+                    wants_unmatched = key not in common and len(unmatched) < _WITNESS_LIMIT
+                    wants_duplicate = occurrences > 1 and len(duplicates) < _WITNESS_LIMIT
+                    if wants_unmatched or wants_duplicate:
+                        example = _witness(key, occurrences)
+                        if example is not None:
+                            if wants_unmatched:
+                                unmatched.append(example)
+                            if wants_duplicate:
+                                duplicates.append(example)
+                    if len(unmatched) == len(duplicates) == _WITNESS_LIMIT:
+                        break
+                facts[port]["unmatchedExamples"] = unmatched
+                facts[port]["duplicateExamples"] = duplicates
         operations["join"] = facts
 
     def take(frame, column, port):
@@ -1612,11 +1676,12 @@ def _map(spec, source, operations):
 def _cast(spec, source, operations):
     props = spec["properties"]
     output = source.copy().reset_index(drop=True)
-    failures = {}
+    failures, examples = {}, {}
     for i, item in enumerate(props["columns"]):
         name = item["column"]
         _columns(spec, source, [name], f"columns[{i}]")
-        values, failed = [], 0
+        values, failed, witnessed = [], 0, {}
+        collect = spec.get("profileCollection") is True and i < _WITNESS_WIDTH
         for value in source[name]:
             try:
                 values.append(_convert(value, item["dtype"], cast=True, options=item))
@@ -1630,9 +1695,25 @@ def _cast(spec, source, operations):
                     ) from error
                 failed += 1
                 values.append(None)
+                if collect:
+                    raw = _scalar(value)
+                    key = (type(raw), raw)
+                    if key in witnessed:
+                        witnessed[key]["count"] += 1
+                    elif len(witnessed) < _WITNESS_LIMIT:
+                        example = _witness([raw], 1)
+                        if example is not None:
+                            witnessed[key] = example
         output[name] = _series(values, item["dtype"])
         failures[name] = failed
+        if witnessed:
+            examples[name] = {
+                "examples": list(witnessed.values()),
+                "otherCount": failed - sum(w["count"] for w in witnessed.values()),
+            }
     operations["conversionFailures"] = failures
+    if examples:
+        operations["conversionFailureExamples"] = examples
     return output
 
 

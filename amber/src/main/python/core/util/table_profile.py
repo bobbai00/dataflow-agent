@@ -383,6 +383,29 @@ class ProfileAccumulator:
 
         payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
+            # Optional value witnesses must not evict exact operation counters
+            # or column measurements. snapshot() owns a deep copy, so trimming
+            # this envelope does not change retained execution metadata.
+            native = result.get("native") or {}
+            operations = native.get("operations")
+            removed = False
+            if isinstance(operations, dict):
+                if "conversionFailureExamples" in operations:
+                    del operations["conversionFailureExamples"]
+                    removed = True
+                join = operations.get("join")
+                if isinstance(join, dict):
+                    for port in ("left", "right"):
+                        side = join.get(port)
+                        if isinstance(side, dict):
+                            for key in ("unmatchedExamples", "duplicateExamples"):
+                                if key in side:
+                                    del side[key]
+                                    removed = True
+            if removed:
+                result["omissions"] = sorted(set(result["omissions"]) | {"native_witness_payload_budget"})
+                payload = encode_with_size()
+        if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             result["omissions"] = sorted(set(result["omissions"]) | {"payload_budget"})
             # Drop the largest value dictionaries first. A wide table should
             # not lose a two-value eligibility flag because unrelated columns

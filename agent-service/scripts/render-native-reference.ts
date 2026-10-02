@@ -78,7 +78,8 @@ export function renderSystemPrompt(): string {
     "LATEST context replaces the context paragraph with:\n\n" +
     differing.join("\n") +
     "\n\n" +
-    "Enabling evidence adds the matching paragraphs below. The default exposes neither family.\n\n" +
+    "Enabling evidence adds the matching paragraphs below. The default exposes neither family. " +
+    "[SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.\n\n" +
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
     "\n\nEnabling stateHistory adds the following instructions and historical actions:\n\n" +
     NATIVE_STATE_HISTORY.trim().replaceAll("{{RETRIEVE_EXAMPLE_VIEW}}", "sample") +
@@ -95,7 +96,7 @@ export function renderTools(): string {
     renderToolDefinitions()
       .map(
         t =>
-          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The provider receives this flag outside the parameter schema. Graph commands inside \`changes\` are validated by the graph parser.\n`
+          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The SDK sends this flag outside the parameter schema. On configured Claude routes, \`bin/strict_tools.py\` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; graph commands inside \`changes\` are validated by the graph parser.\n`
       )
       .join("\n") +
     "\n## Execution rules\n\n" +
@@ -174,6 +175,10 @@ export function renderAll(): Record<string, string> {
   return {
     "SYSTEM_PROMPT.md": renderSystemPrompt(),
     "SYSTEM_PROMPT.txt": buildNativeModeSystemPrompt(ContextMode.DELTA),
+    "SYSTEM_PROMPT_WITH_EVIDENCE.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: ["full", "sample", "sample_stats"],
+      flowEvidence: true,
+    }),
     "TOOLS.md": renderTools(),
     "OPERATORS.md": renderOperators(),
   };

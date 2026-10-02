@@ -1,0 +1,369 @@
+{
+  "source": "/tmp/texera-haiku45-smoke-valid-20261001",
+  "status": "completed",
+  "scope": "Two original KramaBench tasks, one valid-authentication attempt each. Sample_stats + flow, DELTA, 2000-character samples and independent evidence budgets, maxSteps=25. Initial authentication failures are retained separately.",
+  "agent_revision": "88c9b91465da8832e4bef1c8c0694dbc4c5ee7b3",
+  "engine_revision": "04e85b581 JVM; 41a3a4516 Python profiler",
+  "checker_revision": "b7c9ada7b8b43a187b457d7746917107e5522ab5",
+  "model_alias": "claude-haiku-4.5",
+  "upstream_model": "claude-haiku-4-5-20251001",
+  "extended_thinking": false,
+  "pricing": {
+    "version": 1,
+    "kind": "token_estimate",
+    "model": "claude-haiku-4.5",
+    "source": {
+      "table": "systems.cost_utils._FALLBACK",
+      "model_key": "claude-haiku-4.5"
+    },
+    "currency": "USD",
+    "unit": "per_token",
+    "rates": {
+      "input": 1e-06,
+      "output": 5e-06,
+      "cache_read": 1e-07,
+      "cache_creation": 1.25e-06
+    },
+    "input_includes_cached": true,
+    "output_includes_reasoning": true
+  },
+  "cache_breakpoints": [
+    {
+      "location": "message",
+      "role": "system"
+    },
+    {
+      "location": "message",
+      "index": -2
+    },
+    {
+      "location": "message",
+      "index": -1
+    }
+  ],
+  "rows": [
+    {
+      "task": "legal-hard-14",
+      "score": 0.0,
+      "cost_usd": 0.034361,
+      "token_rows": [
+        {
+          "step": 1,
+          "input": 5970,
+          "output": 140,
+          "cache_read": 0,
+          "cache_write": 5951,
+          "uncached_input": 19,
+          "previous_cache_prefix_read": null
+        },
+        {
+          "step": 2,
+          "input": 6454,
+          "output": 130,
+          "cache_read": 5951,
+          "cache_write": 483,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 3,
+          "input": 6938,
+          "output": 569,
+          "cache_read": 6434,
+          "cache_write": 484,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 4,
+          "input": 8071,
+          "output": 84,
+          "cache_read": 6918,
+          "cache_write": 1132,
+          "uncached_input": 21,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 5,
+          "input": 8527,
+          "output": 516,
+          "cache_read": 8050,
+          "cache_write": 457,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 6,
+          "input": 9808,
+          "output": 322,
+          "cache_read": 8507,
+          "cache_write": 1281,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 7,
+          "input": 11199,
+          "output": 175,
+          "cache_read": 9788,
+          "cache_write": 1391,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 8,
+          "input": 11931,
+          "output": 135,
+          "cache_read": 11179,
+          "cache_write": 732,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 9,
+          "input": 12562,
+          "output": 255,
+          "cache_read": 11911,
+          "cache_write": 631,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        }
+      ],
+      "stats": {
+        "input_tokens": 81460,
+        "output_tokens": 2326,
+        "total_tokens": 83786,
+        "reasoning_tokens": 0,
+        "cached_tokens": 68738,
+        "cache_creation_tokens": 12542,
+        "cost_usd": 0.034361,
+        "num_steps": 9,
+        "elapsed_seconds": 54.67
+      },
+      "prefix_checks": 8,
+      "prefix_failures": 0,
+      "pricing_matches": true,
+      "answer": "['Portland-South Portland, ME Metropolitan Statistical Area', 'Barnstable Town, MA Metropolitan Statistical Area', 'Norwich-New London-Willimantic, CT Metropolitan Statistical Area', 'Amherst Town-Northampton, MA Metropolitan Statistical Area', 'Burlington-South Burlington, VT Metropolitan Statistical Area']",
+      "scratch": "/tmp/texera-haiku45-smoke-valid-20261001/system_scratch/DataflowSystemHaiku45_texera_haiku45_smoke_valid_20261001_sample_stats_flow1_Rep1/legal-hard-14",
+      "reasoning_tokens": 0
+    },
+    {
+      "task": "biomedical-easy-2",
+      "score": 0.0,
+      "cost_usd": 0.025974,
+      "token_rows": [
+        {
+          "step": 1,
+          "input": 5946,
+          "output": 152,
+          "cache_read": 5355,
+          "cache_write": 572,
+          "uncached_input": 19,
+          "previous_cache_prefix_read": null
+        },
+        {
+          "step": 2,
+          "input": 6787,
+          "output": 166,
+          "cache_read": 5927,
+          "cache_write": 840,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 3,
+          "input": 9153,
+          "output": 149,
+          "cache_read": 6767,
+          "cache_write": 2366,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 4,
+          "input": 9841,
+          "output": 239,
+          "cache_read": 9133,
+          "cache_write": 688,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 5,
+          "input": 10662,
+          "output": 154,
+          "cache_read": 9821,
+          "cache_write": 821,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 6,
+          "input": 11274,
+          "output": 84,
+          "cache_read": 10642,
+          "cache_write": 612,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 7,
+          "input": 11976,
+          "output": 127,
+          "cache_read": 11254,
+          "cache_write": 702,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 8,
+          "input": 12802,
+          "output": 152,
+          "cache_read": 11956,
+          "cache_write": 826,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        },
+        {
+          "step": 9,
+          "input": 13560,
+          "output": 217,
+          "cache_read": 12782,
+          "cache_write": 758,
+          "uncached_input": 20,
+          "previous_cache_prefix_read": true
+        }
+      ],
+      "stats": {
+        "input_tokens": 92001,
+        "output_tokens": 1440,
+        "total_tokens": 93441,
+        "reasoning_tokens": 0,
+        "cached_tokens": 83637,
+        "cache_creation_tokens": 8185,
+        "cost_usd": 0.025974,
+        "num_steps": 9,
+        "elapsed_seconds": 38.72
+      },
+      "prefix_checks": 8,
+      "prefix_failures": 0,
+      "pricing_matches": true,
+      "answer": "68.1",
+      "scratch": "/tmp/texera-haiku45-smoke-valid-20261001/system_scratch/DataflowSystemHaiku45_texera_haiku45_smoke_valid_20261001_sample_stats_flow1_Rep1/biomedical-easy-2",
+      "reasoning_tokens": 0
+    }
+  ],
+  "input_tokens": 173461,
+  "cached_tokens": 152375,
+  "cache_creation_tokens": 20727,
+  "cost_usd": 0.060335,
+  "profile_and_delivery_audit": {
+    "source": "/tmp/texera-haiku45-smoke-valid-20261001",
+    "groups": [
+      {
+        "model": "Haiku45",
+        "arm": "sample_stats_flow1",
+        "tasks": 2,
+        "missing_action_corrections": 0,
+        "tasks_with_missing_action_correction": 0,
+        "corrected_tasks_with_answer": 0,
+        "retrievals": 15,
+        "flow": 14,
+        "raw_no_stats": 3,
+        "delivered": 15,
+        "data": 7,
+        "ranges": 4,
+        "frequencies": 6,
+        "upstream": 8,
+        "complete": 5,
+        "tasks_with_data": 2,
+        "tasks_with_flow": 2,
+        "tasks_with_upstream": 2,
+        "tasks_with_ranges": 2,
+        "tasks_with_frequencies": 2,
+        "tasks_with_partial_stats": 0
+      }
+    ],
+    "delivery_errors": [],
+    "no_answers": [],
+    "profile_budget": {
+      "attempts_frequency_budget": 1,
+      "profiles_frequency_budget": 1,
+      "columns_frequency_budget": 69,
+      "small_categories_dropped": 8
+    },
+    "attempts_with_conversion_failures": [
+      {
+        "model": "Haiku45",
+        "arm": "sample_stats_flow1",
+        "task": "biomedical-easy-2",
+        "sut": "DataflowSystemHaiku45_texera_haiku45_smoke_valid_20261001_sample_stats_flow1_Rep1",
+        "casts": [
+          {
+            "operator": "cast_age",
+            "rows": 153,
+            "failures": {
+              "Age": 52
+            }
+          }
+        ]
+      }
+    ],
+    "scope": "Delivery is checked against the next recorded model request, including watchdog traces. Profile omissions cover final snapshots only. Conversion failures can be intentional; these counts do not label analytical errors or explain score changes."
+  },
+  "source_validation": {
+    "sources": [
+      {
+        "task": "biomedical-easy-2",
+        "operator": "full_data",
+        "source_rows": 153,
+        "profile_rows": 153,
+        "columns": 128,
+        "checks": 588
+      }
+    ],
+    "failures": []
+  },
+  "source_checker_note": "The first independent check compared integer Excel cells with string table values, producing 73 false frequency mismatches. Published string schema conversion fixes the checker; regression tests preserve detection of wrong frequencies. Initial audit is retained at source-validation.json.",
+  "health": {
+    "samples": 3,
+    "outages": [],
+    "process_ids_by_port": {
+      "3076": [
+        3743123
+      ],
+      "8080": [
+        936256
+      ],
+      "8085": [
+        938118
+      ],
+      "8888": [
+        4086482
+      ],
+      "9090": [
+        4086453
+      ],
+      "9092": [
+        4086424
+      ],
+      "9094": [
+        4082727
+      ],
+      "9096": [
+        4086444
+      ],
+      "5432": [],
+      "9000": [],
+      "8000": [],
+      "4000": []
+    },
+    "scope": "Monitoring starts during the run; engine and agent process identities also checked before and after."
+  },
+  "computing_unit": {
+    "cuid": 354,
+    "status": "terminated"
+  },
+  "provider_cache_reference": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+  "cache_read_share": 0.878439533958642
+}

@@ -40,6 +40,26 @@ create operator total: aggregate(by=["region"], total=sum("amount"))
 create edge source.out -> selected.in
 create edge selected.out -> total.in`;
 
+test("project accepts explicit None defaults like omitted optional parameters", async () => {
+  for (const [explicit, omitted] of [
+    ['keep=["region"], drop=None, rename=None', 'keep=["region"]'],
+    ['keep=None, drop=["amount"], rename=None', 'drop=["amount"]'],
+    ['keep=None, drop=None, rename={"amount": "value"}', 'rename={"amount": "value"}'],
+  ]) {
+    const state = new WorkflowState();
+    await edit(state, `create operator explicit: project(${explicit})\ncreate operator omitted: project(${omitted})`);
+    expect(state.getOperator("explicit")!.nativeOp!.properties).toEqual(
+      state.getOperator("omitted")!.nativeOp!.properties
+    );
+  }
+  const state = new WorkflowState();
+  await expect(edit(state, "create operator empty: project(keep=None, drop=None, rename=None)")).rejects.toThrow(
+    "project needs"
+  );
+  await expect(edit(state, 'create operator invalid: project(keep=["x"], drop=["y"])')).rejects.toThrow("not both");
+  expect(state.getAllOperators()).toEqual([]);
+});
+
 test("graph edits keep definitions separate from edges and expose named ports", async () => {
   const state = new WorkflowState();
   await edit(state, chain);
@@ -80,9 +100,9 @@ test("reserved operator names explain the rename and keep the edit atomic", asyn
   const state = new WorkflowState();
   await edit(state, chain);
   const before = state.getWorkflowContent();
-  await expect(
-    edit(state, 'delete operator selected\ncreate operator global: scan("data.csv")')
-  ).rejects.toThrow("Line 2: `global` is a Python keyword");
+  await expect(edit(state, 'delete operator selected\ncreate operator global: scan("data.csv")')).rejects.toThrow(
+    "Line 2: `global` is a Python keyword"
+  );
   expect(state.getWorkflowContent()).toEqual(before);
   await expect(edit(state, 'create operator global: scan("data.csv")')).rejects.toThrow("global_data");
   await edit(state, 'create operator global_data: scan("data.csv")');

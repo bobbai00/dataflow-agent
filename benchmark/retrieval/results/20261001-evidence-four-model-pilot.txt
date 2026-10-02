@@ -1,0 +1,204 @@
+Four-model KramaBench evidence pilot — 2026-10-01
+================================================
+
+Conclusion
+----------
+The audited statistics and caching behaved correctly. Models sometimes used
+the information well and sometimes ignored explicit evidence of a bad
+transformation. Sonnet and Terra passed all four selected questions; Luna
+passed three, and Haiku one. Passing answers also concealed intermediate
+errors, so these scores alone would overstate analytical correctness.
+
+No production changes were needed during this pilot. The remaining findings
+are model calculation errors, incomplete verification, and recovered Answer
+protocol violations. This pilot demonstrates useful evidence mechanisms; it
+does not measure an average accuracy or cost gain from enabling evidence.
+
+Protocol
+--------
+Four complete original KramaBench questions per model, one attempt each:
+- legal-easy-26: states whose top report category is Identity Theft.
+- legal-hard-14: five distinct New England metro areas with most reports.
+- wildfire-easy-1: maximum acres burned across a three-month period.
+- environment-easy-3: beaches with a higher 2013 exceedance rate than 2012.
+
+The first three were selected before the initial run for conversion, identity
+and temporal checks. The beach task was added after observing limited Join
+use in the initial tasks, to exercise actual Join diagnostics. No failed
+model task was retried, and no outcome was overwritten.
+
+Models: claude-sonnet-5.5, claude-haiku-4.5, gpt-5.6-luna, gpt-5.6-terra.
+Agent revision b044a5535, native mode, DELTA history, sample_stats only,
+flow evidence on, native profile collection on. Samples: 2,000 characters,
+at most five rows. Data and flow evidence each have a separate 2,000-character
+budget; retained full results are bounded at 100,000 characters. Maximum
+25 model calls; thought replay and code snapshots off. Two workers per
+campaign. Every task's saved settings and rendered prompt match this setup.
+The prompt uses the committed synthetic examples, with no task-specific edits.
+
+Recorded engine provenance: 04e85b581 JVM build; b044a5535 Python profiler.
+The JVM build designation is inherited from the preceding stack validation;
+the backend was left running. New operators carry this agent's runtime code.
+
+Official task results
+---------------------
+Pass means the original KramaBench evaluator returned score 1.0.
+Costs are the harness's cache-aware model costs, using its recorded rates.
+They exclude benchmark scoring and infrastructure. Sonnet's rates are frozen
+by the campaign's existing pricing override; see the JSON manifests.
+
+Model          Passes  Model calls  Total model cost  Cached input share
+Sonnet 5.5       4/4       19          $0.177761            87.2%
+Haiku 4.5        1/4       41          $0.159845            88.9%
+Luna             3/4       21          $0.012854            84.4%
+Terra            4/4       17          $0.114844            81.6%
+
+Task                    Sonnet  Haiku  Luna  Terra
+legal-easy-26              1       0     1     1
+legal-hard-14              1       0     1     1
+wildfire-easy-1            1       1     1     1
+environment-easy-3         1       0     0     1
+
+Total agent model cost across the 16 attempts: $0.465304.
+
+Where the evidence helped
+-------------------------
+1. A complete set from incomplete records.
+   Sonnet retrieved a six-row state result but received only five records.
+   Full-coverage frequencies listed all six states with other=0, including
+   Ohio, which was absent from the sample. Its final answer included all six.
+   Luna also recovered that complete set. This shows a concrete use for
+   exhaustive column statistics when only membership is needed.
+
+2. Entity identity in a real two-table comparison.
+   Sonnet computed both name-only and community-plus-name beach variants.
+   The name-only version returned 267. Its upstream Aggregate evidence said
+   that 14 of 1,155 name groups pooled multiple community codes, including
+   Atlantic Avenue in two communities. The composite version returned 268.
+   Sonnet's answer explicitly justified the composite identity using this
+   finding. It had built both variants before receiving the warning, so this
+   supports evidence-informed selection, not a claim that evidence caused
+   it to generate the better graph.
+
+   Terra's composite Join reported 1,138 matches out of 1,171 left and 1,176
+   right groups, with 33/38 unmatched groups. It supplied bounded actual
+   unmatched-key examples on both sides. Independent source calculations
+   match those counters and every example checked.
+
+3. Resolved Window offsets.
+   Terra used lag offsets one and two on 303 monthly records. The telemetry
+   reported boundary nulls 1/303 and 2/303, with matching total null counts.
+   Sonnet also used native lag operators. The new offset and boundary facts
+   reached their observations. Independent checks confirmed the counters.
+   The source has consecutive months; that continuity was checked separately.
+
+4. Cast diagnostics through the actual engine.
+   Models did not reliably exercise a successful lossy native Cast. A separate
+   deterministic debug smoke therefore tested that path with the report table,
+   without any model call or modification to benchmark scores.
+   An unnormalized integer conversion failed on exactly 317 of 520 data rows.
+   The three first examples were "26,474", "13,596", "8,302", each count one;
+   other failures=314. Independent pandas parsing confirmed these counts.
+   After numeric normalization, the null count became zero and the downstream
+   sum was 4,342,534, also independently confirmed.
+
+Failures and anomalies
+----------------------
+- Haiku, legal-easy-26: ranked '# of Reports' as strings. Its eight-state
+  answer exactly matches an independent lexical-sort replay, rather than the
+  six-state numeric result. The observation correctly showed type str.
+
+- Haiku, legal-hard-14: its Process used coercive numeric parsing without
+  normalizing thousands separators. Independent source parsing finds 452
+  valid report rows, of which only 302 survive that conversion: 150 lost.
+  It also joined filename-derived names without spaces to spaced state names.
+  The Join matched four of six requested states. Upstream evidence explicitly
+  listed New Hampshire and Rhode Island as unmatched, but Haiku answered
+  without repairing the identity mismatch. Arbitrary conversion inside
+  Process has no native Cast failure-value telemetry.
+
+- Luna and Haiku, environment-easy-3: both returned 267 using beach name alone.
+  Both received the warning that the grouping pooled different communities.
+  Neither repaired the key. Haiku initially counted all nonnull Violation
+  values as violations, producing rates of one. It recognized that problem
+  from the returned rates and repaired the numerator, but kept the wrong key.
+
+- Luna, legal-hard-14: summed repeated cross-state entries rather than keeping
+  each distinct metro's single reported count. Boston became 39,858 instead
+  of 19,929; Providence became 10,844 instead of 5,422. The requested top-five
+  names stayed the same, so the official score remains one. Returned data
+  statistics showed 24 rows but only 21 distinct areas, and flow evidence
+  showed group sizes up to two.
+
+- Terra, legal-hard-14: the Join retained only four of six states. Its delivered
+  evidence listed New Hampshire and Rhode Island as unmatched. The top-five
+  names still matched the reference because the largest shared metro areas
+  were also present in other state files. The official pass remains one;
+  the incomplete population is a genuine semantic finding.
+
+- Luna, wildfire-easy-1: its Process tested consecutive YYYYMM integers with
+  +1. That drops periods crossing New Year. Independent replay finds 251
+  considered windows versus 301 valid calendar windows. The same June–August
+  2015 maximum survives, so the official score remains one. Flow evidence
+  cannot inspect this internal custom calculation.
+
+- Sonnet returned plain text once on each task instead of the required Answer
+  action. The existing bounded correction recovered a valid Answer on all
+  four tasks. These four protocol warnings are recorded, not counted as
+  engine or statistics failures.
+
+Validation and limits
+---------------------
+- All 16 attempts completed; no watchdog timeout or worker error.
+- 145 final profiles / 652 columns passed stored count, frequency and version
+  invariants. No settings drift or evidence leak.
+- All 94 successful Retrieve observations reached the next recorded model
+  request. Raw previews correctly explain why parsed data statistics are
+  unavailable. Partial profiles retain their coverage labels.
+- 4,516 independent source/table/counter comparisons had zero mismatches:
+  null/non-null/distinct counts, ranges, frequencies, structural counts,
+  row counts, Cast counts, Window boundaries/ties, Join matching/multiplicity
+  and bounded examples. This count includes 236 source-based comparisons
+  covering all eight beach Join operators across the four models.
+- Eight initial-pilot and 45 beach-pilot table/dependency comparisons were
+  skipped when retained records were incomplete. Source CSV prefixes and
+  beach Join key domains were checked separately. A skip is not validation
+  of an unretained table or arbitrary custom code.
+- All 82 successive model-request prefixes were preserved. All 52 Claude
+  transitions read exactly the previous cached-plus-written prefix. Recorded
+  token totals reconcile with per-call usage; no cache accounting mismatch.
+- The deterministic Cast smoke confirmed that repeated Retrieve preserves
+  results and adds no execution. Updating its producer recomputed descendants
+  and removed the old Cast evidence from the new result.
+- Model action failures are retained: 24 error observations, including
+  Execute/Retrieve pairs and rejected edits. They are not 24 independent bugs.
+  No failure implicated a new statistics computation or transport invariant.
+
+Recommended next changes for review
+----------------------------------
+Keep the guidance general: numeric ordering requires numeric values; grouping
+and Join keys must identify the intended entity; unexpected missing requested
+keys need repair or a task-based justification. Before Answer, have the agent
+address the concrete contradictory findings already present in observations.
+Keep conversions and other supported transformations in native graph stages
+so their failures remain visible. This pilot does not justify adding any
+benchmark-specific rule, forced normalization, or automatic deduplication.
+
+Runtime and artifacts
+---------------------
+Separate branch agent :3079 and existing gateway/control :4001/:9097; shared
+backend :8080/:8888/:8085. Other worktrees' services were not restarted.
+Both campaigns' computing units and both smoke allocations were terminated.
+The branch agent remains available. A smoke harness setup omission of the
+required Filter doc was rejected atomically before execution; its original
+setup log was retained, then the no-model diagnostic was corrected.
+
+Raw campaigns:
+/tmp/texera-evidence-pilot-20261001
+/tmp/texera-evidence-join-pilot-20261001
+
+The companion JSON records every task's original score, cost, token usage,
+audit, artifact paths and hashes; settings/provenance, delivery and cache
+checks; independent source calculations and script hashes; and the Cast/cache
+smoke. Original task prompts, definitions and scoring were unchanged. There
+are no matched evidence-off controls or full-benchmark results in this pilot.

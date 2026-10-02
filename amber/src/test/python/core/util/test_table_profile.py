@@ -184,6 +184,52 @@ def test_payload_budget_preserves_small_frequencies_and_exact_counts():
     assert profile.snapshot() == original
 
 
+@pytest.mark.parametrize("kind", ["Cast", "Join"])
+def test_optional_witnesses_cannot_displace_native_counters(kind):
+    witness = {"values": [scalar("str", "x" * 96)], "count": 1, "truncated": False}
+    operations = (
+        {
+            "conversionFailures": {"value": 3},
+            "conversionFailureExamples": {"value": {"examples": [witness] * 3, "otherCount": 0}},
+        }
+        if kind == "Cast"
+        else {
+            "join": {
+                "matchedOutputRows": 0,
+                "left": {"unmatchedRows": 3, "unmatchedExamples": [witness] * 3, "duplicateExamples": []},
+            }
+        }
+    )
+    metadata = {
+        "operatorId": "value",
+        "operatorRevision": "0123456789abcdef",
+        "operatorType": kind,
+        "inputOperators": ["input"],
+        "inputRows": [3],
+        "outputRows": 3,
+        "operations": operations,
+    }
+    profile = ProfileAccumulator("worker-0", metadata)
+    profile.add(pd.DataFrame({"value": [None, None, None]}))
+    profile.finish()
+    original = profile.snapshot()
+    baseline = json.loads(json.dumps(original))
+    native = baseline["native"]["operations"]
+    native.pop("conversionFailureExamples", None)
+    for side in native.get("join", {}).values():
+        if isinstance(side, dict):
+            side.pop("unmatchedExamples", None)
+            side.pop("duplicateExamples", None)
+    profile.limits = ProfileLimits(max_payload_bytes=len(json.dumps(baseline, separators=(",", ":")).encode()) + 64)
+    payload = profile.encode()
+    result = json.loads(payload)
+    assert len(payload.encode()) <= profile.limits.max_payload_bytes
+    assert result["native"]["operations"] == baseline["native"]["operations"]
+    assert "native_witness_payload_budget" in result["omissions"]
+    assert result["columns"] == original["columns"]
+    assert profile.snapshot() == original
+
+
 def test_collection_time_budget_stops_optional_work_not_execution():
     # The collector checks its clock before each bounded row block.
     ticks = iter([0.0, 1.0, 1.0, 1.0])

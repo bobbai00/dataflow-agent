@@ -13,15 +13,29 @@
 """Campaign scheduling and trace integrity checks, without live model calls."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+import importlib.util
 from pathlib import Path
 import tempfile
 import threading
 import unittest
 
-from benchmark.retrieval.campaign import ResourceQueue, audit_attempt, prepare_artifacts
+from benchmark.retrieval.campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
 
 
 class CampaignTests(unittest.TestCase):
+    def test_sonnet_prices_charge_each_token_class_once_and_keep_other_models(self):
+        path = Path(__file__).resolve().parents[1] / "Kramabench/systems/cost_utils.py"
+        spec = importlib.util.spec_from_file_location("cost_fixture", path)
+        cost = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cost)
+        before = cost.price_schedule("claude-haiku-4.5")
+        frozen = install_provider_prices(cost, ["claude-haiku-4.5", "claude-sonnet-5.5"])
+        self.assertAlmostEqual(cost.compute_cost("claude-sonnet-5.5", 1000, 20, 800, 100), 0.00081)
+        self.assertEqual(cost.price_schedule("claude-haiku-4.5"), before)
+        self.assertEqual(set(frozen), {"claude-sonnet-5.5"})
+        self.assertEqual(frozen["claude-sonnet-5.5"]["rates"]["output"], 10e-6)
+        self.assertIn("platform.claude.com", frozen["claude-sonnet-5.5"]["source"])
+
     def test_large_tasks_wait_while_small_tasks_continue(self):
         jobs = [{"task": task} for task in ["large-a", "large-b", "small"]]
         work = ResourceQueue(jobs, {"large-a", "large-b"}, 1)
@@ -82,6 +96,24 @@ class CampaignTests(unittest.TestCase):
             findings = audit_attempt(path, settings)
             self.assertEqual(findings["violations"], [])
             self.assertEqual(findings["action_errors"], 1)
+
+    def test_native_text_answer_is_flagged_until_an_answer_action_succeeds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"agentMode": "native", "retrievalViews": ["sample_stats"], "flowEvidence": False}
+            (path / "settings.json").write_text(json.dumps(settings))
+            steps = [{"role": "agent", "content": "Final Answer: No", "inputMessages": [{"role": "user", "content": "question"}], "toolCalls": []},
+                     {"role": "agent", "content": "Error: No final answer was produced."}]
+            (path / "react_steps.json").write_text(json.dumps(steps))
+            findings = audit_attempt(path, settings)
+            self.assertEqual(findings["violations"], [])
+            self.assertEqual(set(findings["warnings"]), {"text_without_dataflow", "missing_answer_action"})
+            self.assertEqual(findings["text_replies"], 1)
+            steps.append({"toolResults": [{"output": {"actions": [{"action": {"type": "answer", "content": "No"}, "status": "ok"}]}}]})
+            (path / "react_steps.json").write_text(json.dumps(steps))
+            findings = audit_attempt(path, settings)
+            self.assertNotIn("missing_answer_action", findings["warnings"])
+            self.assertEqual(findings["text_replies"], 1)
 
 
 if __name__ == "__main__":

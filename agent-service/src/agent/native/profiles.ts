@@ -44,6 +44,14 @@ const scalar = z.discriminatedUnion("type", [
   }),
 ]);
 const frequency = z.object({ value: scalar, count: count.refine(v => v > 0) });
+/** Optional native diagnostics. Values share the lossless table-profile scalar
+ * encoding; their clipped display is never used as a key or a frequency domain. */
+export const nativeWitnessSchema = z.object({
+  values: z.array(scalar.nullable()).min(1).max(8),
+  count: count.refine(v => v > 0),
+  truncated: z.boolean(),
+});
+export type NativeWitness = z.infer<typeof nativeWitnessSchema>;
 const frequencies = z.object({ values: z.array(frequency).max(4096), otherCount: count, truncated: z.boolean() });
 const columnSchema = z.object({
   type: kind,

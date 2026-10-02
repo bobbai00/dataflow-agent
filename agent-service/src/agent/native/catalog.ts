@@ -500,14 +500,17 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     normalize(rest, kwargs) {
       noPositional("project", rest, "one input table");
       keywords("project", kwargs, ["keep", "drop", "rename"]);
+      // Explicit None has the same meaning as the advertised omitted defaults.
+      const { keep, drop, rename } = Object.fromEntries(
+        Object.entries(kwargs).filter(([, value]) => !(value.kind === "const" && value.value === null))
+      );
       const props: Record<string, unknown> = {};
-      if (kwargs.keep) props.keep = strList(kwargs.keep, "keep", 1);
-      if (kwargs.drop) props.drop = strList(kwargs.drop, "drop", 1);
-      if (kwargs.keep && kwargs.drop) fail("project takes keep or drop, not both.");
-      if (kwargs.rename) {
-        if (kwargs.rename.kind !== "dict" || !kwargs.rename.entries.length)
-          fail("rename must be a {old: new} dictionary.", "rename");
-        else props.rename = Object.fromEntries(kwargs.rename.entries.map(([k, v]) => [k, str(v, "rename")]));
+      if (keep) props.keep = strList(keep, "keep", 1);
+      if (drop) props.drop = strList(drop, "drop", 1);
+      if (keep && drop) fail("project takes keep or drop, not both.");
+      if (rename) {
+        if (rename.kind !== "dict" || !rename.entries.length) fail("rename must be a {old: new} dictionary.", "rename");
+        else props.rename = Object.fromEntries(rename.entries.map(([k, v]) => [k, str(v, "rename")]));
       }
       if (!Object.keys(props).length) fail("project needs keep=, drop= or rename=.");
       return props;

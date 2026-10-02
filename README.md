@@ -72,7 +72,7 @@ bin/local-dev.sh status       # 14 services; frontend at http://localhost:4200
 `sbt dist`, starts every service, and brings up the **LiteLLM proxy**
 (`localhost:4000`) with your provider keys from `.env`. Models served by
 default (see `bin/single-node/litellm-config.yaml`): `claude-haiku-4.5`,
-`claude-sonnet-5`, `claude-opus-5`, `gpt-5.2`, `gpt-5-mini`, `gpt-5.6`, and the
+`claude-sonnet-5`, `claude-sonnet-5.5`, `claude-opus-5`, `gpt-5.2`, `gpt-5-mini`, `gpt-5.6`, and the
 reasoning variants `gpt-5.6-luna` / `gpt-5.6-tara` (pinned to medium reasoning
 effort). You only need keys for the providers you actually call.
 

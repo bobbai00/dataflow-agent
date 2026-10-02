@@ -1,0 +1,64 @@
+Claude Haiku 4.5, full KramaBench sample_stats run — 2026-10-01
+
+Complete: 104/104 original tasks, one repetition, original KramaBench evaluator.
+Retrieval: sample_stats; flow evidence off. Samples: 2,000 characters and five
+rows per operator. Statistics add up to 2,000 characters independently.
+Native graph actions, DELTA context, maxSteps=25, profile collection enabled.
+No outcome-selected retries. Original scores and failure artifacts preserved.
+
+Full passes: 53/104 (51.0%), using official score >=1.0.
+Mean official score: 53.9%, counting the one unscored timeout as zero for this
+aggregate only. Mean over the 103 scored tasks: 54.4%.
+Fifteen scored tasks reached the 25-step limit without a final Answer.
+wildfire-hard-19 reached the 900-second harness timeout and remains unscored.
+Its trace shows recovery from datetime type errors followed by an expensive
+custom matching operator over wildfire and weather records. The final
+execution was aborted by the watchdog; this is not a provider auth failure.
+
+Recorded model cost: $5.613430.
+  Completed-task stats.json totals: $5.563889 over 103 tasks.
+  Timed-out task's ten recorded model responses: $0.049541.
+Costs include cache reads and cache creation, exclude evaluator and engine
+resources. A billed response absent from the recorded trace is not included.
+The timeout usage is derived separately; original missing stats/score files
+are not replaced. Rates and exact derivation accompany this report in JSON.
+
+Started 2026-10-01T19:40:03 UTC; finished 20:22:44 UTC: 42 minutes 41 seconds.
+Four workers; at most one task with >=100 MB of declared sources in flight.
+
+Automatic audits
+  1,329 context-prefix checks passed, including nine in the watchdog trace.
+  Cache reads: 92.9% of recorded input tokens, including the timeout's usage.
+  509 service-health samples: no outages or process-identity changes.
+  No worker errors, settings drift or attempt integrity violations.
+  Profile audits: 1,223 retained operator results, 9,638 profiled columns;
+  zero reported invariant violations. Renderer replay: 1,223, zero failures.
+  Evidence delivery: zero mismatches; 1,199 successful retrieval observations
+  reached a following model request. Ten additional watchdog retrievals had
+  no subsequent recorded model request. Flow evidence remained off.
+  Model tool failures still occurred: 278 action-error entries in the scored
+  traces. These entries can repeat one underlying execution error and are not
+  a count of failed tasks. Fifteen no-answer traces reached the step limit.
+  All four owned computing units were terminated. The dedicated agent remains
+  available; other branch agents and backend services remain untouched.
+
+Scope
+  This is one stochastic repetition. Automatic checks cover representation,
+  context, settings and recorded execution artifacts; they do not establish
+  that every analytical answer or inference was correct. Manual launch
+  review covered the first two completed traces, both passing, and a timeout
+  summary. A full failure-mechanism comparison is not part of this report.
+  Statistics retain bounded coverage: 128 partial profiles and 51 profiles
+  with frequency-budget omissions. Observations label coverage and omissions.
+
+Provenance and artifacts
+  Agent/runner: 59bd80573, frozen checkout on localhost:3077.
+  Engine: 04e85b581 JVM; 41a3a4516 Python profiler.
+  KramaBench: 4658eb92db753805e0df3edc207ca46379eda43b.
+  Run: /tmp/texera-haiku45-full-20261001-results
+  Controller: /tmp/texera-haiku45-full-20261001-control
+  Final derived summary: FINAL_SUMMARY.json; timeout usage: timeout-usage.json.
+  Original traces/scores/costs: system_scratch/<SUT>/<task>/.
+  Aggregate and audits: analysis.json, retrieval-audit.json,
+  renderer-replay.json, mechanisms.json. Launch configuration is recorded
+  alongside this report in 20261001-haiku45-full-launch.txt.

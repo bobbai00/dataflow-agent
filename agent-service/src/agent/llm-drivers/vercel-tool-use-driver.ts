@@ -57,6 +57,10 @@ export class VercelToolUseDriver implements LLMDriver {
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
+    // Sonnet 5.5 rejects forced tool use. The native Answer contract is still
+    // enforced below, including the bounded correction for a text-only reply.
+    const modelId = typeof this.model === "string" ? this.model : this.model.modelId;
+    const supportsForcedTools = !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
     // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
@@ -69,7 +73,7 @@ export class VercelToolUseDriver implements LLMDriver {
       tools: input.tools,
       temperature: this.temperature,
       stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
-      toolChoice: input.requireToolCall ? "required" : "auto",
+      toolChoice: input.requireToolCall && supportsForcedTools ? "required" : "auto",
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },

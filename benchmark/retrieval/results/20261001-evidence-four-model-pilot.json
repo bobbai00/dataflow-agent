@@ -1,0 +1,3657 @@
+{
+  "date": "2026-10-01 America/Los_Angeles",
+  "scope": "Four selected complete KramaBench questions per model, one attempt; diagnostic evidence audit. Supplementary beach task selected after observing limited Join use in the initial three tasks. No model-task retries or evidence-off controls.",
+  "summary": [
+    {
+      "model": "Sonnet55",
+      "attempts": 4,
+      "passes": 4,
+      "mean_score": 1.0,
+      "cost_usd": 0.17776100000000003,
+      "model_calls": 19,
+      "cached_input_share": 0.8724726985157317
+    },
+    {
+      "model": "Haiku45",
+      "attempts": 4,
+      "passes": 1,
+      "mean_score": 0.25,
+      "cost_usd": 0.159845,
+      "model_calls": 41,
+      "cached_input_share": 0.8892493922706752
+    },
+    {
+      "model": "Luna",
+      "attempts": 4,
+      "passes": 3,
+      "mean_score": 0.75,
+      "cost_usd": 0.012853999999999999,
+      "model_calls": 21,
+      "cached_input_share": 0.8435485882988898
+    },
+    {
+      "model": "Terra",
+      "attempts": 4,
+      "passes": 4,
+      "mean_score": 1.0,
+      "cost_usd": 0.114844,
+      "model_calls": 17,
+      "cached_input_share": 0.8155134056154976
+    }
+  ],
+  "manifests": [
+    {
+      "agent_revision": "b044a5535",
+      "engine_revision": "04e85b581 JVM; b044a5535 Python profiler",
+      "harness_revision": "4658eb92db753805e0df3edc207ca46379eda43b",
+      "endpoint": "http://localhost:3079",
+      "models": {
+        "Sonnet55": "claude-sonnet-5.5",
+        "Haiku45": "claude-haiku-4.5",
+        "Luna": "gpt-5.6-luna",
+        "Terra": "gpt-5.6-terra"
+      },
+      "settings": {
+        "agentMode": "native",
+        "contextMode": "delta",
+        "nativeProfileCollection": true,
+        "maxSteps": 25,
+        "maxOperatorResultCharLimit": 2000,
+        "maxResultRows": 5,
+        "fullResultCharLimit": 100000,
+        "dataEvidenceCharLimit": 2000,
+        "flowEvidenceCharLimit": 2000,
+        "thoughtReplay": false,
+        "enableCodeInSnapshot": false
+      },
+      "arms": {
+        "sample_stats_flow1": {
+          "retrievalViews": [
+            "sample_stats"
+          ],
+          "flowEvidence": true,
+          "dataEvidence": true
+        }
+      },
+      "selection": "Three complete KramaBench tasks selected before this run for Cast parsing, Join coverage/duplicates, and Window offsets. All four models run once with sample_stats and flow evidence. Diagnostic pilot, not an accuracy-gain estimate.",
+      "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
+      "task_timeout_seconds": 720,
+      "workers": 2,
+      "pricing_overrides": {
+        "claude-sonnet-5.5": {
+          "rates": {
+            "input": 2e-06,
+            "output": 1e-05,
+            "cache_read": 2e-07,
+            "cache_creation": 2.5e-06
+          },
+          "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+          "verified_on": "2026-10-01",
+          "unit": "USD per token"
+        }
+      }
+    },
+    {
+      "agent_revision": "b044a5535",
+      "engine_revision": "04e85b581 JVM; b044a5535 Python profiler",
+      "harness_revision": "4658eb92db753805e0df3edc207ca46379eda43b",
+      "endpoint": "http://localhost:3079",
+      "models": {
+        "Sonnet55": "claude-sonnet-5.5",
+        "Haiku45": "claude-haiku-4.5",
+        "Luna": "gpt-5.6-luna",
+        "Terra": "gpt-5.6-terra"
+      },
+      "settings": {
+        "agentMode": "native",
+        "contextMode": "delta",
+        "nativeProfileCollection": true,
+        "maxSteps": 25,
+        "maxOperatorResultCharLimit": 2000,
+        "maxResultRows": 5,
+        "fullResultCharLimit": 100000,
+        "dataEvidenceCharLimit": 2000,
+        "flowEvidenceCharLimit": 2000,
+        "thoughtReplay": false,
+        "enableCodeInSnapshot": false
+      },
+      "arms": {
+        "sample_stats_flow1": {
+          "retrievalViews": [
+            "sample_stats"
+          ],
+          "flowEvidence": true,
+          "dataEvidence": true
+        }
+      },
+      "selection": "Supplementary complete KramaBench question selected to exercise actual two-table Join metadata, because models mostly filtered files in the first pilot. One attempt per model, unchanged task and generic system prompt; no retries.",
+      "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
+      "task_timeout_seconds": 720,
+      "workers": 2,
+      "pricing_overrides": {
+        "claude-sonnet-5.5": {
+          "rates": {
+            "input": 2e-06,
+            "output": 1e-05,
+            "cache_read": 2e-07,
+            "cache_creation": 2.5e-06
+          },
+          "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+          "verified_on": "2026-10-01",
+          "unit": "USD per token"
+        }
+      }
+    }
+  ],
+  "rows": [
+    {
+      "model": "Sonnet55",
+      "arm": "sample_stats_flow1",
+      "task": "legal-easy-26",
+      "rep": 1,
+      "sut": "DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.046118,
+      "input_tokens": 40217,
+      "output_tokens": 1235,
+      "cached_tokens": 29030,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 11175,
+      "no_answer": false,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 2
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "create_operator": 5,
+        "create_edge": 3
+      },
+      "operators_created": {
+        "scan": 2,
+        "map": 1,
+        "window": 1,
+        "filter": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [
+          "text_without_dataflow"
+        ],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 1,
+        "retrievals": 2,
+        "profiles": 5,
+        "columns": 18
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-easy-26",
+      "artifact_sha256": {
+        "ground_truth.json": "b44f6f0da930bbc7743aa06a2b61880b1ff1958c8736dc8df1ad7d11b8ef4601",
+        "answer.json": "83c3333cbbb925a377e52c7912d5ca433f6085b9ab36cff70bae737c980159e2",
+        "evaluation.json": "a6c4f1596ae90b52cc31e989e65d2d26466464eb7de1eae7e30099f285771a68",
+        "stats.json": "d38b0ff3fbe7e211c435eaab83521b9261a8226300fe2517b135edd5ab17d481",
+        "react_steps.json": "97bca447ee86ee4f6c06171cffdcc69c4242025e4346b4c227dacdfa35f02f55",
+        "workflow.json": "c5ba0071a69def939cc44face5b80f6693fb8073c0fd952e926ba4ea18629667",
+        "snapshot.json": "3f5e7d719b6d4443caf28043aedd0ae91f5322fc201891cde7ca845c2d917c80",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_stats_flow1",
+      "task": "legal-hard-14",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.005183,
+      "input_tokens": 53753,
+      "output_tokens": 1696,
+      "cached_tokens": 42235,
+      "reasoning_tokens": 464,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 7,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 10
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 10,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 17,
+        "error": 6
+      },
+      "edit_operations": {
+        "create_operator": 11,
+        "update_operator": 3,
+        "create_edge": 9,
+        "delete_operator": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "cast": 3,
+        "map": 2,
+        "filter": 1,
+        "aggregate": 1,
+        "sort": 1,
+        "limit": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 6,
+        "action_errors": 6,
+        "text_replies": 0,
+        "retrievals": 7,
+        "profiles": 10,
+        "columns": 29
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemLuna_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-hard-14",
+      "artifact_sha256": {
+        "ground_truth.json": "2f823847de4c46717eb9776ef1313f0004147186f789f307df700dbab3fe250c",
+        "answer.json": "9bb10185cf809a9308071fa109c2bac0a1e09cf98ef8abc85d180fd45a6d9e04",
+        "evaluation.json": "ebe4a1d5b57cc613059a3ea89ca7a2354bdc7638ac980da8ae10c566b63cca5e",
+        "stats.json": "203799a1e61600c1210be7de1722bbe8f2b2bd9a9aeef31db1f67de4a02e0727",
+        "react_steps.json": "129716a706f7ff8667d5d946af89f25c017389e5d91bd71f937bcf252d6e240c",
+        "workflow.json": "de814faa31b4e9610d99234ce6997de08ef3b8ea646bc1bc88575f0ac720784e",
+        "snapshot.json": "b6650b26f39dca6ead2b3813f0edfd77557a2560c42695f0fa168721c566d625",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Haiku45",
+      "arm": "sample_stats_flow1",
+      "task": "legal-easy-26",
+      "rep": 1,
+      "sut": "DataflowSystemHaiku45_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "cost_usd": 0.022386,
+      "input_tokens": 51199,
+      "output_tokens": 1005,
+      "cached_tokens": 40529,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 10551,
+      "no_answer": false,
+      "model_calls": 6,
+      "prefix_checks": 5,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 5
+      },
+      "actions": {
+        "edit": 5,
+        "execute": 5,
+        "retrieve": 5,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 16
+      },
+      "edit_operations": {
+        "create_operator": 6,
+        "update_operator": 1,
+        "create_edge": 5
+      },
+      "operators_created": {
+        "scan": 1,
+        "window": 1,
+        "filter": 1,
+        "project": 1,
+        "distinct": 1,
+        "sort": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 5,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 5,
+        "profiles": 6,
+        "columns": 17
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemHaiku45_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-easy-26",
+      "artifact_sha256": {
+        "ground_truth.json": "b44f6f0da930bbc7743aa06a2b61880b1ff1958c8736dc8df1ad7d11b8ef4601",
+        "answer.json": "63d34475520ec523195695839f1de81a0f8db75da3cb4bdd04610aea195e6295",
+        "evaluation.json": "1e372ea4bc0b5d4c1814663b1d8e1cfc6395da5b96bbe8cd77cd5382c84d7805",
+        "stats.json": "13650d0e111e0a6e283fb3a1c75a1616e91aca63166ec642b69dfb3ffb7583d6",
+        "react_steps.json": "3a387f917d50b4002d5ef3fa683f11b38cdac37883c527fddca7f2db61d9933d",
+        "workflow.json": "4793ea7f30936a40f267ba9726f6c713bb1f3d956d9259afd6494a2a7b34a2ef",
+        "snapshot.json": "53592dc8e7ea0282199872f277523e59b7ae6f8caf96d03ba99d55715165f815",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Sonnet55",
+      "arm": "sample_stats_flow1",
+      "task": "legal-hard-14",
+      "rep": 1,
+      "sut": "DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.059631,
+      "input_tokens": 86733,
+      "output_tokens": 2675,
+      "cached_tokens": 79975,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 6740,
+      "no_answer": false,
+      "model_calls": 7,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 6
+      },
+      "actions": {
+        "edit": 5,
+        "execute": 5,
+        "retrieve": 6,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 15,
+        "error": 2
+      },
+      "edit_operations": {
+        "create_operator": 8,
+        "create_edge": 7,
+        "delete_operator": 1,
+        "update_operator": 2
+      },
+      "operators_created": {
+        "scan": 2,
+        "filter": 1,
+        "cast": 1,
+        "sort": 1,
+        "map": 1,
+        "distinct": 1,
+        "limit": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [
+          "text_without_dataflow"
+        ],
+        "prefix_checks": 6,
+        "action_errors": 2,
+        "text_replies": 1,
+        "retrievals": 5,
+        "profiles": 7,
+        "columns": 19
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-hard-14",
+      "artifact_sha256": {
+        "ground_truth.json": "2f823847de4c46717eb9776ef1313f0004147186f789f307df700dbab3fe250c",
+        "answer.json": "9bb10185cf809a9308071fa109c2bac0a1e09cf98ef8abc85d180fd45a6d9e04",
+        "evaluation.json": "ace3179eba2fe4a669b5a000585434463aaff43a7a540c2280124815ff1c4d44",
+        "stats.json": "b19e3e206ebf978563571ef5e9afa7d9b9be18ca38ffdc21cb47907f241dbad5",
+        "react_steps.json": "d50570074298107da323ff3ac47d5783a25abc5f16c5f8e133270d4d2132deb4",
+        "workflow.json": "f2607230d4a25f87212d2865b53d667e8f5936ec79a08b576e19eaebfa507d79",
+        "snapshot.json": "f8bacc897471063160043f86d6457e58b0b5ff4b8f39cb7036c6d95d6fff3ce5",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_stats_flow1",
+      "task": "legal-easy-26",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.00323,
+      "input_tokens": 47276,
+      "output_tokens": 1236,
+      "cached_tokens": 42824,
+      "reasoning_tokens": 392,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 7,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 6
+      },
+      "actions": {
+        "edit": 5,
+        "execute": 5,
+        "retrieve": 6,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12,
+        "error": 3,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "create_operator": 4,
+        "update_operator": 3,
+        "create_edge": 3
+      },
+      "operators_created": {
+        "scan": 1,
+        "window": 1,
+        "filter": 1,
+        "project": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 6,
+        "action_errors": 3,
+        "text_replies": 0,
+        "retrievals": 4,
+        "profiles": 4,
+        "columns": 15
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemLuna_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-easy-26",
+      "artifact_sha256": {
+        "ground_truth.json": "b44f6f0da930bbc7743aa06a2b61880b1ff1958c8736dc8df1ad7d11b8ef4601",
+        "answer.json": "83c3333cbbb925a377e52c7912d5ca433f6085b9ab36cff70bae737c980159e2",
+        "evaluation.json": "db5c253ce9baf612005b46f6d65cee0995acc94c8643f35dddce91b7b4e42ea5",
+        "stats.json": "550d6ebfb253584b176255e124be0ae6db205b68d3ded525e50343edea171dcd",
+        "react_steps.json": "4fa2db1ac68c35b93e7bb40ede551e3e84a250e5121842efe061443977138ca4",
+        "workflow.json": "a1b5453443644911d8d498c8a5613bcbdf4acfe052214a25e0e10b9a38794d4e",
+        "snapshot.json": "5e2b0bcda2d0376340256255a81f1351ccb8b316b0efd704863f0600408e1df5",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_stats_flow1",
+      "task": "wildfire-easy-1",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.002025,
+      "input_tokens": 23298,
+      "output_tokens": 957,
+      "cached_tokens": 21019,
+      "reasoning_tokens": 295,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 3
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10
+      },
+      "edit_operations": {
+        "create_operator": 3,
+        "update_operator": 1,
+        "create_edge": 2
+      },
+      "operators_created": {
+        "scan": 1,
+        "sort": 1,
+        "process": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 3,
+        "profiles": 3,
+        "columns": 11
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemLuna_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/wildfire-easy-1",
+      "artifact_sha256": {
+        "ground_truth.json": "9041d1c8b234f8042b9695bb8a53c41ff45a919895ef0591ae4985ba1f3902cd",
+        "answer.json": "6e91e2b36ba05f1181adc743966200e96cf5cc80d8aec2bf11c18314e450b479",
+        "evaluation.json": "ff20ad0e964c7ef0c2c68b1086326a37b5713d6629f3335958943230a716b4df",
+        "stats.json": "44b9ea45be7a0e09609ec0fefeaa61ecb5972f1e85d966ca9f60e47e810fa56c",
+        "react_steps.json": "362342616b741aa88b1432dc12d930cd3aa8c4e654901cad36aff169be82a9fc",
+        "workflow.json": "010eda16f0875aaec91cf306b894ad43648380e4a3a24ebba19961f59d741ad3",
+        "snapshot.json": "2e79920b588da01757ee5f03d684b17ecc590d73af5a739840e974dd1fcfb245",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Haiku45",
+      "arm": "sample_stats_flow1",
+      "task": "legal-hard-14",
+      "rep": 1,
+      "sut": "DataflowSystemHaiku45_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "cost_usd": 0.036341,
+      "input_tokens": 122806,
+      "output_tokens": 2662,
+      "cached_tokens": 113410,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 9176,
+      "no_answer": false,
+      "model_calls": 11,
+      "prefix_checks": 10,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 12
+      },
+      "actions": {
+        "edit": 9,
+        "execute": 9,
+        "retrieve": 12,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 25,
+        "error": 6
+      },
+      "edit_operations": {
+        "create_operator": 12,
+        "create_edge": 9,
+        "delete_operator": 1,
+        "update_operator": 2
+      },
+      "operators_created": {
+        "scan": 4,
+        "process": 2,
+        "project": 2,
+        "join": 1,
+        "aggregate": 1,
+        "sort": 1,
+        "limit": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 10,
+        "action_errors": 6,
+        "text_replies": 0,
+        "retrievals": 9,
+        "profiles": 11,
+        "columns": 24
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemHaiku45_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-hard-14",
+      "artifact_sha256": {
+        "ground_truth.json": "2f823847de4c46717eb9776ef1313f0004147186f789f307df700dbab3fe250c",
+        "answer.json": "14767bd4962012956c52a7729a847ca83030474da81670e38ab3ed8b571a691b",
+        "evaluation.json": "443a1d50b45413325cb439c357cb58f7822b678e9a017cddc6297d67cc62f1e4",
+        "stats.json": "c1284ed6b28a03a01e1b0a8a454c21dc51d48351d10c9e184e89d21603983085",
+        "react_steps.json": "270010cb92988a2ab09875b1d9bcb9555892c0830b5f9d6bc5cb3dba9d085b95",
+        "workflow.json": "a144fa26d4e86b353160ac8e023e502ae02361be6eba6daa6dfca26f969fbc30",
+        "snapshot.json": "4341393c5079f5e985bba1ac19074c5e114762ad4456f8a66d26e07e68b9f9d9",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow1",
+      "task": "wildfire-easy-1",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.025476,
+      "input_tokens": 17041,
+      "output_tokens": 828,
+      "cached_tokens": 10301,
+      "reasoning_tokens": 286,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 2
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "create_operator": 9,
+        "create_edge": 7
+      },
+      "operators_created": {
+        "scan": 2,
+        "map": 2,
+        "sort": 2,
+        "window": 1,
+        "filter": 1,
+        "limit": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 2,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 2,
+        "profiles": 9,
+        "columns": 62
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemTerra_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/wildfire-easy-1",
+      "artifact_sha256": {
+        "ground_truth.json": "9041d1c8b234f8042b9695bb8a53c41ff45a919895ef0591ae4985ba1f3902cd",
+        "answer.json": "6e91e2b36ba05f1181adc743966200e96cf5cc80d8aec2bf11c18314e450b479",
+        "evaluation.json": "237c554591e17de1932a1eaa7eb58d48a5dfa6d6af6043c5aa69e23d530426d3",
+        "stats.json": "61a543000b393c1e47f769aaedc152b36f36c6e5304afe5a3e4a7e1d0f0e1ccb",
+        "react_steps.json": "ea36b5c00ee86b1f71fa67c06cb722ea01f5c9163bf1ab40a6781392a13d4fc7",
+        "workflow.json": "54c8be7d0c41e083ac1de95e374cdaf3eb0dc98ba8e237e6eeaedd176f528435",
+        "snapshot.json": "250f448ad1a7fc5fc4be1434946599cf7bcda1ee1bf24d3693fd898daf35ef23",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Haiku45",
+      "arm": "sample_stats_flow1",
+      "task": "wildfire-easy-1",
+      "rep": 1,
+      "sut": "DataflowSystemHaiku45_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.037458,
+      "input_tokens": 149968,
+      "output_tokens": 2358,
+      "cached_tokens": 140628,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 9061,
+      "no_answer": false,
+      "model_calls": 14,
+      "prefix_checks": 13,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 13
+      },
+      "actions": {
+        "edit": 13,
+        "execute": 13,
+        "retrieve": 13,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 37,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "create_operator": 11,
+        "update_operator": 2,
+        "create_edge": 10
+      },
+      "operators_created": {
+        "scan": 1,
+        "filter": 5,
+        "sort": 1,
+        "process": 1,
+        "aggregate": 3
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 13,
+        "action_errors": 1,
+        "text_replies": 0,
+        "retrievals": 12,
+        "profiles": 11,
+        "columns": 37
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemHaiku45_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/wildfire-easy-1",
+      "artifact_sha256": {
+        "ground_truth.json": "9041d1c8b234f8042b9695bb8a53c41ff45a919895ef0591ae4985ba1f3902cd",
+        "answer.json": "6e91e2b36ba05f1181adc743966200e96cf5cc80d8aec2bf11c18314e450b479",
+        "evaluation.json": "e733a21370f9d297e42e1d5196434fc3b5f2c98149fadd613e6bf786096961e1",
+        "stats.json": "a00b6513f0ee6b1b360aefc0b54ca550afa36b374dba7692c235123594575b4d",
+        "react_steps.json": "15acb7f9f817d8c38f47a81a2f536fd3a2c070d4e75b123882360cdbfb01f463",
+        "workflow.json": "27d73e2db26974170de5ebf95cfe4eccd1696e6d613c5ef7bc2909afc68e4350",
+        "snapshot.json": "40af8f704d108d00367b6727e459408dd6737b9c7f45ecb0b1643735a2b0f600",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow1",
+      "task": "legal-easy-26",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.019899,
+      "input_tokens": 24218,
+      "output_tokens": 827,
+      "cached_tokens": 21367,
+      "reasoning_tokens": 380,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 3
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10
+      },
+      "edit_operations": {
+        "create_operator": 5,
+        "create_edge": 3
+      },
+      "operators_created": {
+        "scan": 2,
+        "filter": 2,
+        "distinct": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 3,
+        "profiles": 5,
+        "columns": 19
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemTerra_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-easy-26",
+      "artifact_sha256": {
+        "ground_truth.json": "b44f6f0da930bbc7743aa06a2b61880b1ff1958c8736dc8df1ad7d11b8ef4601",
+        "answer.json": "83c3333cbbb925a377e52c7912d5ca433f6085b9ab36cff70bae737c980159e2",
+        "evaluation.json": "f53f41f49ca49ea6ac62fdf2fddd1375e06b4daf18c8a0c207421dc49f40fffb",
+        "stats.json": "cb76303ce07efe14869d282540f1cbb34fc7b137af5664adfe1ebfc5f03609ec",
+        "react_steps.json": "68d585b97daf054a251b5b3c7f0a2b3585235ca6dd6c10a124a94a36db16174e",
+        "workflow.json": "1c8df0ead2ce4dd1b5c1d31b9e637215010bdad559e9bf4299638e310f0efdb0",
+        "snapshot.json": "ef34d67deae6a56bfaa5ebe6fa5db3c9c57e48c109c742235ea60872ed8add13",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow1",
+      "task": "legal-hard-14",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.044664,
+      "input_tokens": 51055,
+      "output_tokens": 2027,
+      "cached_tokens": 45428,
+      "reasoning_tokens": 846,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 7,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 8
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 8,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 15,
+        "error": 6
+      },
+      "edit_operations": {
+        "create_operator": 12,
+        "create_edge": 12,
+        "update_operator": 3,
+        "delete_edge": 3
+      },
+      "operators_created": {
+        "scan": 4,
+        "map": 2,
+        "join": 1,
+        "sort": 1,
+        "distinct": 1,
+        "limit": 1,
+        "cast": 1,
+        "project": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 6,
+        "action_errors": 6,
+        "text_replies": 0,
+        "retrievals": 5,
+        "profiles": 12,
+        "columns": 38
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemTerra_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-hard-14",
+      "artifact_sha256": {
+        "ground_truth.json": "2f823847de4c46717eb9776ef1313f0004147186f789f307df700dbab3fe250c",
+        "answer.json": "9bb10185cf809a9308071fa109c2bac0a1e09cf98ef8abc85d180fd45a6d9e04",
+        "evaluation.json": "da458cc682a9b87eedc3543c8e52234b8c0e0a74136565927b39aae5dc566b1c",
+        "stats.json": "bc22fc79bc851dfe5ff4e97fa1e5c4c0396b3216ba5dee3fbaf8fbe1b5374517",
+        "react_steps.json": "f93cd35f8fec09e6f1a60ddd070dda7e9a0017d5abbd88b70aaef32216233550",
+        "workflow.json": "ed924b43bc5eda90926f2e8d583dc192424fa00b29c3999e64b3c18461cbc960",
+        "snapshot.json": "7e039f31ba532c44e63e46432a336d7523a725391468c45da0f0b7ba3093db72",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Sonnet55",
+      "arm": "sample_stats_flow1",
+      "task": "wildfire-easy-1",
+      "rep": 1,
+      "sut": "DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.026654,
+      "input_tokens": 40437,
+      "output_tokens": 1176,
+      "cached_tokens": 37475,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 2950,
+      "no_answer": false,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 3
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 8
+      },
+      "edit_operations": {
+        "create_operator": 7,
+        "create_edge": 5
+      },
+      "operators_created": {
+        "scan": 2,
+        "sort": 2,
+        "window": 1,
+        "map": 1,
+        "limit": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [
+          "text_without_dataflow"
+        ],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 1,
+        "retrievals": 3,
+        "profiles": 7,
+        "columns": 42
+      },
+      "artifact_directory": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/wildfire-easy-1",
+      "artifact_sha256": {
+        "ground_truth.json": "9041d1c8b234f8042b9695bb8a53c41ff45a919895ef0591ae4985ba1f3902cd",
+        "answer.json": "6e91e2b36ba05f1181adc743966200e96cf5cc80d8aec2bf11c18314e450b479",
+        "evaluation.json": "6a2566bd67bdb53e81a8db7f6840ae0a7d7cebfd6ab32fd9b3f5dc4747460865",
+        "stats.json": "8a490bfb54ab96e2a5310cf5b2465bc63fb913e4ae3864cf91d62be1fb2c897e",
+        "react_steps.json": "cb546027e935e64942a05a78790541e6fdc06829998e2d8d3964143081876d66",
+        "workflow.json": "04e3b3abf548e14a4d5a5ddd354d40e08bdfaf8620fe26130b59559a028aca05",
+        "snapshot.json": "ed78d0cf887354bfeb085d1c26c1bd4ad8cb16fb004dbeb570f78daac6282b06",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Sonnet55",
+      "arm": "sample_stats_flow1",
+      "task": "environment-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSonnet55_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.045358,
+      "input_tokens": 51374,
+      "output_tokens": 1901,
+      "cached_tokens": 44383,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 6979,
+      "no_answer": false,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 4
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 4,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 9
+      },
+      "edit_operations": {
+        "create_operator": 14,
+        "create_edge": 14
+      },
+      "operators_created": {
+        "scan": 2,
+        "map": 2,
+        "aggregate": 6,
+        "join": 2,
+        "filter": 2
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [
+          "text_without_dataflow"
+        ],
+        "prefix_checks": 3,
+        "action_errors": 0,
+        "text_replies": 1,
+        "retrievals": 4,
+        "profiles": 14,
+        "columns": 66
+      },
+      "artifact_directory": "/tmp/texera-evidence-join-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1/environment-easy-3",
+      "artifact_sha256": {
+        "ground_truth.json": "f9deb65170f5ab8685c041aae9f4cc7ed041627d725d31ca1b379eacbfb66130",
+        "answer.json": "975b2bedd99179fa332af425bd8b54ff9add59ec317a2a3964a9e95970c212a1",
+        "evaluation.json": "be14550c080f0c867298baf9d6716dd70694b0b3d35f358d3c18344c79fe68dd",
+        "stats.json": "db847234636436941739d779df59c27c0c47dec09582b7c87caff7eb5122089d",
+        "react_steps.json": "8a77f9a5dd731a1c85eb049b8d5f5bcfe158753d25cd2c5ee2ba4ce9b3a4b363",
+        "workflow.json": "5ab0557d92e18ba8b5ed68671668885a37a478404b8d0163f6415164b513f479",
+        "snapshot.json": "976cd9371cd4765314ac5d16c67546d90e3e798c01245b0f9c66234965067bdb",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow1",
+      "task": "environment-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "cost_usd": 0.024805,
+      "input_tokens": 21407,
+      "output_tokens": 846,
+      "cached_tokens": 15645,
+      "reasoning_tokens": 123,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 6
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 6,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 11
+      },
+      "edit_operations": {
+        "create_operator": 11,
+        "create_edge": 8
+      },
+      "operators_created": {
+        "scan": 4,
+        "map": 2,
+        "aggregate": 3,
+        "join": 1,
+        "filter": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 2,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 6,
+        "profiles": 11,
+        "columns": 73
+      },
+      "artifact_directory": "/tmp/texera-evidence-join-pilot-20261001/system_scratch/DataflowSystemTerra_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1/environment-easy-3",
+      "artifact_sha256": {
+        "ground_truth.json": "f9deb65170f5ab8685c041aae9f4cc7ed041627d725d31ca1b379eacbfb66130",
+        "answer.json": "975b2bedd99179fa332af425bd8b54ff9add59ec317a2a3964a9e95970c212a1",
+        "evaluation.json": "d3f6f223d1529ee8134845169bd94879100e696c01b1a8c771e45a1c1ac5b231",
+        "stats.json": "9843faa2f4a9628c5e77dda0fdb4551fd0326dc2140662a70cd0d657edf19808",
+        "react_steps.json": "9e86a695b6e9caa027d965e7aac97c33290381aef53de5073ec0b77591dc2bf3",
+        "workflow.json": "566194ac3bd672e969cfe1aa933f98dbbb9e8a639b7a4859ae783b60f656695a",
+        "snapshot.json": "01ea9c63cca3fb9f24f59647e13e2bf561936e4a9eea158516b570300aa31f9e",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_stats_flow1",
+      "task": "environment-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "cost_usd": 0.002416,
+      "input_tokens": 19967,
+      "output_tokens": 1032,
+      "cached_tokens": 15641,
+      "reasoning_tokens": 248,
+      "cache_creation_tokens": 0,
+      "no_answer": false,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 5
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 5,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10
+      },
+      "edit_operations": {
+        "create_operator": 10,
+        "update_operator": 2,
+        "create_edge": 9
+      },
+      "operators_created": {
+        "scan": 2,
+        "map": 3,
+        "aggregate": 3,
+        "join": 1,
+        "filter": 1
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 2,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 5,
+        "profiles": 10,
+        "columns": 72
+      },
+      "artifact_directory": "/tmp/texera-evidence-join-pilot-20261001/system_scratch/DataflowSystemLuna_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1/environment-easy-3",
+      "artifact_sha256": {
+        "ground_truth.json": "f9deb65170f5ab8685c041aae9f4cc7ed041627d725d31ca1b379eacbfb66130",
+        "answer.json": "d9a51a9e982365100e304eb5786ce9d8b4d362ba4b0b5776bf2a7f7d8b42f26b",
+        "evaluation.json": "40e149344d17e11950b5d08f61776b714b436dc168aec374c572fec3bbd151ec",
+        "stats.json": "23099d0cccf6b44c183ea999148dfc44020d9164cc6b4eca2b3c35831d6b6bbe",
+        "react_steps.json": "d0a235388531c4050539fde2b31058ce6f8f07c15d970cd21aa6916418afbb83",
+        "workflow.json": "fb397a31a7ead4c2a137942b7061f376c0c696cb5779ccd4b791ef6b672ed90e",
+        "snapshot.json": "b77692e3eee646a6eb2949fb189162ddfe0d534fa94ed15b1818c9790c9c9863",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    },
+    {
+      "model": "Haiku45",
+      "arm": "sample_stats_flow1",
+      "task": "environment-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemHaiku45_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "cost_usd": 0.06366,
+      "input_tokens": 179952,
+      "output_tokens": 3070,
+      "cached_tokens": 153548,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 26205,
+      "no_answer": false,
+      "model_calls": 10,
+      "prefix_checks": 9,
+      "prefix_failures": 0,
+      "views": {
+        "sample_stats": 19
+      },
+      "actions": {
+        "edit": 8,
+        "execute": 8,
+        "retrieve": 19,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 36
+      },
+      "edit_operations": {
+        "create_operator": 20,
+        "update_operator": 2,
+        "create_edge": 22
+      },
+      "operators_created": {
+        "scan": 2,
+        "aggregate": 6,
+        "map": 6,
+        "join": 4,
+        "filter": 2
+      },
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "prefix_checks": 9,
+        "action_errors": 0,
+        "text_replies": 0,
+        "retrievals": 19,
+        "profiles": 20,
+        "columns": 110
+      },
+      "artifact_directory": "/tmp/texera-evidence-join-pilot-20261001/system_scratch/DataflowSystemHaiku45_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1/environment-easy-3",
+      "artifact_sha256": {
+        "ground_truth.json": "f9deb65170f5ab8685c041aae9f4cc7ed041627d725d31ca1b379eacbfb66130",
+        "answer.json": "d9a51a9e982365100e304eb5786ce9d8b4d362ba4b0b5776bf2a7f7d8b42f26b",
+        "evaluation.json": "774535056dcd0141fa27d08510d301bc55cf64432c9495afb0bea6befdf84cae",
+        "stats.json": "09c42f69fc3c6be99c2542a55bb77b03686016b96eb6a2347b280c08cb5546f3",
+        "react_steps.json": "df528ee5e80271bdfff6df025434bd5aefc2d62b486513b6687fbe17bf4d46aa",
+        "workflow.json": "d642c2f3e7d1da9b2bf7a434abc271124b7006b7d90c37159bd3e5ecdd957699",
+        "snapshot.json": "3848a6c2f50824752631dfe2f64a6d9bae79f420eb5aff63b4be1ca24b2fe542",
+        "settings.json": "35284b55a4d0abad51f2f5c97653c14c6743d30380b677b9a2a2ab57ba1929c0",
+        "system-info.json": "351e144ee2382d0f8ca88b13f671e8e9408dad671b47da519f0e5f955f3d1e9d"
+      }
+    }
+  ],
+  "usage_and_cache": {
+    "models": {
+      "Sonnet55": {
+        "calls": 19,
+        "input": 218761,
+        "output": 6987,
+        "cached": 190863,
+        "write": 27844,
+        "prefix_checks": 15,
+        "prefix_failures": 0,
+        "cache_hits": 18,
+        "anthropic_prefix_checks": 15,
+        "anthropic_prefix_failures": 0,
+        "cost": 0.17776100000000003,
+        "cache_fraction": 0.8724726985157317
+      },
+      "Luna": {
+        "calls": 21,
+        "input": 144294,
+        "output": 4921,
+        "cached": 121719,
+        "write": 0,
+        "prefix_checks": 17,
+        "prefix_failures": 0,
+        "cache_hits": 20,
+        "anthropic_prefix_checks": 0,
+        "anthropic_prefix_failures": 0,
+        "cost": 0.012853999999999999,
+        "cache_fraction": 0.8435485882988898
+      },
+      "Haiku45": {
+        "calls": 41,
+        "input": 503925,
+        "output": 9095,
+        "cached": 448115,
+        "write": 54993,
+        "prefix_checks": 37,
+        "prefix_failures": 0,
+        "cache_hits": 40,
+        "anthropic_prefix_checks": 37,
+        "anthropic_prefix_failures": 0,
+        "cost": 0.159845,
+        "cache_fraction": 0.8892493922706752
+      },
+      "Terra": {
+        "calls": 17,
+        "input": 113721,
+        "output": 4528,
+        "cached": 92741,
+        "write": 0,
+        "prefix_checks": 13,
+        "prefix_failures": 0,
+        "cache_hits": 16,
+        "anthropic_prefix_checks": 0,
+        "anthropic_prefix_failures": 0,
+        "cost": 0.114844,
+        "cache_fraction": 0.8155134056154976
+      }
+    },
+    "rows": [
+      {
+        "model": "Sonnet55",
+        "task": "legal-easy-26",
+        "calls": 4,
+        "usage": {
+          "input": 40217,
+          "output": 1235,
+          "cached": 29030,
+          "write": 11175
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 8651,
+            "previous_input": 8655,
+            "expected_cached": 8651,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 9378,
+            "previous_input": 9380,
+            "expected_cached": 9378,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 11001,
+            "previous_input": 11003,
+            "expected_cached": 11001,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.046118
+      },
+      {
+        "model": "Luna",
+        "task": "legal-hard-14",
+        "calls": 7,
+        "usage": {
+          "input": 53753,
+          "output": 1696,
+          "cached": 42235,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4971,
+            "previous_input": 5093
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5627,
+            "previous_input": 5749
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 6452,
+            "previous_input": 6574
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 7032,
+            "previous_input": 7154
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 8095,
+            "previous_input": 8217
+          },
+          {
+            "step": 7,
+            "prefix_preserved": true,
+            "cached": 10058,
+            "previous_input": 10180
+          }
+        ],
+        "cost": 0.005183
+      },
+      {
+        "model": "Haiku45",
+        "task": "legal-easy-26",
+        "calls": 6,
+        "usage": {
+          "input": 51199,
+          "output": 1005,
+          "cached": 40529,
+          "write": 10551
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 6539,
+            "previous_input": 6558,
+            "expected_cached": 6539,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 7105,
+            "previous_input": 7125,
+            "expected_cached": 7105,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 7966,
+            "previous_input": 7986,
+            "expected_cached": 7966,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 9033,
+            "previous_input": 9053,
+            "expected_cached": 9033,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 9886,
+            "previous_input": 9906,
+            "expected_cached": 9886,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.022386
+      },
+      {
+        "model": "Luna",
+        "task": "legal-easy-26",
+        "calls": 7,
+        "usage": {
+          "input": 47276,
+          "output": 1236,
+          "cached": 42824,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4948,
+            "previous_input": 5070
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5383,
+            "previous_input": 5505
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 6175,
+            "previous_input": 6297
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 6497,
+            "previous_input": 6619
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 7138,
+            "previous_input": 7260
+          },
+          {
+            "step": 7,
+            "prefix_preserved": true,
+            "cached": 7893,
+            "previous_input": 8015
+          }
+        ],
+        "cost": 0.00323
+      },
+      {
+        "model": "Sonnet55",
+        "task": "legal-hard-14",
+        "calls": 7,
+        "usage": {
+          "input": 86733,
+          "output": 2675,
+          "cached": 79975,
+          "write": 6740
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 8693,
+            "previous_input": 8697,
+            "expected_cached": 8693,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 10054,
+            "previous_input": 10056,
+            "expected_cached": 10054,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 11137,
+            "previous_input": 11139,
+            "expected_cached": 11137,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 12694,
+            "previous_input": 12696,
+            "expected_cached": 12694,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 14133,
+            "previous_input": 14135,
+            "expected_cached": 14133,
+            "cache_match": true
+          },
+          {
+            "step": 8,
+            "prefix_preserved": true,
+            "cached": 14913,
+            "previous_input": 14915,
+            "expected_cached": 14913,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.059631
+      },
+      {
+        "model": "Luna",
+        "task": "wildfire-easy-1",
+        "calls": 4,
+        "usage": {
+          "input": 23298,
+          "output": 957,
+          "cached": 21019,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4945,
+            "previous_input": 5067
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5358,
+            "previous_input": 5480
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 5926,
+            "previous_input": 6048
+          }
+        ],
+        "cost": 0.002025
+      },
+      {
+        "model": "Terra",
+        "task": "wildfire-easy-1",
+        "calls": 3,
+        "usage": {
+          "input": 17041,
+          "output": 828,
+          "cached": 10301,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4945,
+            "previous_input": 5067
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5356,
+            "previous_input": 5478
+          }
+        ],
+        "cost": 0.025476
+      },
+      {
+        "model": "Haiku45",
+        "task": "legal-hard-14",
+        "calls": 11,
+        "usage": {
+          "input": 122806,
+          "output": 2662,
+          "cached": 113410,
+          "write": 9176
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 6565,
+            "previous_input": 6584,
+            "expected_cached": 6565,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 7345,
+            "previous_input": 7365,
+            "expected_cached": 7345,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 8292,
+            "previous_input": 8312,
+            "expected_cached": 8292,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 9397,
+            "previous_input": 9418,
+            "expected_cached": 9397,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 10187,
+            "previous_input": 10207,
+            "expected_cached": 10187,
+            "cache_match": true
+          },
+          {
+            "step": 7,
+            "prefix_preserved": true,
+            "cached": 11410,
+            "previous_input": 11430,
+            "expected_cached": 11410,
+            "cache_match": true
+          },
+          {
+            "step": 8,
+            "prefix_preserved": true,
+            "cached": 12521,
+            "previous_input": 12541,
+            "expected_cached": 12521,
+            "cache_match": true
+          },
+          {
+            "step": 9,
+            "prefix_preserved": true,
+            "cached": 13407,
+            "previous_input": 13427,
+            "expected_cached": 13407,
+            "cache_match": true
+          },
+          {
+            "step": 10,
+            "prefix_preserved": true,
+            "cached": 14028,
+            "previous_input": 14048,
+            "expected_cached": 14028,
+            "cache_match": true
+          },
+          {
+            "step": 11,
+            "prefix_preserved": true,
+            "cached": 14289,
+            "previous_input": 14309,
+            "expected_cached": 14289,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.036341
+      },
+      {
+        "model": "Haiku45",
+        "task": "wildfire-easy-1",
+        "calls": 14,
+        "usage": {
+          "input": 149968,
+          "output": 2358,
+          "cached": 140628,
+          "write": 9061
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 6536,
+            "previous_input": 6555,
+            "expected_cached": 6536,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 7072,
+            "previous_input": 7092,
+            "expected_cached": 7072,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 7820,
+            "previous_input": 7840,
+            "expected_cached": 7820,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 8505,
+            "previous_input": 8525,
+            "expected_cached": 8505,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 8843,
+            "previous_input": 8863,
+            "expected_cached": 8843,
+            "cache_match": true
+          },
+          {
+            "step": 7,
+            "prefix_preserved": true,
+            "cached": 9619,
+            "previous_input": 9639,
+            "expected_cached": 9619,
+            "cache_match": true
+          },
+          {
+            "step": 8,
+            "prefix_preserved": true,
+            "cached": 10529,
+            "previous_input": 10549,
+            "expected_cached": 10529,
+            "cache_match": true
+          },
+          {
+            "step": 9,
+            "prefix_preserved": true,
+            "cached": 11017,
+            "previous_input": 11037,
+            "expected_cached": 11017,
+            "cache_match": true
+          },
+          {
+            "step": 10,
+            "prefix_preserved": true,
+            "cached": 11630,
+            "previous_input": 11650,
+            "expected_cached": 11630,
+            "cache_match": true
+          },
+          {
+            "step": 11,
+            "prefix_preserved": true,
+            "cached": 12275,
+            "previous_input": 12295,
+            "expected_cached": 12275,
+            "cache_match": true
+          },
+          {
+            "step": 12,
+            "prefix_preserved": true,
+            "cached": 12865,
+            "previous_input": 12885,
+            "expected_cached": 12865,
+            "cache_match": true
+          },
+          {
+            "step": 13,
+            "prefix_preserved": true,
+            "cached": 13599,
+            "previous_input": 13619,
+            "expected_cached": 13599,
+            "cache_match": true
+          },
+          {
+            "step": 14,
+            "prefix_preserved": true,
+            "cached": 14349,
+            "previous_input": 14369,
+            "expected_cached": 14349,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.037458
+      },
+      {
+        "model": "Terra",
+        "task": "legal-easy-26",
+        "calls": 4,
+        "usage": {
+          "input": 24218,
+          "output": 827,
+          "cached": 21367,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4948,
+            "previous_input": 5070
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5384,
+            "previous_input": 5506
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 6245,
+            "previous_input": 6367
+          }
+        ],
+        "cost": 0.019899
+      },
+      {
+        "model": "Sonnet55",
+        "task": "wildfire-easy-1",
+        "calls": 4,
+        "usage": {
+          "input": 40437,
+          "output": 1176,
+          "cached": 37475,
+          "write": 2950
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 8647,
+            "previous_input": 8651,
+            "expected_cached": 8647,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 9314,
+            "previous_input": 9316,
+            "expected_cached": 9314,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 11163,
+            "previous_input": 11165,
+            "expected_cached": 11163,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.026654
+      },
+      {
+        "model": "Terra",
+        "task": "legal-hard-14",
+        "calls": 7,
+        "usage": {
+          "input": 51055,
+          "output": 2027,
+          "cached": 45428,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4971,
+            "previous_input": 5093
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5628,
+            "previous_input": 5750
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 6661,
+            "previous_input": 6783
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 7373,
+            "previous_input": 7495
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 7560,
+            "previous_input": 7682
+          },
+          {
+            "step": 7,
+            "prefix_preserved": true,
+            "cached": 8445,
+            "previous_input": 8567
+          }
+        ],
+        "cost": 0.044664
+      },
+      {
+        "model": "Terra",
+        "task": "environment-easy-3",
+        "calls": 3,
+        "usage": {
+          "input": 21407,
+          "output": 846,
+          "cached": 15645,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4958,
+            "previous_input": 5080
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5897,
+            "previous_input": 6019
+          }
+        ],
+        "cost": 0.024805
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "calls": 4,
+        "usage": {
+          "input": 51374,
+          "output": 1901,
+          "cached": 44383,
+          "write": 6979
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 8668,
+            "previous_input": 8672,
+            "expected_cached": 8668,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 12173,
+            "previous_input": 12175,
+            "expected_cached": 12173,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 15191,
+            "previous_input": 15193,
+            "expected_cached": 15191,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.045358
+      },
+      {
+        "model": "Luna",
+        "task": "environment-easy-3",
+        "calls": 3,
+        "usage": {
+          "input": 19967,
+          "output": 1032,
+          "cached": 15641,
+          "write": 0
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 4958,
+            "previous_input": 5080
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 5893,
+            "previous_input": 6015
+          }
+        ],
+        "cost": 0.002416
+      },
+      {
+        "model": "Haiku45",
+        "task": "environment-easy-3",
+        "calls": 10,
+        "usage": {
+          "input": 179952,
+          "output": 3070,
+          "cached": 153548,
+          "write": 26205
+        },
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 6554,
+            "previous_input": 6573,
+            "expected_cached": 6554,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 7705,
+            "previous_input": 7725,
+            "expected_cached": 7705,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 10588,
+            "previous_input": 10608,
+            "expected_cached": 10588,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 12591,
+            "previous_input": 12611,
+            "expected_cached": 12591,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 14663,
+            "previous_input": 14683,
+            "expected_cached": 14663,
+            "cache_match": true
+          },
+          {
+            "step": 7,
+            "prefix_preserved": true,
+            "cached": 19055,
+            "previous_input": 19075,
+            "expected_cached": 19055,
+            "cache_match": true
+          },
+          {
+            "step": 8,
+            "prefix_preserved": true,
+            "cached": 21313,
+            "previous_input": 21333,
+            "expected_cached": 21313,
+            "cache_match": true
+          },
+          {
+            "step": 9,
+            "prefix_preserved": true,
+            "cached": 24938,
+            "previous_input": 24958,
+            "expected_cached": 24938,
+            "cache_match": true
+          },
+          {
+            "step": 10,
+            "prefix_preserved": true,
+            "cached": 30172,
+            "previous_input": 30192,
+            "expected_cached": 30172,
+            "cache_match": true
+          }
+        ],
+        "cost": 0.06366
+      }
+    ],
+    "usage_errors": []
+  },
+  "evidence_delivery": [
+    {
+      "source": "/tmp/texera-evidence-pilot-20261001",
+      "groups": [
+        {
+          "model": "Haiku45",
+          "arm": "sample_stats_flow1",
+          "tasks": 3,
+          "missing_action_corrections": 0,
+          "tasks_with_missing_action_correction": 0,
+          "corrected_tasks_with_answer": 0,
+          "retrievals": 26,
+          "flow": 26,
+          "raw_no_stats": 3,
+          "delivered": 26,
+          "data": 12,
+          "frequencies": 7,
+          "ranges": 6,
+          "upstream": 13,
+          "tasks_with_data": 3,
+          "tasks_with_flow": 3,
+          "tasks_with_upstream": 3,
+          "tasks_with_ranges": 3,
+          "tasks_with_frequencies": 2,
+          "tasks_with_partial_stats": 0,
+          "complete": 11
+        },
+        {
+          "model": "Luna",
+          "arm": "sample_stats_flow1",
+          "tasks": 3,
+          "missing_action_corrections": 0,
+          "tasks_with_missing_action_correction": 0,
+          "corrected_tasks_with_answer": 0,
+          "retrievals": 14,
+          "flow": 14,
+          "raw_no_stats": 4,
+          "delivered": 14,
+          "data": 8,
+          "frequencies": 7,
+          "upstream": 3,
+          "ranges": 3,
+          "complete": 2,
+          "tasks_with_data": 3,
+          "tasks_with_flow": 3,
+          "tasks_with_upstream": 2,
+          "tasks_with_ranges": 3,
+          "tasks_with_frequencies": 2,
+          "tasks_with_partial_stats": 0
+        },
+        {
+          "model": "Sonnet55",
+          "arm": "sample_stats_flow1",
+          "tasks": 3,
+          "missing_action_corrections": 3,
+          "tasks_with_missing_action_correction": 3,
+          "corrected_tasks_with_answer": 3,
+          "retrievals": 10,
+          "flow": 10,
+          "raw_no_stats": 2,
+          "delivered": 10,
+          "data": 6,
+          "upstream": 5,
+          "ranges": 4,
+          "frequencies": 5,
+          "tasks_with_data": 3,
+          "tasks_with_flow": 3,
+          "tasks_with_upstream": 3,
+          "tasks_with_ranges": 3,
+          "tasks_with_frequencies": 2,
+          "tasks_with_partial_stats": 0,
+          "complete": 2
+        },
+        {
+          "model": "Terra",
+          "arm": "sample_stats_flow1",
+          "tasks": 3,
+          "missing_action_corrections": 0,
+          "tasks_with_missing_action_correction": 0,
+          "corrected_tasks_with_answer": 0,
+          "retrievals": 10,
+          "flow": 9,
+          "raw_no_stats": 3,
+          "delivered": 10,
+          "upstream": 4,
+          "complete": 4,
+          "tasks_with_data": 2,
+          "tasks_with_flow": 3,
+          "tasks_with_upstream": 3,
+          "tasks_with_ranges": 0,
+          "tasks_with_frequencies": 2,
+          "tasks_with_partial_stats": 0,
+          "data": 3,
+          "frequencies": 3
+        }
+      ],
+      "delivery_errors": [],
+      "no_answers": [],
+      "profile_budget": {
+        "attempts_frequency_budget": 0
+      },
+      "attempts_with_conversion_failures": [],
+      "scope": "Delivery is checked against the next recorded model request, including watchdog traces. Profile omissions cover final snapshots only. Conversion failures can be intentional; these counts do not label analytical errors or explain score changes."
+    },
+    {
+      "source": "/tmp/texera-evidence-join-pilot-20261001",
+      "groups": [
+        {
+          "model": "Haiku45",
+          "arm": "sample_stats_flow1",
+          "tasks": 1,
+          "missing_action_corrections": 0,
+          "tasks_with_missing_action_correction": 0,
+          "corrected_tasks_with_answer": 0,
+          "retrievals": 19,
+          "flow": 19,
+          "complete": 4,
+          "delivered": 19,
+          "data": 15,
+          "ranges": 15,
+          "frequencies": 15,
+          "partial_stats": 2,
+          "upstream": 13,
+          "tasks_with_data": 1,
+          "tasks_with_flow": 1,
+          "tasks_with_upstream": 1,
+          "tasks_with_ranges": 1,
+          "tasks_with_frequencies": 1,
+          "tasks_with_partial_stats": 1
+        },
+        {
+          "model": "Luna",
+          "arm": "sample_stats_flow1",
+          "tasks": 1,
+          "missing_action_corrections": 0,
+          "tasks_with_missing_action_correction": 0,
+          "corrected_tasks_with_answer": 0,
+          "retrievals": 5,
+          "flow": 5,
+          "complete": 3,
+          "delivered": 5,
+          "data": 2,
+          "ranges": 2,
+          "frequencies": 2,
+          "upstream": 1,
+          "tasks_with_data": 1,
+          "tasks_with_flow": 1,
+          "tasks_with_upstream": 1,
+          "tasks_with_ranges": 1,
+          "tasks_with_frequencies": 1,
+          "tasks_with_partial_stats": 0
+        },
+        {
+          "model": "Sonnet55",
+          "arm": "sample_stats_flow1",
+          "tasks": 1,
+          "missing_action_corrections": 1,
+          "tasks_with_missing_action_correction": 1,
+          "corrected_tasks_with_answer": 1,
+          "retrievals": 4,
+          "data": 2,
+          "flow": 4,
+          "ranges": 2,
+          "frequencies": 2,
+          "partial_stats": 2,
+          "delivered": 4,
+          "upstream": 2,
+          "complete": 2,
+          "tasks_with_data": 1,
+          "tasks_with_flow": 1,
+          "tasks_with_upstream": 1,
+          "tasks_with_ranges": 1,
+          "tasks_with_frequencies": 1,
+          "tasks_with_partial_stats": 1
+        },
+        {
+          "model": "Terra",
+          "arm": "sample_stats_flow1",
+          "tasks": 1,
+          "missing_action_corrections": 0,
+          "tasks_with_missing_action_correction": 0,
+          "corrected_tasks_with_answer": 0,
+          "retrievals": 6,
+          "flow": 6,
+          "complete": 3,
+          "delivered": 6,
+          "data": 3,
+          "ranges": 3,
+          "frequencies": 3,
+          "upstream": 2,
+          "tasks_with_data": 1,
+          "tasks_with_flow": 1,
+          "tasks_with_upstream": 1,
+          "tasks_with_ranges": 1,
+          "tasks_with_frequencies": 1,
+          "tasks_with_partial_stats": 0
+        }
+      ],
+      "delivery_errors": [],
+      "no_answers": [],
+      "profile_budget": {
+        "attempts_frequency_budget": 0
+      },
+      "attempts_with_conversion_failures": [],
+      "scope": "Delivery is checked against the next recorded model request, including watchdog traces. Profile omissions cover final snapshots only. Conversion failures can be intentional; these counts do not label analytical errors or explain score changes."
+    }
+  ],
+  "independent_profiles": [
+    {
+      "scope": "Counters independently recomputed from retained complete tables; simple CSV scans also re-read with pandas. Does not certify the agent's task semantics or custom code.",
+      "checks": {
+        "columns": 1175,
+        "frequencies": 1027,
+        "structure": 163,
+        "native": 146,
+        "window": 20,
+        "source": 216,
+        "cast": 2,
+        "join": 36
+      },
+      "total_checks": 2785,
+      "failures": [],
+      "skipped": [
+        {
+          "model": "Luna",
+          "task": "legal-hard-14",
+          "operator": "msa_clean",
+          "reason": "retained table incomplete",
+          "records": 652,
+          "rows": 660
+        },
+        {
+          "model": "Luna",
+          "task": "legal-hard-14",
+          "operator": "msa_typed2",
+          "reason": "retained table incomplete",
+          "records": 652,
+          "rows": 660
+        },
+        {
+          "model": "Sonnet55",
+          "task": "legal-hard-14",
+          "operator": "msa",
+          "reason": "retained table incomplete",
+          "records": 703,
+          "rows": 764
+        },
+        {
+          "model": "Sonnet55",
+          "task": "legal-hard-14",
+          "operator": "f",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "legal-hard-14",
+          "operator": "identity_theft_raw",
+          "reason": "retained table incomplete",
+          "records": 670,
+          "rows": 764
+        },
+        {
+          "model": "Haiku45",
+          "task": "legal-hard-14",
+          "operator": "parse_identity_theft",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Terra",
+          "task": "legal-hard-14",
+          "operator": "theft_with_state",
+          "reason": "retained table incomplete",
+          "records": 656,
+          "rows": 660
+        },
+        {
+          "model": "Terra",
+          "task": "legal-hard-14",
+          "operator": "ne_theft",
+          "reason": "input table incomplete"
+        }
+      ],
+      "operations": [
+        {
+          "model": "Sonnet55",
+          "task": "legal-easy-26",
+          "operator": "r",
+          "kind": "Window",
+          "counters": {
+            "partitions": 55,
+            "tieRows": 1,
+            "outputs": {}
+          },
+          "properties": {
+            "partitionBy": [
+              "State"
+            ],
+            "orderBy": [
+              {
+                "col": "n",
+                "desc": true
+              }
+            ],
+            "columns": [
+              {
+                "fn": "rank",
+                "as": "rk"
+              }
+            ]
+          }
+        },
+        {
+          "model": "Luna",
+          "task": "legal-hard-14",
+          "operator": "ne_typed",
+          "kind": "Cast",
+          "counters": {
+            "reports_num": 0
+          },
+          "examples": {}
+        },
+        {
+          "model": "Haiku45",
+          "task": "legal-easy-26",
+          "operator": "rank_categories",
+          "kind": "Window",
+          "counters": {
+            "partitions": 55,
+            "tieRows": 1,
+            "outputs": {}
+          },
+          "properties": {
+            "partitionBy": [
+              "State"
+            ],
+            "orderBy": [
+              {
+                "col": "# of Reports",
+                "desc": true
+              }
+            ],
+            "columns": [
+              {
+                "fn": "rank",
+                "as": "rank"
+              }
+            ]
+          }
+        },
+        {
+          "model": "Luna",
+          "task": "legal-easy-26",
+          "operator": "ranked",
+          "kind": "Window",
+          "counters": {
+            "partitions": 55,
+            "tieRows": 469,
+            "outputs": {}
+          },
+          "properties": {
+            "partitionBy": [
+              "State"
+            ],
+            "orderBy": [
+              {
+                "col": "State"
+              }
+            ],
+            "columns": [
+              {
+                "fn": "row_number",
+                "as": "name"
+              }
+            ]
+          }
+        },
+        {
+          "model": "Terra",
+          "task": "wildfire-easy-1",
+          "operator": "trailing_acres",
+          "kind": "Window",
+          "counters": {
+            "partitions": 1,
+            "tieRows": 0,
+            "outputs": {
+              "previous_one": {
+                "boundaryNulls": 1,
+                "nullOutputs": 1
+              },
+              "previous_two": {
+                "boundaryNulls": 2,
+                "nullOutputs": 2
+              }
+            }
+          },
+          "properties": {
+            "orderBy": [
+              {
+                "col": "month_code"
+              }
+            ],
+            "columns": [
+              {
+                "fn": "lag",
+                "as": "previous_one",
+                "col": "acres"
+              },
+              {
+                "fn": "lag",
+                "as": "previous_two",
+                "col": "acres",
+                "offset": 2
+              }
+            ]
+          }
+        },
+        {
+          "model": "Haiku45",
+          "task": "legal-hard-14",
+          "operator": "filter_new_england",
+          "kind": "Join",
+          "counters": {
+            "type": "inner",
+            "nullsEqual": false,
+            "validate": "many_to_many",
+            "matchedOutputRows": 11,
+            "left": {
+              "rows": 302,
+              "eligibleRows": 302,
+              "nullKeyRows": 0,
+              "distinctKeys": 49,
+              "matchedRows": 11,
+              "unmatchedRows": 291,
+              "matchedKeys": 4,
+              "unmatchedKeys": 45,
+              "maxMultiplicity": 16,
+              "unmatchedExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Alabama"
+                    }
+                  ],
+                  "count": 9,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Alaska"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Arizona"
+                    }
+                  ],
+                  "count": 6,
+                  "truncated": false
+                }
+              ],
+              "duplicateExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Alabama"
+                    }
+                  ],
+                  "count": 9,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Arizona"
+                    }
+                  ],
+                  "count": 6,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Arkansas"
+                    }
+                  ],
+                  "count": 5,
+                  "truncated": false
+                }
+              ]
+            },
+            "right": {
+              "rows": 6,
+              "eligibleRows": 6,
+              "nullKeyRows": 0,
+              "distinctKeys": 6,
+              "matchedRows": 4,
+              "unmatchedRows": 2,
+              "matchedKeys": 4,
+              "unmatchedKeys": 2,
+              "maxMultiplicity": 1,
+              "unmatchedExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "New Hampshire"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Rhode Island"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                }
+              ],
+              "duplicateExamples": []
+            }
+          }
+        },
+        {
+          "model": "Sonnet55",
+          "task": "wildfire-easy-1",
+          "operator": "w",
+          "kind": "Window",
+          "counters": {
+            "partitions": 1,
+            "tieRows": 0,
+            "outputs": {
+              "p1": {
+                "boundaryNulls": 1,
+                "nullOutputs": 1
+              },
+              "p2": {
+                "boundaryNulls": 2,
+                "nullOutputs": 2
+              },
+              "d2": {
+                "boundaryNulls": 2,
+                "nullOutputs": 2
+              }
+            }
+          },
+          "properties": {
+            "orderBy": [
+              {
+                "col": "Date"
+              }
+            ],
+            "columns": [
+              {
+                "fn": "lag",
+                "as": "p1",
+                "col": "Acres Burned",
+                "offset": 1
+              },
+              {
+                "fn": "lag",
+                "as": "p2",
+                "col": "Acres Burned",
+                "offset": 2
+              },
+              {
+                "fn": "lag",
+                "as": "d2",
+                "col": "Date",
+                "offset": 2
+              }
+            ]
+          }
+        },
+        {
+          "model": "Terra",
+          "task": "legal-hard-14",
+          "operator": "typed_theft",
+          "kind": "Cast",
+          "counters": {
+            "# of Reports": 0
+          },
+          "examples": {}
+        }
+      ]
+    },
+    {
+      "scope": "Counters independently recomputed from retained complete tables; simple CSV scans also re-read with pandas. Does not certify the agent's task semantics or custom code.",
+      "checks": {
+        "columns": 329,
+        "frequencies": 420,
+        "structure": 48,
+        "native": 34,
+        "source": 600,
+        "join": 64
+      },
+      "total_checks": 1495,
+      "failures": [],
+      "skipped": [
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "samples2013",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15388
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "flagged2013",
+          "reason": "retained table incomplete",
+          "records": 335,
+          "rows": 15388
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "samples2012",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15377
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "flagged2012",
+          "reason": "retained table incomplete",
+          "records": 336,
+          "rows": 15377
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "rates2012",
+          "reason": "retained table incomplete",
+          "records": 1021,
+          "rows": 1171
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "rates2013",
+          "reason": "retained table incomplete",
+          "records": 1019,
+          "rows": 1176
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "compared",
+          "reason": "retained table incomplete",
+          "records": 731,
+          "rows": 1138
+        },
+        {
+          "model": "Terra",
+          "task": "environment-easy-3",
+          "operator": "higher",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "a",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15377
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "b",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15388
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "fa",
+          "reason": "retained table incomplete",
+          "records": 2294,
+          "rows": 15377
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "fb",
+          "reason": "retained table incomplete",
+          "records": 2295,
+          "rows": 15388
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "ra",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "rb",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "ra2",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "rb2",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "y2012",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15377
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "flag2012",
+          "reason": "retained table incomplete",
+          "records": 340,
+          "rows": 15377
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "y2013",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15388
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "flag2013",
+          "reason": "retained table incomplete",
+          "records": 341,
+          "rows": 15388
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "compared",
+          "reason": "retained table incomplete",
+          "records": 920,
+          "rows": 1124
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "rate_values",
+          "reason": "retained table incomplete",
+          "records": 688,
+          "rows": 1124
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "rates2012",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "rates2013",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Luna",
+          "task": "environment-easy-3",
+          "operator": "higher",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "data_2012",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15377
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "data_2013",
+          "reason": "retained table incomplete",
+          "records": 354,
+          "rows": 15388
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "rate_2012",
+          "reason": "retained table incomplete",
+          "records": 1051,
+          "rows": 1155
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "rate_2013",
+          "reason": "retained table incomplete",
+          "records": 1049,
+          "rows": 1162
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "joined",
+          "reason": "retained table incomplete",
+          "records": 598,
+          "rows": 1124
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "comparison",
+          "reason": "retained table incomplete",
+          "records": 537,
+          "rows": 1124
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "violations_2013",
+          "reason": "retained table incomplete",
+          "records": 360,
+          "rows": 738
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "violations_2012",
+          "reason": "retained table incomplete",
+          "records": 357,
+          "rows": 526
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "rate_calc_2012",
+          "reason": "retained table incomplete",
+          "records": 1048,
+          "rows": 1155
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "rates_2012_final",
+          "reason": "retained table incomplete",
+          "records": 973,
+          "rows": 1155
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "rate_calc_2013",
+          "reason": "retained table incomplete",
+          "records": 1048,
+          "rows": 1162
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "rates_2013_final",
+          "reason": "retained table incomplete",
+          "records": 966,
+          "rows": 1162
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "joined_rates",
+          "reason": "retained table incomplete",
+          "records": 549,
+          "rows": 1124
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "compare_rates",
+          "reason": "retained table incomplete",
+          "records": 505,
+          "rows": 1124
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "exceedance_2012",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "exceedance_2013",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "count_higher",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "count_violations_2012",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "count_violations_2013",
+          "reason": "input table incomplete"
+        },
+        {
+          "model": "Haiku45",
+          "task": "environment-easy-3",
+          "operator": "final_count",
+          "reason": "input table incomplete"
+        }
+      ],
+      "operations": [
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "j",
+          "kind": "Join",
+          "counters": {
+            "type": "inner",
+            "nullsEqual": false,
+            "validate": "many_to_many",
+            "matchedOutputRows": 1138,
+            "left": {
+              "rows": 1171,
+              "eligibleRows": 1171,
+              "nullKeyRows": 0,
+              "distinctKeys": 1171,
+              "matchedRows": 1138,
+              "unmatchedRows": 33,
+              "matchedKeys": 1138,
+              "unmatchedKeys": 33,
+              "maxMultiplicity": 1,
+              "unmatchedExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "int64",
+                      "value": "126"
+                    },
+                    {
+                      "type": "str",
+                      "value": "Allen Harbor"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "int64",
+                      "value": "36"
+                    },
+                    {
+                      "type": "str",
+                      "value": "Briarwood Marine and Science"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "int64",
+                      "value": "224"
+                    },
+                    {
+                      "type": "str",
+                      "value": "Kent's Point"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                }
+              ],
+              "duplicateExamples": []
+            },
+            "right": {
+              "rows": 1176,
+              "eligibleRows": 1176,
+              "nullKeyRows": 0,
+              "distinctKeys": 1176,
+              "matchedRows": 1138,
+              "unmatchedRows": 38,
+              "matchedKeys": 1138,
+              "unmatchedKeys": 38,
+              "maxMultiplicity": 1,
+              "unmatchedExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "int64",
+                      "value": "20"
+                    },
+                    {
+                      "type": "str",
+                      "value": "Cross Street"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "int64",
+                      "value": "172"
+                    },
+                    {
+                      "type": "str",
+                      "value": "Maushop Village"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "int64",
+                      "value": "351"
+                    },
+                    {
+                      "type": "str",
+                      "value": "Ocean Club"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                }
+              ],
+              "duplicateExamples": []
+            }
+          }
+        },
+        {
+          "model": "Sonnet55",
+          "task": "environment-easy-3",
+          "operator": "j2",
+          "kind": "Join",
+          "counters": {
+            "type": "inner",
+            "nullsEqual": false,
+            "validate": "many_to_many",
+            "matchedOutputRows": 1124,
+            "left": {
+              "rows": 1155,
+              "eligibleRows": 1155,
+              "nullKeyRows": 0,
+              "distinctKeys": 1155,
+              "matchedRows": 1124,
+              "unmatchedRows": 31,
+              "matchedKeys": 1124,
+              "unmatchedKeys": 31,
+              "maxMultiplicity": 1,
+              "unmatchedExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Allen Harbor"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Briarwood Marine and Science"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Kent's Point"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                }
+              ],
+              "duplicateExamples": []
+            },
+            "right": {
+              "rows": 1162,
+              "eligibleRows": 1162,
+              "nullKeyRows": 0,
+              "distinctKeys": 1162,
+              "matchedRows": 1124,
+              "unmatchedRows": 38,
+              "matchedKeys": 1124,
+              "unmatchedKeys": 38,
+              "maxMultiplicity": 1,
+              "unmatchedExamples": [
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Cross Street"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Maushop Village"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                },
+                {
+                  "values": [
+                    {
+                      "type": "str",
+                      "value": "Ocean Club"
+                    }
+                  ],
+                  "count": 1,
+                  "truncated": false
+                }
+              ],
+              "duplicateExamples": []
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "independent_beach_joins": {
+    "checks": 236,
+    "failures": [],
+    "joins": [
+      {
+        "model": "Terra",
+        "operator": "compared",
+        "keys": [
+          "Community Code",
+          "Beach Name"
+        ],
+        "left_groups": 1171,
+        "right_groups": 1176,
+        "matched_groups": 1138
+      },
+      {
+        "model": "Sonnet55",
+        "operator": "j",
+        "keys": [
+          "c",
+          "n"
+        ],
+        "left_groups": 1171,
+        "right_groups": 1176,
+        "matched_groups": 1138
+      },
+      {
+        "model": "Sonnet55",
+        "operator": "j2",
+        "keys": [
+          "n"
+        ],
+        "left_groups": 1155,
+        "right_groups": 1162,
+        "matched_groups": 1124
+      },
+      {
+        "model": "Luna",
+        "operator": "compared",
+        "keys": [
+          "Beach Name"
+        ],
+        "left_groups": 1155,
+        "right_groups": 1162,
+        "matched_groups": 1124
+      },
+      {
+        "model": "Haiku45",
+        "operator": "joined",
+        "keys": [
+          "Beach Name"
+        ],
+        "left_groups": 1155,
+        "right_groups": 1162,
+        "matched_groups": 1124
+      },
+      {
+        "model": "Haiku45",
+        "operator": "rate_calc_2012",
+        "keys": [
+          "Beach Name"
+        ],
+        "left_groups": 1155,
+        "right_groups": 272,
+        "matched_groups": 272
+      },
+      {
+        "model": "Haiku45",
+        "operator": "rate_calc_2013",
+        "keys": [
+          "Beach Name"
+        ],
+        "left_groups": 1162,
+        "right_groups": 342,
+        "matched_groups": 342
+      },
+      {
+        "model": "Haiku45",
+        "operator": "joined_rates",
+        "keys": [
+          "Beach Name"
+        ],
+        "left_groups": 1155,
+        "right_groups": 1162,
+        "matched_groups": 1124
+      }
+    ],
+    "scope": "Every beach Join key domain independently recomputed from the two source CSVs; includes violation-only and left-join domains."
+  },
+  "independent_task_references": {
+    "category": {
+      "rows": 520,
+      "conversion_failures_without_normalization": 317,
+      "numeric_winners": [
+        "Arizona",
+        "California",
+        "Massachusetts",
+        "Ohio",
+        "Oklahoma",
+        "Rhode Island"
+      ],
+      "lexical_winners": [
+        "Alaska",
+        "Minnesota",
+        "North Dakota",
+        "Oregon",
+        "South Dakota",
+        "Vermont",
+        "Wisconsin",
+        "Wyoming"
+      ],
+      "normalized_sum": 4342534
+    },
+    "metros": {
+      "source_states": [
+        "Connecticut",
+        "Maine",
+        "Massachusetts",
+        "New Hampshire",
+        "Rhode Island",
+        "Vermont"
+      ],
+      "rows": 24,
+      "distinct_areas": 21,
+      "duplicates": [
+        {
+          "Metropolitan Area": "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+          "reports": 19929,
+          "source_state": "Massachusetts"
+        },
+        {
+          "Metropolitan Area": "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+          "reports": 5422,
+          "source_state": "Massachusetts"
+        },
+        {
+          "Metropolitan Area": "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+          "reports": 19929,
+          "source_state": "New Hampshire"
+        },
+        {
+          "Metropolitan Area": "Lebanon-Claremont, NH-VT Micropolitan Statistical Area",
+          "reports": 242,
+          "source_state": "New Hampshire"
+        },
+        {
+          "Metropolitan Area": "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+          "reports": 5422,
+          "source_state": "Rhode Island"
+        },
+        {
+          "Metropolitan Area": "Lebanon-Claremont, NH-VT Micropolitan Statistical Area",
+          "reports": 242,
+          "source_state": "Vermont"
+        }
+      ],
+      "top5": [
+        {
+          "Metropolitan Area": "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+          "reports": 19929
+        },
+        {
+          "Metropolitan Area": "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+          "reports": 5422
+        },
+        {
+          "Metropolitan Area": "Hartford-West Hartford-East Hartford, CT Metropolitan Statistical Area",
+          "reports": 2613
+        },
+        {
+          "Metropolitan Area": "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area",
+          "reports": 2571
+        },
+        {
+          "Metropolitan Area": "Worcester, MA Metropolitan Statistical Area",
+          "reports": 2561
+        }
+      ]
+    },
+    "monthly": {
+      "rows": 303,
+      "consecutive_months": true,
+      "calendar_windows": 301,
+      "luna_numeric_date_windows": 251,
+      "maximum": [
+        7805421,
+        201506,
+        201508
+      ],
+      "luna_maximum": [
+        7805421,
+        201506,
+        201508
+      ]
+    },
+    "beaches": {
+      "community_and_name": {
+        "groups2012": 1171,
+        "groups2013": 1176,
+        "matched": 1138,
+        "higher": 268
+      },
+      "name_only": {
+        "groups2012": 1155,
+        "groups2013": 1162,
+        "matched": 1124,
+        "higher": 267
+      },
+      "name_pools_multiple_communities_2012": 14
+    },
+    "cast_smoke_independent_checks": {
+      "source_failure_count_matches": true,
+      "normalized_sum_matches": true
+    },
+    "global_msa_parse": {
+      "valid_source_rows": 452,
+      "retained_without_normalizing_commas": 302,
+      "lost": 150
+    }
+  },
+  "cast_cache_smoke": {
+    "status": "passed",
+    "model_calls": 0,
+    "rows": 520,
+    "conversion_failures": 317,
+    "examples": {
+      "examples": [
+        {
+          "values": [
+            {
+              "type": "str",
+              "value": "26,474"
+            }
+          ],
+          "count": 1,
+          "truncated": false
+        },
+        {
+          "values": [
+            {
+              "type": "str",
+              "value": "13,596"
+            }
+          ],
+          "count": 1,
+          "truncated": false
+        },
+        {
+          "values": [
+            {
+              "type": "str",
+              "value": "8,302"
+            }
+          ],
+          "count": 1,
+          "truncated": false
+        }
+      ],
+      "otherCount": 314
+    },
+    "cached_retrieval_preserved_result": true,
+    "cached_retrieval_added_no_execution": true,
+    "update_recomputed_descendants": true,
+    "update_removed_old_cast_evidence": true,
+    "resources": {
+      "cuid": 368,
+      "wid": 10057,
+      "agentId": "agent-4gycdr-34"
+    }
+  },
+  "verification_scripts_sha256": {
+    "/tmp/texera-evidence-pilot-20261001/verify_profiles.py": "7e76636989856bdc4302b0fa4c1ce5147870816f817c0ceccc9b40f106ea6276",
+    "/tmp/texera-evidence-pilot-20261001/verify_task_semantics.py": "9e370b5509a84fa11138d4343f7d4d694620ce3e35f8fe7e43733e58813711cc",
+    "/tmp/texera-evidence-pilot-20261001/cast-cache-smoke.ts": "2aab9e039eea770b0c443c7754d55f127443bdddbef5fa47be5794c5cb263982",
+    "/tmp/texera-evidence-join-pilot-20261001/verify_beach_joins.py": "c9c91ac757fe733ab7b4618a7a4549b27b35283ff77c73f6a0d57d6bb63fdf81"
+  },
+  "limitations": [
+    "Official passing answers do not certify all intermediate transformations.",
+    "No matched evidence-off runs: this pilot cannot estimate a causal accuracy or cost gain.",
+    "Profile comparisons use retained complete tables or source CSV prefixes; incomplete retained tables are listed as skipped, not declared validated.",
+    "Bounded telemetry cannot describe arbitrary operations inside Process; several model errors remained despite delivered warnings."
+  ],
+  "runtime": {
+    "agent_port": 3079,
+    "gateway_control_port": 9097,
+    "shared_backend_ports": [
+      8080,
+      8888,
+      8085
+    ],
+    "other_stacks_restarted": false,
+    "all_campaign_computing_units_terminated": true,
+    "cast_smoke_setup_attempt1": "Missing required Filter doc in diagnostic harness; atomic rejection before execution. Corrected for no-model smoke; original setup log retained."
+  },
+  "manual_findings": [
+    {
+      "model": "Sonnet55",
+      "task": "legal-easy-26",
+      "official_score": 1,
+      "mechanism": "sampling_visibility",
+      "trace_step": 2,
+      "operator": "top",
+      "finding": "Full-coverage State frequencies enumerate six values with other=0; the five displayed records omit Ohio. Answer includes all six.",
+      "confidence": "high"
+    },
+    {
+      "model": "Sonnet55",
+      "task": "environment-easy-3",
+      "official_score": 1,
+      "mechanism": "schema_stats",
+      "trace_step": 2,
+      "operator": "cnt2",
+      "finding": "Upstream ra2 warns that beach name pools community codes in 14 of 1,155 groups. Both the name-only result (267) and composite result (268) were computed; the final explanation justifies the composite key.",
+      "confidence": "high"
+    },
+    {
+      "model": "Haiku45",
+      "task": "legal-easy-26",
+      "official_score": 0,
+      "mechanism": "wrong_transform",
+      "trace_step": 3,
+      "operator": "rank_categories",
+      "finding": "Orders text # of Reports without conversion. Independent lexical sort reproduces its exact eight-state answer.",
+      "confidence": "high"
+    },
+    {
+      "model": "Haiku45",
+      "task": "legal-hard-14",
+      "official_score": 0,
+      "mechanism": "wrong_transform",
+      "trace_step": 7,
+      "operator": "final_top_5",
+      "finding": "Process silently loses 150 of 452 report rows during numeric conversion; Join matches four of six requested states. Delivered upstream examples name the two missing states; the agent does not repair.",
+      "confidence": "high"
+    },
+    {
+      "model": "Luna",
+      "task": "environment-easy-3",
+      "official_score": 0,
+      "mechanism": "verification",
+      "trace_step": 2,
+      "operator": "answer",
+      "finding": "Receives grouping conflicts in 14 of 1,155 groups showing multiple communities per name, yet answers 267 from name-only grouping.",
+      "confidence": "high"
+    },
+    {
+      "model": "Haiku45",
+      "task": "environment-easy-3",
+      "official_score": 0,
+      "mechanism": "verification",
+      "trace_step": 6,
+      "operator": "count_violations_2012",
+      "finding": "Repairs nonnull-count numerator after noticing rates of one, but ignores repeated key-conflict warnings and keeps name-only grouping.",
+      "confidence": "high"
+    },
+    {
+      "model": "Luna",
+      "task": "legal-hard-14",
+      "official_score": 1,
+      "mechanism": "wrong_transform",
+      "trace_step": 5,
+      "operator": "ne_totals",
+      "finding": "Sums repeated entries across state files: Boston becomes 39,858 instead of 19,929 and Providence 10,844 instead of 5,422. The same top-five names conceal the error.",
+      "confidence": "high"
+    },
+    {
+      "model": "Terra",
+      "task": "legal-hard-14",
+      "official_score": 1,
+      "mechanism": "verification",
+      "trace_step": 6,
+      "operator": "top_five",
+      "finding": "Delivered upstream Join still reports four of six states with New Hampshire and Rhode Island unmatched. Shared metros leave the requested top-five names unchanged.",
+      "confidence": "high"
+    },
+    {
+      "model": "Luna",
+      "task": "wildfire-easy-1",
+      "official_score": 1,
+      "mechanism": "wrong_transform",
+      "trace_step": 3,
+      "operator": "max_three_month_period",
+      "finding": "The custom YYYYMM + 1 test skips 50 windows crossing New Year: 251 considered versus 301 calendar windows. The same June–August 2015 maximum conceals the error.",
+      "confidence": "high"
+    },
+    {
+      "model": "Sonnet55",
+      "tasks": "all four",
+      "mechanism": "tool_error_recovery",
+      "finding": "One plain-text final reply per task; existing single correction recovers required Answer action.",
+      "confidence": "high"
+    }
+  ]
+}

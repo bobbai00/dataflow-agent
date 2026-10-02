@@ -43,6 +43,9 @@ loader = importlib.util.spec_from_file_location('native_runtime', sys.argv[1])
 r = importlib.util.module_from_spec(loader)
 loader.loader.exec_module(r)
 records, frames = [], {}
+def transport(value):
+    value = r._scalar(value)
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 9007199254740991 else value
 def execute(id, kind, inputs, **properties):
     spec = dict(version='v2', id=id, revision='0123456789abcdef', type=kind, inputs=inputs, properties=properties, profileCollection=True)
     frame = r.execute_native(spec, [frames[name] for name in inputs])
@@ -52,7 +55,7 @@ def execute(id, kind, inputs, **properties):
     accumulator.finish()
     payload = accumulator.encode()
     profile = json.loads(payload)
-    rows = [{name: r._scalar(value) for name, value in row.items()} for row in frame.head(1).to_dict('records')]
+    rows = [{name: transport(value) for name, value in row.items()} for row in frame.head(1).to_dict('records')]
     records.append(dict(spec=spec, rows=rows, profile=payload))
 with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     path = Path(directory) / 'values.csv'
@@ -83,7 +86,40 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('empty_unpivot', 'Unpivot', ['shape_empty'], columns=['y1','y2'])
     execute('empty_window', 'Window', ['empty_unpivot'], partitionBy=['id','tags'], orderBy=[dict(col='variable')], columns=[dict(fn='lag', col='value', **{'as': 'previous'})])
     execute('empty_pivot', 'Pivot', ['empty_window'], index=['id','tags'], columns='variable', values='previous')
-print(json.dumps(records))
+    execute('formatted', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'x':['1,299','1,299','$5','NA','bad','other',None,'2']})")
+    execute('formatted_cast', 'Cast', ['formatted'], columns=[dict(column='x', dtype='int64')], errors='null')
+    execute('long_values', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'x':['a'*400, 'a'*96+'b'*304]})")
+    execute('long_cast', 'Cast', ['long_values'], columns=[dict(column='x', dtype='int64')], errors='null')
+    execute('left_keys', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'key':['item A','shared','shared',None]})")
+    execute('right_keys', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'key':['item_A','shared','shared','shared',None]})")
+    execute('key_join', 'Join', ['left_keys','right_keys'], on='key', type='full')
+    execute('key_join_equal', 'Join', ['left_keys','right_keys'], on='key', type='full', nullsEqual=True)
+    execute('key_result', 'Aggregate', ['key_join'], aggregations=[dict(fn='count',**{'as':'n'})])
+    execute('typed_keys', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':pd.Series([9007199254740993,9007199254740993,None],dtype='Int64'), 'when':pd.to_datetime(['2024-01-01','2024-01-01','2024-01-02'],utc=True)})")
+    execute('empty_typed_keys', 'Filter', ['typed_keys'], func='def apply(row):\\n    return False', entry='apply')
+    execute('typed_key_join', 'Join', ['typed_keys','empty_typed_keys'], on=['id','when'], type='left', nullsEqual=True)
+    execute('monthly', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'month':[1,2,3,4], 'acres':[1,2,3,4]})")
+    execute('monthly_lags', 'Window', ['monthly'], orderBy=[dict(col='month')], columns=[dict(fn='lag',col='acres',**{'as':'prev1'}),dict(fn='lag',col='acres',offset=2,**{'as':'prev2'})])
+    execute('monthly_projected', 'Project', ['monthly_lags'], keep=['month','prev1','prev2'])
+    execute('monthly_result', 'Aggregate', ['monthly_projected'], aggregations=[dict(fn='count',**{'as':'n'})])
+    disabled = dict(version='v2', id='disabled', revision='0123456789abcdef', type='Cast', inputs=['formatted'], properties=dict(columns=[dict(column='x',dtype='int64')],errors='null'))
+    assert 'conversionFailureExamples' not in r.execute_native(disabled,[frames['formatted']]).attrs['native_v2']['operations']
+    disabled.update(type='Join', inputs=['left_keys','right_keys'],properties=dict(on='key',type='full'))
+    assert 'unmatchedExamples' not in r.execute_native(disabled,[frames['left_keys'],frames['right_keys']]).attrs['native_v2']['operations']['join']['left']
+    # A display protocol that cannot represent a scalar must omit its example,
+    # rather than relabel bytes as text or change a successful operation.
+    assert r._witness([b'raw'],1) is None
+    assert r._witness([1<<64],1) is None
+    assert r._witness([float('inf')],1) is None
+    import pandas as pd
+    byte_frame = pd.DataFrame({'key':[b'raw',b'raw']})
+    unsupported = dict(version='v2',id='unsupported',revision='0123456789abcdef',type='Cast',inputs=['input'],profileCollection=True,properties=dict(columns=[dict(column='key',dtype='int64')],errors='null'))
+    metadata = r.execute_native(unsupported,[byte_frame]).attrs['native_v2']['operations']
+    assert metadata['conversionFailures']['key'] == 2 and 'conversionFailureExamples' not in metadata
+    unsupported.update(type='Join',inputs=['left','right'],properties=dict(on='key',type='full'))
+    metadata = r.execute_native(unsupported,[byte_frame,byte_frame.iloc[:0]]).attrs['native_v2']['operations']['join']
+    assert metadata['left']['unmatchedRows'] == 2 and metadata['left']['unmatchedExamples'] == []
+print(json.dumps(records, default=str))
 `,
       runtime,
     ],
@@ -176,7 +212,10 @@ print(json.dumps(records))
     }).toMatchObject({ status: "available" });
     const context = { op, info, workflow, resolveInput: (id: string) => storage.getOperatorResult("A", id) };
     const collected = collectNativeEvidence(context);
-    expect(collected.omissions.filter(x => x.startsWith("invalid_") || x.endsWith("_unavailable"))).toEqual([]);
+    expect({
+      id: op.operatorID,
+      omissions: collected.omissions.filter(x => x.startsWith("invalid_") || x.endsWith("_unavailable")),
+    }).toMatchObject({ omissions: op.operatorID === "long_values" ? ["row_values_unavailable"] : [] });
     facts.set(op.operatorID, collected.facts.map(f => f.text).join("\n"));
     for (const data of [true, false])
       for (const flow of [true, false]) {
@@ -185,6 +224,30 @@ print(json.dumps(records))
       }
   }
   expect(facts.get("typed")).toContain("conversion failures=1/3");
+  expect(facts.get("typed")).toContain('failed-value examples (not exhaustive): "bad" × 1');
+  expect(facts.get("formatted_cast")).toContain('"1,299" × 2');
+  expect(facts.get("formatted_cast")).toContain('"$5" × 1');
+  expect(facts.get("formatted_cast")).toContain('"NA" × 1');
+  expect(facts.get("formatted_cast")).toContain("other failures=2");
+  const longExamples = JSON.parse(records.find(r => r.spec.id === "long_cast")!.profile).native.operations
+    .conversionFailureExamples.x.examples;
+  expect(longExamples).toHaveLength(2);
+  expect(longExamples.every((x: any) => x.truncated && x.values[0].value.length === 96 && x.count === 1)).toBe(true);
+  expect(facts.get("key_join")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
+  expect(facts.get("key_join")).toContain('right eligible unmatched-key examples (not exhaustive): ["item_A"] × 1');
+  expect(facts.get("key_join")).toContain('left duplicate-key examples (not exhaustive): ["shared"] × 2');
+  expect(facts.get("key_join")).toContain('right duplicate-key examples (not exhaustive): ["shared"] × 3');
+  expect(facts.get("key_join")).not.toContain("[null] ×");
+  expect(facts.get("key_result")).toContain("Flow upstream key_join:");
+  expect(facts.get("key_result")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
+  expect(facts.get("key_join_equal")).toContain("null-key rows=1");
+  expect(facts.get("typed_key_join")).toContain("9007199254740993");
+  expect(facts.get("typed_key_join")).toContain("[null,");
+  expect(facts.get("typed_key_join")).toContain("2024-01-01T00:00:00.000000000+00:00");
+  expect(facts.get("monthly_result")).toContain("Flow upstream monthly_lags:");
+  expect(facts.get("monthly_result")).toContain('"prev1" boundary nulls=1/4');
+  expect(facts.get("monthly_result")).toContain('"prev2" boundary nulls=2/4');
+  expect(facts.get("monthly_result")).toContain('lag("acres", offset=2)');
   expect(facts.get("filled")).toContain("nulls before=2/3, after=0/3");
   expect(facts.get("filtered")).toContain("kept=1/3");
   expect(facts.get("aggregate")).toContain('"mean" nonnull=1/3');

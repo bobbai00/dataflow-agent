@@ -1,0 +1,101 @@
+Claude Haiku 4.5 smoke test after credential update — 2026-10-01
+
+The updated Anthropic credential works. Both original KramaBench tasks
+completed, with one valid-authentication attempt each. Both official scores
+are zero. Engine execution, observation delivery and prefix-cache checks
+passed; the traces show analytical mistakes in both answers.
+
+Configuration
+  Model: claude-haiku-4.5 -> claude-haiku-4-5-20251001; no extended thinking.
+  Arm: sample_stats_flow1, native graph actions, DELTA context.
+  Samples: 2,000 characters, at most five rows.
+  Data and flow evidence: separate 2,000-character budgets.
+  Full-result retention: 100,000 characters. Retrieval choice: sample_stats.
+  maxSteps: 25. Thought replay and code in snapshots: disabled.
+  Agent/runner revision: 88c9b91465da8832e4bef1c8c0694dbc4c5ee7b3.
+  Engine: 04e85b581 JVM; 41a3a4516 Python profiler.
+  Independent checker revision: b7c9ada7b8b43a187b457d7746917107e5522ab5.
+  KramaBench revision: 4658eb92db753805e0df3edc207ca46379eda43b.
+
+Official results and recorded model costs
+  Task                 Score   Calls   Cost USD   Cache read   Cache write
+  legal-hard-14          0.0       9    0.034361       68,738        12,542
+  biomedical-easy-2      0.0       9    0.025974       83,637         8,185
+  Total                 0/2      18    0.060335      152,375        20,727
+
+Cost uses the recorded token rates: ordinary input $1, output $5,
+cache reads $0.10 and cache creation $1.25 per million tokens. It includes
+cache creation and excludes evaluator and infrastructure costs. Each cost
+and usage total reconciles with its nine recorded model responses.
+
+Caching and observation checks
+  Of 173,461 input tokens, 152,375 (87.8%) were cache reads.
+  All 16 within-task context-prefix checks passed. At every transition,
+  cache reads equaled the previous request's cache reads plus cache writes.
+  Thus the growing conversation was reused as well as the shared prompt.
+  The first legal call created 5,951 cache tokens. The first biomedical call
+  reused 5,355 shared tokens. These counters provide actual cache evidence.
+  All 15 successful retrieval observations reached the next model request.
+  Flow and data evidence were delivered as applicable; complete small tables
+  suppress redundant data facts. Neither task hit a step limit or timeout.
+  Both tasks returned an Answer action, without protocol correction feedback.
+
+Statistics audit
+  Final snapshots: 19 profiles, 167 columns, zero profile invariant failures.
+  Independent comparison of the clinical source: 588 comparisons over 153
+  rows and 128 profiled columns, zero mismatches with the corrected checker.
+  The first checker produced 73 false frequency mismatches by comparing
+  integer Excel cells with the engine's string table values. The checker now
+  follows the published column schema; regression tests also confirm that
+  genuinely incorrect frequencies still fail. Six checker/campaign tests pass.
+  The original failed audit is preserved separately for provenance.
+  Profile limits still matter: the 179-column workbook profiles 128 columns;
+  its frequency budget omits frequencies for 69 columns, including eight
+  small categories. The necessary Case_excluded statistics were retained.
+
+Failure: biomedical-easy-2
+  Haiku returned 68.1; the official expected value is 68.5.
+  It saw Case_excluded frequencies (No:144, Yes:9), then projected only age
+  and histology. Automatic flow evidence explicitly reported the unused
+  exclusion flag. Haiku repeatedly checked arithmetic without correcting
+  cohort membership. It used 13 valid ages totaling 885, giving 68.0769.
+  Applying Case_excluded=No yields 12 eligible valid ages with mean 68.5.
+  The cast's 52 missing ages, aggregate values and evidence were correct.
+  No action failed in this task. The model ignored available eligibility
+  evidence; lack of evidence delivery does not explain this failure.
+
+Failure: legal-hard-14
+  Haiku's first Process assumed raw-preview columns file/line, while the full
+  scan returned parsed table columns. Execute and Retrieve reported the same
+  underlying KeyError. Haiku recovered by retrieving the independent scan
+  and rebuilding the source with a file column.
+  Its replacement Process used pd.to_numeric(errors='coerce') without
+  removing thousands separators. Independently reading all 52 source files
+  finds 452 valid numeric report rows, including 150 comma-formatted values.
+  The Process retained exactly 302 rows, losing those 150 records.
+  Filename-derived NewHampshire and RhodeIsland also failed to match the
+  spaced state names. Native join evidence showed only four of six right-side
+  states matched; Haiku did not repair this warning. Its final top five
+  therefore omitted the official top five metropolitan areas.
+  The custom Process bundled filtering and coercion despite native-operator
+  guidance. Flow metadata cannot identify all operations inside custom code.
+
+Infrastructure and scope
+  The gateway was refreshed after the key update. Stopped supporting JVM
+  services were restored through the branch's launcher in detached sessions.
+  The branch engine and agent retained their original process identities.
+  Three late-run health samples saw no outages; they do not cover the entire
+  run. Computing unit 354 was terminated after completion. Other stacks were
+  left untouched. The earlier authentication-only failures remain separate.
+  These two selected tasks are a smoke test, not an estimate of full-benchmark
+  accuracy or an accuracy/cost comparison against previous OpenAI campaigns.
+  No successful-task retries were used to change the reported scores.
+
+Artifacts
+  Machine-readable audit: 20261001-haiku45-smoke-valid.json (alongside this file).
+  Raw run: /tmp/texera-haiku45-smoke-valid-20261001
+  Raw traces: system_scratch/<SUT>/<task>/react_steps.json beneath that root.
+  Analyses: analysis.json, mechanisms.json, source-validation-corrected.json.
+  First checker audit: source-validation.json beneath the same root.
+  Initial authentication failures: /tmp/texera-haiku45-smoke-20261001
+  Initial report: 20261001-haiku45-smoke.txt (alongside this file).

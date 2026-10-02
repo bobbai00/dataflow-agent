@@ -163,6 +163,34 @@ test("sample_stats preserves the sample and has its own statistics budget", () =
   expect(sample.text).not.toContain("Data measurement");
 });
 
+test("partial records do not obscure exhaustive full-table value statistics", () => {
+  const f = fixture("Scan", {});
+  const years = [2003, 2011, 2015, 2018, 2020, 2021, 2022, 2023];
+  f.info.result = years.map(x => ({ x }));
+  f.info.truncated = false;
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = f.info.tableProfile!.coverage.rowsProcessed = years.length;
+  f.info.tableProfile!.columns.x = {
+    ...column(years.length, 0),
+    min: { type: "int64", value: "2003" },
+    max: { type: "int64", value: "2023" },
+    omissions: [],
+    frequencies: {
+      values: years.map(x => ({ value: { type: "int64", value: String(x) }, count: 1 })),
+      otherCount: 0,
+      truncated: false,
+    },
+  };
+  const result = observe(f, { view: "sample_stats", flow: false, maxRows: 5, dataMaxChars: 2000 });
+  expect(result.table?.returnedRows).toBe(5);
+  expect(result.table?.complete).toBe(false);
+  expect(result.text).toContain("Data statistics: full table, 8/8 rows");
+  expect(result.text).toContain(
+    "nonnull values=2003:1, 2011:1, 2015:1, 2018:1, 2020:1, 2021:1, 2022:1, 2023:1; other=0"
+  );
+  expect(result.text).toContain("Records incomplete; statistics coverage is shown separately.");
+  expect(result.text).not.toContain("View incomplete");
+});
+
 test("preview completeness never implies that the full source was read", () => {
   const f = fixture("Scan", { files: "large.csv", preview: 3 });
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
@@ -538,7 +566,7 @@ test("aggregate shows group size and per-reducer nonnull denominators", () => {
   expect(factText(f)).toContain('"mean" nonnull=4/5');
 });
 
-test("equijoin distinguishes matched output contribution from row and key coverage", () => {
+function joinFixture() {
   const f = fixture("Join", { type: "left", on: [["x", "x"]], nullsEqual: false });
   f.results.get("right")!.totalRowCount = 4;
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 8;
@@ -576,6 +604,11 @@ test("equijoin distinguishes matched output contribution from row and key covera
       },
     },
   });
+  return f;
+}
+
+test("equijoin distinguishes matched output contribution from row and key coverage", () => {
+  const f = joinFixture();
   const text = factText(f);
   expect(text).toContain("matched contribution=6");
   expect(text).toContain("left matched rows=3/5");
@@ -584,6 +617,23 @@ test("equijoin distinguishes matched output contribution from row and key covera
   expect(text).not.toContain("8 entities");
   f.info.tableProfile!.native!.operations!.join = { type: "left", matchedOutputRows: 100 };
   expect(collectNativeEvidence(f).facts.some(x => x.id.startsWith("flow.join."))).toBe(false);
+});
+
+test("join witnesses are bounded optional evidence and cannot override counters or versions", () => {
+  const f = joinFixture();
+  const left = (f.info.tableProfile!.native!.operations!.join as Record<string, any>).left;
+  left.unmatchedExamples = [{ values: [{ type: "int64", value: "9007199254740993" }], count: 1, truncated: false }];
+  left.duplicateExamples = [{ values: [{ type: "int64", value: "7" }], count: 3, truncated: false }];
+  expect(factText(f)).toContain("[9007199254740993] × 1");
+  expect(factText(f)).toContain("[7] × 3");
+  expect(observe(f, { flow: false }).text).not.toContain("key examples");
+  expect(observe(f, { data: false, flowMaxChars: 400 }).text).toContain("matched contribution=6");
+  left.unmatchedExamples[0].count = 100;
+  left.duplicateExamples[0].values[0].value = "9223372036854775808";
+  expect(factText(f)).not.toContain("key examples");
+  expect(factText(f)).toContain("matched contribution=6");
+  f.info.resultVersion!.inputs[0].resultVersion = "stale";
+  expect(factText(f)).not.toContain("matched contribution=6");
 });
 
 test("guarantees describe contracts, UDF remains unknown at equal row counts", () => {
@@ -933,7 +983,12 @@ test("upstream conversion losses survive nearby summaries and remain version bou
     inputOperators: ["source"],
     inputRows: [10],
     outputRows: 10,
-    operations: { conversionFailures: { x: 6 } },
+    operations: {
+      conversionFailures: { x: 6 },
+      conversionFailureExamples: {
+        x: { examples: [{ values: [{ type: "str", value: "1,299" }], count: 4, truncated: false }], otherCount: 2 },
+      },
+    },
   };
   // Add enough nearby projections to exhaust the old first-three-ancestors rule.
   for (let i = 0; i < 3; i++) {
@@ -960,10 +1015,31 @@ test("upstream conversion losses survive nearby summaries and remain version bou
   const selected = observe(f, { data: false, flowMaxChars: 1000 });
   expect(selected.text).toContain("Flow upstream raw:");
   expect(selected.text).toContain('"x" conversion failures=6/10');
+  expect(selected.text).toContain('"1,299" × 4');
   expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
   expect(selected.text).not.toContain("UNOBSERVED_ROW_CANARY");
   rawInfo.resultVersion!.inputs[0].resultVersion = "stale";
   expect(observe(f).text).not.toContain("conversion failures");
+  expect(observe(f).text).not.toContain("1,299");
+});
+
+test("invalid cast witnesses cannot remove valid conversion counts", () => {
+  const f = fixture("Cast", { columns: [{ column: "x", dtype: "int64" }], errors: "null" });
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 5,
+    operations: {
+      conversionFailures: { x: 2 },
+      conversionFailureExamples: {
+        x: {
+          examples: [{ values: [{ type: "str", value: "bad" }], count: 2, truncated: false }],
+          otherCount: 1,
+        },
+      },
+    },
+  });
+  expect(factText(f)).toContain('"x" conversion failures=2/5');
+  expect(factText(f)).not.toContain("failed-value examples");
 });
 
 test("upstream summaries stop at stale edges and opaque UDFs", () => {
