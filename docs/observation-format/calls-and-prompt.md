@@ -21,6 +21,12 @@
 
 Building blocks and settings: [README.md](README.md).
 
+The [complete proposed system prompt](system-prompt.md) shows the resulting
+text, including its full operator catalog and examples. The
+[operator-definition reference](operator-definitions.md) also shows every
+catalog entry and how an authored definition appears in a receipt. Complete
+sample layouts are in [retrieve.md](retrieve.md#sample).
+
 ## A whole call
 
 The tool message for one call is the receipts of its actions in order,
@@ -104,22 +110,31 @@ does not mention their format.
    > Each action's receipt opens with `### <n>. <action> <target>: <status>`
    > and a summary line. An operator appears as a block, `- **id** (kind,
    > state)` followed by its definition, inputs, result and columns; a table
-   > appears as a caption that says how many rows and columns it shows of how
-   > many, followed by the table. Issues follow the block they concern:
+   > appears as a caption that names its view and says how many rows and
+   > columns it shows of how many, followed by the table or wide key-value
+   > records. Sample records are retained examples, not a random sample.
+   > Issues follow the block they concern:
    > `error <CODE>` with where and how to fix it, `note` for what the system
-   > observed, `not run` for operators that did not run.
+   > observed, `check` for a finding, `flow` for execution evidence, and
+   > `not run` for operators that did not run.
 
 2. **"Run and read":** "Retrieval reports the returned and total rows and
    columns and whether the view is complete" becomes "Each table's caption says
-   how many rows and columns it shows, of how many, and whether that is the
-   whole table."
+   which view was requested, how many rows and columns it shows of how many,
+   and whether the whole table is visible. A cut in rows, columns or cell text
+   is announced and prevents a whole-table completeness claim."
 3. **Statistics** (`nativeEvidenceText`): the paragraph about "Data measurement
    lines" and "other=0" becomes a description of the statistics table: one row
-   per column with nulls, distinct values and `min to max, mean` or the top
-   values; `all:` means the list is exhaustive, `top: … (not exhaustive)` that it
-   is not.
+   per column with type, nulls, distinct nonnull values and a range, a mean when
+   collected, or value frequencies; `all:` means the list is exhaustive for
+   the profile, `top: … (not exhaustive)` that it is not. A complete value set
+   for the whole table also requires full profile coverage.
 4. **Flow evidence:** "Flow measurement lines … flow guarantees …" becomes
-   "`flow` lines".
+   "`flow` lines", while preserving whether a line reports a measurement or
+   states an operator contract.
 5. **Earlier tasks:** "An answer's receipt is the task's ledger" becomes "An
    answer's receipt is the task's catalog entry", and the entry is described
    by its operator blocks.
+6. **Worked responses:** the full proposed prompt shows a complete partial
+   record view with its statistics and a rejected edit with its repair hint,
+   beside the existing worked calls.

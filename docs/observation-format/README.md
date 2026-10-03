@@ -27,6 +27,17 @@ about its dataflow: the receipt of each action, the task entry in the catalog
 from the gold-prefix pilot (Netflix, task 5) where one exists and the system
 prompt's `orders`/`totals` example otherwise.
 
+To see the proposed text directly:
+
+- [Sample records](retrieve.md#sample): complete Markdown, TSV and wide
+  key-value receipts, plus quoted values and an announced text-cell cut.
+- [System prompt](system-prompt.md): the complete proposed default prompt,
+  with all template fields expanded, and the optional history, catalog and
+  flow-evidence passages.
+- [Operator definitions](operator-definitions.md): all 16 catalog entries,
+  followed by the exact definitions in edit calls and inspection receipts,
+  including attached Python functions.
+
 | file | covers |
 |---|---|
 | this file | requirements, building blocks, value rules, settings, decisions |
@@ -36,6 +47,8 @@ prompt's `orders`/`totals` example otherwise.
 | [retrieve.md](retrieve.md) | `retrieve` in every view, with statistics and flow evidence |
 | [answer-and-catalog.md](answer-and-catalog.md) | `answer` with `content` or `from`, and the catalog task entry |
 | [calls-and-prompt.md](calls-and-prompt.md) | rejected calls, skipped actions, the request listing, and the system-prompt text that changes |
+| [system-prompt.md](system-prompt.md) | complete proposed default system prompt and optional setting passages |
+| [operator-definitions.md](operator-definitions.md) | complete prompt catalog and authored/inspected operator definitions |
 
 Today the model reads five styles: JSON from `inspect`, tab-separated
 `Sample record:` lines from `retrieve`, pipe tables mixed with prose lines for
@@ -135,7 +148,7 @@ what the rows are and what was cut.
 Records, Markdown (default):
 
 ```
-records: 5 of 5 rows, 3 of 3 columns (complete)
+records: full; 5 of 5 rows, 3 of 3 columns (complete)
 | country | fractional_rank | opportunity_score |
 |---|---|---|
 | Thailand | 1 | 56.75779857397504 |
@@ -148,20 +161,28 @@ records: 5 of 5 rows, 3 of 3 columns (complete)
 The same records with `tableFormat: "tsv"`:
 
 ```
-records: 5 of 5 rows, 3 of 3 columns (complete)
+records: full; 5 of 5 rows, 3 of 3 columns (complete)
 country	fractional_rank	opportunity_score
 Thailand	1	56.75779857397504
 Turkey	2	53.29955947136563
+Spain	3	49.21670702179177
+Egypt	4	44.11137868753762
+Taiwan	5	38.2051282051282
 ```
 
 A table wider than `keyValueColumns` (12) prints one key-value line per record
 in either format, so no cell has to be matched to its header by position:
 
 ```
-records: 2 of 15 rows (retained records, not a random sample), 25 of 25 columns
+records: sample; 2 of 15 rows (retained records, not a random sample), 25 of 25 columns
 - country: Thailand, content_credit: 61.25, rank: 1, opportunity_score: 56.75779857397504, …
 - country: Turkey, content_credit: 48.5, rank: 2, opportunity_score: 53.29955947136563, …
 ```
+
+The wide-record excerpt above is abbreviated for documentation. See
+[the complete wide sample](retrieve.md#wide-sample-records-as-key-value-lines)
+for a receipt with every displayed field written out. Every records caption
+names the requested view before its coverage counts.
 
 Statistics, one row per column:
 
@@ -177,7 +198,8 @@ statistics: full table, 10,012 of 10,012 rows
 ```
 
 `values` reads `all: …` when the list is exhaustive, `top: … (not exhaustive)`
-otherwise, and `min to max, mean` for numbers and datetimes. A partial profile
+otherwise, and `min to max` with a mean when collected for numbers and
+datetimes. A partial profile
 says so in the caption: `statistics: first 2,000 of 10,012 rows`.
 
 ### Value rules
@@ -189,7 +211,14 @@ says so in the caption: `statistics: first 2,000 of 10,012 rows`.
 | integer, float | exact, as stored; no thousands separators inside records |
 | bool | `true`, `false` |
 | datetime | ISO 8601 in UTC: `2019-12-31T00:00:00Z` |
-| long text | cut at `cellChars` with `…` |
+| long text | sample views cut at `cellChars` with `…` and announce the clipped cells; full preserves retained cell contents |
+
+Quotes preserve a text value's type; separators also need the layout's
+escaping. Markdown cells escape a literal pipe as `\|`; JSON escapes preserve
+tabs and newlines inside quoted text. A view with clipped cell contents is
+incomplete even if it shows every row and column. See
+[quoted values and clipped text](retrieve.md#quoted-values-and-clipped-text)
+for complete examples.
 
 ### Issue line
 
@@ -222,7 +251,7 @@ model's text.
 | `keyValueColumns` | widest table printed as a table; wider records print as key-value lines (0 never switches) | 12 |
 | `columnsShown` | column entries in a block or index row; numbered runs compressed (`Q6_1..Q6_12`) | 16 |
 | `definitionChars` | definition length in catalog entries and provenance blocks (`inspect` shows it whole) | 200 |
-| `cellChars` | longest text cell before `…` | 160 |
+| `cellChars` | longest sample text cell before `…`; full does not apply sample clipping | 160 |
 | `maxResultRows`, `maxOperatorResultCharLimit`, `fullResultCharLimit` | records per view (existing settings) | 50 rows; 2,000 and 5,000 characters |
 | `dataEvidenceCharLimit`, `topValues` | statistics budget and top values per column | 2,000; 4 |
 | `flowEvidenceCharLimit` | flow lines per retrieve (existing setting) | 2,000 |
