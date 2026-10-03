@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import { DEFAULT_OBSERVATION_FORMAT, type ObservationFormatSettings } from "../agent/native/observation-format";
+
 import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
 import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
@@ -104,8 +106,11 @@ export interface ReActStep {
   operatorAccess?: Record<number, ToolOperatorAccess>;
   /** Set on steps the service performed itself, with no model request behind
    *  them. `"seed"`: the seeded source roots recorded before the first model
-   *  call of a turn (see `seedSources`). Usage is zero by construction. */
-  synthetic?: "seed";
+   *  call of a turn (see `seedSources`). `"state"`: tables loaded as the state
+   *  in force before a session's first request (`seedState`); the step keeps
+   *  its snapshot and results but is never rendered into the model's context
+   *  and does not count as a task. Usage is zero by construction. */
+  synthetic?: "seed" | "state";
 }
 
 export enum OperatorResultSerializationMode {
@@ -158,7 +163,9 @@ export enum ContextMode {
  */
 export type CompactionStrategy = "sliding" | "compress";
 
-export interface AgentSettings extends RetrievalSettings {
+export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
+  /** Include the persistent-session instructions from the first request. */
+  multiTask: boolean;
   systemPrompt: string;
   disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
@@ -291,6 +298,11 @@ export interface AgentSettings extends RetrievalSettings {
   nativeChecks: boolean;
   /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
   stateHistory: boolean;
+  /** System-verified reuse of earlier state in native mode: a ledger of each
+   *  sealed task's tables in the Answer receipt, provenance cards for inputs
+   *  taken from earlier state in edit receipts, and execution notes for empty,
+   *  limited or subset inputs. Off by default. */
+  stateLedger: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -523,6 +535,8 @@ export interface AgentSettings extends RetrievalSettings {
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
+  ...DEFAULT_OBSERVATION_FORMAT,
+  multiTask: false,
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
@@ -544,6 +558,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataflowReasoning: true,
   nativeChecks: false,
   stateHistory: false,
+  stateLedger: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
@@ -644,7 +659,8 @@ export interface AgentDelegateConfig {
   computingUnitId?: number;
 }
 
-export interface AgentSettingsApi extends RetrievalSettings {
+export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  multiTask?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
@@ -662,6 +678,7 @@ export interface AgentSettingsApi extends RetrievalSettings {
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
   stateHistory?: boolean;
+  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -747,7 +764,8 @@ export interface CreateAgentRequest {
   driver?: AgentDriverKind;
 }
 
-export interface UpdateAgentSettingsRequest extends RetrievalSettings {
+export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  multiTask?: boolean;
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
@@ -764,6 +782,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings {
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
   stateHistory?: boolean;
+  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */

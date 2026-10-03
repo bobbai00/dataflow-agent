@@ -168,7 +168,11 @@ function buildMessages(layout: string | undefined, text: string, stepByEvent: Ma
   if (layout === "opSplit" || layout === "opBlock") {
     // An empty dataflow (step 1) still ends with the `# Current Dataflow`
     // header, so the first message is byte-identical from step 1 onwards.
-    if (!/^# Current Dataflow$/m.test(text) && !/^### /m.test(text)) {
+    if (
+      !/^# Current Dataflow$/m.test(text) &&
+      !/^### /m.test(text) &&
+      !/^- \*\*[A-Za-z_][A-Za-z0-9_]*\*\* \(/m.test(text)
+    ) {
       return [{ role: "user", content: text.trimEnd() + "\n\n# Current Dataflow\n## Operators" }];
     }
     const parts = splitOperators(text);

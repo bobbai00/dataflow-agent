@@ -175,7 +175,8 @@ test("rejected edits pin submitted code without changing the DAG or reusing old 
   const state = new WorkflowState();
   state.setWorkflowContent(storage.getWorkflow("B"));
   const rendered = formatOperatorResult("answer", storage.getOperatorResult("B", "answer")!, state);
-  expect(rendered).toContain("bad-r2");
+  expect(rendered).toContain("rejected edit; dataflow definition unchanged");
+  expect(rendered).not.toContain("revision");
   expect(rendered).not.toContain("DIAGNOSTIC_BINDING_MISMATCH");
 });
 

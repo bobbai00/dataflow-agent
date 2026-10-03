@@ -660,14 +660,14 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "join",
     brief:
-      'on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified.',
+      'on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.',
     type: "Join",
     inputs: 2,
     rowEffect: "multiply",
     signature: 'join(L, R, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")',
-    doc: 'Joins on explicit keys: `on="id"`, `on=["a", "b"]`, or `on=[("left_col", "right_col")]` when the names differ. how is inner, left, right, full, or cross. Cross joins form every pair of rows: omit on or use None/[] and keep validate="many_to_many". A cross join with a single-row benchmark attaches that value to every left row. Other joins require nonempty keys. Null keys do not match unless nulls_equal=True. validate (one_to_one, one_to_many, many_to_one) fails the operator when the keys are not unique on the required side. Right-side columns that collide get `suffix`. No output order is promised: sort afterwards.',
+    doc: 'Joins on explicit keys: `on="id"`, `on=["a", "b"]`, or `on=[("left_col", "right_col")]` when the names differ. how is inner, left, right, full, cross, semi or anti. `semi` keeps each left row that has at least one match and `anti` each left row that has none, both with the left columns only and no row repeated: `review_orders = join(orders, review_units, on="unit", how="semi")` restricts orders to the units of an existing table without retyping them. Cross joins form every pair of rows: omit on or use None/[] and keep validate="many_to_many". A cross join with a single-row benchmark attaches that value to every left row. Other joins require nonempty keys. Null keys do not match unless nulls_equal=True. validate (one_to_one, one_to_many, many_to_one) fails the operator when the keys are not unique on the required side. A right-side column that collides gets `suffix`, repeated until the name is free; the execution receipt lists such renames. No output order is promised: sort afterwards.',
     schema: object({
-      type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
+      type: { type: "string", enum: ["inner", "left", "right", "full", "cross", "semi", "anti"] },
       on: {
         oneOf: [
           S,
@@ -700,7 +700,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           );
         else fail('on must be "key", ["k1", "k2"] or [("left_key", "right_key")].', "on");
       }
-      if (kwargs.how) props.type = oneOf(kwargs.how, "how", ["inner", "left", "right", "full", "cross"]);
+      if (kwargs.how) props.type = oneOf(kwargs.how, "how", ["inner", "left", "right", "full", "cross", "semi", "anti"]);
       if (kwargs.nulls_equal) props.nullsEqual = bool(kwargs.nulls_equal, "nulls_equal");
       if (kwargs.suffix) props.rightSuffix = str(kwargs.suffix, "suffix");
       if (kwargs.validate)
@@ -942,7 +942,7 @@ export function nativeOperatorName(type: string): string {
 /** The operator reference for the system prompt: signature + contract, one block per operator. */
 export function nativeCatalogText(compact = false): string {
   return NATIVE_OPERATORS.map(
-    d => `${d.name === "scan" ? "T" : "T2"} = ${d.signature}\n    ${compact ? d.brief : d.doc}`
+    d => `${d.inputs === 0 ? "T" : "T2"} = ${d.signature}\n    ${compact ? d.brief : d.doc}`
   ).join("\n\n");
 }
 

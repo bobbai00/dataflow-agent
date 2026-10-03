@@ -103,8 +103,8 @@ export function renderTools(): string {
     "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
     "Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.\n\n" +
-    "Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.\n" +
-    "\n## Optional historical state actions\n\nWith `stateHistory: true`, the same tool adds historical inspection, retrieval by task, and fork. The complete enabled schema is:\n\n```json\n" +
+    "An answer ends the model loop. An answer with content must be the only action in its call; an answer with from must be the last action of its call. Actions that depend on a returned observation belong in the next call.\n" +
+    "\n## Optional historical state actions\n\nWith `stateHistory: true`, the same tool adds historical inspection and retrieval by task. Rollback graph commands restore an earlier definition or copy it under a new operator id. The complete enabled schema is:\n\n```json\n" +
     JSON.stringify(schemaOf(createDataflowTool(undefined, true)), null, 2) +
     "\n```\n"
   );
@@ -178,6 +178,10 @@ export function renderAll(): Record<string, string> {
     "SYSTEM_PROMPT_WITH_EVIDENCE.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
       retrievalViews: ["full", "sample", "sample_stats"],
       flowEvidence: true,
+    }),
+    "SYSTEM_PROMPT_WITH_STATE.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      stateHistory: true,
+      stateLedger: true,
     }),
     "TOOLS.md": renderTools(),
     "OPERATORS.md": renderOperators(),

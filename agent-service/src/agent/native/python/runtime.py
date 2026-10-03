@@ -389,7 +389,8 @@ def _caught(spec, error, source, field, entry):
 def _function(spec, source, field, entry):
     filename = _filename(spec, field)
     linecache.cache[filename] = (len(source), None, source.splitlines(keepends=True), filename)
-    namespace = {"__name__": "__native_user_code__"}
+    # pandas and numpy are bound for every function; other packages are imported inside it.
+    namespace = {"__name__": "__native_user_code__", "pd": pd, "np": np}
     try:
         exec(compile(source, filename, "exec"), namespace)
         function = namespace[entry]
@@ -658,16 +659,28 @@ def _aggregate(spec, frame, operations):
     props = spec["properties"]
     keys, aggregates = props.get("groupBy", []), props["aggregations"]
     _columns(spec, frame, keys, "groupBy")
+    bool_as_int = []
     for item in aggregates:
         if "col" in item:
             _columns(spec, frame, [item["col"]], "aggregations")
-        if item["fn"] in ("sum", "mean", "median", "stddev") and _dtype(frame[item["col"]]) not in ("int64", "float64"):
-            raise _error(
-                spec,
-                "AGGREGATE_TYPE",
-                f"{item['fn']} requires numeric {item['col']!r}; cast it explicitly.",
-                field="aggregations",
-            )
+        if item["fn"] in ("sum", "mean", "median", "stddev"):
+            kind = _dtype(frame[item["col"]])
+            if kind == "bool":
+                # True counts 1 and False 0, as pandas sums and averages booleans.
+                if item["col"] not in bool_as_int:
+                    bool_as_int.append(item["col"])
+            elif kind not in ("int64", "float64"):
+                raise _error(
+                    spec,
+                    "AGGREGATE_TYPE",
+                    f"{item['fn']} requires numeric {item['col']!r}; cast it explicitly.",
+                    field="aggregations",
+                )
+    if bool_as_int:
+        frame = frame.copy()
+        for name in bool_as_int:
+            frame[name] = pd.Series([None if _scalar(v) is None else int(_scalar(v)) for v in frame[name]], dtype="Int64")
+        operations["boolAsInt"] = bool_as_int
     grouped = _groups(frame, keys)
     values = {name: [] for name in [*keys, *(item["as"] for item in aggregates)]}
     denominators = {item["as"]: {"total": 0, "min": None, "max": None} for item in aggregates}
@@ -731,7 +744,7 @@ def _aggregate(spec, frame, operations):
     return output
 
 
-JOIN_TYPES = ("inner", "left", "right", "full", "cross")
+JOIN_TYPES = ("inner", "left", "right", "full", "cross", "semi", "anti")
 JOIN_VALIDATIONS = ("many_to_many", "many_to_one", "one_to_many", "one_to_one")
 
 
@@ -818,17 +831,23 @@ def _join(spec, left, right, operations):
             )
     shared_keys = {a for a, b in zip(left_on, right_on) if a == b}
     suffix = props.get("rightSuffix", "_right")
-    right_names = {
-        name: name + suffix if name in left.columns else name for name in right.columns if name not in shared_keys
-    }
-    output_names = [*left.columns, *right_names.values()]
-    if len(set(output_names)) != len(output_names):
-        raise _error(
-            spec,
-            "COLUMN_COLLISION",
-            "Join suffix produces duplicate output columns; choose a different rightSuffix or project/rename first.",
-            field="rightSuffix",
-        )
+    # A right column that collides with a left column takes the suffix; if that
+    # name is taken too, the suffix is repeated until the name is free, so a
+    # join never fails on names. The renames are recorded for the receipt.
+    taken = set(left.columns)
+    right_names, renamed = {}, {}
+    for name in right.columns:
+        if name in shared_keys:
+            continue
+        target = name
+        while target in taken:
+            target += suffix
+        if target != name + (suffix if name in left.columns else ""):
+            renamed[name] = target
+        right_names[name] = target
+        taken.add(target)
+    if kind in ("semi", "anti"):
+        right_names = {}
     if kind == "cross":
         mapping = pd.DataFrame({"left": range(len(left))}).merge(
             pd.DataFrame({"right": range(len(right))}), how="cross"
@@ -870,18 +889,29 @@ def _join(spec, left, right, operations):
                     code = codes[key]
                 encoded.append(code)
             labels.append(encoded)
-        mapping = pd.DataFrame({"key": pd.Series(labels[0], dtype="int64"), "left": range(len(left))}).merge(
-            pd.DataFrame({"key": pd.Series(labels[1], dtype="int64"), "right": range(len(right))}),
-            how="outer" if kind == "full" else kind,
-            on="key",
-            sort=False,
-        )
+        if kind in ("semi", "anti"):
+            # Membership: left rows that have (semi) or lack (anti) a match on
+            # the right, each once, in left order, with the left columns only.
+            matched_codes = set(labels[1])
+            positions = [
+                i for i, code in enumerate(labels[0]) if (code in matched_codes and keys[0][i] is not None) == (kind == "semi")
+            ]
+            mapping = pd.DataFrame({"left": positions, "right": [None] * len(positions)})
+        else:
+            mapping = pd.DataFrame({"key": pd.Series(labels[0], dtype="int64"), "left": range(len(left))}).merge(
+                pd.DataFrame({"key": pd.Series(labels[1], dtype="int64"), "right": range(len(right))}),
+                how="outer" if kind == "full" else kind,
+                on="key",
+                sort=False,
+            )
         common = counts[0].keys() & counts[1].keys()
         facts = {
             "type": kind,
             "nullsEqual": equal,
             "validate": validation,
-            "matchedOutputRows": sum(counts[0][key] * counts[1][key] for key in common),
+            "matchedOutputRows": sum(counts[0][key] for key in common)
+            if kind in ("semi", "anti")
+            else sum(counts[0][key] * counts[1][key] for key in common),
         }
         for i, port in enumerate(("left", "right")):
             matched = sum(counts[i][key] for key in common)
@@ -912,6 +942,8 @@ def _join(spec, left, right, operations):
                         break
                 facts[port]["unmatchedExamples"] = unmatched
                 facts[port]["duplicateExamples"] = duplicates
+        if renamed:
+            facts["renamedRight"] = renamed
         operations["join"] = facts
 
     def take(frame, column, port):
@@ -1767,13 +1799,12 @@ def _project(spec, source):
 
 
 def _new_columns(spec, frame, names, field):
-    if len(names) != len(set(names)) or any(name in frame.columns for name in names):
-        raise _error(
-            spec,
-            "COLUMN_COLLISION",
-            f"New output names must be unique and not overwrite existing columns: {names!r}.",
-            field=field,
-        )
+    """Output names must be distinct among themselves. A name that already
+    exists in the input replaces that column, as an assignment does in pandas;
+    the caller records the replacement."""
+    if len(names) != len(set(names)):
+        raise _error(spec, "COLUMN_COLLISION", f"Output names must be unique: {names!r}.", field=field)
+    return [name for name in names if name in frame.columns]
 
 
 def _window(spec, source, operations):
@@ -1781,14 +1812,16 @@ def _window(spec, source, operations):
     partitions, ordering, columns = props.get("partitionBy", []), props["orderBy"], props["columns"]
     _columns(spec, source, partitions, "partitionBy")
     _columns(spec, source, [item["col"] for item in ordering], "orderBy")
-    _new_columns(spec, source, [item["as"] for item in columns], "columns")
+    replaced = _new_columns(spec, source, [item["as"] for item in columns], "columns")
     for i, item in enumerate(columns):
         if "col" in item:
             _columns(spec, source, [item["col"]], f"columns[{i}].col")
     # Private positional identity, independent of arbitrary/duplicate user indexes.
     # Restore this order after calculating within each stably sorted partition.
     frame = source.reset_index(drop=True)
-    output = frame.copy()
+    output = frame.drop(columns=replaced)
+    if replaced:
+        operations["replacedColumns"] = replaced
     values = {item["as"]: [None] * len(frame) for item in columns}
     counters = {item["as"]: {"boundaryNulls": 0, "nullOutputs": 0} for item in columns if item["fn"] in ("lag", "lead")}
     groups = _groups(frame, partitions) if len(frame) else []
@@ -1840,7 +1873,10 @@ def _unpivot(spec, source, operations):
     _columns(spec, source, columns, "columns")
     keys = [name for name in source.columns if name not in columns]
     name, value = props.get("nameColumn", "variable"), props.get("valueColumn", "value")
-    _new_columns(spec, source[keys], [name, value], "nameColumn/valueColumn")
+    replaced = _new_columns(spec, source[keys], [name, value], "nameColumn/valueColumn")
+    if replaced:
+        keys = [key for key in keys if key not in replaced]
+        operations["replacedColumns"] = replaced
     kinds = {_logical_dtype(source[column]) for column in columns} - {None}
     if len(kinds) > 1:
         raise _error(

@@ -52,7 +52,7 @@ describe("compact action observations", () => {
     const saved = JSON.stringify(result);
     const text = renderDataflowActionsResult(result);
     expect(text).toContain("1. execute: ok");
-    expect(text).toContain("250 operators completed");
+    expect(text).toContain("250 operators: 250 executed, 0 cached");
     expect(text.length).toBeLessThan(150);
     expect(text).not.toContain("old_branch_");
     expect(JSON.stringify(result)).toBe(saved);
@@ -76,13 +76,13 @@ describe("compact action observations", () => {
     );
     const text = renderDataflowActionsResult(result);
     expect(text).toContain("1. execute: error");
-    expect(text).toContain("2 operators completed");
-    expect(text).toContain("header: ok");
+    expect(text).toContain("4 operators: 2 executed, 0 cached");
+    expect(text).toContain("**header** (operator, executed)");
     expect(text).toContain("check: header row repeats");
-    expect(text).toContain("source: error — File missing: orders.csv");
-    expect(text).toContain("unfinished: running — No completed result");
-    expect(text).toContain("total: blocked — source failed");
-    expect(text).toContain("Execution error: Engine stopped");
+    expect(text).toContain("error EXECUTION_FAILED: File missing: orders.csv");
+    expect(text).toContain("note: No completed result");
+    expect(text).toContain("not run: total (source failed)");
+    expect(text).toContain("error EXECUTION_FAILED: Engine stopped");
     expect(text).not.toContain("ordinary:");
   });
 
@@ -97,12 +97,12 @@ describe("compact action observations", () => {
       invalidated_results: ["total"],
     });
     const text = renderDataflowActionsResult(result);
-    expect(text).toContain("Applied 3 graph changes");
+    expect(text).toContain("3 changes applied");
     expect(text).not.toContain("create operator: source");
     expect(text).not.toContain("create edge: source.out -> total.in");
-    expect(text).toContain("automatically deleted edges: source.out -> probe.in");
-    expect(text).toContain("Unconnected required inputs: total.in");
-    expect(text).toContain("Invalidated results: total");
+    expect(text).toContain("deleted edge: source.out -> probe.in");
+    expect(text).toContain("unconnected inputs: total.in");
+    expect(text).toContain("results invalidated: total");
   });
 
   test("rejected edits and skipped actions stay explicit, with no success acknowledgment", async () => {
@@ -112,8 +112,10 @@ describe("compact action observations", () => {
       output: "Atomic edit rejected: missing operator.",
     }));
     const text = renderDataflowActionsResult(result);
-    expect(text).toContain("1. edit: error\nAtomic edit rejected: missing operator.");
-    expect(text).toContain("2. execute: skipped\nNot run because an earlier action failed.");
+    expect(text).toContain(
+      "1. edit: error\nNo changes were applied.\n- error EDIT_REJECTED: Atomic edit rejected: missing operator."
+    );
+    expect(text).toContain("2. execute: skipped (action 1 failed)");
     expect(text).not.toContain("Applied");
   });
 
@@ -121,6 +123,7 @@ describe("compact action observations", () => {
     const result = await receipt(
       { type: "retrieve", operator_id: "total", view: "full" },
       {
+        operator_blocks: [{ id: "total", kind: "aggregate", state: "saved", result: "1 row × 1 column (saved by task 2)" }],
         operator_id: "total",
         revision: "rev-2",
         historical_state: { task_id: 2, operator_id: "total" },
@@ -129,8 +132,94 @@ describe("compact action observations", () => {
       }
     );
     expect(renderDataflowActionsResult(result)).toBe(
-      '1. retrieve: ok\nHistorical result; changed later in this call.\nSaved result: task 2, operator total.\nOperator total (revision rev-2)\n1 row\n{"amount":42}'
+      '### 1. retrieve total: ok\n- **total** (aggregate, saved)\n  - result: 1 row × 1 column (saved by task 2)\n1 row\n{"amount":42}\n- note: this result was superseded later in the call.'
     );
+  });
+});
+
+describe("receipt details found in live runs", () => {
+  async function receipt(action: DataflowAction, output: unknown, status: "ok" | "error" = "ok") {
+    const result = prepareDataflowActions({ reasoning: "Check.", actions: [action] }, undefined, true);
+    await runDataflowActions(result, async () => ({ status, output }));
+    return renderDataflowActionsResult(result);
+  }
+
+  test("the graph index shortens singular and saved shapes", async () => {
+    const text = await receipt(
+      { type: "inspect", target: "graph" },
+      {
+        operators: [],
+        unconnected_inputs: [],
+        operator_blocks: [
+          { id: "one", kind: "aggregate", state: "executed", result: "1 row × 1 column", columns: ["n int64"] },
+          {
+            id: "copy",
+            kind: "aggregate",
+            state: "saved",
+            inputs: [{ id: "one" }],
+            origin: "task 3",
+            result: "8 rows × 2 columns (saved by task 3)",
+            columns: ["unit str", "score int64"],
+          },
+        ],
+      }
+    );
+    expect(text).toContain("| one | aggregate |  | 1 × 1 |  | n |");
+    expect(text).toContain("| copy | aggregate | one | 8 × 2 (saved by task 3) | 3 | unit, score |");
+  });
+
+  test("the versions list names task ranges, restores, input changes and recomputations", async () => {
+    const version = (task_id: number, revision: string, hash: string, extra = {}) => ({
+      task_id,
+      revision,
+      subgraph_hash: hash,
+      expression: `map(${revision})`,
+      ...extra,
+    });
+    const text = await receipt(
+      { type: "inspect", target: "state", operator_id: "score", task_id: null, include_implementation: false, view: null },
+      {
+        operator_id: "score",
+        versions: [
+          version(1, "a", "x", { through_task_id: 2 }),
+          version(3, "b", "y"),
+          version(4, "b", "z"),
+          version(5, "a", "x"),
+          version(6, "a", "x"),
+        ],
+      }
+    );
+    expect(text).toContain("| tasks | change | definition |");
+    expect(text).toContain("| 1-2 | created | `map(a)` |");
+    expect(text).toContain("| 3 | updated | `map(b)` |");
+    expect(text).toContain("| 4 | inputs changed | `map(b)` |");
+    expect(text).toContain("| 5 | restored from task 2 | `map(a)` |");
+    expect(text).toContain("| 6 | recomputed | `map(a)` |");
+  });
+
+  test("a restore counts as one applied change", async () => {
+    const text = await receipt(
+      { type: "edit", changes: "update operator eligible from task 2" },
+      {
+        changes: [{ operation: "update_operator", operator_id: "eligible" }],
+        applied: 1,
+        version_notes: ["Restored eligible's task-2 definition in place."],
+        invalidated_results: ["eligible"],
+        unconnected_inputs: [],
+        operator_blocks: [],
+      }
+    );
+    expect(text).toContain("1 change applied; results invalidated: eligible.");
+  });
+
+  test("a rejected edit says once that nothing was applied", async () => {
+    const text = await receipt(
+      { type: "edit", changes: "create edge a.out -> b.in" },
+      "Change 1 (line 1): Input b.in is occupied. Delete its existing edge before creating a new one. No changes were applied.",
+      "error"
+    );
+    expect(text.split("No changes were applied.").length - 1).toBe(1);
+    expect(text).toContain("- error EDIT_REJECTED: Change 1 (line 1): Input b.in is occupied.");
   });
 });
 
@@ -138,8 +227,8 @@ describe("ordered dataflow actions", () => {
   test("historical retrieval honors the same available views as current retrieval", () => {
     const schema = asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema as any;
     const retrieves = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.type.const === "retrieve");
-    expect(retrieves).toHaveLength(1);
-    expect(retrieves[0].properties.view.enum).toEqual(["sample"]);
+    expect(retrieves).toHaveLength(2);
+    for (const retrieve of retrieves) expect(retrieve.properties.view.enum).toEqual(["sample"]);
     const inspect = schema.properties.actions.items.anyOf.find((a: any) => a.properties.target?.const === "state");
     expect(inspect.properties.view.anyOf[0].enum).toEqual(["sample"]);
     const input = {
@@ -186,7 +275,6 @@ describe("ordered dataflow actions", () => {
         include_implementation: true,
         view: null,
       },
-      { type: "fork", task_id: 1, operator_id: "total", new_operator_id: "old_total" },
       {
         type: "inspect",
         target: "state",
@@ -213,13 +301,13 @@ describe("ordered dataflow actions", () => {
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
       asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("old formula on today");
+    expect(s.agent.getSettings().systemPrompt).toContain("fork operator <id> from task <N> as <new_id>");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.properties.actions.items.anyOf).toHaveLength(7);
+    expect(schema.properties.actions.items.anyOf).toHaveLength(9);
     expect(schema.properties.edits).toBeUndefined();
     const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);
@@ -352,10 +440,97 @@ describe("ordered dataflow actions", () => {
     });
     await runDataflowActions(result, async action => ({
       status: "ok",
-      output: action.type === "answer" ? action.content : "",
+      output: action.type === "answer" && "content" in action ? action.content : "",
     }));
     expect(result.answer).toBe("42");
     expect(result.status).toBe("completed");
+  });
+});
+
+describe("answers composed from a table and column-scoped retrieval", () => {
+  test("an answer with from closes a batch after execute; with content it stands alone", () => {
+    const composed = prepareDataflowActions({
+      reasoning: "Build and report.",
+      actions: [
+        { type: "edit", changes: 'create operator t: scan("a.csv")' },
+        { type: "execute" },
+        { type: "answer", from: "t[:2]" },
+      ],
+    });
+    expect(composed.status).toBe("pending");
+    const notLast = prepareDataflowActions({
+      reasoning: "x",
+      actions: [{ type: "answer", from: "t" }, { type: "execute" }],
+    });
+    expect(notLast.error).toContain("last action");
+    const withContent = prepareDataflowActions({
+      reasoning: "x",
+      actions: [{ type: "execute" }, { type: "answer", content: "42" }],
+    });
+    expect(withContent.error).toContain("answer with content must be the only action");
+    expect(withContent.error).toContain("answer with from");
+    const twice = prepareDataflowActions({
+      reasoning: "x",
+      actions: [
+        { type: "answer", from: "t" },
+        { type: "answer", content: "42" },
+      ],
+    });
+    expect(twice.error).toContain("One answer per call");
+    const scoped = prepareDataflowActions({
+      reasoning: "x",
+      actions: [{ type: "retrieve", operator_id: "t", view: "full", columns: ["a", "b"] }],
+    });
+    expect(scoped.status).toBe("pending");
+    const emptyScope = prepareDataflowActions({
+      reasoning: "x",
+      actions: [{ type: "retrieve", operator_id: "t", view: "full", columns: [] }],
+    });
+    expect(emptyScope.error).toContain("retrieve");
+    const badFrom = prepareDataflowActions({ reasoning: "x", actions: [{ type: "answer", from: "" }] });
+    expect(badFrom.error).toContain("answer");
+  });
+
+  test("the runtime composes the answer from the executed table and refuses what it cannot answer from", async () => {
+    const s = session([
+      [
+        { type: "edit", changes: 'create operator t: scan("data/t.csv")' },
+        { type: "execute" },
+        { type: "answer", from: "t" },
+      ],
+    ]);
+    const response = await s.agent.sendMessage("Report the value.");
+    expect(s.outcomes[0].status).toBe("completed");
+    expect(s.outcomes[0].answer).toBe('{"value":"result-1"}');
+    expect(response.response).toBe('{"value":"result-1"}');
+    expect(renderDataflowActionsResult(s.outcomes[0])).toContain(
+      'Answer composed from t.\nanswer: {"value":"result-1"}'
+    );
+    const two = session([
+      [
+        { type: "edit", changes: 'create operator a: scan("data/a.csv")\ncreate operator b: scan("data/b.csv")' },
+        { type: "execute" },
+        { type: "answer", from: "first=a; second=b[value]" },
+      ],
+    ]);
+    const twoResponse = await two.agent.sendMessage("Report both.");
+    expect(two.outcomes[0].answer).toBe('{"first":{"value":"result-1"},"second":{"value":"result-1"}}');
+    expect(twoResponse.response).toBe('{"first":{"value":"result-1"},"second":{"value":"result-1"}}');
+    expect(renderDataflowActionsResult(two.outcomes[0])).toContain("Answer composed from a, b.");
+    const missing = session([[{ type: "answer", from: "nothing" }]]);
+    await missing.agent.sendMessage("Report.");
+    expect(missing.outcomes[0].status).toBe("error");
+    expect(missing.outcomes[0].error).toContain("no table `nothing`");
+    expect(missing.outcomes[0].answer).toBeUndefined();
+    const unknownColumn = session([
+      [
+        { type: "edit", changes: 'create operator t: scan("data/t.csv")' },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "t", view: "full", columns: ["nope"] },
+      ],
+    ]);
+    await unknownColumn.agent.sendMessage("Read.");
+    expect(unknownColumn.outcomes[0].error).toContain('UNKNOWN_COLUMN: `t` has no column "nope". Its columns: value.');
   });
 });
 
@@ -522,7 +697,7 @@ describe("dataflow action integration", () => {
       expect(saved?.nativeObservations?.source.options.view).toBe((["sample", "full", "sample_stats"] as const)[i]);
     }
   });
-  test("later tasks inspect, fork and retrieve the earlier result without executing or changing the baseline", async () => {
+  test("later tasks inspect, copy and retrieve the earlier result without executing or changing the baseline", async () => {
     const batches: DataflowAction[][] = [
       [{ type: "edit", changes: 'create operator source: scan("old.csv")' }, { type: "execute" }],
       [{ type: "answer", content: "First result saved." }],
@@ -551,7 +726,7 @@ describe("dataflow action integration", () => {
         },
       ],
       [
-        { type: "fork", task_id: 1, operator_id: "source", new_operator_id: "earlier" },
+        { type: "edit", changes: "fork operator source from task 1 as earlier" },
         { type: "retrieve", operator_id: "earlier", view: "full" },
         {
           type: "inspect",
@@ -574,6 +749,7 @@ describe("dataflow action integration", () => {
     expect(reads.actions[1].output).toMatchObject({ historical_state: { task_id: 1, operator_id: "source" } });
     expect((reads.actions[2].output as any).versions[0].observation.view).toBe("sample");
     const restored = session([]);
+    restored.agent.updateSettings({ stateHistory: true });
     await restored.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
     expect(restored.executions()).toBe(0);
     expect(restored.agent.getWorkflowState().getOperator("earlier")?.nativeOp?.source).toContain("old.csv");
@@ -672,11 +848,11 @@ describe("dataflow action integration", () => {
     const output = (s.contexts[1].at(-1)!.content as any[])[0].output.value;
     expect(output).toContain("missing");
     expect(output).not.toMatch(/\bprogram\b/i);
-    expect(output.match(/^\d+\. \w+: \w+$/gm)).toEqual([
-      "1. inspect: ok",
+    expect(output.match(/(?<=### )\d+\. [^\n:]+: (?:ok|error|skipped)/g)).toEqual([
+      "1. inspect graph: ok",
       "2. edit: error",
       "3. execute: skipped",
-      "4. retrieve: skipped",
+      "4. retrieve good: skipped",
     ]);
   });
 
@@ -814,7 +990,7 @@ describe("action history and model loop", () => {
       { agentMode: AgentMode.NATIVE, messageLayout: "opSplit" }
     );
     const text = JSON.stringify(messages);
-    expect(text).toContain("No current result for source");
+    expect(text).toContain("RESULT_NOT_RUN");
     expect(text).toContain("Inspection @ Event");
     expect(text).toContain("data/old.csv");
   });
@@ -1237,7 +1413,7 @@ test("native multi-task requests preserve every earlier request as a prefix", as
     }
     expect(JSON.stringify(requests[3]).split("First question:")).toHaveLength(2);
     expect(JSON.stringify(requests[3]).split("Second question:")).toHaveLength(2);
-    expect(JSON.stringify(requests[3])).toContain("operators completed");
+    expect(JSON.stringify(requests[3])).toMatch(/operators?( in scope)?:/);
     expect(JSON.stringify(requests[3])).toContain("result-1");
     expect(JSON.stringify(requests[3])).toContain("result-2");
     expect(JSON.stringify(requests[3])).not.toContain("changed_operators");

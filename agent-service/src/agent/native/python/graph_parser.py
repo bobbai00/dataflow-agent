@@ -108,7 +108,11 @@ def parse_graph_changes(source):
                 commands.append(dict(operation=f"{verb}_edge", source=source_id, sourcePort=source_port,
                                      target=target_id, targetPort=target_port, line=start))
             else:
-                raise ValueError(f"Line {start}: use create/update/delete operator, or create/delete edge. Edges cannot be updated.")
+                raise ValueError(
+                    f"Line {start}: use create/update/delete operator, create/delete edge, "
+                    "update operator <id> from task <N>, or fork operator <id> from task <N> as <new_id>. "
+                    "Edges cannot be updated."
+                )
         return dict(ok=True, commands=commands)
     except (ValueError, SyntaxError, tokenize.TokenError, IndentationError) as error:
         return dict(ok=False, error=str(error))

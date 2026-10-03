@@ -6,7 +6,7 @@ Native mode exposes one dataflow tool with a brief rationale and an ordered acti
 
 ## `dataflow`
 
-Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. Answer must be the only action in its call.
+Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.
 
 ```json
 {
@@ -23,7 +23,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
-      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer must be the only action.",
+      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
       "items": {
         "anyOf": [
           {
@@ -167,6 +167,44 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
             "properties": {
               "type": {
                 "type": "string",
+                "const": "retrieve"
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "sample_stats",
+                  "full"
+                ]
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "type",
+              "operator_id",
+              "view",
+              "columns"
+            ],
+            "description": "Read an existing result restricted to the named columns, in the same views (sample_stats, full); use it on a wide table instead of a projection operator when only some columns are needed. Never executes."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "answer"
               },
               "content": {
@@ -180,6 +218,26 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "content"
             ],
             "description": "Return the final response and end the loop. Must be the only action; base the answer on results already received."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "answer"
+              },
+              "from": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "type",
+              "from"
+            ],
+            "description": "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed); several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, over 50 rows, unrounded decimals) is refused with the reason."
           }
         ]
       }
@@ -202,11 +260,11 @@ Only execute runs the graph. Retrieve reads existing results for the current gra
 
 Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.
 
-Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.
+An answer ends the model loop. An answer with content must be the only action in its call; an answer with from must be the last action of its call. Actions that depend on a returned observation belong in the next call.
 
 ## Optional historical state actions
 
-With `stateHistory: true`, the same tool adds historical inspection, retrieval by task, and fork. The complete enabled schema is:
+With `stateHistory: true`, the same tool adds historical inspection and retrieval by task. Rollback graph commands restore an earlier definition or copy it under a new operator id. The complete enabled schema is:
 
 ```json
 {
@@ -223,7 +281,7 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
-      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer must be the only action.",
+      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
       "items": {
         "anyOf": [
           {
@@ -367,6 +425,44 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
             "properties": {
               "type": {
                 "type": "string",
+                "const": "retrieve"
+              },
+              "operator_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "sample_stats",
+                  "full"
+                ]
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "type",
+              "operator_id",
+              "view",
+              "columns"
+            ],
+            "description": "Read an existing result restricted to the named columns, in the same views (sample_stats, full); use it on a wide table instead of a projection operator when only some columns are needed. Never executes."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "answer"
               },
               "content": {
@@ -380,6 +476,26 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "content"
             ],
             "description": "Return the final response and end the loop. Must be the only action; base the answer on results already received."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "answer"
+              },
+              "from": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "type",
+              "from"
+            ],
+            "description": "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed); several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, over 50 rows, unrounded decimals) is refused with the reason."
           },
           {
             "type": "object",
@@ -450,37 +566,6 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "view"
             ],
             "description": "Inspect named operators at a completed task, including immediate input definitions. Null task lists their version changes and dependency hashes. Set view to null for definitions only, or a result view with a specific task to read saved data in the same call. Never executes or substitutes current state."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "fork"
-              },
-              "task_id": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              },
-              "new_operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              }
-            },
-            "required": [
-              "type",
-              "task_id",
-              "operator_id",
-              "new_operator_id"
-            ],
-            "description": "Copy an operator and its full upstream definitions from a completed task into this graph under new IDs. Keeps current operators unchanged. Does not execute. Retrieve can read available saved observations; execute computes the copied graph for further analysis. Inspect the returned mapping before rewiring an older formula to current inputs."
           }
         ]
       }

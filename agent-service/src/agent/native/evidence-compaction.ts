@@ -41,6 +41,8 @@ export function compactNativeObservation(
   observation: NativeObservation,
   facts: readonly NativeEvidenceFact[]
 ): NativeObservation {
+  // Version 2 already packs counts, ranges and values into atomic table rows.
+  if (observation.version === 2) return observation;
   const byId = new Map(facts.map(f => [f.id, f]));
   const countKey = (c: NativeColumnCount) =>
     JSON.stringify([c.resultVersion, c.column, c.scope, c.rows, c.nulls, c.nonnull, c.distinct]);
@@ -120,7 +122,7 @@ export function shareNativeObservation(
       const key = JSON.stringify([origin.operatorId, origin.resultVersion, line]);
       const earlier = seen.get(key);
       if (earlier && earlier !== observerId) {
-        const reference = `Flow upstream: see ${JSON.stringify(earlier)} above for ${JSON.stringify(origin.operatorId)}.`;
+        const reference = `${observation.version === 2 ? "- flow: see" : "Flow upstream: see"} ${JSON.stringify(earlier)} above for ${JSON.stringify(origin.operatorId)}.`;
         if (reference.length < line.length) return reference;
       }
       if (!earlier) seen.set(key, observerId);

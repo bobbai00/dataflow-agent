@@ -129,7 +129,7 @@ test("V2 failures never echo the embedded runtime, including process and shape-o
       const rendered = formatOperatorResult("answer", info, state, { detail, operatorAtEvent: op });
       expect(rendered.length).toBeLessThanOrEqual(1600);
       expect(rendered).toContain("CALLBACK_RUNTIME");
-      expect(rendered).toContain(revision);
+      expect(rendered).not.toContain(revision);
       expect(rendered).toContain("line 3");
       expect(rendered).toContain("division by zero");
       expect(rendered).not.toContain("GENERATED_BOILERPLATE");
@@ -361,6 +361,6 @@ describe("error taxonomy rendering", () => {
     });
     expect(text).toContain("Field: columns[0].func");
     expect(text).toContain("apply line 2: return row['Acres'] * 2");
-    expect(text).toContain("Hint: Observe the current input schema");
+    expect(text).toContain("Hint: Check the input's columns and correct the column name.");
   });
 });

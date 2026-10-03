@@ -63,6 +63,20 @@ export function validateEvidenceSettings(settings: object): void {
     if (value !== undefined && (!Number.isInteger(value) || Number(value) < 128 || Number(value) > 100000))
       throw new NativeCatalogSettingsError(`${key} must be an integer between 128 and 100000`);
   }
+  if (supplied.tableFormat !== undefined && !["markdown", "tsv"].includes(String(supplied.tableFormat)))
+    throw new NativeCatalogSettingsError("tableFormat must be markdown or tsv");
+  for (const key of [
+    "keyValueColumns",
+    "columnsShown",
+    "definitionChars",
+    "cellChars",
+    "topValues",
+    "catalogRecords",
+  ]) {
+    const value = supplied[key];
+    if (value !== undefined && (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 100000))
+      throw new NativeCatalogSettingsError(`${key} must be an integer between 0 and 100000`);
+  }
   for (const key of REMOVED_SETTINGS) {
     if (Object.hasOwn(settings, key))
       throw new NativeCatalogSettingsError(
@@ -74,12 +88,15 @@ export function validateEvidenceSettings(settings: object): void {
       );
   }
   for (const key of [
+    "multiTask",
+    "answerEcho",
     "dataEvidence",
     "flowEvidence",
     "nativeProfileCollection",
     "dataflowReasoning",
     "nativeChecks",
     "stateHistory",
+    "stateLedger",
   ] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")

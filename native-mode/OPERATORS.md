@@ -29,7 +29,7 @@ Create requires a new identifier. Update replaces the definition and preserves i
 | `filter` | in -> out | fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns. |
 | `map` | in -> out | fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values. |
 | `aggregate` | in -> out | One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation. |
-| `join` | left, right -> out | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified. |
+| `join` | left, right -> out | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified. |
 | `union` | in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255) | Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first. |
 | `distinct` | in -> out | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
 | `sort` | in -> out | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
@@ -70,7 +70,7 @@ aggregate(by=[], name=reducer("col"), ...)
 
 join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
     Ports: left, right -> out.
-    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. Colliding right columns get suffix; output order is unspecified.
+    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.
 
 union(schema="strict")
     Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).

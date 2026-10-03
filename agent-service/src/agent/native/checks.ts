@@ -106,3 +106,26 @@ export function nativeCheckLines(op: OperatorPredicate, info: OperatorInfo): str
           : [];
   return lines.slice(0, MAX_LINES);
 }
+
+/**
+ * Adjustments the runtime made instead of failing, worded for every executed
+ * operator regardless of settings: an output that replaced an existing column,
+ * a right-side join column renamed past its suffix, a boolean column reduced
+ * as 1/0. The model reads them in the execution receipt.
+ */
+export function nativeAdjustmentLines(op: OperatorPredicate, info: OperatorInfo): string[] {
+  const operations = record(info.tableProfile?.native?.operations);
+  if (!op.nativeOp || !Object.keys(operations).length) return [];
+  const lines: string[] = [];
+  const replaced = Array.isArray(operations.replacedColumns) ? operations.replacedColumns : [];
+  if (replaced.length)
+    lines.push(`note: existing column${replaced.length === 1 ? "" : "s"} ${list(replaced).join(", ")} replaced by the new output.`);
+  const renamed = Object.entries(record(record(operations.join).renamedRight));
+  if (renamed.length)
+    lines.push(
+      `note: right column${renamed.length === 1 ? "" : "s"} renamed to avoid a collision: ${renamed.map(([from, to]) => `${json(from)} → ${json(String(to))}`).join(", ")}.`
+    );
+  const bools = Array.isArray(operations.boolAsInt) ? operations.boolAsInt : [];
+  if (bools.length) lines.push(`note: boolean column${bools.length === 1 ? "" : "s"} ${list(bools).join(", ")} reduced as 1/0.`);
+  return lines;
+}

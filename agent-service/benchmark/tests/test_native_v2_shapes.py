@@ -112,7 +112,6 @@ def test_window_preserves_shift_domain_and_empty_schema(dtype, value):
         ({"fn": "row_number", "offset": 2, "as": "v2"}, "WINDOW_ARGUMENT"),
         ({"fn": "rolling_mean", "col": "v", "as": "v2"}, "WINDOW_ARGUMENT"),
         ({"fn": "lag", "col": "missing", "as": "v2"}, "MISSING_COLUMN"),
-        ({"fn": "rank", "as": "v"}, "COLUMN_COLLISION"),
     ],
 )
 def test_window_actionable_errors(column, code):
@@ -139,7 +138,6 @@ def test_unpivot_order_null_cells_types_and_zero_key_columns():
     "properties,code",
     [
         ({"columns": ["a", "b"]}, "UNPIVOT_TYPE"),
-        ({"columns": ["a"], "nameColumn": "id"}, "COLUMN_COLLISION"),
         ({"columns": ["a"], "nameColumn": "same", "valueColumn": "same"}, "COLUMN_COLLISION"),
         ({"columns": ["a", "a"]}, "COLUMN_COLLISION"),
         ({"columns": ["missing"]}, "MISSING_COLUMN"),
@@ -148,6 +146,17 @@ def test_unpivot_order_null_cells_types_and_zero_key_columns():
 def test_unpivot_rejects_incompatible_domains_and_collisions(properties, code):
     with pytest.raises(runtime.NativeError, match=code):
         run("Unpivot", pd.DataFrame({"id": [1], "a": [2], "b": ["2"]}), **properties)
+
+
+def test_window_and_unpivot_replace_an_existing_output_column_and_record_it():
+    frame = pd.DataFrame({"t": [2, 1], "v": [10, 20], "rank": [9, 9]})
+    result = run("Window", frame, orderBy=[{"col": "t"}], columns=[{"fn": "rank", "as": "rank"}])
+    assert list(result.columns) == ["t", "v", "rank"]
+    assert result["rank"].tolist() == [2, 1]
+    assert result.attrs["native_v2"]["operations"]["replacedColumns"] == ["rank"]
+    unpivoted = run("Unpivot", pd.DataFrame({"id": [1], "a": [2]}), columns=["a"], nameColumn="id")
+    assert list(unpivoted.columns) == ["id", "value"] and unpivoted["id"].tolist() == ["a"]
+    assert unpivoted.attrs["native_v2"]["operations"]["replacedColumns"] == ["id"]
 
 
 def test_pivot_unique_keys_null_index_first_seen_order_and_dynamic_schema():

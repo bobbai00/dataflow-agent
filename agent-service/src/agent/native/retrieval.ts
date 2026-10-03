@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import { observationFormat } from "./observation-format";
 import type { AgentSettings, RetrievalSettings, RetrievalView } from "../../types/agent";
 import type { NativeObservationOptions } from "./evidence";
 
@@ -43,6 +44,7 @@ export function retrievalOptions(settings: Partial<AgentSettings>, view: Retriev
       `Retrieve view ${JSON.stringify(view)} is unavailable. Use ${availableRetrievalViews(settings).join(", ")}.`
     );
   return {
+    ...observationFormat(settings),
     view,
     data: view === "sample_stats",
     flow: settings.flowEvidence === true,
@@ -52,6 +54,22 @@ export function retrievalOptions(settings: Partial<AgentSettings>, view: Retriev
         : (settings.maxOperatorResultCharLimit ?? 2000),
     maxRows: view === "full" ? 0 : settings.maxResultRows,
     dataMaxChars: settings.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
+    flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
+  };
+}
+
+/** Options for the flow lines an execute receipt shows. They come from the
+ * executed operator's own counters, not from a retrieval, so they do not
+ * depend on which retrieval views the session offers. */
+export function flowObservationOptions(settings: Partial<AgentSettings>): NativeObservationOptions {
+  return {
+    ...observationFormat(settings),
+    view: "sample",
+    data: false,
+    flow: true,
+    maxChars: settings.maxOperatorResultCharLimit ?? 2000,
+    maxRows: settings.maxResultRows,
+    dataMaxChars: 0,
     flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
   };
 }

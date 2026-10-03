@@ -104,7 +104,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       test(`${mode}: explicit data=${data}, flow=${flow} do not inherit legacy flags`, () => {
         const options = { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 800 };
         const expected = mapLegacyToParams(mode, options as any);
-        expect(expected.nativeEvidence).toEqual({ data, flow, maxChars: 800 });
+        expect(expected.nativeEvidence).toMatchObject({ data, flow, maxChars: 800, tableFormat: "markdown" });
         for (const level of [0, 1, 2, 3]) {
           expect(
             mapLegacyToParams(mode, {

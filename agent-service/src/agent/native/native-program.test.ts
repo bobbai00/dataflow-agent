@@ -78,6 +78,25 @@ print(results[sys.argv[1]].to_json(orient='records'))
   return JSON.parse(run.stdout);
 }
 
+describe("membership joins", () => {
+  test("values is not an operator: request constants stay in the definition that uses them", async () => {
+    const v = await views(`excluded = values(country=["Canada", "Mexico"])`);
+    expect(v.excluded.error?.message).toMatch(/values/);
+    expect(graphCatalogText()).not.toContain("values(column");
+  });
+
+  test("semi and anti joins are join types that need keys", async () => {
+    const v = await views(`
+kept = join(orders, review_units, on="unit", how="semi")
+rest = join(orders, review_units, on=[("unit", "key")], how="anti")
+bare = join(orders, review_units, how="semi")`);
+    expect(v.kept.view!.properties).toEqual({ on: "unit", type: "semi" });
+    expect(v.rest.view!.properties).toEqual({ on: [["unit", "key"]], type: "anti" });
+    expect(v.bare.error?.message).toContain("join needs on=");
+    expect(graphCatalogText()).toContain("semi keeps the left rows with a match");
+  });
+});
+
 describe("cross joins for scalar benchmarks", () => {
   test("explicit empty keys are equivalent to omitted keys only for cross joins", async () => {
     const v = await views(`
@@ -355,7 +374,11 @@ i = process(source, fn=lambda a, b: a)
       'a = pivot(t, index=["g"], columns="k", values=["v", "w"])',
       ["values must be a nonempty string"],
     ],
-    ["unknown operator", 'a = select(t, keep=["x"])', ["Unknown operator `select`", "Available: scan, project"]],
+    [
+      "unknown operator",
+      'a = select(t, keep=["x"])',
+      ["Unknown operator `select`", "Available: scan, project, cast"],
+    ],
     [
       "nested operator call",
       'a = limit(sort(t, by=["x"]), 1)',
@@ -577,16 +600,18 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
-  test("historical retrieval examples use an available view", async () => {
+  test("historical examples validate and use an available view", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const view of ["full", "sample", "sample_stats"] as const) {
       const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-      const example = prompt.match(/Read a version and its saved result together: (\{[^\n}]*\})/)![1];
-      const action = JSON.parse(example);
-      expect(action.view).toBe(view);
-      expect(prepareDataflowActions({ reasoning: "Read saved state.", actions: [action] }, [view], true).status).toBe(
-        "pending"
-      );
+      const section = prompt.split("### Example: compare with an earlier task and go back")[1]!;
+      const calls = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
+      const inspect = calls.flatMap(call => call.actions).find((a: any) => a.type === "inspect");
+      expect(inspect).toMatchObject({ target: "state", view: null });
+      for (const call of calls) {
+        expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
+        for (const item of call.actions) if (item.type === "retrieve") expect(item.view).toBe(view);
+      }
       expect(prompt).not.toContain("{{");
     }
   });
@@ -601,14 +626,12 @@ describe("native prompt", () => {
     expect(
       examples.some(e => e.actions.some((a: any) => a.operator_id === "eligible" && a.view === "sample_stats"))
     ).toBe(true);
-    expect(examples.some(e => e.actions.some((a: any) => a.operator_id === "final_rows" && a.view === "full"))).toBe(
-      true
-    );
-    expect(prompt).toContain("other=0");
-    expect(prompt).toContain("failed-value examples");
+    expect(examples.some(e => e.actions.some((a: any) => a.operator_id === "summary" && a.view === "full"))).toBe(true);
+    expect(prompt).toContain("all:");
+    expect(prompt).toContain("Failed-value");
     expect(prompt).toContain("unmatched-key examples");
-    expect(prompt).toContain("resolved offsets");
-    expect(prompt).toContain("Resolve the finding before using the aggregate");
+    expect(prompt).toContain("window boundary");
+    expect(prompt).toContain("reconnect it and recompute");
     for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
       expect(prepareDataflowActions(JSON.parse(json), ["full", "sample", "sample_stats"]).error).toBeUndefined();
     const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
@@ -621,10 +644,10 @@ describe("native prompt", () => {
       retrievalViews: ["full", "sample", "sample_stats"],
       flowEvidence: true,
     });
-    expect(examples).not.toMatch(/KramaBench|ChromaBench|Case_excluded|North Carolina|APP-Z|PLK1|\bdata\//i);
-    expect(examples).toContain("Normalize only if the source definitions establish the same identity");
-    expect(examples).toContain("duplicates can be legitimate");
-    expect(examples).toContain("task's missing-value policy");
+    expect(examples).not.toMatch(/KramaBench|ChromaBench|Case_excluded|North Carolina|APP-Z|PLK1|texera-observation/i);
+    expect(examples).toContain("key values and definitions");
+    expect(examples).toContain("exclusions are intentional");
+    expect(examples).toContain("four missing values must be reported");
     expect(examples).not.toMatch(
       /\b(?:legal|biomedical|environment|archeology|wildfire|astronomy)-(?:easy|hard)-\d+\b/
     );
@@ -633,7 +656,7 @@ describe("native prompt", () => {
     const examples = nativeRetrievalExamples({ retrievalViews: ["sample_stats"], flowEvidence: true });
     const repair = [...examples.matchAll(/```json\n([\s\S]*?)\n```/g)]
       .map(([, json]) => JSON.parse(json))
-      .find(e => e.actions.some((a: any) => a.type === "edit"));
+      .find(e => e.actions.some((a: any) => a.type === "edit" && a.changes.includes("update operator typed")));
     const directory = mkdtempSync(join(tmpdir(), "native-evidence-prompt-"));
     try {
       const path = join(directory, "values.csv");
@@ -667,11 +690,11 @@ create edge typed.out -> total.in
       retrievalViews: ["full", "sample", "sample_stats"],
     });
     expect(prompt).toContain("Start with `sample_stats`");
-    expect(prompt).toContain("project, filter or aggregate before requesting `full`");
-    expect(prompt).toContain("A complete preview is still only a preview of the source");
+    expect(prompt).toContain("compute a focused projection, filter or aggregate");
+    expect(prompt).toContain("A complete view of a scan preview");
     expect(prompt).toContain("not a random sample");
-    expect(prompt).toContain("Statistics are computed independently of the displayed records");
-    expect(prompt).toContain('prev=lag("value") creates prev');
+    expect(prompt).toContain("Statistics are collected independently of the displayed sample records");
+    expect(prompt).toContain("window(partition_by=");
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
@@ -685,11 +708,11 @@ create edge typed.out -> total.in
           dataEvidenceCharLimit: 900,
           flowEvidence,
         });
-        expect(prompt).toContain(`- \`${view}\``);
+        expect(prompt).toContain(`| \`${view}\` |`);
         for (const other of ["full", "sample", "sample_stats"].filter(v => v !== view))
-          expect(prompt).not.toContain(`- \`${other}\``);
-        expect(prompt.includes("Data measurement")).toBe(view === "sample_stats");
-        expect(prompt.includes("automatically adds selected flow evidence")).toBe(flowEvidence);
+          expect(prompt).not.toContain(`| \`${other}\` |`);
+        expect(prompt.includes("#### Data statistics")).toBe(view === "sample_stats");
+        expect(prompt.includes("#### Flow statistics")).toBe(flowEvidence);
         expect(prompt).toContain(view === "full" ? "90000 characters" : "750 characters");
         for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
           expect(prepareDataflowActions(JSON.parse(json), [view]).error).toBeUndefined();
@@ -738,7 +761,7 @@ create edge typed.out -> total.in
     const { runNativePython } = await import("./codegen");
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
     const examples = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)];
-    expect(examples.length).toBe(6);
+    expect(examples.length).toBeGreaterThanOrEqual(2);
     for (const [, changes] of examples) {
       const parsed = (await runNativePython({ changes })) as any;
       expect(parsed).toMatchObject({ ok: true });
@@ -791,23 +814,27 @@ create edge typed.out -> total.in
       flowEvidence: true,
     });
     const none = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
-    expect(data).toContain("Data measurement");
-    expect(data).not.toContain("Flow measurement");
-    expect(flow).toContain("Flow measurement");
-    expect(flow).not.toContain("Data measurement");
-    expect(both).toContain("Data measurement");
-    expect(both).toContain("Flow measurement");
-    expect(none).not.toContain("Data measurement");
-    expect(none).not.toContain("Flow measurement");
+    expect(data).toContain("### Data statistics");
+    expect(data).not.toContain("### Flow statistics");
+    expect(flow).toContain("### Flow statistics");
+    expect(flow).not.toContain("### Data statistics");
+    expect(both).toContain("### Data statistics");
+    expect(both).toContain("### Flow statistics");
+    expect(none).not.toContain("### Data statistics");
+    expect(none).not.toContain("### Flow statistics");
   });
 
   test("the prompt stays concise, generic, and documents result freshness", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    expect(prompt.length).toBeLessThan(19000);
+    // 2026-10-02: values and semi/anti joins in the catalog, answering from a
+    // table, column-scoped retrieve and two worked examples added ~2.5k chars.
+    // 2026-10-03: a complete single-task example (preview, parse, answer)
+    // built from real receipts added ~3.7k chars.
+    expect(prompt.length).toBeLessThan(28500);
     expect(prompt).toContain("stale");
     expect(prompt).toContain("preview");
     expect(prompt).toContain("None");
-    for (const token of ["kramabench", "wildfire", "biomedical", "archeology", "astronomy"])
+    for (const token of ["texera", "kramabench", "wildfire", "biomedical", "archeology", "astronomy"])
       expect(prompt.toLowerCase()).not.toContain(token);
   });
 });

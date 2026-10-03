@@ -173,14 +173,14 @@ export function inspectState(storage: WorkflowSnapshotStorage, tasks: readonly H
           }
         : { task_id: task.taskId, operator_id: operatorId, deleted: true };
       seen ||= !!op;
-      // Outgoing edges and task IDs do not change this operator's computation.
-      // A changed ancestor or result availability does change its version.
+      // Outgoing edges, task IDs and a cache hit (same result, other engine
+      // state) do not change this operator's computation. A changed ancestor
+      // or result availability does change its version.
       const key = JSON.stringify([
         version.deleted,
         version.revision,
         version.subgraph_hash,
         version.result?.available,
-        version.result?.state,
         version.result?.rows,
         version.result?.result_version,
       ]);

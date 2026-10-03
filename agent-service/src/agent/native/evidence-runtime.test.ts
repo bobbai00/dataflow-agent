@@ -220,7 +220,7 @@ print(json.dumps(records, default=str))
     for (const data of [true, false])
       for (const flow of [true, false]) {
         const observation = selectNativeObservation({ ...context, data, flow, maxChars: 600 });
-        expect(observation.text.length).toBeLessThanOrEqual(data && flow ? 1200 : 600);
+        expect(observation.text.length).toBeLessThanOrEqual((1 + Number(data) + Number(flow)) * 600 + 2);
       }
   }
   expect(facts.get("typed")).toContain("conversion failures=1/3");

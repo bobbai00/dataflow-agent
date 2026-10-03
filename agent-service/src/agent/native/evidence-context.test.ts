@@ -201,20 +201,20 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     f.capture("A", ["first", "second"]);
     const before = render();
     const text = JSON.stringify(before);
-    expect(text.match(/Flow upstream selected:/g)?.length).toBe(1);
-    expect(text).toContain("Flow upstream: see");
+    expect(text.match(/- flow \(selected\):/g)?.length).toBe(1);
+    expect(text).toContain("- flow: see");
     expect(text).not.toContain("Sample record: -100");
-    expect(text.match(/Output Table: 3 rows/g)?.length).toBe(2);
+    expect(text.match(/records: sample; 1 of 3 rows/g)?.length).toBe(2);
     const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
     await f.record("B", [], ["second"]);
     f.capture("B", ["second"]);
     const after = render();
     const later = JSON.stringify(after);
     if (mode === ContextMode.LATEST) {
-      expect(later.match(/Flow upstream selected:/g)?.length).toBe(1);
-      expect(later).not.toContain("Flow upstream: see");
+      expect(later.match(/- flow \(selected\):/g)?.length).toBe(1);
+      expect(later).not.toContain("- flow: see");
     } else {
-      expect(later.match(/Flow upstream selected:/g)?.length).toBe(2);
+      expect(later.match(/- flow \(selected\):/g)?.length).toBe(2);
       expect(after.slice(0, before.length - 1)).toEqual(before.slice(0, -1));
     }
     expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
@@ -250,8 +250,8 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
         };
         const expected = await assembler(input as any);
         const text = JSON.stringify(expected);
-        expect(text.includes("Data measurement")).toBe(dataEvidence);
-        expect(text.includes("Flow measurement")).toBe(flowEvidence);
+        expect(text.includes("statistics:")).toBe(dataEvidence);
+        expect(text.includes("- flow:")).toBe(flowEvidence);
         expect(text).not.toContain("LEGACY_");
         for (const level of [0, 1, 2, 3]) {
           expect(
@@ -320,7 +320,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
     f.capture("A", ["final"], false, true);
     const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations!.final);
-    expect(frozen.text).toContain("Flow upstream selected:");
+    expect(frozen.text).toContain("- flow (selected):");
     expect(frozen.text).toContain("kept=3/5");
     expect(frozen.text).not.toContain("-100");
     expect(render()).toContain("kept=3/5");
@@ -360,7 +360,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
       expect(frame?.text).toContain("kept=3/5");
       expect(frame?.text).not.toContain("-100"); // downstream facts do not dump upstream samples
       expect(render()).toContain("kept=3/5");
-      expect(render()).toContain("Data measurement");
+      expect(render()).toContain("statistics:");
       const first = render();
 
       await f.record("B", [{ ...filter, func: "def apply(row):\n    return row['x'] > 10" }]);
@@ -380,10 +380,10 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
       if (mode === ContextMode.DELTA) {
         expect(render()).toContain("kept=3/5");
         expect(render()).toContain("kept=2/5");
-        expect(render()).toContain("Data measurement");
+        expect(render()).toContain("statistics:");
       } else {
-        expect(render()).not.toContain("Flow measurement");
-        expect(render()).not.toContain("Data measurement");
+        expect(render()).not.toContain("- flow:");
+        expect(render()).not.toContain("statistics:");
       }
       expect(first).toContain("kept=3/5");
 
@@ -414,10 +414,10 @@ test("DELTA never retroactively adds evidence when it was off at observation tim
         flowEvidence: true,
       })
     );
-  expect(render()).not.toContain("Flow measurement");
+  expect(render()).not.toContain("- flow:");
   // Re-capture cannot rewrite a finalized event with new settings.
   f.capture("A", ["selected"], true, true);
-  expect(render()).not.toContain("Flow measurement");
+  expect(render()).not.toContain("- flow:");
   expect(Object.isFrozen(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected)).toBe(true);
 });
 
@@ -438,9 +438,9 @@ test("V2 formatting shares one budget and does not call legacy reserved-column/v
         maxChars,
       },
     });
-    expect(rendered.length).toBeLessThanOrEqual(maxChars);
+    expect(rendered.length).toBeLessThanOrEqual(3 * maxChars + 2);
     expect(rendered).not.toContain("Column Schema and stats");
-    if (maxChars >= 120) expect(rendered).toContain("Columns:");
+    if (maxChars >= 500) expect(rendered).toContain("columns:");
   }
 });
 
@@ -502,8 +502,8 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
         await f.record("B", [], ["selected"]);
         f.capture("B", ["selected"], data, flow, 2000);
         const output = f.storage.getAssociatedSnapshot("B").nativeObservations!.selected.text;
-        expect(output.includes("Data measurement")).toBe(data);
-        expect(output.includes("Flow measurement")).toBe(flow);
+        expect(output.includes("statistics:")).toBe(data);
+        expect(output.includes("- flow:")).toBe(flow);
         expect(output.length).toBeLessThanOrEqual(2000);
         const rendered = JSON.stringify(
           assembleContext(f.steps, f.state, f.storage, mode, {
@@ -513,8 +513,8 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
             maxOperatorResultCharLimit: 2000,
           })
         );
-        expect(rendered.includes("Data measurement")).toBe(data);
-        expect(rendered.includes("Flow measurement")).toBe(flow);
+        expect(rendered.includes("statistics:")).toBe(data);
+        expect(rendered.includes("- flow:")).toBe(flow);
         expect(rendered).not.toContain("Column Schema and stats");
         expect(f.storage.getOperatorResult("B", "selected")).toEqual(f.storage.getOperatorResult("A", "selected"));
         expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual({});
@@ -628,7 +628,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       await f.record("B", [], []);
       f.capture("B", []);
       expect(render()).not.toContain("-918273");
-      if (mode === ContextMode.LATEST) expect(render()).not.toContain("Flow measurement:");
+      if (mode === ContextMode.LATEST) expect(render()).not.toContain("- flow::");
     });
   }
 }

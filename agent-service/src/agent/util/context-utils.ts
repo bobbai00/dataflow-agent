@@ -57,6 +57,12 @@ import {
 // The import is circular (summarize calls back into renderContextCore below)
 // but strictly call-time — both modules only reference each other inside
 // function bodies, so ESM hoisting resolves it.
+import {
+  observationFormat,
+  describeOperator,
+  operatorBlock,
+  type ObservationFormatOptions,
+} from "../native/observation-format";
 import { applySummarizeParamsPatch, mapLegacyToParams, type SummarizeParamsPatch } from "../context/summarize/params";
 import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context/select/revision-folds";
 import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
@@ -123,7 +129,7 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
 
 const log = createLogger("ContextAssembler");
 
-export interface AssembleContextOptions {
+export interface AssembleContextOptions extends ObservationFormatOptions {
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
@@ -318,7 +324,14 @@ export interface AssembleContextOptions {
   maxOperatorResultCharLimit?: number;
   /** V2 exposure/budget carried through summarize's legacy mapping. This is
    * derived from the existing data/flow settings, not a second budget. */
-  nativeEvidence?: { data: boolean; flow: boolean; maxChars: number; checks?: boolean };
+  nativeEvidence?: {
+    data: boolean;
+    flow: boolean;
+    maxChars: number;
+    checks?: boolean;
+    dataMaxChars?: number;
+    flowMaxChars?: number;
+  } & ObservationFormatOptions;
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
   /** Thought-replay reinjection rung (LATEST only). When on, render a
@@ -901,6 +914,9 @@ export function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotSt
       }
       continue;
     }
+    // Loaded state (`seedState`) is inherited through the snapshot tree; the
+    // request that describes it is the user's, so the step itself is not shown.
+    if (step.synthetic === "state") continue;
     remaining.push(step);
   }
   const path: PathNode[] = remaining.map((step, i) => ({
@@ -3474,10 +3490,20 @@ function serializeSnapshotFull(
   for (const op of ordered) {
     const compilationError = isCurrent ? options.compilationResult?.operatorErrors?.[op.operatorID] : undefined;
     if (requested && compilationError) {
-      lines.push(
-        `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``
-      );
-      if (op.nativeOp) lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+      if (op.nativeOp) {
+        lines.push(
+          operatorBlock(
+            describeOperator(op, snapshot.results.get(op.operatorID)?.info, {
+              ...observationFormat(options.nativeEvidence ?? options),
+              state: "failed",
+              issues: [`- error COMPILATION_FAILED: ${compilationError.type}: ${compilationError.message}`],
+            })
+          ),
+          ""
+        );
+        continue;
+      }
+      lines.push(`${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``);
       lines.push(`Result: [ERROR] compilation failed: ${compilationError.type}: ${compilationError.message}`, "");
       continue;
     }
@@ -3490,15 +3516,20 @@ function serializeSnapshotFull(
       !snapshot.results.get(op.operatorID)?.info.error
     ) {
       const info = snapshot.results.get(op.operatorID)?.info;
-      const rows = info?.totalRowCount ?? info?.outputTuples;
-      lines.push(
-        `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``
-      );
-      if (op.nativeOp)
+      if (op.nativeOp) {
         lines.push(
-          `Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`,
-          `Properties: ${JSON.stringify(op.nativeOp.properties)}`
+          operatorBlock(
+            describeOperator(op, info, {
+              ...observationFormat(options.nativeEvidence ?? options),
+              issues: ["- note: result not requested."],
+            })
+          ),
+          ""
         );
+        continue;
+      }
+      const rows = info?.totalRowCount ?? info?.outputTuples;
+      lines.push(`${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``);
       lines.push(
         info
           ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
@@ -3574,6 +3605,9 @@ function nativeEvidenceAtSnapshot(
 ): FormatOperatorResultOptions["nativeEvidence"] {
   const frozen = historical ? snapshot.nativeObservations?.[operatorId] : undefined;
   return {
+    ...observationFormat(options.nativeEvidence ?? options),
+    dataMaxChars: options.nativeEvidence?.dataMaxChars,
+    flowMaxChars: options.nativeEvidence?.flowMaxChars,
     workflow: snapshot.workflow,
     resolveInput: id => snapshot.results.get(id)?.info,
     // Imported old events have no recorded exposure settings: do not invent
@@ -3724,9 +3758,16 @@ function serializeOperatorFull(
   const subscribed = opBlock && options.observedEverIds?.has(op.operatorID) === true;
   if (requested && !requested.has(op.operatorID) && !info?.error && !subscribed) {
     const rows = info?.totalRowCount ?? info?.outputTuples;
+    if (op.nativeOp)
+      return operatorBlock(
+        describeOperator(op, info, {
+          ...observationFormat(options.nativeEvidence ?? options),
+          implementation: options.opExtras?.(op.operatorID)?.includeCode === true,
+          issues: ["- note: result not requested."],
+        })
+      );
     return [
-      `${"#".repeat(operatorLevel)} ${op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType} operator \`${op.operatorID}\``,
-      ...(op.nativeOp ? nativeDefinitionLines(op.nativeOp, opBlock) : []),
+      `${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``,
       info
         ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}${opBlock ? "" : "; result not requested"}`
         : `Result: unavailable${opBlock ? "" : "; result not requested"}`,
@@ -3761,6 +3802,22 @@ function serializeOperatorFull(
     });
   }
 
+  if (op.nativeOp) {
+    const block = describeOperator(op, info, {
+      ...observationFormat(options.nativeEvidence ?? options),
+      implementation:
+        opBlock ||
+        !!ex?.includeCode ||
+        (!ex && options.messageLayout !== "opSplit" && options.includeOperatorProperties !== false),
+      usedBy: snapshot.workflow.operators
+        .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
+        .map(item => item.operatorID),
+      issues: info?.error && execText ? execText.split("\n") : [],
+    });
+    if (execText?.startsWith("columns: ")) block.columns = [];
+    return [operatorBlock(block), ...(execText && !info?.error ? [execText] : [])].join("\n");
+  }
+
   // No status label in the header. Execution state is conveyed by the Result
   // section itself:
   //   - no info AND no errored upstream → no `Result:` block
@@ -3779,23 +3836,12 @@ function serializeOperatorFull(
   const lines: string[] = [];
   // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
   // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
-  if (op.nativeOp) {
-    lines.push(`${opHash} ${nativeOperatorName(op.nativeOp.type)} operator \`${op.operatorID}\``);
-  } else {
-    lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
-    lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
-  }
+  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
+  lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
   // A header-only shape (Project / Sort / unchanged Compute) carries no result
   // section: the table is the input table transformed exactly as Properties say.
   const headerOnly = shape?.shape === "header" && info && !info.error;
-  if (op.nativeOp) {
-    // The definition as the model wrote it (its operands name the inputs). A
-    // process body is shown where code is asked for: opBlock keeps one field
-    // order for every operator, and the code-in-snapshot flag opts in.
-    for (const l of nativeDefinitionLines(op.nativeOp, opBlock || !!ex?.includeCode)) lines.push(l);
-  } else {
-    for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
-  }
+  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
   // last edited it (latest-edit grain). The thought text lives once in the

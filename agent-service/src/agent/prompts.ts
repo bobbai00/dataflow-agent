@@ -36,6 +36,7 @@ import {
   type RetrievalSettings,
   type RetrievalView,
 } from "../types/agent";
+import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { graphCatalogText } from "./native/catalog";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 
@@ -211,12 +212,15 @@ export function buildCodeModeSystemPrompt(
 // ============================================================================
 const NATIVE_MODE_TEMPLATE: string = rd("native-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
-export interface NativePromptLayoutOptions extends RetrievalSettings {
+export interface NativePromptLayoutOptions extends RetrievalSettings, ObservationFormatOptions {
   maxOperatorResultCharLimit?: number;
   maxResultRows?: number;
   versioned?: boolean;
   session?: boolean;
   recall?: boolean;
+  resume?: boolean;
+  compact?: boolean;
+  multiTask?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
@@ -226,157 +230,238 @@ export interface NativePromptLayoutOptions extends RetrievalSettings {
   /** `nativeChecks`: operators carry `check:` lines; the prompt says what they are. */
   checks?: boolean;
   stateHistory?: boolean;
+  /** `stateLedger`: task ledgers in Answer receipts, provenance cards in Edit receipts, execution notes. */
+  stateLedger?: boolean;
 }
 
-/** Explain only the evidence families enabled for this agent. */
-export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEvidence?: boolean }): string {
-  const parts: string[] = [];
-  if (options.dataEvidence)
-    parts.push(
-      'Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column\'s "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.'
-    );
-  if (options.flowEvidence)
-    parts.push(
-      "Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention, reducer denominators and Window offsets/boundary nulls; flow guarantees describe operator contracts. Cast failed-value examples and Join unmatched-key examples or duplicate-key examples show bounded, first-encountered values with counts. Examples may be clipped and are not an exhaustive distribution. Compare the measurements with the task's population, key identity and calculation. Repair a transformation or justify the exclusions before using its aggregate. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping."
-    );
-  if (parts.length)
-    parts.push(
-      "These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct."
-    );
-  return parts.length ? "\n\n" + parts.join("\n\n") : "";
+const nativeFragment = (name: string) =>
+  rd(name)
+    .replace(/^<!--[\s\S]*?-->\s*/, "")
+    .trim();
+const NATIVE_FRAGMENTS = {
+  data: nativeFragment("native-data-statistics.md"),
+  flow: nativeFragment("native-flow-statistics.md"),
+  multiTask: nativeFragment("native-multi-task.md"),
+  history: nativeFragment("native-state-history.md"),
+  catalog: nativeFragment("native-task-catalog.md"),
+  recall: nativeFragment("native-recall.md"),
+  resume: nativeFragment("native-resume.md"),
+  compact: nativeFragment("native-compact.md"),
+  singleExample: nativeFragment("native-example-single.md"),
+  dataExamples: nativeFragment("native-example-data.md"),
+  flowExamples: nativeFragment("native-example-flow.md"),
+  taskExamples: nativeFragment("native-example-tasks.md"),
+  reviseExample: nativeFragment("native-example-revise.md"),
+  historyExamples: nativeFragment("native-example-history.md"),
+};
+
+/** What a session offers, as the prompt fragments name it. */
+function nativeFlags(options: NativePromptLayoutOptions): Record<string, boolean> {
+  const multi = !!(
+    options.multiTask ||
+    options.stateHistory ||
+    options.stateLedger ||
+    options.session ||
+    options.versioned ||
+    options.recall ||
+    options.resume ||
+    options.compact
+  );
+  return {
+    data: availableRetrievalViews(options).includes("sample_stats"),
+    flow: !!options.flowEvidence,
+    multi,
+    history: !!options.stateHistory,
+    ledger: !!options.stateLedger,
+    checks: !!options.checks,
+  };
+}
+
+/** Keep `{{#flag}}…{{/flag}}` when the flag is on and `{{^flag}}…{{/flag}}`
+ * when it is off. A section whose markers stand on their own lines takes
+ * those lines with it. */
+function applySections(text: string, flags: Record<string, boolean>): string {
+  const keep = (sigil: string, name: string) => {
+    if (!(name in flags)) throw new Error(`unknown prompt section {{${sigil}${name}}}`);
+    return (sigil === "#") === flags[name];
+  };
+  return text
+    .replace(/^\{\{([#^])(\w+)\}\}\n([\s\S]*?)^\{\{\/\2\}\}\n?/gm, (_, sigil, name, body) =>
+      keep(sigil, name) ? body : ""
+    )
+    .replace(/\{\{([#^])(\w+)\}\}([\s\S]*?)\{\{\/\2\}\}/g, (_, sigil, name, body) => (keep(sigil, name) ? body : ""));
+}
+
+/**
+ * The example receipts are real renderer output with data and flow
+ * statistics on and Markdown tables. Remove what this session's receipts
+ * would not contain and use its table syntax, so every example shows exactly
+ * what the model will see.
+ */
+function adaptReceipts(text: string, options: NativePromptLayoutOptions, flags: Record<string, boolean>): string {
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  return text.replace(/```text\n([\s\S]*?)\n```/g, (_, body: string) => {
+    let lines: string[] = [];
+    let statistics = false;
+    for (const line of body.split("\n")) {
+      if (statistics && line.startsWith("|")) continue;
+      statistics = !flags.data && line.startsWith("statistics:");
+      if (statistics) continue;
+      if (!flags.flow && /^\s*- flow\b/.test(line)) continue;
+      lines.push(
+        line
+          .replace(/^records: sample_stats;/, `records: ${view};`)
+          .replace(/^records: full;/, `records: ${views.includes("full") ? "full" : view};`)
+      );
+    }
+    // An execute receipt gives a block only to an operator with something to
+    // report; without its flow lines, a block may have nothing left.
+    let execute = false;
+    lines = lines.filter((line, i) => {
+      if (line.startsWith("### ")) execute = /^### \d+\. execute\b/.test(line);
+      if (!execute || !line.startsWith("- **")) return true;
+      const end = lines.findIndex((next, j) => j > i && !next.startsWith("  "));
+      const fields = lines.slice(i + 1, end < 0 ? lines.length : end);
+      if (fields.some(field => /^  - (error|note|check|flow)\b/.test(field))) return true;
+      fields.forEach((_, k) => (lines[i + 1 + k] = "\u0000"));
+      return false;
+    }).filter(line => line !== "\u0000");
+    const tsv = (line: string) => {
+      if (/^\|(?:---\|)+$/.test(line)) return undefined;
+      if (!line.startsWith("| ")) return line;
+      const cells = line.slice(2, -2).split(" | ");
+      return cells.every(cell => cell === "…") ? "…" : cells.join("\t");
+    };
+    const shown = options.tableFormat === "tsv" ? lines.map(tsv).filter(line => line !== undefined) : lines;
+    return "```text\n" + shown.join("\n") + "\n```";
+  });
+}
+
+/** Explain exactly the evidence sources available to this session. */
+export function nativeEvidenceText(options: NativePromptLayoutOptions = {}): string {
+  const data = options.retrievalViews
+    ? availableRetrievalViews(options).includes("sample_stats")
+    : options.dataEvidence;
+  return [
+    data ? NATIVE_FRAGMENTS.data : "",
+    options.flowEvidence
+      ? NATIVE_FRAGMENTS.flow.replaceAll(
+          "{{FLOW_BUDGET}}",
+          String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT)
+        )
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): string {
   const views = availableRetrievalViews(options);
   const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
-  const rows = options.maxResultRows ? ` and at most ${options.maxResultRows} records` : "";
+  const rowLimit = options.maxResultRows ?? 50;
+  const rows = rowLimit > 0 ? ` and at most ${rowLimit} records` : "";
   const descriptions = {
-    full: `- \`full\`: records up to ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters. Use only for required row associations absent from the sample and statistics; a capped view remains partial.`,
-    sample: `- \`sample\`: schema and example records, bounded by ${sampleLimit} characters${rows}. For layout and type checks.`,
-    sample_stats: `- \`sample_stats\`: the same small record view (${sampleLimit} characters${rows}) plus up to ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT} characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.`,
+    full: `Records within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters. A capped view remains partial.`,
+    sample: `Schema and retained example records within ${sampleLimit} characters${rows}.`,
+    sample_stats: `Schema and retained example records within ${sampleLimit} characters${rows}, plus data statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget.`,
   };
   return [
-    "Choose the `view` on every Retrieve. Available views:",
-    ...views.map(v => descriptions[v]),
-    ...(views.includes("sample_stats")
-      ? [
-          "Start with `sample_stats`. If its sample and statistics establish the answer, do not request `full`. Project to relevant columns if a wide table hides needed fields or statistics.",
-        ]
-      : []),
+    "Choose a `view` on every retrieve:",
+    "",
+    "| View | Available information |",
+    "|---|---|",
+    ...views.map(view => `| \`${view}\` | ${descriptions[view]} |`),
+    "",
+    views.includes("sample_stats")
+      ? "Start with `sample_stats` to understand the result and judge what needs further work."
+      : views.includes("sample")
+        ? "Start with `sample` to understand layout and types."
+        : "Check the completeness of every `full` view.",
+    "If a wide result hides the fields you need, use `columns`.",
     ...(views.includes("full")
       ? [
-          "For large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.",
-        ]
-      : []),
-    "Views reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.",
-    "A complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.",
-    ...(options.flowEvidence
-      ? [
-          `Automatic flow evidence has a separate ${options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget in every view.`,
+          "Request `full` when you need row associations or ordering that the sample and available statistics do not establish. For a large result, compute a focused projection, filter or aggregate in the graph before retrieving its full view.",
         ]
       : []),
   ].join("\n");
 }
 
-/** Synthetic operator examples only. No dataset, benchmark, answer or domain
- * convention is needed to explain choosing a view or checking a contract. */
+/** The examples this session's features call for: a single task always, then
+ * reading statistics, several tasks and earlier versions when available. */
 export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {}): string {
-  const views = availableRetrievalViews(options);
-  // The basic worked graph already previews a source and reads a small final
-  // table. Add the evidence examples only for sessions exposing evidence.
-  if (!views.includes("sample_stats") && !options.flowEvidence) return "";
-  const call = (reasoning: string, actions: unknown[]) =>
-    "```json\n" + JSON.stringify({ reasoning, actions }, null, 2) + "\n```";
-  const retrieve = (operator_id: string, view: RetrievalView) => ({ type: "retrieve", operator_id, view });
-  const parts = ["### Choosing a result view", "Each example below is an independent choice for an existing result."];
-  if (views.includes("sample"))
-    parts.push(
-      "Check column names and example formatting:",
-      call("Check the parsed table's layout.", [retrieve("source", "sample")])
-    );
-  if (views.includes("sample_stats"))
-    parts.push(
-      "Check the selected population and measurement validity before reducing it:",
-      call("Check the selected rows and valid values.", [retrieve("eligible", "sample_stats")]),
-      'For a numeric column named value, full-coverage null=4/20 means mean("value") uses 16 nonnull values. Check whether excluding those four nulls matches the task\'s missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.'
-    );
-  if (views.includes("full"))
-    parts.push(
-      "If the sample omitted required identifier/value associations, project the needed fields and read the small final table:",
-      call("Read each identifier and its corresponding result.", [retrieve("final_rows", "full")])
-    );
-  if (options.flowEvidence) {
-    const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
-    parts.push(
-      "### Acting on flow evidence",
-      'Suppose the task requires decimal measurements and the graph is source -> typed -> total. A Cast reports conversion failures=2/20 and failed-value examples "1.5" × 1; "2.5" × 1. The current integer conversion conflicts with that requirement. Resolve the finding before using the aggregate:',
-      call("Use the decimal type required by the task and recompute the dependent result.", [
-        { type: "edit", changes: "update operator typed: cast(value=float64)" },
-        { type: "execute" },
-        retrieve("total", view),
-      ]),
-      'For a Join, unmatched-key examples ["A 1"] and ["A1"] suggest checking key representation. Normalize only if the source definitions establish the same identity. Duplicate-key examples require checking the intended join cardinality; duplicates can be legitimate.',
-      'For a Window, lag("value", offset=3) with boundary nulls=3/20 in one partition describes three unavailable predecessors. Check the resolved offsets against the requested relationship. A row offset does not establish regular time intervals.'
-    );
-  }
-  return parts.join("\n\n");
+  const flags = nativeFlags(options);
+  return [
+    NATIVE_FRAGMENTS.singleExample,
+    flags.data ? NATIVE_FRAGMENTS.dataExamples : "",
+    flags.flow ? NATIVE_FRAGMENTS.flowExamples : "",
+    flags.multi ? NATIVE_FRAGMENTS.taskExamples : "",
+    flags.multi ? NATIVE_FRAGMENTS.reviseExample : "",
+    flags.history ? NATIVE_FRAGMENTS.historyExamples : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
+
+/** Working across tasks, with the history, catalog and legacy tools the session enables. */
+export function nativeStateText(options: NativePromptLayoutOptions = {}): string {
+  return [
+    NATIVE_FRAGMENTS.multiTask,
+    options.stateHistory ? NATIVE_FRAGMENTS.history : "",
+    options.stateLedger ? NATIVE_FRAGMENTS.catalog : "",
+    options.recall ? NATIVE_FRAGMENTS.recall : "",
+    options.resume ? NATIVE_FRAGMENTS.resume : "",
+    options.compact ? NATIVE_FRAGMENTS.compact : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+export const NATIVE_STATE_HISTORY = NATIVE_FRAGMENTS.history;
 
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.DELTA,
   options: NativePromptLayoutOptions = {}
 ): string {
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  const flags = nativeFlags(options);
+  const format = observationFormat(options);
   const context = options.versioned
-    ? "Your context lists prior turns in a catalog, followed by the current task and results. Table names refer to their current versions. Answer the current task."
+    ? "Your context lists earlier tasks in a catalog, followed by the current task and its calls. Table names refer to their current versions."
     : options.session
-      ? "Your context groups work by user turn. Earlier tables remain available by name. Answer the current task."
-      : contextMode === ContextMode.DELTA
-        ? "Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition."
-        : "Your context shows the current dataflow and its available results. The latest action receipt records what just completed. Earlier execution events may be collapsed; use inspect to recover operator details.";
-  const checks = options.checks
-    ? "\n\nA check line reports a suspicious header, records repeated across sources, or an empty or duplicating operation inside a custom function. Examine the finding before using its result."
-    : "";
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
-    .replace("{{RETRIEVAL}}", nativeRetrievalText(options))
-    .replace("{{STATE_HISTORY}}", options.stateHistory ? NATIVE_STATE_HISTORY.trim() : "")
-    .replace("{{RETRIEVAL_EXAMPLES}}", nativeRetrievalExamples(options))
-    .replaceAll(
-      "{{RETRIEVE_EXAMPLE_VIEW}}",
-      availableRetrievalViews(options).includes("sample_stats") ? "sample_stats" : availableRetrievalViews(options)[0]
-    )
-    .replace(
-      "{{FINAL_RETRIEVE_EXAMPLE_VIEW}}",
-      availableRetrievalViews(options).includes("sample_stats") ? "sample_stats" : availableRetrievalViews(options)[0]
-    )
-    .replace(
-      "{{EVIDENCE}}",
-      nativeEvidenceText({ ...options, dataEvidence: availableRetrievalViews(options).includes("sample_stats") }) +
-        checks
-    )
-    .replace("{{CONTEXT_LAYOUT}}", context)
-    .replace(
-      "{{RECALL_TOOL}}",
-      options.recall ? "\nUse recallState to read an earlier turn's saved work without execution." : ""
-    );
+      ? "Your context groups earlier calls and observations by task. Earlier tables remain available by name."
+      : contextMode === ContextMode.LATEST
+        ? "Your context shows the current dataflow and its available results. The latest receipt records what just completed, and earlier execution events may be collapsed; inspect when an operator's details are needed."
+        : "Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it; inspect when you need a current definition, and execute when you need a current result.";
+  const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
+  const fields: Record<string, string> = {
+    OPERATOR_CATALOG: graphCatalogText(),
+    CONTEXT_LAYOUT: context,
+    RETRIEVAL: nativeRetrievalText(options),
+    RECORD_LAYOUT:
+      format.keyValueColumns > 0
+        ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
+        : `Records use ${table} at any width.`,
+    DATA_STATISTICS: flags.data ? NATIVE_FRAGMENTS.data : "",
+    FLOW_STATISTICS: flags.flow
+      ? NATIVE_FRAGMENTS.flow.replaceAll(
+          "{{FLOW_BUDGET}}",
+          String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT)
+        )
+      : "",
+    EARLIER_TASKS: flags.multi ? nativeStateText(options) : "",
+    EXAMPLES: nativeRetrievalExamples(options),
+  };
+  let prompt = NATIVE_MODE_TEMPLATE.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
+    if (!(key in fields)) throw new Error(`unknown prompt field {{${key}}}`);
+    return fields[key];
+  });
+  prompt = adaptReceipts(applySections(prompt, flags), options, flags);
+  // Example calls use only the views this session's tool schema offers.
+  prompt = prompt.replace(/"view": "sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) prompt = prompt.replace(/"view": "full"/g, `"view": "${view}"`);
+  return prompt.replace(/\n{3,}/g, "\n\n").trim();
 }
-
-export const NATIVE_STATE_HISTORY =
-  `
-## Historical state across tasks
-
-All tasks share one graph and the append-only conversation. Task numbers count user requests from 1. Completed tasks retain operator definitions, incoming edges and available saved results. Prior answers and formulas may be wrong; history preserves state, not correctness. No task catalog or task-level retrieval is provided.
-
-Use known operator IDs from the conversation. Inspect history when an operator has been overwritten, an earlier baseline is requested, or the needed input state is uncertain. Skip inspection when that exact state is already visible. Check population, formula and eligibility separately. Use the full working population when requested. If the user names an earlier reviewed or reported subset as the authoritative state, preserve that exact subset and keep rows without its evidence unproven. A limited operator output is a logical subset; a sampled result view is only partial evidence of its operator. Preserve percentile and global-baseline populations unless the user changes them.
-
-- List an operator's version changes: {"type":"inspect","target":"state","operator_id":"score","task_id":null,"include_implementation":false,"view":null}. Unchanged versions are grouped through_task_id. A changed upstream dependency can change subgraph_hash even when the expression is unchanged.
-- Read a version and its saved result together: {"type":"inspect","target":"state","operator_id":"eligible","task_id":2,"include_implementation":false,"view":"{{RETRIEVE_EXAMPLE_VIEW}}"}. Incoming edges and immediate input definitions refer to that task. Follow their IDs only as needed. Set include_implementation=true for custom formulas. Use view=null for definitions alone. Reading never executes or substitutes current results; unavailable and incomplete results are labeled.
-- Batch known IDs by supplying operator_id as a list, for example ["eligible","score"]. A result view requires a specific completed task; version lists use view=null.
-- To compute from an older branch, use {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This copies the full dependency closure under new IDs and returns its mapping. Retrieve earlier_eligible to read its saved result without execution. Execute only the copied branch if no result is available or its definition changes.
-
-Distinguish an old formula on today's population from the old formula on its original population. A fork preserves the original inputs. Rewire the fork's incoming edge explicitly for today's population. A temporary sensitivity check stays on a separate branch until the user adopts it. Inspect results arrive after the call: dependent edits and answers belong in a later call.
-` +
-  "\n" +
-  rd("state-history-examples.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
 // ---------------------------------------------------------------------------
 // Local-react (in-house local LLM) system prompts — one per tool-call dialect.

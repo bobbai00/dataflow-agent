@@ -16,11 +16,11 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
 import { expect, test } from "bun:test";
 import { ContextMode } from "../types/agent";
 import { buildNativeModeSystemPrompt } from "./prompts";
-import { forkState, type HistoricalTask } from "./state-history";
+import { type HistoricalTask } from "./state-history";
+import { restoreCommands, splitVersionCommands, upstreamDrift } from "./state-ledger";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { WorkflowState } from "./workflow-state";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
@@ -29,38 +29,68 @@ import { planGraphEdit } from "./tools/graph-edits";
 
 function examples(view: "full" | "sample" | "sample_stats" = "sample") {
   const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-  const section = prompt.split("### Generic multitask examples")[1]?.split("\n## Examples")[0] ?? "";
+  const section = prompt.split("### Example: compare with an earlier task and go back")[1] ?? "";
   const calls = Array.from(section.matchAll(/```json\n([\s\S]*?)\n```/g), m => JSON.parse(m[1]));
   return { prompt, section, calls };
 }
 
-test("historical examples validate for every retrieval configuration and separate observation-dependent calls", () => {
+test("multi-task history and catalog are separate extensions using the edit vocabulary", () => {
   for (const view of ["full", "sample", "sample_stats"] as const) {
     const { prompt, section, calls } = examples(view);
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(3);
     for (const call of calls) {
       expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
-      const actions: DataflowAction[] = call.actions;
-      if (actions.some(a => a.type === "inspect" && a.target === "state"))
-        expect(actions.every(a => a.type === "inspect")).toBe(true);
-      if (actions.some(a => a.type === "answer")) expect(actions).toHaveLength(1);
-      for (const action of actions) if (action.type === "retrieve") expect(action.view).toBe(view);
+      for (const action of call.actions as DataflowAction[])
+        if (action.type === "retrieve") expect(action.view).toBe(view);
     }
+    const restoreEdits = calls.flatMap(call =>
+      (call.actions as DataflowAction[]).filter(a => a.type === "edit")
+    ) as Array<{ changes: string }>;
+    expect(restoreEdits).toHaveLength(2);
+    for (const edit of restoreEdits) expect(splitVersionCommands(edit.changes).versions.length).toBe(1);
+    expect(calls.flatMap(call => call.actions).find((a: any) => a.type === "inspect")).toMatchObject({
+      type: "inspect",
+      target: "state",
+      task_id: null,
+      view: null,
+    });
     expect(prompt).not.toContain("{{");
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
+    expect(prompt).toContain("update operator <id> from task <N>");
+    expect(prompt).toContain("fork operator <id> from task <N> as <new_id>");
+    expect(prompt).not.toMatch(/rollback/i);
   }
   const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
-  expect(history).toContain("reviewed or reported subset as the authoritative state");
-  expect(history).toContain("keep rows without its evidence unproven");
-  expect(history).toContain("sampled result view is only partial evidence");
-  const control = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: false });
-  expect(control).not.toContain("Generic multitask examples");
-  expect(control).not.toContain("Historical state across tasks");
+  expect(history).toContain("### Earlier tasks in the session");
+  expect(history).toContain("Restore the definition task N saved");
+  expect(history).toContain("When a task is answered, the dataflow as it stands is saved under that task's");
+  expect(history).toContain("going back never removes a\nversion");
+  expect(history).not.toMatch(/seal/i);
+  expect(history).not.toContain("\"type\": \"fork\"");
+  expect(history).not.toContain("Task catalog and provenance");
+  expect(history).not.toContain("inputs from earlier tasks:\n- **");
+  const ledger = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, stateLedger: true });
+  expect(ledger).toContain("An answer's receipt is the task's catalog entry");
+  expect(ledger).toContain("provenance");
+  expect(ledger).toMatch(/top-k report represents\s+the selected rows/);
+  expect(ledger).toContain("#### Task 2\n2 tables created.");
+  const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
+  expect(single).not.toContain("### Earlier tasks in the session");
+  expect(single).not.toContain("### Example: build on an earlier task");
+  const control = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true, retrievalViews: ["sample"] });
+  expect(control).toContain("### Earlier tasks in the session");
+  expect(control).toContain("Earlier versions are not kept, so build a second operator only when the");
+  expect(control).toContain("### Example: revise a rule for the rest of the session");
+  expect(control).not.toContain("remains saved under tasks 1 and 2");
+  expect(control).not.toContain("fork operator");
+  expect(control).not.toContain('"target": "state"');
+  expect(control).not.toContain("{{");
+  const section = control.split("### Example: build on an earlier task")[1];
+  for (const [, json] of section.matchAll(/```json\n([\s\S]*?)\n```/g))
+    expect(prepareDataflowActions(JSON.parse(json), ["sample"]).status).toBe("pending");
 });
 
-test("worked edits preserve baseline branches and connect old formulas to current populations", async () => {
-  const { calls } = examples();
-  expect(calls).toHaveLength(5);
+test("update from task restores a saved definition in place on today's inputs and reports upstream drift", async () => {
   const metadataStore = WorkflowSystemMetadata.getInstance();
   metadataStore.seedCodeModeDefaults();
   const context = { metadataStore };
@@ -69,17 +99,14 @@ test("worked edits preserve baseline branches and connect old formulas to curren
     `create operator items: scan("items.csv")
 create operator eligible: filter(lambda row: row["active"], doc="Active items")
 create operator score: map(lambda row: {**row, "score": 2*row["units"]+row["margin"]}, doc="Original priority score")
-create operator qualified: filter(lambda row: row["units"] >= 10, doc="At least ten units")
 create edge items.out -> eligible.in
-create edge eligible.out -> score.in
-create edge eligible.out -> qualified.in`,
+create edge eligible.out -> score.in`,
     context
   );
   const second = await planGraphEdit(
     first.workflow,
     `update operator eligible: filter(lambda row: row["active"] and row["premium"], doc="Premium active items")
-update operator score: map(lambda row: {**row, "score": 3*row["units"]+row["margin"]}, doc="Current priority score")
-create operator current_items: scan("current_items.csv")`,
+update operator score: map(lambda row: {**row, "score": 3*row["units"]+row["margin"]}, doc="Current priority score")`,
     context
   );
   const storage = new WorkflowSnapshotStorage(id => (id === "s1" ? ["s1"] : ["s1", "s2"]));
@@ -89,30 +116,27 @@ create operator current_items: scan("current_items.csv")`,
     { taskId: 1, stepId: "s1", request: "Use active items", answer: "Original report" },
     { taskId: 2, stepId: "s2", request: "Change the population and score", answer: "Current report" },
   ];
-  let workflow = second.workflow;
-  for (const call of calls) {
-    for (const action of call.actions as DataflowAction[]) {
-      if (action.type === "fork")
-        workflow = forkState(
-          workflow,
-          storage,
-          tasks,
-          action.task_id,
-          action.operator_id,
-          action.new_operator_id
-        ).workflow;
-      if (action.type === "edit") workflow = (await planGraphEdit(workflow, action.changes, context)).workflow;
-    }
-  }
-  const operator = (id: string) => workflow.operators.find(o => o.operatorID === id)!;
-  expect(operator("old_rule_current").nativeOp!.inputs).toEqual(["current_items"]);
-  expect(operator("old_rule_current").nativeOp!.source).toContain('2*row["units"]');
-  expect(operator("earlier_summary").nativeOp!.inputs).toEqual(["earlier_items"]);
-  expect(operator("earlier_items").nativeOp!.source).toBe(
-    first.workflow.operators.find(o => o.operatorID === "eligible")!.nativeOp!.source
+  const restored = restoreCommands(storage, tasks[0], second.workflow, "score");
+  expect(restored.existed).toBe(true);
+  expect(restored.commands.startsWith("update operator score: map(")).toBe(true);
+  expect(restored.commands).toContain('2*row["units"]');
+  // The population changed in task 2; the rolled-back rule runs on today's version of it.
+  expect(upstreamDrift(storage, tasks[0], second.workflow, "score")).toEqual(["eligible"]);
+  const third = await planGraphEdit(second.workflow, restored.commands, context);
+  const score = third.workflow.operators.find(o => o.operatorID === "score")!;
+  expect(score.nativeOp!.source).toContain('2*row["units"]');
+  expect(score.nativeOp!.inputs).toEqual(["eligible"]);
+  expect(third.workflow.operators.find(o => o.operatorID === "eligible")).toEqual(
+    second.workflow.operators.find(o => o.operatorID === "eligible")!
   );
-  for (const id of ["eligible", "score", "qualified", "current_items"])
-    expect(operator(id)).toEqual(second.workflow.operators.find(o => o.operatorID === id)!);
+  // A deleted operator is re-created with the sealed edges that still resolve.
+  const without = await planGraphEdit(second.workflow, "delete operator score", context);
+  const recreated = restoreCommands(storage, tasks[0], without.workflow, "score");
+  expect(recreated.existed).toBe(false);
+  expect(recreated.commands).toContain("create operator score: map(");
+  expect(recreated.commands).toContain("create edge eligible.out -> score.in");
+  expect(recreated.restoredInputs).toEqual(["eligible"]);
+  expect(() => restoreCommands(storage, tasks[0], second.workflow, "missing")).toThrow(/did not exist at task 1/);
   expect(storage.getWorkflow("s1")).toEqual(first.workflow);
   expect(storage.getWorkflow("s2")).toEqual(second.workflow);
 });

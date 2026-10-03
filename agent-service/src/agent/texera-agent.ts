@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
+
 import { asSchema, type ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
@@ -123,7 +125,7 @@ import {
   shouldNudge,
 } from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
-import { createDataflowTool, asDataflowActionsResult } from "./tools/dataflow-actions";
+import { createDataflowTool, asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
@@ -143,7 +145,8 @@ import {
   type ContextAssembler,
   type DriverRunTurnResult,
 } from "./llm-drivers/types";
-import { forkState } from "./state-history";
+import { forkState, historicalTask } from "./state-history";
+import { restoreCommands, splitVersionCommands } from "./state-ledger";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -582,6 +585,14 @@ export class TexeraAgent {
       );
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
       this.systemPrompt = buildNativeModeSystemPrompt(this.settings.contextMode, {
+        ...observationFormatPatch(this.settings),
+        // Decided when the session starts (the setting, or state loaded before
+        // the first request), never by the arrival of a later request: a
+        // system prompt that changes mid-session invalidates the whole cached
+        // prefix and gives the first task different instructions.
+        multiTask: this.settings.multiTask || this.taskNumberOffset > 0,
+        resume: this.settings.enableResumeTool === true,
+        compact: this.settings.enableCompactTool === true,
         versioned: this.settings.versionedMode === true,
         session: this.settings.sessionTurns === true,
         recall: this.settings.enableRecallTool === true,
@@ -597,6 +608,7 @@ export class TexeraAgent {
         dataEvidenceCharLimit: this.settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: this.settings.flowEvidenceCharLimit,
         stateHistory: this.settings.stateHistory === true,
+        stateLedger: this.settings.stateLedger === true,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -889,6 +901,8 @@ export class TexeraAgent {
     const order: string[] = [];
     for (const step of this.stepsById.values()) {
       if (TexeraAgent.isInitializationStep(step)) continue;
+      // Loaded state is not a request: task numbers start at the first user message.
+      if (step.synthetic === "state") continue;
       if (seen.has(step.messageId)) continue;
       seen.add(step.messageId);
       order.push(step.messageId);
@@ -913,6 +927,27 @@ export class TexeraAgent {
     return m;
   }
 
+  /** HEAD when the request that owns `stepId` arrived: the user step's parent.
+   * The ledger and provenance cards measure a task's changes against it. */
+  private taskBaseStepId(stepId: string): string | undefined {
+    const messageId = this.stepsById.get(stepId)?.messageId;
+    if (!messageId) return undefined;
+    return (this.reActStepsByMessageId.get(messageId) ?? []).find(step => step.role === "user")?.parentId;
+  }
+
+  /** HEAD when the first request arrived: the state loaded before this conversation. */
+  private loadedStepId(): string | undefined {
+    const first = this.turnOrder()[0];
+    return first ? (this.reActStepsByMessageId.get(first) ?? []).find(step => step.role === "user")?.parentId : undefined;
+  }
+
+  /** The number of the task a step belongs to, counted like `completedStateTasks`. */
+  private currentTaskNumber(stepId: string): number | undefined {
+    const messageId = this.stepsById.get(stepId)?.messageId;
+    const index = messageId ? this.turnOrder().indexOf(messageId) : -1;
+    return index >= 0 ? index + 1 + this.taskNumberOffset : undefined;
+  }
+
   /** Resolve completed user tasks directly from the append-only ReAct tree. */
   private completedStateTasks() {
     const currentMessage = this.head ? this.stepsById.get(this.head)?.messageId : undefined;
@@ -931,7 +966,9 @@ export class TexeraAgent {
       if (!end) return [];
       return [
         {
-          taskId: i + 1,
+          // Tasks are numbered as the user counts requests: loaded tasks
+          // first, then every request of this conversation, answered or not.
+          taskId: i + 1 + this.taskNumberOffset,
           stepId: end.id,
           request: steps.find(step => step.role === "user")?.content ?? "",
           answer: end.content,
@@ -1446,6 +1483,7 @@ export class TexeraAgent {
       dataflowReasoning?: boolean;
       nativeChecks?: boolean;
       stateHistory?: boolean;
+      stateLedger?: boolean;
       resultSelection?: ResultSelection;
       contextMode?: ContextMode;
       parallelToolCalls?: boolean;
@@ -1493,7 +1531,8 @@ export class TexeraAgent {
       specAudit?: boolean;
       indexThinObservations?: boolean;
       tunerConfig?: TunerConfig | null;
-    } & RetrievalSettings
+    } & RetrievalSettings &
+      ObservationFormatOptions & { multiTask?: boolean }
   ): void {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
@@ -1508,6 +1547,15 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
+    const formatUpdates = observationFormatPatch(updates);
+    if (Object.keys(formatUpdates).length) {
+      Object.assign(this.settings, formatUpdates);
+      promptNeedsRebuild = true;
+    }
+    if (updates.multiTask !== undefined) {
+      this.settings.multiTask = updates.multiTask;
+      promptNeedsRebuild = true;
+    }
     for (const key of [
       "retrievalViews",
       "fullResultCharLimit",
@@ -1536,6 +1584,10 @@ export class TexeraAgent {
     }
     if (updates.stateHistory !== undefined && updates.stateHistory !== this.settings.stateHistory) {
       this.settings.stateHistory = updates.stateHistory;
+      promptNeedsRebuild = true;
+    }
+    if (updates.stateLedger !== undefined && updates.stateLedger !== this.settings.stateLedger) {
+      this.settings.stateLedger = updates.stateLedger;
       promptNeedsRebuild = true;
     }
     if (updates.nativeChecks !== undefined && updates.nativeChecks !== this.settings.nativeChecks) {
@@ -1719,6 +1771,7 @@ export class TexeraAgent {
     if (updates.enableCompactTool !== undefined) {
       // Adds/removes the compactContext marker tool (createTools() rebuilds).
       this.settings.enableCompactTool = updates.enableCompactTool;
+      promptNeedsRebuild = true;
     }
     if (updates.compactKeepLastSteps !== undefined) {
       this.settings.compactKeepLastSteps = updates.compactKeepLastSteps;
@@ -1737,7 +1790,10 @@ export class TexeraAgent {
     if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
     if (updates.indexDetailedOperators !== undefined)
       this.settings.indexDetailedOperators = updates.indexDetailedOperators;
-    if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
+    if (updates.enableResumeTool !== undefined && updates.enableResumeTool !== this.settings.enableResumeTool) {
+      this.settings.enableResumeTool = updates.enableResumeTool;
+      promptNeedsRebuild = true;
+    }
     if (updates.enableAnswerGrounding !== undefined)
       this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
     if (updates.seedSources !== undefined) this.settings.seedSources = updates.seedSources;
@@ -1939,6 +1995,7 @@ export class TexeraAgent {
       };
       this.addStep(userStep);
       this.head = userStepId;
+      if (this.settings.agentMode === AgentMode.NATIVE) this.rebuildSystemPrompt();
       // User steps carry no tool calls and therefore own no snapshot — the
       // workflow visible here resolves to the nearest action-bearing
       // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
@@ -2561,10 +2618,42 @@ export class TexeraAgent {
                   this.workflowState.setWorkflowContent(plan.workflow);
                 } else if (item.action.type === "edit" && "changes" in item.action) {
                   if (item.status === "ok") {
-                    const plan = await planGraphEdit(this.workflowState.getWorkflowContent(), item.action.changes, {
-                      metadataStore: this.metadataStore,
-                      settings: this.settings,
-                    });
+                    const { rest, versions } = splitVersionCommands(item.action.changes);
+                    const tasks = this.completedStateTasks().filter(task =>
+                      this.snapshotStorage.hasSnapshotFor(task.stepId)
+                    );
+                    const expanded: string[] = [];
+                    for (const command of versions) {
+                      const task = historicalTask(tasks, command.task);
+                      if (command.as) {
+                        this.workflowState.setWorkflowContent(
+                          forkState(
+                            this.workflowState.getWorkflowContent(),
+                            this.snapshotStorage,
+                            tasks,
+                            task.taskId,
+                            command.id,
+                            command.as
+                          ).workflow
+                        );
+                      } else {
+                        expanded.push(
+                          restoreCommands(
+                            this.snapshotStorage,
+                            task,
+                            this.workflowState.getWorkflowContent(),
+                            command.id
+                          ).commands
+                        );
+                      }
+                    }
+                    const changes = [...expanded, rest].filter(text => text.trim()).join("\n");
+                    const plan = changes
+                      ? await planGraphEdit(this.workflowState.getWorkflowContent(), changes, {
+                          metadataStore: this.metadataStore,
+                          settings: this.settings,
+                        })
+                      : { workflow: this.workflowState.getWorkflowContent() };
                     this.workflowState.setWorkflowContent(plan.workflow);
                   }
                 } else if ((item.action as { type: string }).type === "edit") {
@@ -2734,6 +2823,76 @@ export class TexeraAgent {
    * an LLM-emitted one.
    */
   /**
+   * LOADED STATE — materialize tables as the state in force before the
+   * session's first request, without a model call. The edit program creates
+   * the operators (typically one `scan` per saved table) and the batch
+   * executes them; the step is recorded under its own message, marked
+   * `synthetic: "state"`, so its snapshot and results are inherited by every
+   * later step while nothing about it is rendered into the model's context or
+   * counted as a task. Returns the action receipt.
+   */
+  /** Tasks completed before this conversation, declared with the loaded state. */
+  private taskNumberOffset = 0;
+
+  async seedState(changes: string, completedTasks = 0): Promise<DataflowActionsResult> {
+    if (this.settings.agentMode !== AgentMode.NATIVE) throw new Error("seedState requires native mode");
+    if (!Number.isInteger(completedTasks) || completedTasks < 0)
+      throw new Error("completedTasks must be a non-negative integer");
+    if (this.state !== AgentStateEnum.AVAILABLE) throw new Error(`agent is ${this.state}; seed state while it is idle`);
+    // Loaded state defines task numbering and the system prompt for the whole
+    // session, so it can only be loaded before the first request.
+    if (this.turnOrder().length > 0) throw new Error("seed state before the first request; this session already has requests");
+    const tool = this.tools[TOOL_NAME_DATAFLOW];
+    if (!tool || typeof tool.execute !== "function") throw new Error("dataflow tool is not registered");
+    this.abortController = new AbortController();
+    this.nativeActionAnswer = undefined;
+    this.state = AgentStateEnum.GENERATING;
+    try {
+      const messageId = `seed-state-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+      this.currentMessageId = messageId;
+      const stepId = this.generateStepId();
+      const toolCallId = `call-${stepId}-state`;
+      const input = {
+        reasoning: "Load the tables in force from the completed tasks.",
+        actions: [{ type: "edit", changes }, { type: "execute" }],
+      };
+      const output = (await tool.execute(input, { toolCallId, messages: [] })) as DataflowActionsResult;
+      const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
+      const toolResults = [{ toolCallId, output, isError: false }];
+      const step: ReActStep = {
+        id: stepId,
+        parentId: this.head,
+        messageId,
+        stepId: 1,
+        timestamp: Date.now(),
+        role: "agent",
+        content: "",
+        isBegin: true,
+        isEnd: false,
+        toolCalls,
+        toolResults,
+        operatorAccess: computeOperatorAccess(toolCalls, toolResults),
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cachedInputTokens: 0 },
+        synthetic: "state",
+      };
+      this.addStep(step);
+      this.head = stepId;
+      this.maybeCreateSnapshotForHead(this.workflowState.getWorkflowContent());
+      await this.runPostStepExecution(toolCalls, toolResults);
+      this.taskNumberOffset = completedTasks;
+      this.log.info(
+        { messageId, status: output.status, operators: output.operators?.length ?? 0, completedTasks },
+        "seedState: loaded state recorded"
+      );
+      return output;
+    } finally {
+      this.abortController = null;
+      this.currentMessageId = undefined;
+      this.state = AgentStateEnum.AVAILABLE;
+    }
+  }
+
+  /**
    * SEEDED SOURCE ROOTS — materialize the DAG's roots before the first model
    * call of this turn. The scans of the task's listed files are the one part
    * of the dataflow the model cannot decide differently, so the service runs
@@ -2843,6 +3002,31 @@ export class TexeraAgent {
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
           historicalTasks: this.completedStateTasks(),
+          taskBaseStepId: this.taskBaseStepId(stepId),
+          taskNumberOffset: this.taskNumberOffset,
+          taskNumber: this.currentTaskNumber(stepId),
+          loadedStepId: this.loadedStepId(),
+          taskChanges: new Map(
+            this.getVisibleReActSteps()
+              .filter(step => step.messageId === this.stepsById.get(stepId)?.messageId)
+              .flatMap(step =>
+                (step.toolResults ?? []).flatMap(result =>
+                  (asDataflowActionsResult(result.output)?.actions ?? [])
+                    .filter(action => action.status === "ok" && action.action.type === "edit")
+                    .flatMap(action =>
+                      (
+                        (action.output as { operator_blocks?: Array<{ id: string; state: string }> })
+                          ?.operator_blocks ?? []
+                      ).map(block => [block.id, block.state] as const)
+                    )
+                )
+              )
+          ),
+          // Every request of the session so far, for the decimal rule an
+          // answer composed from a table has to follow.
+          requestTexts: this.getVisibleReActSteps()
+            .filter(step => step.role === "user" && step.isBegin)
+            .map(step => String(step.content ?? "")),
         });
         if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
       }

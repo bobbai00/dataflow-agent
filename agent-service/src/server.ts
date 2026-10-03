@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import { observationFormat, observationFormatPatch } from "./agent/native/observation-format";
+
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -233,6 +235,16 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      ...observationFormat(settings),
+      nativeEvidence: {
+        ...observationFormat(settings),
+        data: settings.dataEvidence,
+        flow: settings.flowEvidence,
+        maxChars: settings.maxOperatorResultCharLimit,
+        dataMaxChars: settings.dataEvidenceCharLimit,
+        flowMaxChars: settings.flowEvidenceCharLimit,
+        checks: settings.nativeChecks,
+      },
       dataEvidence: settings.dataEvidence,
       flowEvidence: settings.flowEvidence,
       nativeChecks: settings.nativeChecks,
@@ -607,9 +619,23 @@ async function createAgentInstance(
 /** Render the agent's live settings in the wire shape shared by
  *  `GET /:id`, `GET /:id/settings` and `PATCH /:id/settings` — one source so
  *  a knob the frontend can set is always a knob it can read back. */
+const OBSERVATION_SETTINGS_SCHEMA = {
+  tableFormat: t.Optional(t.Union([t.Literal("markdown"), t.Literal("tsv")])),
+  ...Object.fromEntries(
+    ["keyValueColumns", "columnsShown", "definitionChars", "cellChars", "topValues", "catalogRecords"].map(key => [
+      key,
+      t.Optional(t.Integer({ minimum: 0, maximum: 100000 })),
+    ])
+  ),
+  answerEcho: t.Optional(t.Boolean()),
+  multiTask: t.Optional(t.Boolean()),
+};
+
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   const agentSettings = agent.getSettings();
   return {
+    ...observationFormat(agentSettings),
+    multiTask: agentSettings.multiTask,
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
@@ -629,6 +655,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     dataflowReasoning: agentSettings.dataflowReasoning,
     nativeChecks: agentSettings.nativeChecks,
     stateHistory: agentSettings.stateHistory,
+    stateLedger: agentSettings.stateLedger,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     messageLayout: agentSettings.messageLayout,
@@ -857,6 +884,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             "applying initial agent settings"
           );
           agent.updateSettings({
+            ...observationFormatPatch(settings),
+            multiTask: settings.multiTask,
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
             operatorResultSerializationMode: settings.operatorResultSerializationMode
@@ -878,6 +907,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataflowReasoning: settings.dataflowReasoning,
             nativeChecks: settings.nativeChecks,
             stateHistory: settings.stateHistory,
+            stateLedger: settings.stateLedger,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
             parallelToolCalls: settings.parallelToolCalls,
@@ -960,6 +990,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             maxSteps: t.Optional(t.Number()),
             maxOperatorEdits: t.Optional(t.Number()),
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+            ...OBSERVATION_SETTINGS_SCHEMA,
             nativeProfileCollection: t.Optional(t.Boolean()),
             dataEvidence: t.Optional(t.Boolean()),
             retrievalViews: t.Optional(
@@ -975,6 +1006,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataflowReasoning: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
             stateHistory: t.Optional(t.Boolean()),
+            stateLedger: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -1195,6 +1227,45 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     return { status: "stopping" };
   })
 
+  // Load tables as the state in force before the first request: an edit
+  // program (one `scan` per saved table) plus execution, recorded as a hidden
+  // synthetic step with no model call. Used by the gold-prefix protocol.
+  .post(
+    "/:id/seed-state",
+    async ({ params: { id }, body, set }) => {
+      const agent = getAgent(id);
+      if (agent.getState() !== AgentState.AVAILABLE) {
+        set.status = 409;
+        return { error: `agent is ${agent.getState()} — seed state while it is idle` };
+      }
+      let receipt: Awaited<ReturnType<typeof agent.seedState>>;
+      try {
+        receipt = await agent.seedState(body.changes, body.completedTasks ?? 0);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Refusals about when or how state may be loaded are the caller's to fix.
+        if (/before the first request|requires native mode|seed state while it is idle|completedTasks/.test(message)) {
+          set.status = 409;
+          return { error: message };
+        }
+        throw error;
+      }
+      broadcastNextContext(id, agent);
+      return {
+        status: receipt.status,
+        error: receipt.error ?? null,
+        operators: receipt.operators,
+        actions: receipt.actions.map((item: (typeof receipt.actions)[number]) => ({
+          type: item.action.type,
+          status: item.status,
+          output: item.output,
+        })),
+        headId: agent.getHead(),
+      };
+    },
+    { body: t.Object({ changes: t.String(), completedTasks: t.Optional(t.Integer({ minimum: 0 })) }) }
+  )
+
   // Synchronous one-turn REST entry point — the easy integration surface for
   // external callers (scripts, notebooks, other services) that don't want to
   // speak the WebSocket protocol. Runs one full agent turn and returns the
@@ -1335,6 +1406,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       );
 
       agent.updateSettings({
+        ...observationFormatPatch(settings),
+        multiTask: settings.multiTask,
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
         operatorResultSerializationMode: settings.operatorResultSerializationMode
@@ -1357,6 +1430,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataflowReasoning: settings.dataflowReasoning,
         nativeChecks: settings.nativeChecks,
         stateHistory: settings.stateHistory,
+        stateLedger: settings.stateLedger,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1410,6 +1484,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         maxOperatorEdits: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+        ...OBSERVATION_SETTINGS_SCHEMA,
         nativeProfileCollection: t.Optional(t.Boolean()),
         dataEvidence: t.Optional(t.Boolean()),
         retrievalViews: t.Optional(
@@ -1425,6 +1500,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataflowReasoning: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         stateHistory: t.Optional(t.Boolean()),
+        stateLedger: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),

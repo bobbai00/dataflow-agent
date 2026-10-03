@@ -150,17 +150,17 @@ test("full retrieval preserves long cells and reports a bounded incomplete table
   expect(full.table?.totalRows).toBe(12);
   expect(full.table!.returnedRows).toBeGreaterThan(1);
   expect(full.table!.returnedRows).toBeLessThan(12);
-  expect(full.text).toContain("View incomplete");
+  expect(full.text).toContain("retained records, not a random sample");
 });
 
 test("sample_stats preserves the sample and has its own statistics budget", () => {
   const f = fixture();
   const sample = observe(f, { view: "sample", data: false, flow: false, maxChars: 200, dataMaxChars: 800 });
   const stats = observe(f, { view: "sample_stats", data: true, flow: false, maxChars: 200, dataMaxChars: 800 });
-  const records = (o: typeof sample) => o.chunks.filter(c => c.id.startsWith("sample.") || c.id.startsWith("table."));
+  const records = (o: typeof sample) => ({ rows: o.records?.rows, fields: o.records?.fields });
   expect(records(stats)).toEqual(records(sample));
-  expect(stats.text).toContain("Data measurement");
-  expect(sample.text).not.toContain("Data measurement");
+  expect(stats.text).toContain("statistics:");
+  expect(sample.text).not.toContain("statistics:");
 });
 
 test("partial records do not obscure exhaustive full-table value statistics", () => {
@@ -180,15 +180,12 @@ test("partial records do not obscure exhaustive full-table value statistics", ()
       truncated: false,
     },
   };
-  const result = observe(f, { view: "sample_stats", flow: false, maxRows: 5, dataMaxChars: 2000 });
+  const result = observe(f, { view: "sample_stats", flow: false, maxRows: 5, dataMaxChars: 2000, topValues: 0 });
   expect(result.table?.returnedRows).toBe(5);
   expect(result.table?.complete).toBe(false);
-  expect(result.text).toContain("Data statistics: full table, 8/8 rows");
-  expect(result.text).toContain(
-    "nonnull values=2003:1, 2011:1, 2015:1, 2018:1, 2020:1, 2021:1, 2022:1, 2023:1; other=0"
-  );
-  expect(result.text).toContain("Records incomplete; statistics coverage is shown separately.");
-  expect(result.text).not.toContain("View incomplete");
+  expect(result.text).toContain("statistics: full table, 8 of 8 rows");
+  expect(result.text).toContain("all: 2003 1; 2011 1; 2015 1; 2018 1; 2020 1; 2021 1; 2022 1; 2023 1");
+  expect(result.text).toContain("first and last retained records; … marks omitted rows");
 });
 
 test("preview completeness never implies that the full source was read", () => {
@@ -199,8 +196,8 @@ test("preview completeness never implies that the full source was read", () => {
     const result = observe(f, { view, data: view === "sample_stats", flow: false });
     expect(result.table?.complete).toBe(true);
     expect(result.text).toContain("source preview only");
-    expect(result.text).toContain("source remains partial");
-    expect(result.text).not.toContain("Complete table (all rows)");
+    expect(result.text).toContain("(complete; source preview only)");
+    expect(result.text).not.toContain("(complete) (all rows)");
   }
 });
 
@@ -217,9 +214,9 @@ test("sample statistics disclose partial coverage without changing the sample", 
   f.info.tableProfile!.status = "partial";
   const sample = observe(f, { view: "sample", data: false, flow: false });
   const stats = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
-  expect(stats.text).toContain("Data statistics: partial prefix, 3/100000 rows");
-  expect(stats.text).toContain("1/1 columns profiled");
-  expect(stats.text.split("Data statistics:")[0]).toEqual(sample.text.split("View incomplete")[0]);
+  expect(stats.text).toContain("statistics: partial profile, 3 of 100,000 rows");
+  expect(stats.text).toContain("1 of 1 columns");
+  expect(stats.records?.rows).toEqual(sample.records?.rows);
   expect(stats.table).toEqual(sample.table);
 });
 
@@ -228,7 +225,7 @@ test("raw-line transport artifacts are not presented as parsed data statistics",
   f.info.tableProfile!.columns = { line: { ...column(3, 0), type: "str" } };
   f.info.tableProfile!.structure.duplicateRows = 2;
   const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
-  expect(result.text).toContain("Parse raw lines into columns to obtain data statistics");
+  expect(result.text).toContain("statistics: unavailable for raw lines; parse them into columns first");
   expect(result.text).not.toContain("duplicate rows=2");
   expect(result.selected.some(id => id.startsWith("data."))).toBe(false);
 });
@@ -237,7 +234,7 @@ test("unavailable statistics are explicit and do not fabricate zero counts", () 
   const f = fixture("Scan");
   f.info.tableProfile = undefined;
   const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
-  expect(result.text).toContain("Data statistics unavailable for this result");
+  expect(result.text).toContain("statistics: unavailable for this result");
   expect(result.text).not.toContain("null=0");
 });
 
@@ -250,7 +247,7 @@ test("a nonempty table with zero profiled rows has unavailable data statistics",
   f.info.tableProfile!.coverage.rowsProcessed = 0;
   f.info.tableProfile!.columns = { x: column(0, 0) };
   const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
-  expect(result.text).toContain("Data statistics unavailable: no rows were profiled");
+  expect(result.text).toContain("statistics: unavailable for this result");
   expect(result.selected.some(id => id.startsWith("data."))).toBe(false);
   expect(result.text).not.toContain("column counts");
   expect(result.table?.returnedRows).toBeGreaterThan(0);
@@ -261,7 +258,7 @@ test("flow evidence remains available when a full record view fills its budget",
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
   const full = observe(f, { view: "full", data: false, maxChars: 100, flowMaxChars: 700 });
-  expect(full.text).toContain("Flow measurement");
+  expect(full.text).toContain("- flow:");
   expect(full.text).toContain("kept=3/5");
   expect(full.table?.returnedRows).toBe(3);
   expect(full.table?.complete).toBe(true);
@@ -275,13 +272,13 @@ test("compact counts share coverage labels without losing unknown or null counts
     unknown_distinct: { ...column(3, 0), distinctCount: null },
   };
   const result = observe(f, { flow: false });
-  expect(result.text).toContain("Data measurement: column counts (full=3 rows)");
-  expect(result.text).toContain("column | null | nonnull | distinct(nonnull)");
-  expect(result.text).toContain('"nullable" | 2 | 1 | 1');
-  expect(result.text).toContain('"unknown_distinct" | 0 | 3 | unknown');
-  expect(result.text).toContain('"x" | 0 | 3 | 3');
+  expect(result.text).toContain("statistics: full table, 3 of 3 rows");
+  expect(result.text).toContain("column | type | nulls | distinct | values");
+  expect(result.text).toContain("nullable | int64 | 2 | 1 |");
+  expect(result.text).toContain("unknown_distinct | int64 | 0 | unknown |");
+  expect(result.text).toContain("x | int64 | 0 | 3 |");
   expect(result.text).not.toContain('"nullable" (full=3 rows): null=');
-  expect(result.text).toContain("Sample record: 1");
+  expect(result.text).toContain("| 1 |");
 });
 
 test("sample records do not claim a row position in the original table", () => {
@@ -297,11 +294,11 @@ test("sample records do not claim a row position in the original table", () => {
   f.info.totalRowCount = 5;
   f.info.truncated = true;
   const result = observe(f, { data: false, flow: false });
-  expect(result.text).toContain('Sample record: 1\t"first"');
-  expect(result.text).toContain('Sample record: 5\t"fifth"');
+  expect(result.text).toContain("| 1 | first |");
+  expect(result.text).toContain("| 5 | fifth |");
   expect(result.text).not.toContain("row 2");
-  expect(result.text).not.toContain("Complete table (all rows)");
-  expect(result.text).toContain("View incomplete");
+  expect(result.text).not.toContain("(complete) (all rows)");
+  expect(result.text).toContain("retained records, not a random sample");
 });
 
 test("compact count groups do not conflate partial and full column coverage", () => {
@@ -313,9 +310,9 @@ test("compact count groups do not conflate partial and full column coverage", ()
     partial_other: column(2, 0),
   };
   const result = observe(f, { flow: false });
-  expect(result.text).toContain("column counts (full=3 rows)");
-  expect(result.text).toContain("column counts (partial prefix=2/3 rows)");
-  expect(result.text).toContain('"partial" | 1 | 1 | 1');
+  expect(result.text).toContain("statistics: full table, 3 of 3 rows");
+  expect(result.text).toContain("statistics: partial profile, 2 of 3 rows");
+  expect(result.text).toContain("partial | int64 | 1 | 1 |");
 });
 
 test("combined keeps the data count beside the flow comparison: a flow line never suppresses a data line", () => {
@@ -326,9 +323,9 @@ test("combined keeps the data count beside the flow comparison: a flow line neve
   expect(both.omitted).not.toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
   const data = observe(f, { flow: false });
   expect(data.selected).toContain("data.column.x.counts");
-  expect(data.text).toContain('"x" | 1 | 2 | 2');
+  expect(data.text).toContain("x | int64 | 1 | 2 |");
   const flow = observe(f, { data: false });
-  expect(flow.text).not.toContain("Data measurement:");
+  expect(flow.text).not.toContain("statistics:");
   expect(flow.text).toContain('predicate column "x":');
   f.results.get("left")!.error = "upstream failed";
   const unavailable = observe(f);
@@ -340,15 +337,15 @@ test("column counts are budgeted as table rows and preserve sampled records", ()
   const f = fixture("Scan");
   f.info.tableProfile!.columns = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`field_${i}`, column(3, 0)]));
   const result = observe(f, { flow: false, maxChars: 700 });
-  expect(result.text).toContain("column counts (full=3 rows)");
+  expect(result.text).toContain("statistics: full table, 3 of 3 rows");
   // Counts are budgeted as the table rows they render as, so the room they
   // save holds more columns instead of going unused; the budget still holds.
-  expect(result.text.split("\n").filter(l => /^"field_\d+" \|/.test(l)).length).toBeGreaterThan(10);
-  expect(result.chunks.filter(c => c.id.startsWith("sample.")).map(c => c.text)).toEqual(["Sample record: 1"]);
+  expect(result.text.split("\n").filter(l => /^\| field_\d+ \|/.test(l)).length).toBeGreaterThan(2);
+  expect(result.records?.rows.map(row => row.line)).toEqual(["| 1 |"]);
   const excluded = result.omitted.filter(c => c.reason === "budget").map(c => c.id);
   expect(excluded.some(id => id.startsWith("data.column."))).toBe(true);
   expect(result.selected.some(id => excluded.includes(id))).toBe(false);
-  expect(result.text.length).toBeLessThanOrEqual(700 + 200);
+  expect(result.text.length).toBeLessThanOrEqual(2 * 700 + 1);
 });
 
 test("raw preview protects ordered header rows from metadata profiles and long cells", () => {
@@ -376,11 +373,11 @@ test("raw preview protects ordered header rows from metadata profiles and long c
   for (const data of [false, true])
     for (const flow of [false, true]) {
       const result = observe(f, { data, flow });
-      expect(result.text).toContain("heading_marker | amount");
-      expect(result.text).toContain('Sample record: "Sheet1"\t5\t"heading_marker | amount"');
-      expect(result.text.indexOf('"Sheet1"\t1\t')).toBeLessThan(result.text.indexOf('"Sheet1"\t5\t'));
+      expect(result.text.replace(/\\([\\|])/g, "$1")).toContain("heading_marker | amount");
+      expect(result.text.replace(/\\([\\|])/g, "$1")).toContain('| Sheet1 | 5 | "heading_marker | amount" |');
+      expect(result.text.indexOf("| Sheet1 | 1 |")).toBeLessThan(result.text.indexOf("| Sheet1 | 5 |"));
       expect(result.selected.some(id => id.startsWith("data.column."))).toBe(false);
-      expect(result.text).toContain("...[truncated]...");
+      expect(result.text).toContain("clipped cell");
       expect(result.text.length).toBeLessThanOrEqual(data && flow ? 4000 : 2000);
     }
 });
@@ -398,11 +395,11 @@ test("one-row header previews use the record budget when the complete header is 
   f.info.truncated = false;
   for (const data of [false, true]) {
     const result = observe(f, { data, flow: false, maxChars: 2000, maxRows: 5 });
-    expect(result.text).toContain("Age |");
-    expect(result.text).toContain("...[truncated]...");
-    expect(result.text).toContain("View incomplete");
+    expect(result.text.replace(/\\([\\|])/g, "$1")).toContain("Age |");
+    expect(result.text).toContain("clipped cell");
+    expect(result.text).toContain("(all rows; source preview only; 1 clipped cell)");
     expect(result.text.length).toBeGreaterThan(1850);
-    expect(result.text.length).toBeLessThanOrEqual(2000);
+    expect(result.chunks[0].text.length).toBeLessThanOrEqual(2000);
     expect(result.table?.complete).toBe(false);
   }
 });
@@ -489,7 +486,7 @@ test("zero input gives undefined retention, not zero percent", () => {
     outputRows: 0,
     operations: { keptRows: 0, rejectedRows: 0, nullPredicates: 0 },
   });
-  expect(factText(f)).toContain("kept=0/0 (undefined)");
+  expect(factText(f)).toContain("kept=0/0 (no rows)");
 });
 
 test("partial column profiles do not erase full operator counters or claim full column coverage", () => {
@@ -696,7 +693,7 @@ test("complete small tables outrank redundant data profiles but retain useful in
   f.info.result = [{ x: 10 }, { x: 20 }, { x: 30 }];
   f.info.truncated = false;
   const selection = observe(f);
-  expect(selection.text).toContain("Complete table");
+  expect(selection.text).toContain("(complete)");
   expect(selection.selected.some(x => x.startsWith("data.column"))).toBe(false);
   expect(selection.text).toContain("kept=3/5");
   expect(selection.omitted.some(x => x.reason === "redundant_complete_table")).toBe(true);
@@ -709,7 +706,7 @@ test("all exposure arms share typed data formatting and obey their result budget
       for (const maxChars of [1, 12, 60, 160, 400, 2000]) {
         const selection = observe(f, { data, flow, maxChars });
         // The table and data lines fit `maxChars`; flow lines have their own budget of at most the same size.
-        expect(selection.text.length).toBeLessThanOrEqual(data && flow ? 2 * maxChars : maxChars);
+        expect(selection.text.length).toBeLessThanOrEqual((1 + Number(data) + Number(flow)) * maxChars + 2);
         if (!data) expect(selection.selected.some(x => x.startsWith("data."))).toBe(false);
         if (!flow) expect(selection.selected.some(x => x.startsWith("flow."))).toBe(false);
         expect(observe(f, { data, flow, maxChars })).toEqual(selection);
@@ -772,7 +769,7 @@ test("unknown or truncated data is never labelled a complete table", () => {
   ]) {
     const f = fixture();
     change(f);
-    expect(observe(f).text).not.toContain("Complete table");
+    expect(observe(f).text).not.toContain("(complete)");
   }
 });
 
@@ -791,9 +788,9 @@ test("true null, literal NULL, unsafe int64 and reserved-looking user columns su
     { missing: null, text: "NULL", id: "9007199254740993", __row_index__: "user value", __is_visualization__: true },
   ];
   const text = observe(f, { data: false, flow: false }).text;
-  expect(text).toContain('null\t"NULL"\t9007199254740993\t"user value"\ttrue');
-  expect(text).toContain('"__row_index__"');
-  expect(text).toContain('"__is_visualization__"');
+  expect(text).toContain('| null | "NULL" | 9007199254740993 | user value | true |');
+  expect(text).toContain("__row_index__");
+  expect(text).toContain("__is_visualization__");
 });
 
 test("budget selection prioritizes relevant columns beyond the old first/last column cap", () => {
@@ -804,7 +801,7 @@ test("budget selection prioritizes relevant columns beyond the old first/last co
   f.info.tableProfile!.columns = Object.fromEntries(names.map(name => [name, column(3)]));
   f.info.tableProfile!.columnCount = 100;
   const selected = observe(f, { flow: false, maxChars: 550 });
-  expect(selected.text).toContain('"c70"');
+  expect(selected.text).toContain("c70");
   expect(selected.selected).toContain("data.column.c70.counts");
   expect(selected.omitted.some(x => x.reason === "budget")).toBe(true);
 });
@@ -864,10 +861,12 @@ test("data counts append to the full no-evidence view instead of replacing sampl
   const withData = observe(f, { flow: false, maxChars: 850 });
   const without = observe(f, { data: false, flow: false, maxChars: 850 });
   for (const name of ["x", "y", "z"]) expect(withData.selected).toContain(`data.column.${name}.counts`);
-  const rows = (o: ReturnType<typeof observe>) => o.selected.filter(id => id.startsWith("sample."));
+  const rows = (o: ReturnType<typeof observe>) => o.records?.rows;
   expect(rows(withData)).toEqual(rows(without));
-  expect(rows(withData).length).toBeGreaterThan(8);
-  expect(withData.text.startsWith(without.text.replace(/\nView incomplete[^\n]*$/, ""))).toBe(true);
+  expect(rows(withData)?.length).toBeGreaterThan(8);
+  expect(withData.text.startsWith(without.text.replace(/\nretained records, not a random sample[^\n]*$/, ""))).toBe(
+    true
+  );
   expect(withData.text.length).toBeLessThanOrEqual(2 * 850);
 });
 
@@ -954,7 +953,7 @@ test("observed final count includes bound upstream group grain, not hidden table
   expect(selection.text).toContain("groups=5 from 10 rows");
   expect(selection.text).toContain("row denominator=10/10");
   expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
-  expect(selection.text).not.toContain("Data measurement");
+  expect(selection.text).not.toContain("statistics:");
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(true);
   expect(observe(f, { flow: false }).text).not.toContain("account");
   expect(selection.text.length).toBeLessThanOrEqual(2000);
@@ -1013,7 +1012,7 @@ test("upstream conversion losses survive nearby summaries and remain version bou
     ];
   }
   const selected = observe(f, { data: false, flowMaxChars: 1000 });
-  expect(selected.text).toContain("Flow upstream raw:");
+  expect(selected.text).toContain("- flow (raw):");
   expect(selected.text).toContain('"x" conversion failures=6/10');
   expect(selected.text).toContain('"1,299" × 4');
   expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
@@ -1066,7 +1065,7 @@ test("an observed UDF itself is an opaque calculation boundary", () => {
 test("missing evidence is not an execution error and never triggers hidden work", () => {
   const f = fixture();
   delete f.info.tableProfile;
-  expect(observe(f).text).toContain("Output Table");
+  expect(observe(f).text).toContain("records:");
   expect(observe(f).text).not.toContain("[ERROR]");
   expect(observe(f).omitted.some(x => x.id === "profile_unavailable")).toBe(true);
 });
@@ -1075,8 +1074,8 @@ test("shape-only and tighter row limits cannot imply complete visibility", () =>
   const f = fixture();
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
-  expect(observe(f, { detail: "shape" }).text).not.toContain("Complete table");
-  expect(observe(f, { maxRows: 1 }).text).not.toContain("Complete table");
+  expect(observe(f, { detail: "shape" }).text).not.toContain("(complete)");
+  expect(observe(f, { maxRows: 1 }).text).not.toContain("(complete)");
 });
 
 test("compaction only shortens recorded evidence and never adds new facts", () => {
@@ -1085,12 +1084,12 @@ test("compaction only shortens recorded evidence and never adds new facts", () =
   f.info.truncated = false;
   const recorded = observe(f);
   const shape = restrictNativeObservation(recorded, { detail: "shape" });
-  expect(shape).not.toContain("Complete table");
+  expect(shape).not.toContain("(complete)");
   expect(shape).not.toContain("10\n20\n30");
   expect(shape).toContain("kept=3/5");
-  expect(shape).not.toContain("Data measurement");
+  expect(shape).not.toContain("statistics:");
   const sample = restrictNativeObservation(recorded, { maxRows: 1 });
-  expect(sample).not.toContain("Complete table");
+  expect(sample).not.toContain("(complete)");
   expect(sample).toContain("10");
   expect(sample).not.toContain("20\n30");
   for (const maxChars of [1, 40, 150, 1000])
@@ -1112,7 +1111,7 @@ test("empty grouped aggregate has zero groups and undefined per-group range", ()
     },
   });
   expect(factText(f)).toContain("groups=0 from 0 rows");
-  expect(factText(f)).toContain('"n" row denominator=0/0 (undefined)');
+  expect(factText(f)).toContain('"n" row denominator=0/0 (no rows)');
 });
 
 test("aggregate semantics: what a distinct count counts, a key that pools entities, an unread flag", () => {

@@ -22,6 +22,8 @@ import { jsonSchema, tool } from "ai";
 import type { NativeBatchOutcome } from "./native-batch-tools";
 import type { RetrievalView } from "../../types/agent";
 import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
+import { renderActionObservations } from "../native/action-observations";
+import type { ObservationFormatSettings } from "../native/observation-format";
 
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
@@ -37,8 +39,9 @@ export type DataflowAction =
   | { type: "fork"; task_id: number; operator_id: string; new_operator_id: string }
   | { type: "edit"; changes: string }
   | { type: "execute"; operator_ids?: string[] }
-  | { type: "retrieve"; operator_id: string; view: RetrievalView }
-  | { type: "answer"; content: string };
+  | { type: "retrieve"; operator_id: string; view: RetrievalView; columns?: string[] }
+  | { type: "answer"; content: string }
+  | { type: "answer"; from: string };
 
 export interface DataflowActionsInput {
   reasoning: string;
@@ -65,6 +68,8 @@ export interface DataflowActionsResult {
   observationErrors: string[];
   error?: string;
   answer?: string;
+  /** Frozen settings for this receipt; later settings changes do not rewrite it. */
+  format?: ObservationFormatSettings;
 }
 
 const text = { type: "string", minLength: 1, pattern: "\\S" };
@@ -89,7 +94,7 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
     minItems: 1,
     maxItems: 32,
     description:
-      "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer must be the only action.",
+      "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
     items: {
       anyOf: [
         action("inspect", "List operator IDs, kinds, and data edges with their ports. Does not execute.", {
@@ -130,9 +135,23 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
           { operator_id: text, view: { type: "string", enum: [...RETRIEVAL_VIEWS] } }
         ),
         action(
+          "retrieve",
+          "Read an existing result restricted to the named columns, in the same views; use it on a wide table instead of a projection operator when only some columns are needed. Never executes.",
+          {
+            operator_id: text,
+            view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
+            columns: { type: "array", items: text, minItems: 1 },
+          }
+        ),
+        action(
           "answer",
           "Return the final response and end the loop. Must be the only action; base the answer on results already received.",
           { content: text }
+        ),
+        action(
+          "answer",
+          "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed); several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, over 50 rows, unrounded decimals) is refused with the reason.",
+          { from: text }
         ),
       ],
     },
@@ -151,15 +170,6 @@ STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
       operator_id: { anyOf: [text, { type: "array", items: text, minItems: 1, maxItems: 8 }] },
       include_implementation: { type: "boolean" },
       view: { anyOf: [{ type: "string", enum: [...RETRIEVAL_VIEWS] }, { type: "null" }] },
-    }
-  ),
-  action(
-    "fork",
-    "Copy an operator and its full upstream definitions from a completed task into this graph under new IDs. Keeps current operators unchanged. Does not execute. Retrieve can read available saved observations; execute computes the copied graph for further analysis. Inspect the returned mapping before rewiring an older formula to current inputs.",
-    {
-      task_id: taskId,
-      operator_id: text,
-      new_operator_id: text,
     }
   )
 );
@@ -191,8 +201,9 @@ function validationMessage(input: any, stateHistory: boolean): string {
         candidates.find(v =>
           "target" in v.schema.properties
             ? (v.schema.properties as any).target.const === item?.target
-            : "task_id" in v.schema.properties === (item && "task_id" in item)
-        );
+            : (v.schema.required as string[]).every(key => item && key in item)
+        ) ??
+        (item?.type === "inspect" ? undefined : candidates[0]);
       if (!selected)
         return `Action ${index + 1} (inspect): target must be graph, operator${stateHistory ? ", or state" : ""}.`;
       if (!selected.validate(item))
@@ -209,7 +220,7 @@ export const DATAFLOW_ACTIONS_DESCRIPTION =
   "Edits do not run the graph; retrieval reads existing results. " +
   "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
   "After an execution failure, inspect and retrieve may still read independent completed results. " +
-  "Answer must be the only action in its call.";
+  "An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.";
 
 /** Validate first. The agent resolves this receipt after creating the step's
  * snapshot, in onStepFinish, before another model request or stop decision.
@@ -264,10 +275,20 @@ export function prepareDataflowActions(
     result.error = `Retrieve view ${JSON.stringify(unavailable.view)} is unavailable. Use ${views.join(", ")}. No actions ran.`;
     return result;
   }
-  if (request.actions.some(a => a.type === "answer") && request.actions.length !== 1) {
-    result.status = "error";
-    result.error = "Answer must be the only action. Retrieve results in an earlier call before answering.";
-    return result;
+  const answerAt = request.actions.findIndex(a => a.type === "answer");
+  if (answerAt !== -1) {
+    const answer = request.actions[answerAt];
+    if (request.actions.filter(a => a.type === "answer").length > 1 || answerAt !== request.actions.length - 1) {
+      result.status = "error";
+      result.error = "One answer per call, as the last action. No actions ran.";
+      return result;
+    }
+    if ("content" in answer && request.actions.length !== 1) {
+      result.status = "error";
+      result.error =
+        "An answer with content must be the only action. Retrieve results in an earlier call before answering, or answer with from to compose the answer from an executed table.";
+      return result;
+    }
   }
   result.actions = structuredClone(request.actions).map((a, i) => ({ index: i + 1, action: a, status: "pending" }));
   return result;
@@ -283,7 +304,10 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
   };
   for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
     (retrieve.properties as any).view.enum = [...views];
-    retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
+    const scoped = "columns" in retrieve.properties;
+    retrieve.description = scoped
+      ? `Read an existing result restricted to the named columns, in the same views (${views.join(", ")}); use it on a wide table instead of a projection operator when only some columns are needed. Never executes.`
+      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
   }
   for (const inspect of schema.properties.actions.items.anyOf.filter(
     a => "target" in a.properties && (a.properties as any).target.const === "state"
@@ -293,7 +317,7 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
     description:
       DATAFLOW_ACTIONS_DESCRIPTION +
       (stateHistory
-        ? " Operator history inspection and fork are available. History inspection requires operator IDs; task_id selects their saved versions."
+        ? " Saved task state: answering a task saves every operator's definition and result under that task's number. inspect target=state reads an operator as task N saved it (task_id) or lists its versions (task_id null); in an Edit, `update operator <id> from task <N>` restores that definition in place and `fork operator <id> from task <N> as <new_id>` copies it with the inputs it had at task N."
         : ""),
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),
@@ -325,7 +349,8 @@ export async function runDataflowActions(
       item.output = structuredClone(outcome.output);
       if (outcome.status === "error")
         result.error ??= `Action ${item.index} (${item.action.type}) failed: ${typeof outcome.output === "string" ? outcome.output : JSON.stringify(outcome.output)}`;
-      else if (item.action.type === "answer") result.answer = item.action.content;
+      else if (item.action.type === "answer")
+        result.answer = "content" in item.action ? item.action.content : String((outcome.output as any)?.answer ?? "");
     } catch (error) {
       item.status = "error";
       item.output = error instanceof Error ? error.message : String(error);
@@ -337,58 +362,5 @@ export async function runDataflowActions(
 }
 
 export function renderDataflowActionsResult(result: DataflowActionsResult): string {
-  if (!result.actions.length) return `[ERROR] ${result.error ?? "No actions were run."}`;
-  return result.actions
-    .map(item => {
-      let body = typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2);
-      if (item.output && typeof item.output === "object") {
-        const output = item.output as Record<string, any>;
-        if (item.action.type === "retrieve" && typeof output.text === "string") {
-          body = `Operator ${output.operator_id}${output.revision ? ` (revision ${output.revision})` : ""}\n${output.text}`;
-          if (output.view && output.table)
-            body = `View ${output.view}: ${output.table.returnedRows}/${output.table.totalRows ?? "?"} rows, ${output.table.columnsShown}/${output.table.totalColumns} columns; ${output.table.complete ? "complete" : "incomplete"}.\n${body}`;
-          if (output.historical_state)
-            body = `Saved result: task ${output.historical_state.task_id}, operator ${output.historical_state.operator_id}.\n${body}`;
-          if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
-        } else if (item.action.type === "edit" && item.status === "ok" && Array.isArray(output.changes)) {
-          body = [
-            `Applied ${output.changes.length} graph changes.`,
-            ...output.changes.flatMap((change: any) =>
-              change.deleted_edges?.length
-                ? [`- ${change.operator_id}: automatically deleted edges: ${change.deleted_edges.join("; ")}`]
-                : []
-            ),
-            ...(output.unconnected_inputs?.length
-              ? [`Unconnected required inputs: ${output.unconnected_inputs.join(", ")}`]
-              : []),
-            ...(output.invalidated_results?.length
-              ? [`Invalidated results: ${output.invalidated_results.join(", ")}`]
-              : []),
-          ].join("\n");
-        } else if ((item.action.type === "edit" || item.action.type === "execute") && Array.isArray(output.operators)) {
-          // The full receipt stays in the trace. Replaying every successful
-          // operator after every execution makes multi-task context grow with
-          // all prior branches, even when the model only needs one new result.
-          const compact = item.action.type === "execute";
-          const operators = compact
-            ? output.operators.filter((op: any) => op.status !== "ok" || op.message || op.checks?.length)
-            : output.operators;
-          body = [
-            ...(compact
-              ? [
-                  `${output.operators.filter((op: any) => op.status === "ok").length} operators completed. Retrieve results separately.`,
-                ]
-              : []),
-            ...operators.map(
-              (op: any) =>
-                `- ${op.id}: ${op.status}${op.message ? ` — ${op.message}` : `, ${op.rows ?? "unknown"} rows; result not requested`}${op.checks?.length ? `\n${op.checks.join("\n")}` : ""}`
-            ),
-            ...(output.blocked ?? []).map((op: any) => `- ${op.id}: blocked — ${op.message}`),
-            ...(output.error ? [`Execution error: ${output.error}`] : []),
-          ].join("\n");
-        }
-      }
-      return `${item.index}. ${item.action.type}: ${item.status}\n${body ?? ""}`;
-    })
-    .join("\n\n");
+  return renderActionObservations(result);
 }

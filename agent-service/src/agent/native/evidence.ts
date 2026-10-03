@@ -17,6 +17,16 @@
  * under the License.
  */
 
+import {
+  renderRecords,
+  restrictRecords,
+  renderTable,
+  displayValue,
+  observationFormat,
+  formatCount,
+  type FrozenRecords,
+  type ObservationFormatOptions,
+} from "./observation-format";
 import type { OperatorInfo, ResultVersion } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { NATIVE_BY_TYPE } from "./catalog";
@@ -35,6 +45,9 @@ export interface NativeEvidenceContext {
   resolveInput: (id: string) => OperatorInfo | undefined;
   /** Explicit inspection scope; this is not a materialized-table projection. */
   columns?: readonly string[];
+  /** The name shown for an operator of `workflow` when the model knows it by
+   * another one (a fork of an earlier task's version). */
+  displayName?: (id: string) => string;
 }
 
 export interface NativeEvidenceFact {
@@ -48,7 +61,7 @@ export interface NativeEvidenceFact {
   upstream?: NativeUpstreamIdentity;
 }
 
-export interface NativeObservationOptions {
+export interface NativeObservationOptions extends ObservationFormatOptions {
   data: boolean;
   flow: boolean;
   maxChars: number;
@@ -63,7 +76,9 @@ export interface NativeObservationOptions {
 /** Audit metadata is not appended to model text. Full version references are
  * retained here; short prefixes in text are display labels, not cache keys. */
 export interface NativeObservation {
-  version: 1;
+  version: 1 | 2;
+  /** Frozen encoded records; historical restriction never reads a newer result. */
+  records?: FrozenRecords;
   resultVersion: string | null;
   inputs: ResultVersion["inputs"];
   options: NativeObservationOptions;
@@ -90,7 +105,7 @@ const record = (x: unknown): Record<string, any> =>
 const count = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x >= 0;
 const names = (x: unknown): string[] => (Array.isArray(x) ? x.filter((v): v is string => typeof v === "string") : []);
 const json = (x: unknown) => JSON.stringify(x);
-const fraction = (n: number, d: number) => `${n}/${d}${d === 0 ? " (undefined)" : ""}`;
+const fraction = (n: number, d: number) => `${n}/${d}${d === 0 ? " (no rows)" : ""}`;
 const scalarText = (x: ProfileScalar) => (x.type === "int64" ? x.value : json(x.value));
 const lexical = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -305,7 +320,7 @@ function aggregateSemantics(
         if (!read.has(name) && !(name in profile.columns) && flagLike(source.info, c, source.info.totalRowCount ?? 0))
           lines.push([
             `flow.aggregate.dropped.${source.op.operatorID}.${name}`,
-            `source \`${source.op.operatorID}\` column ${json(name)} (${values(c)}) was dropped on the way here without any operator reading it.`,
+            `source \`${context.displayName?.(source.op.operatorID) ?? source.op.operatorID}\` column ${json(name)} (${values(c)}) was dropped on the way here without any operator reading it.`,
           ]);
     }
     facts.push(...lines.slice(0, 2));
@@ -656,6 +671,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       else omissions.push("invalid_join_counters");
     } else {
       const sides = [record(join.left), record(join.right)];
+      // Semi and anti joins keep left rows once each: the matched or the unmatched ones.
+      const membership = type === "semi" || type === "anti";
       const valid =
         join.type === type &&
         join.nullsEqual === (p.nullsEqual ?? false) &&
@@ -683,19 +700,23 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             s.distinctKeys <= s.eligibleRows &&
             s.matchedKeys <= s.matchedRows &&
             s.maxMultiplicity <= s.eligibleRows &&
-            s.matchedRows <= join.matchedOutputRows
+            (membership ? i === 1 || s.matchedRows === join.matchedOutputRows : s.matchedRows <= join.matchedOutputRows)
         ) &&
         sides[0].matchedKeys === sides[1].matchedKeys &&
-        join.matchedOutputRows +
-          (["left", "full"].includes(type as string) ? sides[0].unmatchedRows : 0) +
-          (["right", "full"].includes(type as string) ? sides[1].unmatchedRows : 0) ===
-          out;
+        (membership
+          ? out === (type === "semi" ? sides[0].matchedRows : sides[0].unmatchedRows)
+          : join.matchedOutputRows +
+              (["left", "full"].includes(type as string) ? sides[0].unmatchedRows : 0) +
+              (["right", "full"].includes(type as string) ? sides[1].unmatchedRows : 0) ===
+            out);
       if (valid) {
         add(
           "flow.join.output",
           "flow",
           "measurement",
-          `Join matched contribution=${join.matchedOutputRows} (sum L(k)*R(k)); output=${out}, including outer unmatched rows as declared.`,
+          membership
+            ? `${type === "semi" ? "Semi" : "Anti"} join output=${out}: the left rows with ${type === "semi" ? "a" : "no"} match on the right, each once.`
+            : `Join matched contribution=${join.matchedOutputRows} (sum L(k)*R(k)); output=${out}, including outer unmatched rows as declared.`,
           96
         );
         sides.forEach((s, i) => {
@@ -921,279 +942,210 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   return { facts, omissions: [...new Set(omissions)] };
 }
 
-function cellText(value: unknown, type: string): string {
-  if (value === null) return "null";
-  if (type === "int64" && typeof value === "string" && /^-?(0|[1-9]\d*)$/.test(value)) return value;
-  return json(value) ?? "[unavailable]";
-}
-
-/** Evidence is additive. The table (shape, schema, sample rows) is the same in
- * every arm and fits `maxChars`. Data measurements and flow evidence each get a
- * budget of their own, equal to the room the table's first allocation (shape,
- * schema, reserved rows) left, so neither family displaces a row or the other
- * family: the Data-only view is the no-evidence view plus the data lines, the
- * Flow-only view is it plus the flow lines, and the combined view is both.
- * Errors use the separate diagnostic path. */
+/** The record allocation is identical with either evidence switch. Each
+ * enabled evidence family appends within its independent display budget. */
 export function selectNativeObservation(context: NativeEvidenceContext & NativeObservationOptions): NativeObservation {
   const { op, info, data, flow } = context;
   const maxChars = Number.isFinite(context.maxChars) ? Math.max(0, Math.floor(context.maxChars)) : 2000;
+  const format = observationFormat(context);
+  const records = renderRecords(info, {
+    ...format,
+    maxChars,
+    view: context.view,
+    maxRows: context.view === "full" ? 0 : context.maxRows,
+    columns: context.columns,
+    detail: context.detail,
+    preview: op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0,
+    relevant: relevance(context),
+  });
+  const evidence = collectNativeEvidence(context);
   const result: NativeObservation = {
-    version: 1,
+    version: 2,
     resultVersion: info.resultVersion?.id ?? null,
     inputs: structuredClone(info.resultVersion?.inputs ?? []),
     options: {
+      ...format,
       data,
       flow,
       maxChars,
       maxRows: context.maxRows,
       detail: context.detail,
       columns: context.columns ? [...context.columns] : undefined,
-      ...(context.view
-        ? { view: context.view, dataMaxChars: context.dataMaxChars, flowMaxChars: context.flowMaxChars }
-        : {}),
+      view: context.view,
+      dataMaxChars: context.dataMaxChars,
+      flowMaxChars: context.flowMaxChars,
     },
     text: "",
-    selected: [],
-    chunks: [],
-    omitted: [],
+    records: records.frozen,
+    table: {
+      totalRows: records.totalRows,
+      returnedRows: records.returnedRows,
+      totalColumns: records.totalColumns,
+      columnsShown: records.columnsShown,
+      complete: records.complete,
+    },
+    selected: [records.complete ? "table.complete" : "table.records"],
+    chunks: [{ id: records.complete ? "table.complete" : "table.records", text: records.text }],
+    omitted: evidence.omissions.map(id => ({ id, reason: "unavailable" as const })),
   };
-  // Three parts, each with its own budget; chunks are pushed in text order
-  // (table, data lines, flow lines, notice).
-  const lines: string[] = [];
-  const dataLines: string[] = [];
-  const flowLines: string[] = [];
-  const recordNotice = "View incomplete; unshown rows/columns or evidence omitted.";
-  const statsNotice = "Records incomplete; statistics coverage is shown separately.";
-  const NOTICE = context.view === "sample_stats" ? statsNotice : recordNotice;
-  // All sample views reserve the same space, so adding statistics cannot
-  // displace records or change which cells are visible.
-  const noticeChars = Math.max(recordNotice.length, statsNotice.length);
-  const used = (list: string[]) => list.join("\n").length + (list.length ? 1 : 0);
-  const pushTo =
-    (list: string[], budget: () => number) =>
-    (text: string, id: string): boolean => {
-      if (used(list) + text.length > budget()) return false;
-      list.push(text);
-      result.selected.push(id);
-      result.chunks.push({ id, text });
-      return true;
-    };
-  let evidenceBudget = 0;
-  const append = pushTo(lines, () => maxChars);
-  const appendData = pushTo(dataLines, () => context.dataMaxChars ?? evidenceBudget);
-  const appendFlow = pushTo(flowLines, () => context.flowMaxChars ?? evidenceBudget);
-  const rows = info.result ?? [];
-  const rawPreview = op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0;
-  const schema =
-    info.resultSchema ?? Object.keys(rows[0] ?? {}).map(name => ({ name, type: "unknown", encoding: "unknown" }));
-  const total = count(info.totalRowCount) ? info.totalRowCount : undefined;
-  const summary = `Output Table: ${total ?? "?"} rows, ${schema.length} cols${rawPreview ? " (source preview only)" : ""}`;
-  if (!append(summary, "table.shape")) {
-    result.text = maxChars >= 9 ? "[omitted]" : "…".slice(0, maxChars);
-    result.omitted.push({ id: "table", reason: "budget" });
-    return result;
-  }
-  const rowLimit =
-    context.view !== "full" && context.maxRows && context.maxRows > 0 ? Math.floor(context.maxRows) : rows.length;
-  const schemaLine = (fields: typeof schema) => `Columns: ${fields.map(c => `${json(c.name)}:${c.type}`).join("\t")}`;
-  const rowLine = (row: Record<string, unknown>, fields: typeof schema) =>
-    fields.map(c => cellText(own(row, c.name) ? row[c.name] : undefined, c.type)).join("\t");
-  const complete =
-    context.detail !== "shape" &&
-    !!info.resultSchema &&
-    total !== undefined &&
-    total === rows.length &&
-    info.truncated === false &&
-    rowLimit >= rows.length &&
-    (!context.columns?.length || schema.every(c => context.columns!.includes(c.name))) &&
-    rows.every(row =>
-      schema.every(
-        c => own(row, c.name) && !(typeof row[c.name] === "string" && row[c.name].includes("...[truncated]..."))
-      )
-    );
-  const table = [
-    schemaLine(schema),
-    rawPreview ? "Complete preview output (source remains partial):" : "Complete table (all rows):",
-    ...rows.map(row => rowLine(row, schema)),
-  ].join("\n");
-  const completeVisible = complete && append(table, "table.complete");
-  let columnsShown = completeVisible ? schema.length : 0;
-  const evidence = collectNativeEvidence(context);
-  result.omitted.push(...evidence.omissions.map(id => ({ id, reason: "unavailable" as const })));
-  // Rows that overflow the sample reserve fill the rest of the table's budget,
-  // exactly as without evidence; evidence facts never compete with them.
-  const rowCandidates: NativeEvidenceFact[] = [];
-  const dataCandidates: NativeEvidenceFact[] = [];
-  const flowCandidates: NativeEvidenceFact[] = [];
-  if (!completeVisible && context.view === "full") {
-    // Preserve stored order and cell contents. The transport may itself be
-    // truncated; a full request must never label that partial result complete.
-    const reserve = noticeChars + 1;
-    const appendRecord = pushTo(lines, () => Math.max(0, maxChars - reserve));
-    if (appendRecord(schemaLine(schema), "table.schema")) {
-      columnsShown = schema.length;
-      for (const [i, row] of rows.entries()) if (!appendRecord(rowLine(row, schema), `record.${i}`)) break;
-    } else appendRecord("Columns omitted: budget", "table.schema_omitted");
-  } else if (!completeVisible) {
-    const relevant = relevance(context);
-    const allowed = schema.filter(c => !context.columns?.length || context.columns.includes(c.name));
-    // Relevant columns first, then the table's own order: a lexical tie-break
-    // showed col0, col1, col10.. col137 of a 180-column table, and the model
-    // read the fourth shown column as col3.
-    const position = new Map(schema.map((c, i) => [c.name, i]));
-    const ranked = [...allowed].sort(
-      (a, b) =>
-        Number(relevant.has(b.name)) - Number(relevant.has(a.name)) || position.get(a.name)! - position.get(b.name)!
-    );
-    const selected: typeof schema = [];
-    const schemaBudget = Math.max(0, Math.floor(maxChars * 0.3));
-    for (const c of ranked)
-      if (schemaLine([...selected, c]).length + (selected.length + 1 === schema.length ? 0 : 24) <= schemaBudget)
-        selected.push(c);
-    // Keep the declared schema order within the selected column subset.
-    const fields = schema.filter(c => selected.includes(c));
-    columnsShown = fields.length;
-    if (fields.length)
-      append(
-        `${schemaLine(fields)}${fields.length === schema.length ? "" : ` (shown=${fields.length}/${schema.length})`}`,
-        "table.schema"
-      );
-    else append("Columns omitted: budget", "table.schema_omitted");
-    if (context.detail !== "shape" && fields.length) {
-      const order = Array.from({ length: rows.length }, (_, i) =>
-        rawPreview ? i : i % 2 === 0 ? i / 2 : rows.length - 1 - Math.floor(i / 2)
-      ).slice(0, rowLimit);
-      // Reserve part of the SAME budget for records. Preview prefixes expose
-      // headers beneath preambles; clipping cells must not hide entire rows.
-      const sampleBudget = Math.floor(maxChars * (rawPreview ? 0.75 : 0.25));
-      let sampleChars = 0;
-      for (const [rank, i] of order.entries()) {
-        const sampleRow = Object.fromEntries(
-          fields.map(c => {
-            const value = rows[i][c.name];
-            const cap = rawPreview ? 120 : 160;
-            return [
-              c.name,
-              typeof value === "string" && value.length > cap ? value.slice(0, cap) + "...[truncated]..." : value,
-            ];
-          })
-        );
-        // Retained samples can omit interior rows; do not imply table positions.
-        const prefix = "Sample record: ";
-        let sampleText = prefix + rowLine(sampleRow, fields);
-        // A one-row preview is the documented way to inspect a wide header.
-        // Spend its remaining record budget on the raw line, including JSON
-        // escaping, instead of applying the multi-row 120-character clip.
-        const rawLine = rows[i].line;
-        if (rawPreview && order.length === 1 && typeof rawLine === "string" && fields.some(c => c.name === "line")) {
-          const budget = Math.max(0, maxChars - used(lines) - noticeChars - 1);
-          const render = (length: number) =>
-            prefix +
-            rowLine(
-              { ...sampleRow, line: rawLine.slice(0, length) + (length < rawLine.length ? "...[truncated]..." : "") },
-              fields
-            );
-          const fullLine = render(rawLine.length);
-          if (fullLine.length <= budget) sampleText = fullLine;
-          else if (render(0).length <= budget) {
-            let lower = 0;
-            let upper = rawLine.length - 1;
-            while (lower < upper) {
-              const middle = Math.ceil((lower + upper) / 2);
-              if (render(middle).length <= budget) lower = middle;
-              else upper = middle - 1;
-            }
-            sampleText = render(lower);
-          }
-        }
-        const fact: NativeEvidenceFact = {
-          id: `sample.${i}`,
-          family: "data",
-          kind: "measurement",
-          text: sampleText,
-          priority: rank === 0 ? 105 : 35 - rank,
-        };
-        if (sampleChars + fact.text.length + 1 <= sampleBudget && append(fact.text, fact.id)) {
-          sampleChars += fact.text.length + 1;
-        } else rowCandidates.push(fact);
-      }
+  const append = (
+    id: string,
+    text: string,
+    budget: number,
+    family: "data" | "flow",
+    members?: string[],
+    upstream?: NativeUpstreamIdentity
+  ) => {
+    const used = result.chunks
+      .filter(c => c.id.startsWith(`${family}.`))
+      .map(c => c.text)
+      .join("\n").length;
+    if (used + (used ? 1 : 0) + text.length > budget) {
+      (members ?? [id]).forEach(id => result.omitted.push({ id, reason: "budget" }));
+      return false;
     }
-    result.omitted.push({ id: "table.complete", reason: complete ? "budget" : "unavailable" });
-  }
-  // Each evidence family gets the room the table's first allocation left
-  // (minus the incompleteness notice); the same size for data and flow.
-  evidenceBudget = Math.max(0, maxChars - used(lines) - (completeVisible ? 0 : noticeChars + 1));
+    result.chunks.push({ id, text, ...(members ? { members } : {}), ...(upstream ? { upstream } : {}) });
+    if (id !== "data.status") result.selected.push(...(members ?? [id]));
+    return true;
+  };
   for (const fact of evidence.facts) {
     if (!(fact.family === "data" ? data : flow)) result.omitted.push({ id: fact.id, reason: "disabled" });
-    else if (completeVisible && fact.family === "data")
+    else if (records.complete && fact.family === "data")
       result.omitted.push({ id: fact.id, reason: "redundant_complete_table" });
-    else (fact.family === "flow" ? flowCandidates : dataCandidates).push(fact);
   }
-  // Ties keep collection order, which follows the table's own column order.
-  const byPriority = (a: NativeEvidenceFact, b: NativeEvidenceFact) => b.priority - a.priority;
-  // Overflow rows fill the table's budget but never the notice's place.
-  const appendRow = pushTo(lines, () => maxChars - (completeVisible ? 0 : noticeChars + 1));
-  for (const fact of rowCandidates.sort(byPriority))
-    if (!appendRow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
-  if (data && context.view === "sample_stats" && !completeVisible) {
-    const profile = validProfile(info) ? info.tableProfile : undefined;
-    const status = isRawLineTable(op, info)
-      ? "Parse raw lines into columns to obtain data statistics."
-      : !profile
-        ? "Data statistics unavailable for this result."
-        : profile.coverage.rowsProcessed === 0 && total !== 0
-          ? "Data statistics unavailable: no rows were profiled."
-          : `Data statistics: ${profile.coverage.complete && profile.coverage.rowsProcessed === total ? "full table" : "partial prefix"}, ${profile.coverage.rowsProcessed}/${total ?? "?"} rows; ${Object.keys(profile.columns).length}/${schema.length} columns profiled.`;
-    if (!appendData(status, "view.data_status")) result.omitted.push({ id: "view.data_status", reason: "budget" });
-  }
-  // Column counts are rendered as rows of one table, so they are budgeted as
-  // those rows (a header once, then a short line per column), not as the
-  // sentences they were collected as; the rest of the data lines follow.
-  // One table per coverage scope (full vs partial prefix), each contiguous.
-  const scopes = new Map<string, NativeEvidenceFact[]>();
-  const dataBudget = context.dataMaxChars ?? evidenceBudget;
-  // Wide count tables otherwise consume the entire display allocation. Leave
-  // room for distributions/ranges while retaining the existing small-budget
-  // behavior and prioritizing counts for columns used by the graph.
-  const countsBudget =
-    dataBudget >= 600 && dataCandidates.some(f => !f.columnCount) ? Math.floor(dataBudget / 2) : dataBudget;
-  const countsStart = used(dataLines);
-  for (const fact of dataCandidates.filter(f => f.columnCount).sort(byPriority))
-    scopes.set(fact.columnCount!.scope, [...(scopes.get(fact.columnCount!.scope) ?? []), fact]);
-  for (const [scope, counts] of scopes) {
-    const header = `Data measurement: column counts (${scope})\ncolumn | null | nonnull | distinct(nonnull)`;
-    let shown = false;
-    for (const fact of counts) {
-      const c = fact.columnCount!;
-      const row = `${json(c.column)} | ${c.nulls} | ${c.nonnull} | ${c.distinct ?? "unknown"}`;
-      if (used(dataLines) - countsStart + (shown ? 0 : header.length + 1) + row.length + 1 > countsBudget) {
-        result.omitted.push({ id: fact.id, reason: "budget" });
-        continue;
+  const dataBudget = Math.max(0, context.dataMaxChars ?? maxChars);
+  if (data && records.complete)
+    append("data.complete", "statistics: not shown; the complete records above show every value", dataBudget, "data");
+  if (data && !records.complete) {
+    const profile = validProfile(info) && evidence.facts.some(f => f.columnCount) ? info.tableProfile : undefined;
+    const raw = isRawLineTable(op, info);
+    if (raw || !profile || (profile.coverage.rowsProcessed === 0 && records.totalRows !== 0)) {
+      append(
+        "data.status",
+        raw
+          ? "statistics: unavailable for raw lines; parse them into columns first"
+          : "statistics: unavailable for this result",
+        dataBudget,
+        "data"
+      );
+    } else {
+      const candidates = evidence.facts
+        .filter(f => f.columnCount && (!context.columns?.length || context.columns.includes(f.columnCount.column)))
+        .sort((a, b) => b.priority - a.priority);
+      const groups = new Map<number, NativeEvidenceFact[]>();
+      for (const fact of candidates) {
+        const rowCount = fact.columnCount!.rows;
+        groups.set(rowCount, [...(groups.get(rowCount) ?? []), fact]);
       }
-      if (!shown && used(dataLines) + header.length + row.length + 2 > (context.dataMaxChars ?? evidenceBudget)) {
-        result.omitted.push({ id: fact.id, reason: "budget" });
-        continue;
+      for (const [rowCount, facts] of groups) {
+        const full = profile.coverage.complete && rowCount === records.totalRows;
+        const caption = (shown: number) =>
+          `statistics: ${full ? "full table" : "partial profile"}, ${formatCount(rowCount)} of ${formatCount(records.totalRows)} rows, ${shown} of ${records.totalColumns} columns${full ? "" : " (values describe profiled rows only)"}`;
+        const rows: string[][] = [];
+        const members: string[] = [];
+        const fields = ["column", "type", "nulls", "distinct", "values"];
+        for (const fact of facts) {
+          const c = fact.columnCount!;
+          const column = profile.columns[c.column];
+          // Integers (counts, identifiers, years) stay exact: a rounded bound
+          // such as 1478000 for 1478146 reads as a value of the table. Only
+          // non-integer statistics are rounded to 4 significant digits.
+          const display = (v: ProfileScalar, round = true) =>
+            displayValue(
+              v.type === "float64" &&
+                round &&
+                Number.isFinite(Number(v.value)) &&
+                !Number.isInteger(Number(v.value))
+                ? Number(Number(v.value).toPrecision(4))
+                : v.value,
+              v.type,
+              format.tableFormat
+            ).text;
+          const ranged = ["int64", "float64", "datetime"].includes(column.type) && column.min && column.max;
+          let values = ranged ? `${display(column.min!)} to ${display(column.max!)}` : "";
+          const frequencies = column.frequencies;
+          if (frequencies?.values.length) {
+            const shown = format.topValues > 0 ? frequencies.values.slice(0, format.topValues) : frequencies.values;
+            const exhaustive =
+              !frequencies.truncated && frequencies.otherCount === 0 && shown.length === frequencies.values.length;
+            values =
+              (values ? values + "; " : "") +
+              `${exhaustive ? "all:" : "top:"} ${shown.map(item => `${display(item.value, false)} ${formatCount(item.count)}`).join("; ")}${exhaustive ? "" : " (not exhaustive)"}`;
+          }
+          const row = [
+            displayValue(c.column, "str", format.tableFormat).text,
+            columnTypeName(column.type),
+            formatCount(c.nulls),
+            formatCount(c.distinct),
+            values,
+          ];
+          const tentative = `${caption(rows.length + 1)}\n${renderTable(fields, [...rows, row], format.tableFormat)}`;
+          const existing = result.chunks
+            .filter(c => c.id.startsWith("data."))
+            .map(c => c.text)
+            .join("\n").length;
+          if (tentative.length + existing + (existing ? 1 : 0) > dataBudget) {
+            result.omitted.push({ id: fact.id, reason: "budget" });
+            continue;
+          }
+          rows.push(row);
+          members.push(fact.id);
+          if (ranged) members.push(`data.column.${c.column}.range`);
+          if (frequencies?.values.length && values) members.push(`data.column.${c.column}.values`);
+        }
+        if (rows.length)
+          append(
+            `data.statistics.${rowCount}`,
+            `${caption(rows.length)}\n${renderTable(fields, rows, format.tableFormat)}`,
+            dataBudget,
+            "data",
+            members
+          );
+        else
+          append(
+            "data.status",
+            `statistics: omitted (budget); ${formatCount(rowCount)} rows profiled`,
+            dataBudget,
+            "data"
+          );
       }
-      if (!shown) shown = appendData(header, `data.counts.header.${scope}`);
-      if (!appendData(row, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
+      for (const fact of evidence.facts.filter(
+        f => f.family === "data" && !f.columnCount && !/^data\.column\./.test(f.id)
+      ))
+        append(fact.id, `- note: ${fact.text.replace(/^Data \w+: /, "")}`, dataBudget, "data");
     }
   }
-  for (const fact of dataCandidates.filter(f => !f.columnCount).sort(byPriority))
-    if (!appendData(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
-  for (const fact of flowCandidates.sort(byPriority))
-    if (!appendFlow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
-  const notice = !completeVisible && append(NOTICE, "view.omissions");
-  // Text order = chunk order: the table, the data lines, the flow lines, then the notice.
-  const tableLines = notice ? lines.slice(0, -1) : lines;
-  result.text = [...tableLines, ...dataLines, ...flowLines, ...(notice ? lines.slice(-1) : [])].join("\n");
-  result.table = {
-    totalRows: total ?? null,
-    returnedRows: completeVisible ? rows.length : result.selected.filter(id => /^(sample|record)\./.test(id)).length,
-    totalColumns: schema.length,
-    columnsShown,
-    complete: !!completeVisible,
-  };
-  return compactNativeObservation(result, evidence.facts);
+  if (flow) {
+    const budget = Math.max(0, context.flowMaxChars ?? maxChars);
+    const facts = evidence.facts.filter(f => f.family === "flow").sort((a, b) => b.priority - a.priority);
+    const notice = "- note: flow facts omitted (budget).";
+    const allText = facts.map(fact => {
+      const origin = fact.upstream && (context.displayName?.(fact.upstream.operatorId) ?? fact.upstream.operatorId);
+      const text = fact.text.replace(/^Flow upstream [^:]+:\s*/, "").replace(/^Flow \w+:\s*/, "");
+      return `- flow${origin ? ` (${origin})` : ""}: ${fact.kind === "guarantee" ? "contract; " : ""}${text}`;
+    });
+    const needsNotice = allText.join("\n").length > budget;
+    for (const [index, fact] of facts.entries()) {
+      append(
+        fact.id,
+        allText[index],
+        needsNotice ? Math.max(0, budget - notice.length - 1) : budget,
+        "flow",
+        undefined,
+        fact.upstream
+      );
+    }
+    if (needsNotice) append("flow.omitted", notice, budget, "flow");
+  }
+  result.text = result.chunks
+    .map(c => c.text)
+    .filter(Boolean)
+    .join("\n");
+  return result;
+}
+
+function columnTypeName(type: string): string {
+  return type === "unsupported" ? "unknown" : type;
 }
 
 /** Historical compaction is subtractive: it may drop rows or tail chunks,
@@ -1202,6 +1154,40 @@ export function restrictNativeObservation(
   observation: NativeObservation,
   limits: { maxChars?: number; maxRows?: number; detail?: "sample" | "shape" }
 ): string {
+  if (observation.version === 2 && observation.records) {
+    const budget =
+      limits.maxChars && limits.maxChars > 0
+        ? Math.min(observation.text.length, limits.maxChars)
+        : observation.text.length;
+    if (budget >= observation.text.length && !limits.maxRows && limits.detail !== "shape") return observation.text;
+    const evidence = observation.chunks.filter(c => !c.id.startsWith("table."));
+    const render = (cap: number) => {
+      const records = restrictRecords(observation.records!, {
+        maxChars: Math.min(cap, observation.options.maxChars),
+        maxRows: limits.maxRows,
+        detail: limits.detail === "shape" ? "shape" : undefined,
+      });
+      const chunks = [records.text];
+      let retained = 0;
+      // "The complete records above show every value" holds only while the
+      // restricted records are still complete.
+      for (const chunk of evidence.filter(c => c.id !== "data.complete" || records.complete)) {
+        if ([...chunks, chunk.text].join("\n").length > cap) break;
+        chunks.push(chunk.text);
+        retained++;
+      }
+      return { text: chunks.filter(Boolean).join("\n"), retained };
+    };
+    let rendered = render(budget);
+    if (rendered.retained < evidence.length) {
+      const notice = "- note: evidence omitted (budget).";
+      if (notice.length <= budget) {
+        rendered = render(Math.max(0, budget - notice.length - 1));
+        return [rendered.text, notice].filter(Boolean).join("\n");
+      }
+    }
+    return rendered.text;
+  }
   // A combined data+flow observation may legitimately exceed `options.maxChars`
   // (each family has its own budget); without an explicit limit it is kept whole.
   const recorded = Math.max(observation.options.maxChars, observation.text.length);
