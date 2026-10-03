@@ -19,10 +19,12 @@
 
 # Operator definitions: catalog, commands and receipts
 
-Status: proposal preview. This file shows the operator definitions the model
+Status: implemented reference. This file shows the operator definitions the model
 reads in the system prompt, writes in an edit, and reads again in an observation.
 The catalog below is a snapshot of `graphCatalogText()` from the current
-`NATIVE_OPERATORS`; the formatting proposal keeps those contracts.
+`NATIVE_OPERATORS`; the observation format keeps those contracts. The generated
+[operator reference](../../native-mode/OPERATORS.md) and
+[tool schema](../../native-mode/TOOLS.md) show the exact current catalog.
 
 | surface | definition shown | connections and Python |
 |---|---|---|
@@ -30,7 +32,7 @@ The catalog below is a snapshot of `graphCatalogText()` from the current
 | edit call | complete expression after `create operator <id>:` or `update operator <id>:` | explicit edge commands; named functions indented under their operator |
 | inspect receipt | the stored expression for that operator, shown whole | actual input IDs; attached functions when include_implementation is true |
 | task catalog or earlier-input provenance | the same stored expression, capped by definitionChars | actual input IDs, result shape and columns |
-| ordinary edit receipt | definition omitted because the call holds it | changed operator IDs and edge lines; rollback includes the restored definition |
+| ordinary edit receipt | definition omitted because the call holds it | changed operator IDs and edge lines; a restore or fork from an earlier task includes the restored definition |
 
 Inputs are supplied through edges. The definition itself has no upstream
 table arguments. A signature is the contract for a kind of operator; a
@@ -47,10 +49,6 @@ Internal JSON Schema and normalization functions remain in the runtime catalog.
 scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)
     Ports: no inputs -> out.
     Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source.
-
-values(column=value_or_list)
-    Ports: no inputs -> out.
-    A literal one-column table named by its keyword: values(country=["Canada", "Mexico"]) is 2×1 and values(threshold=0.25) is 1×1. Cells are str, int, float, bool or None, one type per column. For values the request names and no table holds.
 
 project(keep=None, drop=None, rename=None)
     Ports: in -> out.
@@ -143,7 +141,7 @@ shows its full definition:
 ```
 
 A task's catalog entry uses the same definition, with the task's change word
-in the header. A rollback includes it in the edit receipt because that call
+in the header. A restore includes it in the edit receipt because that call
 names the task to restore and does not contain the restored expression.
 
 ## A join and its input ports

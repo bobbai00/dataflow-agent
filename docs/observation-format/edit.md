@@ -24,7 +24,7 @@ settings: [README.md](README.md).
 
 The receipt lists one operator block per operator the edit touched, in the
 order inputs before consumers, then one edge line per edge change. Definitions
-are left out, because the call directly above holds them; a rollback is the
+are left out, because the call directly above holds them; a restore is the
 exception. The summary line counts the changes and names the results the edit
 invalidated.
 
@@ -83,29 +83,29 @@ operator appears as `reconnected`:
 - created edge: orders.out -> totals.in
 ```
 
-`rollback operator <id> to task <N>` (`stateHistory` only) shows the restored
+`update operator <id> from task <N>` (`stateHistory` only) shows the restored
 definition, since the call does not hold it, and the inputs that changed since
 task N:
 
 ```
 ### 1. edit: ok
 1 change applied; results invalidated: report.
-- **score** (map, rolled back to task 2)
+- **score** (map, restored from task 2)
   - definition: `map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")`
   - inputs: joined
   - note: its inputs are today's; changed since task 2: eligible.
 ```
 
-`rollback operator <id> to task <N> as <new_id>` copies the version and its
+`fork operator <id> from task <N> as <new_id>` copies the version and its
 task-N inputs under new names:
 
 ```
 ### 1. edit: ok
 2 changes applied.
-- **score_t3__joined** (join, copied from task 3)
+- **score_t3__joined** (join, forked from task 3)
   - definition: `join(on="k", how="inner")`
   - inputs: left eligible, right top8
-- **score_t3** (map, copied from task 3)
+- **score_t3** (map, forked from task 3)
   - definition: `map(lambda row: {**row, "score": row["k"] * 3}, doc="Tripled k")`
   - inputs: score_t3__joined
   - result: 70 rows × 3 columns (saved by task 3; retrieve it, or execute after changing it)

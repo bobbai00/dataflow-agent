@@ -260,12 +260,13 @@ it is upstream of the one retrieved:
 
 ## A result read from an earlier task (`stateHistory`)
 
-A copy made by `rollback … as <new_id>` can be read before it is executed; its
+A copy made by `fork operator … as <new_id>` can be read before it is executed; its
 saved result is marked:
 
 ```
 ### 2. retrieve ranking_t2: ok
-- **ranking_t2** (sort, copied from task 2)
+- **ranking_t2** (sort, saved)
+  - inputs: `ranking_t2__scores`
   - result: 15 rows × 4 columns (saved by task 2)
 records: …
 ```
@@ -286,7 +287,12 @@ records are no longer current:
 
 ```
 ### 3. retrieve review: error
-- error RESULT_NOT_RUN: `review` has never been executed.
+- error RESULT_NOT_RUN: `review` has not been executed. Execute it, then retrieve.
+```
+
+```
+### 3. retrieve top_doubled: error
+- error RESULT_NOT_RUN: `top_doubled` did not run because upstream `doubled` failed. Repair it, execute, then retrieve.
 ```
 
 ```

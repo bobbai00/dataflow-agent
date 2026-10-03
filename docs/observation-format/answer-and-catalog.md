@@ -27,13 +27,15 @@ The call holds the answer, so the receipt confirms it without repeating it
 (`answerEcho: false`):
 
 ```
-### 1. answer: recorded
+### 1. answer: ok
+Answer recorded.
 ```
 
 With `answerEcho: true`, the answer follows on one line:
 
 ```
-### 1. answer: recorded
+### 1. answer: ok
+Answer recorded.
 answer: {"fractional_top_five": ["Thailand", "Turkey", "Spain", "Egypt", "Taiwan"]}
 ```
 
@@ -66,9 +68,10 @@ deleted, inputs before consumers, each in its final version. Intermediate
 attempts stay in the task's earlier receipts and are not repeated.
 
 ```
-### 1. answer: recorded
+### 1. answer: ok
+Answer recorded.
 #### Task 5
-22 tables created; none changed or deleted.
+22 tables created.
 - **fractional_assignment** (project, created)
   - definition: `project(keep=["show_id", "country", "country_credit_equal"])`
   - inputs: country_long
@@ -97,8 +100,8 @@ Rules:
 
 - **Which tables.** Those whose definition or inputs differ from the start of
   the task, plus those deleted during it.
-- **Change words.** `created`, `updated`, `reconnected`, `rolled back to task
-  N`, `copied from task N`, `deleted`. A table created and then updated within
+- **Change words.** `created`, `updated`, `reconnected`, `restored from task
+  N`, `forked from task N`, `deleted`. A table created and then updated within
   the task is `created`.
 - **Order.** Inputs before consumers; ties keep creation order.
 - **Fields.** The definition is shown here, cut at `definitionChars`, because
@@ -112,4 +115,4 @@ Rules:
   loaded at the start of the session.
 
 Without `stateLedger` there is no catalog entry; the receipt is
-`### 1. answer: recorded`.
+`### 1. answer: ok` and `Answer recorded.`.

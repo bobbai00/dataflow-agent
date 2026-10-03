@@ -21,8 +21,9 @@
 
 Building blocks and settings: [README.md](README.md).
 
-The [complete proposed system prompt](system-prompt.md) shows the resulting
-text, including its full operator catalog and examples. The
+The [approved system prompt](system-prompt.md) shows the restructured
+shared core, its full operator catalog, examples using enabled data and flow
+statistics, and a separate multi-task extension. The
 [operator-definition reference](operator-definitions.md) also shows every
 catalog entry and how an authored definition appears in a receipt. Complete
 sample layouts are in [retrieve.md](retrieve.md#sample).
@@ -30,7 +31,7 @@ sample layouts are in [retrieve.md](retrieve.md#sample).
 ## A whole call
 
 The tool message for one call is the receipts of its actions in order,
-separated by blank lines, with no wrapper text (today it opens with
+separated by blank lines, with no wrapper text (previously it opened with
 `dataflow-actions: completed` and `Observation:`).
 
 A call that fails validation runs nothing and has a single receipt:
@@ -61,8 +62,8 @@ When an action fails, the actions after it are skipped, except `inspect` and
 ## The request listing (gold-prefix protocol)
 
 The "tables in force" section of a gold-prefix request is the operator index,
-with list constants loaded as `values` tables; scalar constants stay on one
-line:
+with list constants loaded as one-column tables (parquet scans); scalar
+constants stay on one line:
 
 ```
 Tables in force after task 4:
@@ -90,7 +91,7 @@ everything else. Each entry gives:
 | `schema` | JSON Schema of the normalized parameters |
 | `normalize` | turns the parsed arguments into those parameters, with the error messages the model sees |
 
-The system prompt's "Operators" section is generated from it by
+The system prompt's operator catalog is generated from it by
 `graphCatalogText()`: for each operator, its signature without the input
 tables, a `Ports:` line and the `brief`. The parser validates every edit
 against the same entries, and `native/python/runtime.py` implements them, so
@@ -102,39 +103,11 @@ history and the ledger), `native-mode/TOOLS.md` (the tool schema).
 
 ## System-prompt text that changes with this format
 
-Only the passages that describe observations change; the rest of the prompt
-does not mention their format.
-
-1. **New, under "The dataflow tool":** one paragraph on how to read a receipt.
-
-   > Each action's receipt opens with `### <n>. <action> <target>: <status>`
-   > and a summary line. An operator appears as a block, `- **id** (kind,
-   > state)` followed by its definition, inputs, result and columns; a table
-   > appears as a caption that names its view and says how many rows and
-   > columns it shows of how many, followed by the table or wide key-value
-   > records. Sample records are retained examples, not a random sample.
-   > Issues follow the block they concern:
-   > `error <CODE>` with where and how to fix it, `note` for what the system
-   > observed, `check` for a finding, `flow` for execution evidence, and
-   > `not run` for operators that did not run.
-
-2. **"Run and read":** "Retrieval reports the returned and total rows and
-   columns and whether the view is complete" becomes "Each table's caption says
-   which view was requested, how many rows and columns it shows of how many,
-   and whether the whole table is visible. A cut in rows, columns or cell text
-   is announced and prevents a whole-table completeness claim."
-3. **Statistics** (`nativeEvidenceText`): the paragraph about "Data measurement
-   lines" and "other=0" becomes a description of the statistics table: one row
-   per column with type, nulls, distinct nonnull values and a range, a mean when
-   collected, or value frequencies; `all:` means the list is exhaustive for
-   the profile, `top: … (not exhaustive)` that it is not. A complete value set
-   for the whole table also requires full profile coverage.
-4. **Flow evidence:** "Flow measurement lines … flow guarantees …" becomes
-   "`flow` lines", while preserving whether a line reports a measurement or
-   states an operator contract.
-5. **Earlier tasks:** "An answer's receipt is the task's ledger" becomes "An
-   answer's receipt is the task's catalog entry", and the entry is described
-   by its operator blocks.
-6. **Worked responses:** the full proposed prompt shows a complete partial
-   record view with its statistics and a rejected edit with its repair hint,
-   beside the existing worked calls.
+The prompt follows the structure agreed on 2026-10-03: the role and the
+dataflow tool (actions, editing, the operator catalog, Python, reading
+observations), then solving a task (with earlier tasks in a multi-task
+session), then examples for a single task, reading statistics, several tasks
+and earlier versions. Its observation passages describe exactly the blocks in
+this specification, and every example receipt is real renderer output adapted
+to the session's settings. [system-prompt.md](system-prompt.md) describes what
+each setting adds; the generated variants are in [native-mode](../../native-mode).

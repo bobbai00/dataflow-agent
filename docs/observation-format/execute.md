@@ -24,8 +24,9 @@ results; returns status, not tables. Building blocks and settings:
 [README.md](README.md).
 
 The summary line counts the operators in scope by state. Only operators with
-something to report get a block: a failure, a note, a check or (with
-`flowEvidence`) a flow line. Operators that did not run are grouped by cause on
+something to report get a block: a failure, an empty result (`note: empty
+table.`, under every setting), a note, a check or (with `flowEvidence`) a flow
+line. Operators that did not run are grouped by cause on
 `not run` lines.
 
 ## Everything ran
@@ -75,7 +76,7 @@ A failed operator gets its error; the operators it blocked are grouped:
 23 operators: 9 executed, 13 cached, 1 failed.
 - **fractional_genre_period** (filter, failed)
   - error MISSING_COLUMN: the function reads `added_year`, which input `fractional_genre_titles` does not have (its columns: show_id, country, credit, index, genre).
-    - at: line 2 `return row["added_year"] is not None and row["added_year"] >= 2010 and …`
+    - at: apply line 2: `return row["added_year"] is not None and row["added_year"] >= 2010 and …`
     - fix: read an existing column, or bring `added_year` in upstream.
 - not run: fractional_country_genres, fractional_country_genres_distinct, fractional_genre_counts (upstream `fractional_genre_period` failed)
 - not run: fractional_period, fractional_measures (the run stopped when `fractional_genre_period` failed; they do not read from it)

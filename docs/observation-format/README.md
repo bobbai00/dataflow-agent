@@ -19,7 +19,10 @@
 
 # Observation format: specification
 
-Status: proposal for review, 2026-10-03. Nothing here is implemented yet.
+Status: implemented, 2026-10-03. The approved format is used by native action
+receipts, retrieved results, task catalogs and gold-prefix request listings.
+See [validation.md](validation.md) for regression coverage and real Luna
+benchmark results.
 
 This specification fixes one format for every text the native agent reads
 about its dataflow: the receipt of each action, the task entry in the catalog
@@ -27,30 +30,39 @@ about its dataflow: the receipt of each action, the task entry in the catalog
 from the gold-prefix pilot (Netflix, task 5) where one exists and the system
 prompt's `orders`/`totals` example otherwise.
 
-To see the proposed text directly:
+To see the format directly:
 
 - [Sample records](retrieve.md#sample): complete Markdown, TSV and wide
   key-value receipts, plus quoted values and an announced text-cell cut.
-- [System prompt](system-prompt.md): the complete proposed default prompt,
-  with all template fields expanded, and the optional history, catalog and
-  flow-evidence passages.
+- [System prompt](system-prompt.md): the complete shared prompt, with data
+  and flow statistics enabled for review, four examples of using them, and a
+  separate multi-task section with optional history, catalog and tools.
 - [Operator definitions](operator-definitions.md): all 16 catalog entries,
   followed by the exact definitions in edit calls and inspection receipts,
   including attached Python functions.
 
+The generated [default prompt](../../native-mode/SYSTEM_PROMPT.txt),
+[prompt with statistics](../../native-mode/SYSTEM_PROMPT_WITH_EVIDENCE.txt),
+[multi-task prompt](../../native-mode/SYSTEM_PROMPT_WITH_STATE.txt) and
+[tool schema](../../native-mode/TOOLS.md) reflect the runtime implementation.
+Regenerate them with `bun run render:native-reference` in `agent-service`;
+the test suite checks that they stay in sync.
+
 | file | covers |
 |---|---|
 | this file | requirements, building blocks, value rules, settings, decisions |
-| [inspect.md](inspect.md) | `inspect` of the graph, of one operator, of a sealed version |
-| [edit.md](edit.md) | `edit` with each graph command: create, update and delete operator, create and delete edge, rollback |
+| [inspect.md](inspect.md) | `inspect` of the graph, of one operator, of a saved version |
+| [edit.md](edit.md) | `edit` with each graph command: create, update and delete operator, create and delete edge, restore and fork from an earlier task |
 | [execute.md](execute.md) | `execute` of the whole graph or a selection |
 | [retrieve.md](retrieve.md) | `retrieve` in every view, with statistics and flow evidence |
 | [answer-and-catalog.md](answer-and-catalog.md) | `answer` with `content` or `from`, and the catalog task entry |
 | [calls-and-prompt.md](calls-and-prompt.md) | rejected calls, skipped actions, the request listing, and the system-prompt text that changes |
-| [system-prompt.md](system-prompt.md) | complete proposed default system prompt and optional setting passages |
+| [system-prompt.md](system-prompt.md) | restructured shared system prompt, statistics examples and multi-task extensions |
 | [operator-definitions.md](operator-definitions.md) | complete prompt catalog and authored/inspected operator definitions |
+| [validation.md](validation.md) | fixes, test coverage and Luna runs, including the fork-and-restore run against DSGym |
+| [findings-and-plan-2026-10-03.md](findings-and-plan-2026-10-03.md) | why the dataflow agent lost to DSGym on later turns, and the change plan (working table, compacted history) |
 
-Today the model reads five styles: JSON from `inspect`, tab-separated
+Before this change the model read five styles: JSON from `inspect`, tab-separated
 `Sample record:` lines from `retrieve`, pipe tables mixed with prose lines for
 statistics, bracketed codes for errors (`[MISSING_COLUMN; execute; revision …]`),
 and compact arrow lines in the ledger (`name 10,012×23 join ← a, b · …`).
@@ -71,9 +83,11 @@ and compact arrow lines in the ledger (`name 10,012×23 join ← a, b · …`).
    only: it is empty, or it repeats what the same call already contains.
 5. **One vocabulary.** Shapes, types, statuses, changes and states use the words
    listed under "Vocabulary" and no others.
-6. **Exact values, announced cuts.** Records show stored values unrounded;
-   statistics round to 4 significant digits. Every limit is a setting, and every
-   cut says what was left out.
+6. **Exact values, announced cuts.** Records show integers exactly and
+   fractions with 15 significant digits, which drops float64 rounding noise
+   (`63.154`, not `63.153999999999996`); non-integer statistics round to 4
+   significant digits, while integer bounds and counts stay exact. Every limit is a setting, and every cut says what was
+   left out.
 7. **Inputs before consumers.** Every list of operators is ordered so an
    operator appears after its inputs; ties keep creation order.
 8. **Written once.** Nothing shown is rewritten later; a catalog entry is
@@ -86,8 +100,9 @@ and compact arrow lines in the ledger (`name 10,012×23 join ← a, b · …`).
 | shape | `10,012 rows × 23 columns` in a block, `10,012 × 23` in an index row |
 | column type | `str`, `int64`, `float64`, `bool`, `datetime` (the `cast` types) |
 | action status | `ok`, `error`, `skipped` |
-| change, in an edit or a catalog entry | `created`, `updated`, `deleted`, `reconnected` (edges only), `rolled back to task N`, `copied from task N` |
-| state, outside an edit | `loaded`, `executed`, `cached`, `stale`, `failed`, `not run`, `sealed by task N` |
+| change, in an edit or a catalog entry | `created`, `updated`, `deleted`, `reconnected` (edges only), `recomputed` (new result only), `stale` (result invalidated, not recomputed; catalog only), `restored from task N`, `forked from task N` |
+| change, in a versions list | `created`, `updated`, `inputs changed`, `recomputed`, `restored from task N`, `deleted` |
+| state, outside an edit | `executed`, `cached`, `stale`, `failed`, `not run`, `saved` (a copy showing an earlier task's result), `saved by task N` (an operator as an earlier task saved it) |
 | issue kind | `error <CODE>`, `check`, `note`, `flow`, `not run` |
 
 ## Building blocks
@@ -110,8 +125,8 @@ Fields, in this order:
 | definition | the expression after `create operator <id>:`; a process shows `process(fn=…, doc="…")` | when the call does not already hold it |
 | functions | the attached Python, in a fenced block | `inspect` with implementation only |
 | inputs | names; ports only where there are several: `left`/`right`, `in[0]`/`in[1]` | operators with inputs |
-| origin | `task N` or `loaded` | operators that predate the current task |
-| result | shape, or the state when there is no current result: `stale (execute to recompute)`, `not run`, `failed` | always after an edit has been executed once |
+| origin | `task N` (the task that last defined it) or `loaded` (unchanged since loaded state) | operators defined before the current task |
+| result | shape, `shape (saved by task N)` for a copy not yet executed, or the state when there is no current result: `stale (execute to recompute)`, `not run`, `failed` | always after an edit has been executed once |
 | columns | `name type` pairs, capped by `columnsShown` | completed results |
 | used by | the operators that read it | `inspect` and provenance |
 | issues | issue lines | when any |
@@ -197,9 +212,8 @@ statistics: full table, 10,012 of 10,012 rows
 | country_credit_equal | float64 | 0 | 10 | 0.08333 to 1, mean 0.7966 |
 ```
 
-`values` reads `all: …` when the list is exhaustive, `top: … (not exhaustive)`
-otherwise, and `min to max` with a mean when collected for numbers and
-datetimes. A partial profile
+The `values` column reads `all: …` when the list is exhaustive, `top: … (not
+exhaustive)` otherwise, and `min to max` for numbers and datetimes. A partial profile
 says so in the caption: `statistics: first 2,000 of 10,012 rows`.
 
 ### Value rules
@@ -232,7 +246,7 @@ for complete examples.
 - not run: fractional_country_genres, fractional_genre_counts (upstream `fractional_genre_period` failed)
 ```
 
-| kind | source | today |
+| kind | source | previous format |
 |---|---|---|
 | `error <CODE>` | a failed operator or action; `at` and `fix` follow when known | `[ERROR] … [CODE; stage; revision] …` plus `Hint:`, `Field:`, `Diagnostic:` lines |
 | `note` | what the system observed about the state: empty or top-k inputs, current pools, retyped literals, a replaced column, a renamed join column, booleans reduced as 1/0 | `note:` lines, ledger only, plus the adjustment lines |
@@ -257,18 +271,22 @@ model's text.
 | `flowEvidenceCharLimit` | flow lines per retrieve (existing setting) | 2,000 |
 | `catalogRecords` | rows of each table retrieved in a task, repeated in its catalog entry (0 = off) | 0 |
 | `answerEcho` | repeat an answer's `content` in its receipt | false |
+| `multiTask` | include the separate session section from the first request; also enabled by history/catalog capabilities or subsequent requests | false |
+
+For format limits, 0 means unlimited, except `catalogRecords: 0`, which
+disables catalog records, and `keyValueColumns: 0`, which keeps records in
+tables. Format settings can be patched atomically; earlier receipts and
+catalog entries retain their original representation.
 
 ## Decisions
 
-Settled:
+Implemented decisions:
 
 1. Markdown is the default syntax; `tableFormat` switches tables to TSV.
 2. The operator index appears only in `inspect graph` and the request listing.
 
-Open, with a proposal:
-
 3. **Edit receipts leave definitions out,** because the call directly above
-   holds them. A rollback is the exception, since its definition is not in the
+   holds them. A restore is the exception, since its definition is not in the
    call.
 4. **Execute lists only operators with an issue;** the rest are counted.
 5. **Catalog records are off by default:** with full history, the retrieve
@@ -277,5 +295,6 @@ Open, with a proposal:
    controlled comparison found (GPT-4.1-nano, 1,000 records × 8 attributes),
    key-value records scored 60.7%, Markdown tables 51.9%, CSV 44.3%; not yet
    tested on our models and tables.
-7. **`fork` leaves the tool schema.** `rollback operator <id> to task <N> as
-   <new_id>` covers it, and the prompt no longer mentions it.
+7. **Earlier versions are edit commands.** The `fork` action left the tool
+   schema; `fork operator <id> from task <N> as <new_id>` and `update operator
+   <id> from task <N>` are edit commands (2026-10-03, replacing `rollback`).

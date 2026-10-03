@@ -129,39 +129,46 @@ An unknown operator:
 - error UNKNOWN_OPERATOR: no operator `totals_v2`. Similar names: totals.
 ```
 
-## A sealed version (`stateHistory` only)
+## A saved version (`stateHistory` only)
 
 `"target": "state"` with a `task_id` returns the operator block as that task
-sealed it, with its immediate inputs as one-line blocks:
+saved it, with its immediate inputs as one-line blocks:
 
 ```
 ### 1. inspect score at task 2: ok
-- **score** (map, sealed by task 2)
+- **score** (map, saved by task 2)
   - definition: `map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")`
   - inputs: joined
   - result: 70 rows × 3 columns
   - columns: k int64, value str, score int64
-- **joined** (join, sealed by task 2)
+- **joined** (join, saved by task 2)
   - definition: `join(on="k", how="inner")`
 ```
 
-With `"task_id": null`, the versions of the operator, one row per change:
+With `"task_id": null`, the versions of the operator, one row per change. A
+version that held for several tasks shows their range; a definition that
+returns is a restore from the last task it held in:
 
 ```
 ### 1. inspect score versions: ok
-| task | change | definition |
+versions: score
+| tasks | change | definition |
 |---|---|---|
 | 2 | created | `map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")` |
 | 3 | updated | `map(lambda row: {**row, "score": row["k"] * 3}, doc="Tripled k")` |
-| 4 | rolled back to task 2 | `map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")` |
+| 4-5 | restored from task 2 | `map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")` |
 ```
+
+A version whose definition is unchanged but whose inputs changed shows
+`inputs changed`; one with only a new result shows `recomputed`. Engine cache
+hits do not create versions.
 
 With a `view`, the saved result follows as a table block (formats in
 [retrieve.md](retrieve.md)):
 
 ```
 ### 1. inspect score at task 2: ok
-- **score** (map, sealed by task 2)
+- **score** (map, saved by task 2)
   - …
 records: 5 of 70 rows (retained records, not a random sample), 3 of 3 columns
 | k | value | score |
@@ -169,11 +176,11 @@ records: 5 of 70 rows (retained records, not a random sample), 3 of 3 columns
 | 1 | r-units | 2 |
 ```
 
-When the sealed task has no saved result:
+When the earlier task saved no result:
 
 ```
 ### 1. inspect score at task 2: ok
-- **score** (map, sealed by task 2)
+- **score** (map, saved by task 2)
   - …
   - result: not saved; roll it back as a copy and execute it to recompute.
 ```
@@ -182,5 +189,5 @@ With `stateHistory` off:
 
 ```
 ### 1. inspect score at task 2: error
-- error HISTORY_DISABLED: sealed versions are not available in this session.
+- error HISTORY_DISABLED: saved versions of earlier tasks are not available in this session.
 ```
