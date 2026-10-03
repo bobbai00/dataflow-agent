@@ -180,3 +180,6 @@ frontend/fe-e2e-out/
 frontend/junit.xml
 agent-service/benchmark/e2e/demo/*.log.json
 agent-service/benchmark/e2e/demo/*.out
+
+# LongDS script-arm interpreter (built per worktree; see docs/longds-gold-prefix-and-state-ledger.md)
+benchmark/longds/.dsgym-venv/

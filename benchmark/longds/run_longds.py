@@ -33,7 +33,7 @@ import sys
 import time
 from pathlib import Path
 
-from _paths import KB_ROOT, PREPARED, SCRATCH, add_import_paths
+from _paths import KB_ROOT, PREPARED, REPO_ROOT, SCRATCH, add_import_paths
 
 os.chdir(KB_ROOT)  # data/... paths in prompts are relative to the KramaBench root
 add_import_paths()
@@ -61,6 +61,38 @@ NATIVE_ANSWER_CONTRACT = (
 )
 
 
+#: Up to this many files are listed one per line; beyond it the inventory is the
+#: data directory and its folders with file counts, as the official protocol
+#: gives both arms (official_protocol.py on the state-registry branch). A full
+#: listing of Los Angeles task 1's 839 files is 175k characters that would ride
+#: on every model call of the session.
+INVENTORY_FULL_LIMIT = 12
+LISTING_HINT = (
+    "- When you need the exact file names in a folder, list it with a `process` "
+    "function using `glob`; `scan(path, preview=n)` shows a file's first lines."
+)
+
+
+def file_inventory(manifest: dict) -> tuple[str, str, bool]:
+    """(heading, lines, summarized)."""
+    from collections import Counter
+
+    files = manifest["files"]
+    if len(files) <= INVENTORY_FULL_LIMIT:
+        heading = "Data files available (use these paths verbatim, they are relative — no leading slash):"
+        return heading, "\n".join(f" - {path}" for path in files), False
+    data_dir = manifest["data_dir"].rstrip("/")
+    counts: Counter = Counter()
+    for path in files:
+        rel = path[len(data_dir) + 1 :] if path.startswith(data_dir + "/") else path
+        parts = rel.split("/")
+        counts["/".join(parts[:2]) if len(parts) > 2 else (parts[0] if len(parts) == 2 else "(top level)")] += 1
+    heading = "Data directory (relative path, no leading slash) and its folders with file counts:"
+    lines = [f" - {data_dir}/  ({len(files)} files)"]
+    lines += [f"   - {folder}/: {count} files" for folder, count in sorted(counts.items())]
+    return heading, "\n".join(lines), True
+
+
 def build_turn_1_prompt(manifest: dict, turn: dict, *, agent_mode: str = "code") -> str:
     """Turn 1 also establishes the session contract; later turns are content only.
 
@@ -69,7 +101,7 @@ def build_turn_1_prompt(manifest: dict, turn: dict, *, agent_mode: str = "code")
     (agent-service's prompt rule) and resolve identically in the JVM's Python UDF
     worker, which runs with the dataflow-agent repo root as its cwd.
     """
-    files = "\n".join(f" - {p}" for p in manifest["files"])
+    heading, files, summarized = file_inventory(manifest)
     native = agent_mode == "native"
     persistence = (
         "Editing definitions or edges invalidates affected results; explicitly execute "
@@ -80,12 +112,12 @@ def build_turn_1_prompt(manifest: dict, turn: dict, *, agent_mode: str = "code")
     answer_contract = NATIVE_ANSWER_CONTRACT if native else ANSWER_CONTRACT
     return f"""You are an expert data scientist working through a long analysis with me. I will send you a series of requests, one at a time, about the same data.
 
-Data files available (use these paths verbatim, they are relative — no leading slash):
+{heading}
 {files}
 
 How this session works:
 - The operators you create stay available to my later requests. Name them meaningfully so you and I can refer back to them.
-- {persistence}
+- {persistence}{chr(10) + LISTING_HINT if summarized else ""}
 - Do not use plotting libraries. Use text summaries and statistics.
 - Use code for every calculation rather than doing arithmetic yourself.
 - Answer only when you have evidence for the answer.
@@ -196,6 +228,14 @@ def main() -> int:
         print(f"FATAL: {manifest_path} missing — run benchmark/longds/prepare.py first")
         return 2
     manifest = json.loads(manifest_path.read_text())
+    # Every file the session lists must be readable where the engine reads it
+    # (the repository root, and amber/ for a local engine): an agent given a
+    # path it cannot open searches the disk for it.
+    roots = [REPO_ROOT] + ([REPO_ROOT / "amber"] if (REPO_ROOT / "amber").is_dir() else [])
+    missing = [f"{f} (from {root})" for f in manifest["files"] for root in roots if not (root / f).exists()]
+    if missing:
+        print("FATAL: listed data files do not resolve: " + "; ".join(missing))
+        return 2
     turns = manifest["turns"]
     if args.turn_limit:
         turns = turns[: args.turn_limit]
@@ -237,6 +277,18 @@ def main() -> int:
     from systems.cost_utils import compute_cost
 
     endpoint = sut.agent.agent_service_endpoint
+    # A LongDS session is a sequence of dependent requests, so a native agent
+    # gets the multi-task part of its system prompt from the first request.
+    # The prompt is fixed for the session; it never changes at request 2.
+    _settings_url = f"{endpoint}/api/agents/{sut.agent.agent_id}/settings"
+    try:
+        import requests as _requests
+
+        _current = _requests.get(_settings_url, timeout=30).json()
+        if _current.get("agentMode") == "native" and not _current.get("multiTask"):
+            _requests.patch(_settings_url, json={"multiTask": True}, timeout=30).raise_for_status()
+    except Exception as _error:  # noqa: BLE001 - record and continue; the arm still runs
+        print(f"WARNING: could not enable multiTask: {_error}")
     (run_dir / "config.json").write_text(
         json.dumps(
             {
@@ -247,8 +299,12 @@ def main() -> int:
                 "model_type": sut.model_type,
                 "context_mode": sut.context_mode,
                 "max_operator_result_char_limit": sut.max_operator_result_char_limit,
-                "column_stats": sut.column_stats,
-                "data_level": sut.data_level,
+                "data_evidence": getattr(sut, "data_evidence", None),
+                "flow_evidence": getattr(sut, "flow_evidence", None),
+                "column_stats": getattr(sut, "column_stats", None),
+                "data_level": getattr(sut, "data_level", None),
+                "observation_settings": getattr(sut, "observation_settings", None),
+                "transport": "rest" if hasattr(sut, "_run_rest") else "websocket",
                 "enable_code_in_snapshot": sut.enable_code_in_snapshot,
                 "context_window_tokens": sut.context_window_tokens,
                 "max_steps_per_turn": sut.max_steps,

@@ -76,6 +76,15 @@ def _round4(o):
 
 def dumps4(obj, **kw):
     return json.dumps(_round4(obj), **kw)
+
+# `rounded_df(frame, {"col": digits})` is another helper from that unexported
+# cell (kaggle-survey-2022/task2): the listed columns rounded for display.
+def rounded_df(frame, digits):
+    out = frame.copy()
+    for column, places in digits.items():
+        if column in out.columns:
+            out[column] = out[column].round(places)
+    return out
 """
 
 #: Upstream delimits each turn's code with this comment, one per turn (verified

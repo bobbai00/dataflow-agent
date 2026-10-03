@@ -137,13 +137,15 @@ def judge_task(client, model: str, prompt_tpl: str, run_dir: Path, workers: int,
     return turns
 
 
-def report(all_turns: list[list[dict]], judge_model: str = "") -> None:
-    """Overall, by state pattern, by dependency breadth, by task progress."""
+def report(all_turns: list[list[dict]], judge_model: str = "") -> int:
+    """Overall, by state pattern, by dependency breadth, by task progress.
+    Returns the number of turns left unjudged."""
     flat = [t for task in all_turns for t in task]
     scored = [t for t in flat if t["judge"].get("score") is not None]
     print(f"\njudged {len(scored)}/{len(flat)} turns")
+    unjudged = len(flat) - len(scored)
     if not scored:
-        return
+        return unjudged
 
     turn_weighted = statistics.mean(t["judge"]["score"] for t in scored) * 100
     per_task = [
@@ -191,6 +193,7 @@ def report(all_turns: list[list[dict]], judge_model: str = "") -> None:
         print(f"\nNOTE: judge is {judge_model or 'not deepseek-v4-pro'}, not the paper's")
         print("deepseek-v4-pro, so absolute scores are not comparable to its published")
         print("numbers. Arm-vs-arm comparisons hold, with the judge held fixed.")
+    return unjudged
 
 
 def main() -> int:
@@ -226,13 +229,20 @@ def main() -> int:
     for d in task_dirs:
         eval_path = d / "results_eval.json"
         if eval_path.exists() and not args.overwrite:
-            print(f"  {d.name}: already judged (use --overwrite to redo)")
-            all_turns.append(json.loads(eval_path.read_text()))
-            continue
+            previous = json.loads(eval_path.read_text())
+            # A task with unjudged turns (a failed judge call) is judged again.
+            if all((t.get("judge") or {}).get("score") is not None for t in previous):
+                print(f"  {d.name}: already judged (use --overwrite to redo)")
+                all_turns.append(previous)
+                continue
         print(f"  {d.name}: judging...")
         all_turns.append(judge_task(client, args.judge_model, prompt_tpl, d, args.max_workers, args.max_tokens))
 
-    report(all_turns, args.judge_model)
+    unjudged = report(all_turns, args.judge_model)
+    if unjudged:
+        failures = [t["judge"].get("error_detail") for task in all_turns for t in task if t["judge"].get("score") is None]
+        print(f"error: {unjudged} turns were not judged; first failure: {failures[0]}", file=sys.stderr)
+        return 1
     return 0
 
 
