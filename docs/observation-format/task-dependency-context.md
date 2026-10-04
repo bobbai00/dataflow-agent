@@ -44,6 +44,8 @@ restores bind the requested task version. Task inspection is a consultation,
 not a computational dependency. Failed edits/skipped actions do not create
 edges; independently completed results from a partially failed execution can.
 Incomplete tasks remain labelled incomplete and never gain an invented answer.
+Requests that fail before an agent action remain inspectable as incomplete
+tasks; they retain their question and the inherited state before any action.
 The read-only `GET /api/agents/:id/task-history` endpoint exports the graph.
 
 An edge records observed access, not proof of semantic dependence or a correct
@@ -81,3 +83,11 @@ arrays. It requires reference field names, so equivalent answers with different
 keys can score poorly; it is a format-sensitive diagnostic rather than a
 semantic partial-accuracy score. Mechanical errors are counted for every turn;
 state/semantic/cascade root causes require manual trace evidence and confidence.
+
+The completed pilot, cache refinements, verification outcomes and manual error
+audit are recorded in
+[the verification report](../../benchmark/longds/reports/task-context-verification-20261004.md).
+The original experiment reduced context substantially but did not establish an
+accuracy improvement and increased cost. The report keeps paid runtime
+revisions separate from later fixes. Keep this policy opt-in while evaluating
+retrieval overhead and semantic accuracy on additional sessions.
