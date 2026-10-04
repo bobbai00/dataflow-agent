@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import type { ModelMessage } from "ai";
 import type { ReActStep } from "../types/agent";
 import type { HistoricalTask } from "./state-history";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
@@ -236,42 +237,71 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
 const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
-export function renderTaskIndex(tasks: readonly TaskRecord[], answerChars = 1200): string {
-  if (!tasks.length) return "";
+const TASK_HISTORY_INTRO =
+  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads; consultations are separate. Code, tables and earlier steps remain available through inspect task/state.";
+
+function taskQuestion(task: TaskRecord): string {
+  return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
+}
+
+function taskOutcome(task: TaskRecord, answerChars: number): string {
   return [
-    "# Prior Tasks",
-    "",
-    "Earlier agent answers are unverified outputs. Dependencies record computation and reads; consultations are separate. Code, tables and earlier steps remain available through inspect task/state.",
-    "",
-    ...tasks.flatMap(task => [
-      `## Task ${task.task_id} (${task.status})`,
-      `Question: ${task.request}`,
-      `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
-      `Operators: ${task.operators.map(op => `${op.operator_id} (${op.change})`).join(", ") || "none changed or explicitly selected"}`,
-      `Dependencies: ${
-        task.dependencies
-          .map(
-            d =>
-              `task ${d.task_id} via ${[
-                ...new Set(
-                  d.references.map(
-                    r =>
-                      `${r.operator_id ?? "task"} [${r.kind}${r.result_version ? `; result ${r.result_version.slice(0, 12)}` : r.revision ? `; revision ${r.revision.slice(0, 12)}` : ""}]`
-                  )
-                ),
-              ].join(", ")}`
-          )
-          .join("; ") || "none recorded"
-      }`,
-      ...(task.consulted_tasks.length ? [`Consulted: ${task.consulted_tasks.map(n => `task ${n}`).join(", ")}`] : []),
-      ...(task.unresolved_references
-        ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
-        : []),
-      "",
-    ]),
+    `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
+    `Operators: ${task.operators.map(op => `${op.operator_id} (${op.change})`).join(", ") || "none changed or explicitly selected"}`,
+    `Dependencies: ${
+      task.dependencies
+        .map(
+          d =>
+            `task ${d.task_id} via ${[
+              ...new Set(
+                d.references.map(
+                  r =>
+                    `${r.operator_id ?? "task"} [${r.kind}${r.result_version ? `; result ${r.result_version.slice(0, 12)}` : r.revision ? `; revision ${r.revision.slice(0, 12)}` : ""}]`
+                )
+              ),
+            ].join(", ")}`
+        )
+        .join("; ") || "none recorded"
+    }`,
+    ...(task.consulted_tasks.length ? [`Consulted: ${task.consulted_tasks.map(n => `task ${n}`).join(", ")}`] : []),
+    ...(task.unresolved_references
+      ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
+      : []),
   ]
     .join("\n")
     .trimEnd();
+}
+
+export function renderTaskIndex(tasks: readonly TaskRecord[], answerChars = 1200): string {
+  return tasks.length
+    ? [TASK_HISTORY_INTRO, ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars)}`)].join(
+        "\n\n"
+      )
+    : "";
+}
+
+/** Preserve initial request frames and append immutable outcomes. Provider
+ * cache reuse also depends on its cache policy and request serialization. */
+export function renderTaskMessages(
+  tasks: readonly TaskRecord[],
+  requestMessages: ReadonlyMap<number, readonly ModelMessage[]>
+): ModelMessage[] {
+  return tasks.length
+    ? [
+        { role: "user", content: TASK_HISTORY_INTRO },
+        ...tasks.flatMap(task => {
+          const request = requestMessages.get(task.task_id);
+          if (!request) throw new Error(`Missing initial request frames for task ${task.task_id}`);
+          return [
+            ...request,
+            {
+              role: "assistant" as const,
+              content: `## Task ${task.task_id} (${task.status})\n${taskOutcome(task, 1200)}`,
+            },
+          ];
+        }),
+      ]
+    : [];
 }
 
 export function inspectTask(

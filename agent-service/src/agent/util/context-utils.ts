@@ -128,7 +128,7 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
   return undefined;
 }
 
-import { buildTaskGraph, renderTaskIndex, taskHistoryFromSteps } from "../task-history";
+import { buildTaskGraph, renderTaskMessages, taskHistoryFromSteps } from "../task-history";
 
 const log = createLogger("ContextAssembler");
 
@@ -502,7 +502,20 @@ export function assembleContext(
       });
       // A task-boundary checkpoint stays byte-identical during this task.
       // The current task's ordinary native tool frames append after it.
-      return [{ role: "user", content: renderTaskIndex(buildTaskGraph(snapshotStorage, prior)) }, ...messages];
+      // Reuse the normal renderer for archived requests, including its event
+      // wrapper. A different wrapper would invalidate the previous first-call
+      // prefix even when every older task card remained unchanged.
+      const requestMessages = new Map(
+        prior.map(task => [
+          task.taskId,
+          assembleContext(task.steps.slice(0, 1), workflowState, snapshotStorage, mode, {
+            ...options,
+            taskContext: "trajectory",
+            taskHistory: undefined,
+          }),
+        ])
+      );
+      return [...renderTaskMessages(buildTaskGraph(snapshotStorage, prior), requestMessages), ...messages];
     }
   }
   // The legacy entry point is now a thin preset shim over summarize(): the

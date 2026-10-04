@@ -29,6 +29,11 @@ inspection retrieves selected operators' saved definitions/results, and
 existing fork/restore commands reuse them. The current task keeps its ordinary
 tool-call and tool-result frames. Its prior-task checkpoint remains immutable
 while those frames accumulate, preserving the within-task prefix.
+Earlier questions retain their initial native message frames, each followed by
+an immutable assistant message containing that task's answer and dependencies.
+Adding a task therefore preserves older message boundaries and the previous
+initial question prefix. The first transition to the compact index still
+changes the prefix; cache reuse is measured rather than assumed.
 
 Dependencies come from structured action-time access receipts, not a
 model-maintained ledger. Execution and result reads bind operator revisions,

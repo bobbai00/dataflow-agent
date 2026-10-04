@@ -97,6 +97,26 @@ test("the checkpoint and all earned current frames are a stable prefix within a 
   expect(second.slice(0, first.length)).toEqual(first);
 });
 
+test("completed task messages retain their exact boundaries when a later task is added", () => {
+  const { steps, render } = fixture();
+  const secondTask = render(steps.slice(0, 4), "dependencies");
+  const currentAt = secondTask.findIndex(message => JSON.stringify(message).includes("QUESTION_2"));
+  const thirdRequest: ReActStep = { ...steps[2], id: "u3", messageId: "m3", content: "QUESTION_3" };
+  const thirdTask = render([...steps, thirdRequest], "dependencies");
+  expect(currentAt).toBeGreaterThanOrEqual(2);
+  expect(thirdTask.slice(0, currentAt + 1)).toEqual(secondTask.slice(0, currentAt + 1));
+});
+
+test("archived requests use the native renderer for whitespace and multiline questions", () => {
+  const { steps, render } = fixture();
+  steps[2].content = "  QUESTION_2\nKeep this second line.\n\n";
+  const secondTask = render(steps.slice(0, 4), "dependencies");
+  const currentAt = secondTask.findIndex(message => JSON.stringify(message).includes("QUESTION_2"));
+  const thirdRequest: ReActStep = { ...steps[2], id: "u3", messageId: "m3", content: "QUESTION_3" };
+  const thirdTask = render([...steps, thirdRequest], "dependencies");
+  expect(thirdTask.slice(0, currentAt + 1)).toEqual(secondTask.slice(0, currentAt + 1));
+});
+
 test("a single task is byte-identical in both policies", () => {
   const { steps, render } = fixture();
   expect(render(steps.slice(0, 2), "dependencies")).toEqual(render(steps.slice(0, 2), "trajectory"));
