@@ -121,3 +121,9 @@ The original experiment reduced context substantially but did not establish an
 accuracy improvement and increased cost. The report keeps paid runtime
 revisions separate from later fixes. Keep this policy opt-in while evaluating
 retrieval overhead and semantic accuracy on additional sessions.
+
+The subsequent [saved sub-DAG pilot](../../benchmark/longds/reports/task-subdag-pilot-20261004.md)
+records the new one-call retrieval, Answer source declarations and generic
+prompt examples. A five-question prefix scored 5/5 under both policies, with
+smaller thin context but more model calls and nearly identical estimated cost.
+It verifies the mechanism without establishing a broader accuracy improvement.
