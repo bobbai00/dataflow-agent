@@ -164,6 +164,8 @@ export enum ContextMode {
 export type CompactionStrategy = "sliding" | "compress";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
+  /** Earlier tasks replayed in full, or indexed with versioned dependencies. */
+  taskContext?: "trajectory" | "dependencies";
   /** Include the persistent-session instructions from the first request. */
   multiTask: boolean;
   systemPrompt: string;
@@ -535,6 +537,7 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
+  taskContext: "trajectory",
   ...DEFAULT_OBSERVATION_FORMAT,
   multiTask: false,
   disabledTools: new Set(),
@@ -660,6 +663,7 @@ export interface AgentDelegateConfig {
 }
 
 export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  taskContext?: "trajectory" | "dependencies";
   multiTask?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
@@ -765,6 +769,7 @@ export interface CreateAgentRequest {
 }
 
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  taskContext?: "trajectory" | "dependencies";
   multiTask?: boolean;
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;

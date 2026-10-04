@@ -138,6 +138,7 @@ try {
     assert.equal(steps[0]?.content, prompt, "Trace belongs to another request");
     zip(`${dir}/react_steps.json.gz`, { steps });
     zip(`${dir}/workflow.json.gz`, await json(`${agentUrl}/workflow`));
+    if (settings.stateHistory) save(`${dir}/task-history.json`, await json(`${agentUrl}/task-history`));
     const modelSteps = steps.filter((s: any) => s.role === "agent");
     const ended = [...modelSteps].reverse().find((s: any) => s.isEnd);
     const answered = modelSteps
@@ -164,7 +165,7 @@ try {
       .flatMap((s: any) => (s.toolCalls ?? []).flatMap((c: any) => c.input?.actions ?? []))
       .filter(
         (a: any) =>
-          (a.type === "inspect" && a.target === "state" && a.task_id != null) ||
+          (a.type === "inspect" && ["state", "task"].includes(a.target) && a.task_id != null) ||
           (a.type === "edit" && /(?:^|\n)(?:fork operator\b|update operator\s+\S+\s+from task\b)/.test(a.changes ?? ""))
       );
     const gold = load(join(prepared, "gold.json")).turns.find((t: any) => t.turn_id === turn.turn_id);

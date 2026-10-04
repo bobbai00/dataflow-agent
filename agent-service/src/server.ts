@@ -232,10 +232,13 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     compilationResult,
     turnNumberByMessageId,
     offBranchTurns,
+    taskHistory,
   }) => {
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      taskContext: settings.taskContext,
+      taskHistory,
       ...observationFormat(settings),
       nativeEvidence: {
         ...observationFormat(settings),
@@ -302,6 +305,9 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       flow: settings.flowEvidence,
       maxChars: settings.maxOperatorResultCharLimit,
     };
+
+    if (settings.taskContext === "dependencies")
+      return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
     // base-preserving frontier decay > legacy contextMode.
@@ -642,6 +648,7 @@ const OBSERVATION_SETTINGS_SCHEMA = {
   ),
   answerEcho: t.Optional(t.Boolean()),
   multiTask: t.Optional(t.Boolean()),
+  taskContext: t.Optional(t.Union([t.Literal("trajectory"), t.Literal("dependencies")])),
 };
 
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
@@ -649,6 +656,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   return {
     ...observationFormat(agentSettings),
     multiTask: agentSettings.multiTask,
+    taskContext: agentSettings.taskContext,
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
@@ -899,6 +907,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           agent.updateSettings({
             ...observationFormatPatch(settings),
             multiTask: settings.multiTask,
+            taskContext: settings.taskContext,
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
             operatorResultSerializationMode: settings.operatorResultSerializationMode
@@ -1174,6 +1183,10 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
    * now." Convenient endpoint for batch drivers that just want the final
    * workflow after a turn without paginating through snapshots.
    */
+  .get("/:id/task-history", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    return { headId: agent.getHead(), tasks: agent.getTaskHistory() };
+  })
   .get("/:id/workflow", ({ params: { id } }) => {
     const agent = getAgent(id);
     return {
@@ -1425,6 +1438,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       agent.updateSettings({
         ...observationFormatPatch(settings),
         multiTask: settings.multiTask,
+        taskContext: settings.taskContext,
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
         operatorResultSerializationMode: settings.operatorResultSerializationMode

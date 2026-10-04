@@ -19,6 +19,7 @@
 
 import type { DataflowActionsResult, DataflowAction } from "../tools/dataflow-actions";
 import { parseNativeDiagnostic, nativeDiagnosticIssue } from "./diagnostics";
+import { renderTaskIndex, type TaskRecord } from "../task-history";
 import {
   countOf,
   observationFormat,
@@ -94,6 +95,7 @@ function versionChange(versions: any[], index: number): string {
 function target(action: DataflowAction): string {
   if (action.type === "inspect") {
     if (action.target === "graph") return " graph";
+    if (action.target === "task") return ` task ${action.task_id}`;
     if (action.target === "state")
       return ` ${Array.isArray(action.operator_id) ? action.operator_id.join(", ") : action.operator_id}${action.task_id === null ? " versions" : ` at task ${action.task_id}`}`;
     return ` ${action.operator_id}`;
@@ -156,6 +158,24 @@ export function renderActionObservations(result: DataflowActionsResult): string 
             }))
           : []);
       let lines: string[] = [];
+      if (item.action.type === "inspect" && item.action.target === "task") {
+        const task = output as TaskRecord;
+        return [
+          title,
+          renderTaskIndex([task], Infinity),
+          renderTable(
+            ["operator", "kind", "inputs", "revision", "result"],
+            task.operators.map(op => [
+              tableCell(op.operator_id, config.tableFormat),
+              tableCell(op.kind, config.tableFormat),
+              tableCell(op.inputs.join(", "), config.tableFormat),
+              tableCell(op.revision?.slice(0, 12) ?? "unknown", config.tableFormat),
+              op.available ? `${op.rows ?? "unknown"} rows` : "unavailable",
+            ]),
+            config.tableFormat
+          ),
+        ].join("\n");
+      }
       if (item.action.type === "inspect" && item.action.target === "graph") {
         lines.push(
           blocks.length

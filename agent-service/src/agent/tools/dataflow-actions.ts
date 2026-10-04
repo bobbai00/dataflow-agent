@@ -24,10 +24,12 @@ import type { RetrievalView } from "../../types/agent";
 import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
 import { renderActionObservations } from "../native/action-observations";
 import type { ObservationFormatSettings } from "../native/observation-format";
+import type { TaskReference } from "../task-history";
 
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
+  | { type: "inspect"; target: "task"; task_id: number }
   | {
       type: "inspect";
       target: "state";
@@ -70,6 +72,8 @@ export interface DataflowActionsResult {
   answer?: string;
   /** Frozen settings for this receipt; later settings changes do not rewrite it. */
   format?: ObservationFormatSettings;
+  /** Action-time provenance; not expanded into ordinary result observations. */
+  references?: TaskReference[];
 }
 
 const text = { type: "string", minLength: 1, pattern: "\\S" };
@@ -163,6 +167,14 @@ const STATE_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
 STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action(
     "inspect",
+    "Read an earlier task's original question and answer, dependency links and operator index. Code and tables are fetched separately with inspect state. Read-only; never executes.",
+    {
+      target: { type: "string", const: "task" },
+      task_id: taskId,
+    }
+  ),
+  action(
+    "inspect",
     "Inspect named operators at a completed task, including immediate input definitions. Null task lists their version changes and dependency hashes. Set view to null for definitions only, or a result view with a specific task to read saved data in the same call. Never executes or substitutes current state.",
     {
       target: { type: "string", const: "state" },
@@ -205,7 +217,7 @@ function validationMessage(input: any, stateHistory: boolean): string {
         ) ??
         (item?.type === "inspect" ? undefined : candidates[0]);
       if (!selected)
-        return `Action ${index + 1} (inspect): target must be graph, operator${stateHistory ? ", or state" : ""}.`;
+        return `Action ${index + 1} (inspect): target must be graph, operator${stateHistory ? ", state, or task" : ""}.`;
       if (!selected.validate(item))
         return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;
     }

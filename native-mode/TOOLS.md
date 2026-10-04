@@ -507,6 +507,30 @@ With `stateHistory: true`, the same tool adds inspection of saved operator defin
               },
               "target": {
                 "type": "string",
+                "const": "task"
+              },
+              "task_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "task_id"
+            ],
+            "description": "Read an earlier task's original question and answer, dependency links and operator index. Code and tables are fetched separately with inspect state. Read-only; never executes."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
                 "const": "state"
               },
               "task_id": {

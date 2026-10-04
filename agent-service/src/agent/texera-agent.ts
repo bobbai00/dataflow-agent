@@ -100,7 +100,8 @@ import {
   createNativeTools,
   TOOL_NAME_DATAFLOW,
 } from "./tools/native-batch-tools";
-import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
+import { NativeCatalogSettingsError, validateNativeSettings, validateTaskContextSettings } from "./native/settings";
+import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
 import { planSeedSources } from "./native/seed-sources";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
@@ -952,6 +953,19 @@ export class TexeraAgent {
     return index >= 0 ? index + 1 + this.taskNumberOffset : undefined;
   }
 
+  private archivedTaskHistory() {
+    return taskHistoryFromSteps(
+      this.getReActSteps(),
+      this.snapshotStorage,
+      this.turnNumberMap(),
+      this.taskNumberOffset
+    );
+  }
+
+  getTaskHistory() {
+    return buildTaskGraph(this.snapshotStorage, this.archivedTaskHistory());
+  }
+
   /** Resolve completed user tasks directly from the append-only ReAct tree. */
   private completedStateTasks() {
     const currentMessage = this.head ? this.stepsById.get(this.head)?.messageId : undefined;
@@ -1486,6 +1500,7 @@ export class TexeraAgent {
       flowEvidence?: boolean;
       dataflowReasoning?: boolean;
       nativeChecks?: boolean;
+      taskContext?: "trajectory" | "dependencies";
       stateHistory?: boolean;
       stateLedger?: boolean;
       resultSelection?: ResultSelection;
@@ -1541,6 +1556,7 @@ export class TexeraAgent {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
+    validateTaskContextSettings({ ...this.settings, ...updates });
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     if (
       collection !== (this.settings.nativeProfileCollection ?? false) &&
@@ -1551,6 +1567,7 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
+    if (updates.taskContext !== undefined) this.settings.taskContext = updates.taskContext;
     const formatUpdates = observationFormatPatch(updates);
     if (Object.keys(formatUpdates).length) {
       Object.assign(this.settings, formatUpdates);
@@ -2097,6 +2114,7 @@ export class TexeraAgent {
               compilationResult,
               turnNumberByMessageId: this.turnNumberMap(),
               offBranchTurns: this.offBranchTurns(visibleSteps),
+              taskHistory: this.settings.taskContext === "dependencies" ? this.archivedTaskHistory() : undefined,
             });
             lastPreparedMessages = processed;
             this.lastRenderedContext = processed
@@ -2410,6 +2428,7 @@ export class TexeraAgent {
       compilationResult: null,
       turnNumberByMessageId: this.turnNumberMap(),
       offBranchTurns: this.offBranchTurns(visibleSteps),
+      taskHistory: this.settings.taskContext === "dependencies" ? this.archivedTaskHistory() : undefined,
     });
     // An async assembler (LLM tuner) can't be awaited in this sync preview —
     // return the content last rendered on the prepareStep path.
@@ -2994,6 +3013,9 @@ export class TexeraAgent {
           }
         }
       }
+      const previousTasks = this.archivedTaskHistory().filter(
+        task => task.steps[0]?.messageId !== this.stepsById.get(stepId)?.messageId
+      );
       for (const result of actions) {
         if (actions.length > 1) continue;
         await executeDataflowActionBatch(result, {
@@ -3013,7 +3035,8 @@ export class TexeraAgent {
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
-          historicalTasks: this.completedStateTasks(),
+          historicalTasks: previousTasks,
+          taskHistory: previousTasks,
           taskBaseStepId: this.taskBaseStepId(stepId),
           taskNumberOffset: this.taskNumberOffset,
           taskNumber: this.currentTaskNumber(stepId),

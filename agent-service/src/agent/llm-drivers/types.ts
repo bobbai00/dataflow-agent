@@ -33,6 +33,8 @@ import type { WorkflowCompilationResponse } from "../../api/compile-api";
  * compilation (e.g. `getNextStepContext()` previews or empty workflows).
  */
 export interface ContextAssemblerInput {
+  /** Original trajectories, including saved off-branch tasks, for task indexing. */
+  taskHistory?: readonly import("../task-history").TaskHistory[];
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;

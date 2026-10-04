@@ -24,6 +24,7 @@ import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { selectNativeObservation, type NativeObservation } from "../native/evidence";
 import { resultScope } from "../native/result-scope";
+import { inspectTask, type TaskHistory, type TaskReference } from "../task-history";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import {
   observationFormat,
@@ -60,6 +61,7 @@ export interface DataflowActionRuntime {
   isCurrent: () => boolean;
   signal?: AbortSignal;
   historicalTasks?: readonly HistoricalTask[];
+  taskHistory?: readonly TaskHistory[];
   /** HEAD when the current request arrived; the ledger's "before" (`stateLedger`). */
   taskBaseStepId?: string;
   /** Tasks completed before this conversation (loaded state); the ledger numbers after them. */
@@ -134,6 +136,50 @@ export async function executeDataflowActionBatch(
   const savedReads = new Set<number>();
   const forkReads = new Map<number, { operatorId: string; info: OperatorInfo }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
+  const references: TaskReference[] | undefined = settings.stateHistory ? (result.references = []) : undefined;
+  const recordReference = (
+    operatorId: string,
+    kind: TaskReference["kind"],
+    actionIndex: number,
+    savedTaskId?: number,
+    savedStepId?: string
+  ) => {
+    if (!references) return;
+    let workflow = savedStepId ? storage.getWorkflow(savedStepId) : state.getWorkflowContent();
+    let readStep = savedStepId ?? stepId;
+    let id = operatorId;
+    const fork = !savedStepId && !current(id) ? readForkResult(workflow, storage, id, stepId) : undefined;
+    if (fork) {
+      workflow = fork.workflow;
+      readStep = fork.stepId;
+      id = fork.operatorId;
+      savedTaskId = fork.taskId;
+    }
+    const op = workflow.operators.find(o => o.operatorID === id);
+    const info = storage.getOperatorResult(readStep, id);
+    if (
+      (kind === "compute" || kind === "read") &&
+      (!info || info.error || !["Completed", "CompletedFromCache"].includes(info.state))
+    )
+      return;
+    const producingStepId = storage.getResolvedOperatorResult(readStep, id)?.sourceStepId;
+    references.push({
+      actionIndex,
+      kind,
+      operatorId,
+      ...(op?.nativeOp?.revision ? { operatorRevision: op.nativeOp.revision } : {}),
+      ...(info?.resultVersion?.subgraphHash ? { subgraphHash: info.resultVersion.subgraphHash } : {}),
+      ...(info?.resultVersion?.id ? { resultVersion: info.resultVersion.id } : {}),
+      ...(producingStepId ? { producingStepId } : {}),
+      ...(savedTaskId ? { savedTaskId } : {}),
+    });
+  };
+  const recordVersions = (versions: Array<{ task: number; id: string }>, index: number) => {
+    for (const version of versions) {
+      const task = historicalTask(runtime.historicalTasks ?? [], version.task);
+      recordReference(version.id, "definition", index, task.taskId, task.stepId);
+    }
+  };
   const ledgerContext = {
     storage,
     baseStepId: runtime.taskBaseStepId,
@@ -200,6 +246,12 @@ export async function executeDataflowActionBatch(
   await runDataflowActions(result, async (action, index) => {
     assertCurrent();
     if (action.type === "inspect") {
+      if (action.target === "task") {
+        if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
+        const output = inspectTask(storage, runtime.taskHistory ?? [], action.task_id);
+        references?.push({ actionIndex: index, kind: "consultation", operatorId: null, savedTaskId: action.task_id });
+        return { status: "ok", output };
+      }
       if (action.target === "graph") {
         // The graph with what is known of every table: rows and columns of
         // completed results, so a listing is not followed by a schema read.
@@ -249,6 +301,8 @@ export async function executeDataflowActionBatch(
         }
         if (action.task_id !== null) {
           const task = historicalTask(runtime.historicalTasks ?? [], action.task_id);
+          for (const id of Array.isArray(action.operator_id) ? action.operator_id : [action.operator_id])
+            recordReference(id, action.view === null ? "consultation" : "read", index, task.taskId, task.stepId);
           const workflow = storage.getWorkflow(task.stepId);
           const histories = "operators" in output ? output.operators : [output];
           const requestedIds = new Set(histories.map(history => history.operator_id));
@@ -282,6 +336,7 @@ export async function executeDataflowActionBatch(
       }
       const op = state.getOperator(action.operator_id);
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
+      recordReference(action.operator_id, "consultation", index);
       const view = op.nativeOp;
       return {
         status: "ok",
@@ -332,6 +387,7 @@ export async function executeDataflowActionBatch(
       state.setWorkflowContent(plan.workflow);
       storage.updatePendingWorkflow(stepId, plan.workflow);
       runtime.edited(plan.operators.map(op => op.id));
+      recordVersions([{ task: action.task_id, id: action.operator_id }], index);
       result.operators.push(...plan.operators);
       const { workflow: _workflow, ...output } = plan;
       return { status: "ok", output };
@@ -383,6 +439,7 @@ export async function executeDataflowActionBatch(
           state.setWorkflowContent(working);
           storage.updatePendingWorkflow(stepId, working);
           runtime.edited(result.operators.map(op => op.id).filter(id => !!state.getOperator(id)));
+          recordVersions(versions, index);
           return {
             status: "ok",
             output: {
@@ -405,6 +462,7 @@ export async function executeDataflowActionBatch(
       const accepted = plan.operators.map(op => op.id);
       storage.clearNativeRejectedEdits(stepId, accepted);
       runtime.edited(accepted.filter(id => !!state.getOperator(id)));
+      recordVersions(versions, index);
       result.operators.push(...plan.operators);
       const { workflow: _workflow, ...output } = plan;
       const touched = new Set([...accepted, ...restoredIds.keys()]);
@@ -537,6 +595,11 @@ export async function executeDataflowActionBatch(
           ...(checks.length ? { checks } : {}),
         };
       });
+      for (const outcome of outcomes)
+        if (outcome.status === "ok") {
+          recordReference(outcome.id, "compute", index);
+          recordReference(outcome.id, "definition", index);
+        }
       return {
         status: failure || outcomes.some(o => o.status === "error") ? "error" : "ok",
         output: {
@@ -654,6 +717,7 @@ export async function executeDataflowActionBatch(
         resolveInput: id => storage.getOperatorResult(resultStep, id),
         ...(names.size ? { displayName: (id: string) => names.get(id) ?? id } : {}),
       });
+      recordReference(action.operator_id, "read", index, historical?.task_id, historical ? resultStep : undefined);
       if (!historical) retrieved.set(index, { operatorId: action.operator_id, info, observation });
       return {
         status: "ok",
@@ -696,6 +760,7 @@ export async function executeDataflowActionBatch(
         throw new Error(
           `answer not composed: ${outcome.reason}. ${outcome.hint ?? "Write the final answer yourself."}`
         );
+      for (const part of parsed.parts) recordReference(part.id, "read", index);
       composed = { answer_from: parsed.parts.map(part => part.id).join(", "), answer: outcome.json };
     }
     if (settings.stateLedger) {

@@ -19,6 +19,21 @@
 
 #### Saved versions
 
+Earlier tasks may appear under `# Prior Tasks` instead of their full action
+history. Each entry preserves its question, earlier agent answer and operator
+references. A dependency names a table read, computation input or reused
+definition from an earlier task; consultations are listed separately. These
+links establish provenance, not correctness, and do not cover conventions or
+numbers carried only in prose. An entry marked incomplete has no completed
+answer. Clipped answers are labelled; inspect the task to read the original.
+
+Use `inspect` with `target: "task"` and `task_id` to read the original question
+and answer, dependencies and operator index. Then inspect the relevant saved
+operators with `target: "state"`; include Python or a result view only when it
+helps the next decision. Follow dependency links when a definition needs its
+earlier inputs. Any earlier task can be inspected, including one with no
+recorded dependency. These reads do not execute or change the graph.
+
 When a task is answered, the dataflow as it stands is saved under that task's
 number: the definition of every operator and its result. Any later task can
 read a saved version or bring it back, including the version saved by a task

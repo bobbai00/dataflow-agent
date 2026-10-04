@@ -128,9 +128,13 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
   return undefined;
 }
 
+import { buildTaskGraph, renderTaskIndex, taskHistoryFromSteps } from "../task-history";
+
 const log = createLogger("ContextAssembler");
 
 export interface AssembleContextOptions extends ObservationFormatOptions {
+  taskContext?: "trajectory" | "dependencies";
+  taskHistory?: readonly import("../task-history").TaskHistory[];
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
@@ -484,6 +488,23 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
+  if (options.taskContext === "dependencies") {
+    const currentRequest = [...visibleSteps].reverse().find(s => s.role === "user" && s.isBegin);
+    const history =
+      options.taskHistory ?? taskHistoryFromSteps(visibleSteps, snapshotStorage, options.turnNumberByMessageId);
+    const prior = history.filter(t => t.steps[0]?.messageId !== currentRequest?.messageId);
+    if (prior.length && currentRequest) {
+      const currentSteps = visibleSteps.filter(s => s.messageId === currentRequest.messageId);
+      const messages = assembleContext(currentSteps, workflowState, snapshotStorage, mode, {
+        ...options,
+        taskContext: "trajectory",
+        taskHistory: undefined,
+      });
+      // A task-boundary checkpoint stays byte-identical during this task.
+      // The current task's ordinary native tool frames append after it.
+      return [{ role: "user", content: renderTaskIndex(buildTaskGraph(snapshotStorage, prior)) }, ...messages];
+    }
+  }
   // The legacy entry point is now a thin preset shim over summarize(): the
   // (mode, options) pair maps to a point in the summarize parameter space
   // (LATEST / DELTA are just two presets), and summarize() calls back into
@@ -2313,9 +2334,11 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
             operatorId:
               item.action.target === "graph"
                 ? "graph"
-                : Array.isArray(item.action.operator_id)
-                  ? item.action.operator_id.join(", ")
-                  : item.action.operator_id,
+                : item.action.target === "task"
+                  ? `task ${item.action.task_id}`
+                  : Array.isArray(item.action.operator_id)
+                    ? item.action.operator_id.join(", ")
+                    : item.action.operator_id,
             argsSummary: item.status,
             output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
           });

@@ -46,6 +46,8 @@ const REMOVED_SETTINGS = [
 /** Deliberate breaking change: never silently reinterpret old experiments. */
 export function validateEvidenceSettings(settings: object): void {
   const supplied = settings as Record<string, unknown>;
+  if (supplied.taskContext !== undefined && !["trajectory", "dependencies"].includes(String(supplied.taskContext)))
+    throw new NativeCatalogSettingsError("taskContext must be trajectory or dependencies");
   if (supplied.retrievalViews !== undefined) {
     const views = supplied.retrievalViews;
     if (
@@ -102,6 +104,42 @@ export function validateEvidenceSettings(settings: object): void {
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);
   }
+}
+
+/** A distinct context policy must not silently override another experiment. */
+export function validateTaskContextSettings(input: object): void {
+  const settings = input as Record<string, unknown>;
+  if (settings.taskContext !== "dependencies") return;
+  if (
+    settings.agentMode !== "native" ||
+    settings.contextMode !== "delta" ||
+    !settings.stateHistory ||
+    (settings.messageLayout !== undefined && settings.messageLayout !== "native")
+  )
+    throw new NativeCatalogSettingsError(
+      "taskContext dependencies requires native DELTA context, stateHistory and native message layout"
+    );
+  if (
+    settings.turnHistory === "index" ||
+    settings.stateLedger ||
+    settings.versionedMode ||
+    settings.sessionTurns ||
+    settings.contextWindowTokens ||
+    settings.enableCompactTool ||
+    settings.staticCompaction ||
+    settings.summarizeParams ||
+    settings.selectorConfig ||
+    settings.learnedConfig ||
+    settings.tunerConfig ||
+    settings.frontierDecayConfig ||
+    settings.probeRetirementConfig ||
+    settings.rolePolicyConfig ||
+    settings.foldResolvedRevisionsConfig ||
+    settings.enableRenderPrefs
+  )
+    throw new NativeCatalogSettingsError(
+      "taskContext dependencies cannot be combined with another context policy or ledger"
+    );
 }
 
 /** Shared by creation (before allocating an agent) and atomic settings updates. */
