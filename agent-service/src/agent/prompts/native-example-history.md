@@ -19,10 +19,10 @@
 
 ### Example: compare with an earlier task and go back
 
-Task 4 asks how much each unit's score changed from what task 2 reported. Task
-2 computed `score` under the delivered-only rule, which task 3 replaced in
-place; that version is saved. Fork `score` as task 2 saved it and compare the
-two in the graph:
+Task 4 asks how every unit's score changed from task 2, including units that
+were outside its top-five report. Task 2 retained all eight rows in `score`
+under the delivered-only rule, which task 3 replaced in place. Fork that full
+working table and compare the two versions in the graph:
 
 ```json
 {
@@ -61,8 +61,10 @@ records: full; 8 of 8 rows, 4 of 4 columns (complete)
 - flow: contract; Map: row identities preserved, same order; added=["change"]; dropped=[]; dependencies measured from the columns the function read.
 ```
 
-To read what task 2 reported without computing anything, inspect `score` at
-task 2 with a view instead.
+To read the earlier working result without computing anything, use `inspect`
+with `target: "state"`, `operator_id: "score"`, `task_id: 2` and a view. To
+read only the answer selection, inspect `report` at task 2 instead. The fork
+uses task 2's input versions; restoring just a definition uses current inputs.
 
 Task 5 asks to go back to delivered orders only, for everything that follows.
 List the versions of `eligible` to find the task that used that rule:
@@ -95,36 +97,13 @@ which restores that definition in place, and execute the tables that read it:
   "reasoning": "Restore the delivered-orders rule for the rest of the session.",
   "actions": [
     {"type": "edit", "changes": "update operator eligible from task 2"},
-    {"type": "execute", "operator_ids": ["kept_orders", "score"]}
+    {"type": "execute", "operator_ids": ["report"]}
   ]
 }
 ```
 
-Observation:
-
-```text
-### 1. edit: ok
-1 change applied; results invalidated: eligible, score, review_orders, score_vs_task2, kept_orders, score_change.
-- **eligible** (filter, restored from task 2)
-  - definition: `filter(lambda row: row["status"] == "delivered", doc="Delivered orders")`
-  - inputs: `orders`
-  - origin: task 1
-  - result: stale (execute to recompute)
-- note: Restored eligible's task-2 definition in place; its inputs are today's (unchanged since then). Dependents are invalidated; execute to recompute.
-{{#ledger}}
-inputs from earlier tasks:
-- **orders** (scan, cached)
-  - definition: `scan("data/unit_orders.csv")`
-  - origin: task 1
-  - result: 24 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-  - used by: `eligible`
-{{/ledger}}
-
-### 2. execute kept_orders, score: ok
-6 operators in scope: 0 executed, 6 cached.
-```
-
-The results computed under that rule come back from the cache. The comparison
-tables from task 4 read `score`, so they stay stale until they are executed
-again.
+The restored definition runs on today's `orders`. The coverage rule and its
+source-based counts stay in place. `score_t2` keeps its historical input
+branch; restoring the current rule does not change that fork. The comparison
+tables from task 4 stay stale until they are executed again. Retrieve the
+current report before answering task 5.

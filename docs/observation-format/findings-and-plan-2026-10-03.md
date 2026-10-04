@@ -19,10 +19,11 @@
 
 # Findings and change plan (2026-10-03)
 
-This note records what the fork-and-restore run showed, why the dataflow agent
-lost to DSGym, and what we plan to change next. The run and its full tables
-are in [validation.md](validation.md#fork-and-restore-2026-10-03). Nothing in
-the plan is implemented yet.
+This note records the fork-and-restore findings and the original proposal.
+The run and its full tables are in
+[validation.md](validation.md#fork-and-restore-2026-10-03). After reviewing the
+traces, we adopted the smaller iteration below. The column-command proposal
+at the end is superseded; it has not been implemented.
 
 ## Summary
 
@@ -32,7 +33,7 @@ the plan is implemented yet.
 - The two agents tie on the turns that change a rule. The gap is in later
   turns that build on earlier answers. When an earlier answer was wrong, DSGym
   still got 12 of 36 later turns right; we got 4 of 35.
-- The cause is the shape of the graph. Each task writes a new `process`
+- The restaurant trace exposes a problem in the shape of the graph. Each task writes a new `process`
   operator that starts again from the cleaned table, re-types the rules it
   needs, and cuts the result down to the answer. No operator holds the rows
   under the current rules. So:
@@ -41,13 +42,157 @@ the plan is implemented yet.
   - there is nothing to update in place or fork.
 
   DSGym keeps its rules as columns of one data frame and reads them back.
-- The cost gap comes from the prompt, not the output. Late in a session, about
+- Most of the cost gap comes from the prompt. Late in a session, about
   nine-tenths of each call is earlier tasks' calls and receipts.
-- Plan:
-  - put rules on a working table as columns that tasks add, update in place or
-    fork;
-  - drop answered tasks from the context except for their catalog entries;
-  - check on two sessions, then run three reps.
+- Current iteration: retain basic ReAct and the existing historical tools,
+  teach reusable working results with separate answer selections, and verify
+  this change before experimenting with context reduction.
+
+## Accepted iteration after review
+
+The history operations already exist: inspect a saved result, fork its
+historical input closure, and restore an earlier definition on current inputs.
+Their absence from the run does not show what they would contribute if used.
+We keep those operations and the existing ReAct loop, tool schema, context
+assembly and cache layout.
+
+The implemented prompt revision demonstrates one continuous, synthetic
+five-task analysis. It retains all unit scores before the top-k report,
+measures coverage on the full source rather than the filtered scoring rows,
+revises an existing rule, compares every unit with a historical working table,
+and restores the rule for later tasks. Ordinary operators express this;
+there is no new column language, table-alias registry or automatic rewiring.
+The prompt also says to preserve eligibility when fewer rows qualify than
+requested, and to check the population and count grain before changing a rule.
+Saved state records a computation, not a correctness verdict.
+
+Verification runs the example through the actual graph compiler and Python
+runtime and through the live engine, including historical reads without
+execution, changed current inputs, two qualifying rows and an empty result.
+The first benchmark probe is the first eight turns of restaurants and Los
+Angeles, with Luna and the previous arm's settings, plus a single-task
+KramaBench smoke. These prefixes are a fast mechanism check, not the full
+five-session comparison. Results are recorded in
+[validation.md](validation.md#reusable-working-state-iteration-2026-10-03).
+
+Context reduction remains a separate experiment. Retain immutable catalog
+entries and measure prefix reuse rather than assuming that a task-boundary
+cut is cache-neutral. Judge accuracy and preservation of the requested rules;
+update counts and code volume are diagnostics, not adoption quotas.
+
+## Next verification iteration
+
+The fresh matched campaign and completed retrieval/history diagnostics are in
+[validation.md](validation.md#matched-comparison-campaign-2026-10-03). The
+five-session tables below describe the earlier pilot, not this campaign.
+Keep the basic ReAct loop and optional history tools. The immediate priorities
+are runtime compatibility, discovery of useful state, and the cost of carrying
+an entire conversation. General accuracy/cost benefits from history remain
+unproven. The earlier broad-trace audit found no successful historical actions.
+The completed cohort has 17 accepted historical inspections and three accepted
+forks, including one correctly answered cross-screen comparison where both
+matched controls fail. Aggregate accuracy and cost do not establish a history
+advantage. The final table and failure-adjusted costs are in
+[validation](validation.md#completed-primary-comparison).
+
+### Concrete compatibility correction
+
+A recorded goodbooks process fails at pandas `pivot_table(..., fill_value=0.0)`
+and later `unstack(...).fillna(0.0)` with `KeyError: dtype('float64')`. The same
+minimal calculation works with ordinary integer columns and fails with nullable
+`Int64` under the campaign's pandas 2.2.3 runtime. A candidate corrects the
+process boundary by converting complete nullable integer columns directly to
+NumPy `int64`. Columns containing missing integers retain their masks; integer
+identifiers never pass through floats. This is a compatibility correction,
+not a change to task orchestration or historical semantics.
+
+The candidate lives in a separate worktree and its patch and test logs are
+retained under `/var/tmp/dataflow-state-comparison-20261003`. The original frozen
+jobs are complete. The correction and disabled-by-default budget policy are
+now promoted to the primary checkout, with 1,313 agent-service tests, 89 benchmark
+tests, typechecking and all five live process checks passing. Candidate sources
+for the ongoing unbounded/64k controls remain frozen in their separate worktree.
+Two matching error entries on
+one completed turn do not establish that this fix explains the broader
+accuracy gap.
+
+The full-input budget and its forced-compaction rehearsal are recorded in
+[validation](validation.md#verified-next-iteration-candidate). The candidate
+keeps the existing ReAct loop and DELTA compactor, with a common calibrated
+estimate and an independent wire guard. Calibration uses development request
+usage rather than accuracy. Compaction changes cache prefixes, so measure
+total cost rather than assuming a benefit from fewer tokens.
+
+The completed 20-request live retention check also establishes a boundary:
+saved observations survive delayed reads and external source overwrite/deletion,
+within their retained cap. Executing historical definitions may read changed
+external bytes or fail after deletion. Full historical materialization after
+external inputs disappear remains a separate, unproven guarantee.
+
+### Framework changes to test
+
+1. **Make available state easy to discover.** Test the existing `stateLedger`
+   with history, showing names, saved versions, schema, row counts and input
+   provenance. Distinguish a complete working population from a ranked answer
+   leaf and distinguish execution freshness from analytical correctness.
+   Keep state selection with the model; do not automatically fork or restore.
+2. **Improve concise failure feedback.** Audit root execution errors separately
+   from blocked descendants and failed retrievals. Preserve the root message,
+   operator, user-code location and useful recovery information. Measure
+   whether summarizing unchanged cached ancestors reduces repeated bytes and
+   repair attempts before changing the receipt format.
+3. **Bound the full provider request.** Account for system instructions and
+   tool definitions as well as the assembled trajectory. Preserve stable
+   prefixes between compactions, and keep definitions/results available through
+   explicit inspection after old conversation turns leave the prompt.
+
+Across six completed matched session/repetition groups, native history's mean
+full input grows from 23,837 tokens in the first five turns to 102,820 in the
+last five; DSGym grows from 11,411 to 59,874. The first-request median serialized
+system/tool overhead is 49,345 characters for history versus 3,288 for DSGym.
+These descriptive numbers include nonanswers and are not a causal efficiency
+estimate. They show why setting each existing context knob to 64k would not
+give both interfaces the same full-request budget.
+
+### Experiments in order
+
+| Stage | Matched comparison | Decision it informs |
+|---|---|---|
+| Complete current campaign | DSGym, native baseline, native history; all frozen repetitions retained | Actual accuracy/cost differences and mechanisms, including abstention-adjusted costs |
+| Context calibration and comparison | All three arms on one frozen runtime revision, unbounded versus a nominal 64k full-input budget; 8k output cap and 40 calls unchanged | Whether explicit state retains utility when conversation history is limited, and whether costs fall |
+| Discoverability | History versus history + ledger at the same calibrated budget | Whether visible state provenance improves population selection, reuse and accuracy |
+| Historical stress | Natural sessions with delays of 8/16 requests, multiple changed ancestors, rollback, and temporary branches | Historical values versus historical definitions on current inputs; recovery and source/result retention guarantees |
+| Script-interface control | Original DSGym versus a separately labeled function-calling Python ReAct baseline, same model, kernel and limits | How much behavior comes from the XML action interface rather than state management |
+| Evidence/model checks | Data statistics and flow evidence varied independently; a separate model sanity check | Whether findings depend on evidence exposure or one model's interface behavior |
+
+For the initial bounded-context and ledger comparison, predeclare these four
+full sessions from metadata: `business/my_uber_drivers/task2` (14 rollback
+labels), `geoscience/cdp-unlocking-climate-solutions/task1` (39 turns, 15 update
+and 14 counterfactual labels), `sports/big_data_derby_2022/task1` (10 update and
+10 rollback labels), and `community/kaggle-survey-2019/task2` (low-change
+control). Use three independent repetitions, retain failures and unknown costs,
+and expand to the original twelve-session cohort after protocol validation.
+This selection is based on workload metadata, not which solver won.
+
+The 64k target must include system/tool overhead under a common estimator.
+Audit actual provider input-token usage and report violations; a character
+estimate is not an exact model tokenizer. Keep ledger, statistics/flow,
+interface and model interventions separate from the context intervention.
+Changed prompts/runtime revisions require freshly frozen controls, not a
+comparison to an old arm carrying several other differences.
+
+Historical stress must also record recomputation and cache use, execution
+latency and rows processed. The existing 6,000-row diagnostic recomputes the
+copied historical graph initially; it does not prove reuse of a full historical
+materialization. Both old/new files remain available. Test replacing/deleting
+the original physical file separately, and state the retention guarantee
+before proposing durable materialization or input-version features.
+
+Report whole-session paired accuracy, model cost, cost per correct answer,
+both-correct cost, historical operation use, repaired/unrepaired tool errors,
+and runtime work. Correct answers do not imply correct complete working state,
+and no-code answers can be legitimate reuse. Keep all failures in the primary
+score rather than rerunning until a favorable trace appears.
 
 ## Findings
 
@@ -191,7 +336,10 @@ agent updated an earlier operator 5 times, forked nothing and restored
 nothing. Most of those requests also ask how the result compares with the old
 one. The agent answered them by building a second version next to the first.
 
-## Plan
+## Original proposal (superseded)
+
+The following was the initial proposal before the trace review. It is retained
+to explain the decision, not as the current implementation plan.
 
 ### 1. Rules as columns on a working table
 

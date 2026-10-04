@@ -130,6 +130,162 @@ checks every after-repairs answer, records judge disagreements and latent
 state errors, adds deterministic diagnostic partial credit, and describes
 the focused historical inspection changes.
 
+## Matched state comparison
+
+`state_comparison.py` freezes questions, input fingerprints, source copies,
+runtime versions, settings, repetitions and accounting before model calls.
+It keeps reference answers outside solver prompts and kernel mounts. The
+three main arms are the upstream DSGym agent, native ReAct without history
+tools, and the same native agent with historical inspect/fork/restore enabled.
+The two native arms differ only in `stateHistory`; ledger and context
+compaction are separate experiments.
+
+The shared model is Luna, with 40 calls per turn and an 8,192-token output
+cap. Both use the same gateway and the same interface-neutral user messages.
+Native retrieval offers `sample_stats` and `full`, with 2,000 sample characters,
+2,000 statistics characters and 5,000 full-result characters. Profiling is
+collected in both retrieval-ablation arms; changing views does not execute.
+Flow evidence, ledger, thought replay and context reduction are off in the
+primary comparison. DSGym retains its original system prompt, response parser
+and persistent Python kernel. Its kernel and the engine use the same Python,
+pandas and NumPy versions; `numeric_gate.py` checks published reference answers
+before a session is eligible.
+
+```bash
+.venv/bin/python benchmark/longds/state_comparison.py freeze \
+  --output /path/to/campaign --phase holdout --reps 3 --views stats
+.venv/bin/python benchmark/longds/state_comparison.py run \
+  --output /path/to/campaign --phase holdout --native-workers 2 --script-workers 2
+.venv/bin/python benchmark/longds/comparison_report.py /path/to/campaign/holdout
+```
+
+The campaign directory contains a predeclared `selection.json`, reference-gate
+outcomes in `gates-engine.json`, and independently prepared manifests, prompts
+and references. `comparison_fixture.py` generates an eight-turn diagnostic
+with actual input/rule revisions, historical comparison, rule restoration and
+a temporary scenario. The diagnostic is reported separately from LongDS.
+
+The runner preserves every repetition and failed attempt. Provider requests
+and all response choices are recorded without credentials; native traces and
+workflow captures are compressed. Session resources are removed after use.
+`comparison_campaign.py` can adopt active children after the queue controller
+stops and launch only unstarted jobs; existing attempt directories are never
+overwritten or retried. It refuses to start a second live controller for the
+same phase. Resumption also generates a report at the end:
+
+```bash
+.venv/bin/python benchmark/longds/comparison_campaign.py \
+  --output /path/to/campaign --phase holdout --native-workers 4 --script-workers 4
+```
+
+Reports retain missing and unjudged turns, compare costs on questions both arms
+answer correctly, and break down results by state type, dependency distance
+and correctness of earlier answers. Confidence intervals resample whole
+sessions and repetitions, not individual dependent turns. Costs use a common
+frozen fallback rate table and are estimates. Native gateway responses and
+script responses differ in reported cache-write counters, so the report gives a
+uniform fresh-input accounting sensitivity check.
+
+The report's `cost_analysis` separates code attempts, correct answers without
+new code, explicit error/empty nonanswers without code, and other wrong answers
+without code. Protocol feedback saying "No python code found" is not counted
+as an execution. Missing traces remain unknown. Supplemental comparisons use
+the same task/repetition/turn on both sides: both correct; a script code attempt;
+and exclusion of explicit script nonanswers. A stricter sensitivity check uses
+only consecutive jointly correct answers beginning at turn 1, since earlier
+skipped work can also reduce later context costs. These are descriptive cuts,
+not isolated causal estimates. All failures and their spending remain in the
+overall results. Cost per correct answer includes failed-attempt spending and
+is undefined while any selected answer is unjudged or its cost is unknown.
+The classifier counts explicit JSON errors or empty answers conservatively;
+it does not infer that every wrong answer without code is an abstention.
+
+To analyze an existing report without rerunning a solver:
+
+```bash
+.venv/bin/python benchmark/longds/comparison_cost.py /path/to/campaign/holdout
+```
+
+`comparison_iteration.py` freezes the separate context/ledger experiment. It
+predeclares four full sessions, retains three independent repetitions, copies
+the prepared inputs from the completed preflight, and archives Python runtime
+sources as well as TypeScript/prompts. Both conditions use identical source,
+data and user-message hashes. Do not use the older trajectory-only budget as
+an equal full-request budget between interfaces.
+
+The candidate service implements `MODEL_INPUT_TOKEN_BUDGET` (0 disables it),
+`MODEL_INPUT_TOKEN_SCALE` and `MODEL_MAX_CALLS_PER_TURN`. Native agent settings
+retain `contextWindowTokens=0`; the service accounts for system/tool overhead
+before invoking the existing compactor. The script process uses the same
+frozen calibration. Reply headroom remains a separate output cap. Controller
+preflight and remote native-policy checks reject drift before paid turns.
+The experimental source remains isolated while the original frozen comparison
+finishes; its patch and results are linked in
+[validation](../../docs/observation-format/validation.md#verified-next-iteration-candidate).
+
+```bash
+.venv/bin/python benchmark/longds/comparison_budget.py /path/to/development \
+  --calibrate --destination /path/to/development/input-budget-calibration.json
+.venv/bin/python benchmark/longds/comparison_iteration.py \
+  --previous /path/to/development --output /path/to/iteration \
+  --phase bounded --budget 64000 --reps 3 --endpoint http://localhost:3051
+# Export the frozen policy values before launching comparison_campaign.py.
+.venv/bin/python benchmark/longds/comparison_budget.py /path/to/iteration \
+  --phases bounded --scale <frozen-scale> --budget 64000 \
+  --destination /path/to/iteration/bounded/budget-audit.json
+```
+
+The common estimate includes complete compact-JSON message/tool frames, with
+UTF-16 length, a 3.3-character divisor and a pooled development-calibrated scale.
+It is not an exact provider tokenizer. Audits preserve unknown usage and report
+estimated and actual over-budget calls separately. Native reports additionally
+count executed, cached, failed and not-run operator visits, including execution
+receipts that fail after completing independent work. These are work counts,
+not timings or distinct-operator counts.
+
+`comparison_ledger.py` derives the ledger protocol from the frozen bounded
+condition before looking at any outcomes. It retains every history repetition
+as a reused control and adds only the corresponding ledger jobs. The controller
+checks the original job identity, settings and complete judgments before making
+a phase-local link to those artifacts. Controls are not rerun or rejudged;
+reports include their original comparison cost and separately identify new
+solver spending.
+
+`comparison_followup.py` waits for both context conditions to finish, checks
+artifact completeness, frozen source hashes and measured bounded-input usage,
+then launches the predeclared ledger queue. Technical failures and unknown usage
+stop the follow-up visibly; incorrect answers remain eligible controls. For
+the four-session, three-repetition protocol, this adds 12 jobs / 417 solver
+turns instead of paying for the controls again.
+
+`comparison_adjudicate.py` fills missing judge verdicts only. Every unjudged
+answer gets at most one additional call to the same judge and prompt, with a
+16,000-token reply cap; existing binary scores are never reconsidered. Original
+judgments and their failed responses remain unchanged. A hash-bound
+`judge-recovery.json` sidecar records the recovery, including another failure,
+and analysis reports the number of recovered turns. An interrupted paid call
+retains an intent receipt and is not automatically replayed. Recovery spending
+belongs to judging, separate from solver model cost. The follow-up applies this
+same rule to all finished conditions before checking completeness.
+
+```bash
+.venv/bin/python benchmark/longds/comparison_adjudicate.py /path/to/campaign/holdout
+```
+
+```bash
+.venv/bin/python benchmark/longds/comparison_ledger.py /path/to/iteration
+.venv/bin/python benchmark/longds/comparison_followup.py /path/to/iteration \
+  --native-workers 2
+```
+
+The follow-up detects stopped queue controllers. `--resume` adopts only an
+inactive waiting or failed registration with the same ledger protocol; it
+archives the previous registration and rejects a second live watcher.
+
+This writes `cost-analysis.json`. Current results and the
+artifact directory are recorded in
+[observation-format validation](../../docs/observation-format/validation.md#matched-comparison-campaign-2026-10-03).
+
 ## First result — baseline, 2026-08-03
 
 Arm `luna-delta-1k`: gpt-5.6-luna, DELTA, 1k result chars, no stats, no

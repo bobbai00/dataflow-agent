@@ -51,3 +51,8 @@ their definition and return diagnostics as columns when needed.
 Each enabled kind of statistics has its own budget and does not displace
 records. Use these measurements to evaluate a computation, and validate the
 population and formula against the request as well.
+
+Use structural `scope` lines alongside these measurements. A limit can be
+intentional for a report and inappropriate as input to an aggregate over all
+qualifying rows. Inspect the definition and select the input that the request
+names; a smaller count alone is not a reason to change a filter or join.

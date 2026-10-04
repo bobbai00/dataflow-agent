@@ -34,6 +34,24 @@ function examples(view: "full" | "sample" | "sample_stats" = "sample") {
   return { prompt, section, calls };
 }
 
+test("scope and repair guidance is general and works in ordinary ReAct without a ledger or check interface", () => {
+  const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
+  expect(single).toContain("Completeness describes the stored result");
+  expect(single).toContain("scope");
+  expect(single).toContain("A smaller table is appropriate when the request asks for that selection");
+  for (const view of ["full", "sample", "sample_stats"] as const) {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true, retrievalViews: [view] });
+    const section =
+      prompt.split("### Example: repair an aggregate that reads a limited report")[1]?.split("\n### Example:")[0] ?? "";
+    expect(section).toContain("covered_scores");
+    expect(section).toContain("scope: limit");
+    expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle|check=/i);
+    expect(prompt).not.toContain("Task catalog and provenance");
+    for (const [, json] of section.matchAll(/```json\n([\s\S]*?)\n```/g))
+      expect(prepareDataflowActions(JSON.parse(json), [view]).status).toBe("pending");
+  }
+});
+
 test("multi-task history and catalog are separate extensions using the edit vocabulary", () => {
   for (const view of ["full", "sample", "sample_stats"] as const) {
     const { prompt, section, calls } = examples(view);
@@ -66,14 +84,14 @@ test("multi-task history and catalog are separate extensions using the edit voca
   expect(history).toContain("When a task is answered, the dataflow as it stands is saved under that task's");
   expect(history).toContain("going back never removes a\nversion");
   expect(history).not.toMatch(/seal/i);
-  expect(history).not.toContain("\"type\": \"fork\"");
+  expect(history).not.toContain('"type": "fork"');
   expect(history).not.toContain("Task catalog and provenance");
   expect(history).not.toContain("inputs from earlier tasks:\n- **");
   const ledger = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, stateLedger: true });
   expect(ledger).toContain("An answer's receipt is the task's catalog entry");
   expect(ledger).toContain("provenance");
   expect(ledger).toMatch(/top-k report represents\s+the selected rows/);
-  expect(ledger).toContain("#### Task 2\n2 tables created.");
+  expect(ledger).toContain("covered_scores");
   const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
   expect(single).not.toContain("### Earlier tasks in the session");
   expect(single).not.toContain("### Example: build on an earlier task");

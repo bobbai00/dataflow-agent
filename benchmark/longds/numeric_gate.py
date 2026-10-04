@@ -44,15 +44,31 @@ from pathlib import Path
 from collections import Counter, defaultdict, OrderedDict
 import numpy as np
 import pandas as pd
+# Notebook-local raw data root; execution sets cwd to the task's folder.
+BASE_PATH = Path('data')
 try:
     from sklearn.preprocessing import StandardScaler
     from sklearn.cluster import KMeans
     from sklearn.decomposition import PCA
+    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.model_selection import KFold, train_test_split, cross_val_predict
+    from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+except ImportError:
+    pass
+try:
+    import statsmodels.api as sm
+except ImportError:
+    pass
+try:
+    import geopandas as gpd
 except ImportError:
     pass
 try:
     from scipy import stats
     from scipy.stats import linregress, pearsonr, spearmanr
+    from scipy.sparse import csr_matrix
 except ImportError:
     pass
 
@@ -225,7 +241,7 @@ def run_turns(src: str, data_root: Path, n_turns: int):
                 # missing pretty-printer rather than on its numbers. If the turn
                 # died before computing anything there is simply nothing to find,
                 # and it lands in `missing` as before.
-                errors.append(f"{tid}:{type(exc).__name__}")
+                errors.append(f"{tid}:{type(exc).__name__}:{exc}")
             finally:
                 sys.stdout = real_stdout
 
@@ -256,14 +272,40 @@ def run_turns(src: str, data_root: Path, n_turns: int):
     return produced, errors, ns
 
 
+def reference_source(task_dir: Path) -> str:
+    """Use an exported notebook when present, otherwise the published cells.
+
+    Some distributed tasks include code in task.json without a task.py export.
+    No answer values are substituted into the executed reference code.
+    """
+    preamble = []
+    notebook = task_dir / "task.ipynb"
+    if notebook.exists():
+        # Original setup cells preserve notebook-local imports, roots and
+        # publishing helpers exactly, including task-specific precision.
+        # Never inspect outputs or execute solution cells twice.
+        for cell in json.loads(notebook.read_text()).get("cells", []):
+            source = "".join(cell.get("source", []))
+            if re.search(r"(?:^|\n)#+\s*Task\s+\d+", source):
+                break
+            if cell.get("cell_type") == "code":
+                preamble.append(source)
+    exported = task_dir / "task.py"
+    if exported.exists():
+        body = exported.read_text()
+    else:
+        turns = json.loads((task_dir / "task.json").read_text())
+        if not all(isinstance(t.get("code"), str) and t["code"].strip() for t in turns):
+            raise ValueError("Reference code is missing")
+        body = "\n\n".join(f"###### Task {t['turn_id']}:\n{t['code']}" for t in turns)
+    return "\n\n".join(preamble + [body])
+
+
 def gate(task_rel: str) -> int:
     """Run one task's gold `task.py` here and diff every published answer."""
     TASK = UPSTREAM / "task" / "longds" / task_rel
     DATA_ROOT = UPSTREAM / "data" / "longds" / task_rel
     print(f"\n{'=' * 78}\n{task_rel}\n{'=' * 78}")
-    if not (TASK / "task.py").exists():
-        print("SKIP: no gold task.py downloaded for this task")
-        return 2
 
     # Upstream's gold code resolves data RELATIVE TO THE NOTEBOOK it was lifted
     # from, and does it two different ways: some tasks bind one
@@ -272,7 +314,11 @@ def gate(task_rel: str) -> int:
     # strings. Both are handled by the same move — run with the task's own data
     # root as the cwd, and collapse the walk-up prefix to `.` wherever it appears
     # — so no per-task rewrite rule is needed.
-    src = (TASK / "task.py").read_text()
+    try:
+        src = reference_source(TASK)
+    except (OSError, ValueError) as exc:
+        print(f"SKIP: {exc}")
+        return 2
     src = src.replace(f"../../../../../data/longds/{task_rel}", ".")
     if "../../../../../data/longds" in src:
         print("FATAL: an unrecognised walk-up path survives — inspect the literals in task.py")

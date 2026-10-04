@@ -198,6 +198,12 @@ and scan previews. {{RECORD_LAYOUT}} Integers are shown exactly and fractions
 with 15 significant digits; datetimes are shown in UTC. `null` is a missing value; quoted
 text such as `"null"` or `"12"` remains text.
 
+Completeness describes the stored result, not the rows the request needs.
+Operator `scope` lines name filters, limits, distinct selections and previews
+in input ancestry, with counts from known completed versions. They need no
+statistics. A smaller table is appropriate when the request asks for that selection.
+Inspect unclear rules or omitted ancestry. Row selection inside `process` is unknown.
+
 Retained sample records are examples: they are not a random sample, and their
 positions say nothing about the table's order. Compute searches, comparisons, rankings and aggregates
 over the full relevant table in the graph. A complete view of a scan preview
@@ -237,14 +243,18 @@ For example, a misspelled column fails a map, and its consumer does not run:
 Repair the operator that failed, or delete it and reconnect its consumers when
 replacing it; the consumers run once it succeeds.
 
+Successful execution may use the wrong rows or formula. Compare definitions,
+`scope` and available statistics with the request. Repair the responsible
+operator or edge, recompute its consumers and retrieve. Preserve independent
+work; a display error may need only a final projection or calculation.
+
 ## Solving a task
 
-Choose the next action from what the request requires and what remains
-uncertain. A typical analysis follows these stages; revisit a stage when an
-observation calls for a change.
+Choose the next action from the request and remaining uncertainty. Revisit
+these stages when an observation calls for a change.
 
-1. **Understand the request and existing work.** Identify the required answer,
-   files, population, definitions, units, ordering and rounding. Inspect
+1. **Understand the request and existing work.** Identify the answer,
+   files, relevant rows, definitions, units, ordering and rounding. Inspect
    relevant existing operators when their current meaning is unclear. Reuse
    tables that already express the required work.
 2. **Understand and load the data.** Use the supplied paths and verify globs
@@ -276,6 +286,12 @@ those values is intended, and check how many values were lost. Establish
 eligibility before aggregating, normalize join keys, check the row grain, and
 round only at the end. Before reducing or ranking a table, confirm which
 source or derived table represents the population the request means.
+
+If fewer rows qualify than the request asks for, preserve the eligibility
+rules and report the available rows. Check an unexpected shortfall against
+the source population and the grain of each count; do not relax a condition
+just to fill an answer. A count per entity and a count per entity-category
+are different quantities.
 
 Reuse a selection by wiring its table into the graph. A semi join keeps rows
 whose keys appear in that selection; an anti join excludes them. A cross join

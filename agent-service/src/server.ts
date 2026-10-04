@@ -23,6 +23,7 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
+import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
@@ -556,6 +557,9 @@ async function createAgentInstance(
   const agentId = `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
 
+  const inputBudget = readInputBudget(process.env);
+  const modelCallLimit = Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0);
+
   const openai = createOpenAI({
     baseURL: `${config.modelsEndpoint}/api`,
     // The LLM gateway (access-control-service) enforces a REGULAR/ADMIN-role
@@ -566,12 +570,21 @@ async function createAgentInstance(
     // abandoned and the turn retries it (TexeraAgent.sendMessage).
     fetch: withRequestTimeout(
       withRequiredToolChoice(
-        withModelWireTrace(process.env.TEXERA_LLM_TRACE_DIR, () => ({
-          agentId,
-          workflowId: delegateConfig.workflowId,
-          headId: agent.getHead(),
-          messageId: agent.getCurrentMessageId(),
-        }))
+        withModelWireTrace(
+          process.env.TEXERA_LLM_TRACE_DIR,
+          () => ({
+            agentId,
+            workflowId: delegateConfig.workflowId,
+            headId: agent.getHead(),
+            messageId: agent.getCurrentMessageId(),
+            inputBudget,
+            modelCallLimit,
+          }),
+          withInputBudget(
+            inputBudget,
+            withModelCallLimit(modelCallLimit, () => agent.getCurrentMessageId())
+          )
+        )
       )
     ),
   });
@@ -1218,7 +1231,11 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
 
   .get("/:id/system-info", ({ params: { id } }) => {
     const agent = getAgent(id);
-    return agent.getSystemInfo();
+    return {
+      ...agent.getSystemInfo(),
+      inputBudget: readInputBudget(process.env),
+      modelCallLimit: Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0),
+    };
   })
 
   .post("/:id/stop", ({ params: { id } }) => {

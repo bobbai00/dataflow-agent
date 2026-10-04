@@ -123,7 +123,9 @@ describe("compact action observations", () => {
     const result = await receipt(
       { type: "retrieve", operator_id: "total", view: "full" },
       {
-        operator_blocks: [{ id: "total", kind: "aggregate", state: "saved", result: "1 row × 1 column (saved by task 2)" }],
+        operator_blocks: [
+          { id: "total", kind: "aggregate", state: "saved", result: "1 row × 1 column (saved by task 2)" },
+        ],
         operator_id: "total",
         revision: "rev-2",
         historical_state: { task_id: 2, operator_id: "total" },
@@ -177,7 +179,14 @@ describe("receipt details found in live runs", () => {
       ...extra,
     });
     const text = await receipt(
-      { type: "inspect", target: "state", operator_id: "score", task_id: null, include_implementation: false, view: null },
+      {
+        type: "inspect",
+        target: "state",
+        operator_id: "score",
+        task_id: null,
+        include_implementation: false,
+        view: null,
+      },
       {
         operator_id: "score",
         versions: [
@@ -589,6 +598,104 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("ordinary ReAct shows selection scope before execution and on reads with the ledger and statistics disabled", async () => {
+    const s = session([
+      [
+        {
+          type: "edit",
+          changes:
+            'create operator source: scan("data/toy.csv")\ncreate operator limited: limit(5)\ncreate operator displayed: project(keep=["value"])\ncreate edge source.out -> limited.in\ncreate edge limited.out -> displayed.in',
+        },
+        { type: "inspect", target: "operator", operator_id: "displayed", include_implementation: false },
+      ],
+      [
+        { type: "execute", operator_ids: ["displayed"] },
+        { type: "retrieve", operator_id: "displayed", view: "sample" },
+      ],
+    ]);
+    s.agent.updateSettings({ stateLedger: false, flowEvidence: false, dataEvidence: false });
+    await s.agent.sendMessage("Inspect and read the selected table.");
+    const before = renderDataflowActionsResult(s.outcomes[0]);
+    const after = renderDataflowActionsResult(s.outcomes[1]);
+    expect(before).toContain('scope: limit "limited": n=5');
+    expect(before).toContain("unknown rows");
+    expect(after).toContain('scope: limit "limited": n=5');
+    // The mock has no engine proof tying the child's input to the parent's
+    // version, so it must not invent a retention measurement.
+    expect(after).toContain('input "source" (unknown rows)');
+    expect(before + after).not.toMatch(/#### Task|inputs from earlier tasks:|flow:|check=/);
+    expect(s.executions()).toBe(1);
+    expect(JSON.stringify(s.contexts.at(-1))).toContain("scope:");
+    for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
+      for (const messageLayout of ["native", "opSplit", "opBlock"] as const) {
+        const messages = assembleContext(
+          s.agent.getVisibleReActSteps(),
+          s.agent.getWorkflowState(),
+          s.agent.getSnapshotStorage(),
+          mode,
+          { agentMode: AgentMode.NATIVE, messageLayout, dataEvidence: false, flowEvidence: false }
+        );
+        expect(JSON.stringify(messages)).toContain('scope: limit \\"limited\\": n=5');
+      }
+  });
+
+  test("saved and forked selection scopes use historical definitions and leave earlier observations unchanged", async () => {
+    const batches: DataflowAction[][] = [
+      [
+        {
+          type: "edit",
+          changes:
+            'create operator source: scan("data/toy.csv")\ncreate operator selected: limit(5)\ncreate edge source.out -> selected.in',
+        },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "selected", view: "full" },
+      ],
+      [{ type: "answer", content: "First result." }],
+    ];
+    const s = session(batches);
+    s.agent.updateSettings({ stateHistory: true, stateLedger: false });
+    await s.agent.sendMessage("Select up to five rows.");
+    const first = renderDataflowActionsResult(s.outcomes[0]);
+    batches.splice(
+      0,
+      batches.length,
+      [
+        { type: "edit", changes: "update operator selected: limit(2)" },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "selected", view: "full" },
+      ],
+      [{ type: "answer", content: "Second result." }]
+    );
+    await s.agent.sendMessage("Now select up to two rows.");
+    const second = renderDataflowActionsResult(s.outcomes[2]);
+    batches.splice(
+      0,
+      batches.length,
+      [
+        {
+          type: "inspect",
+          target: "state",
+          task_id: 1,
+          operator_id: "selected",
+          include_implementation: false,
+          view: "full",
+        },
+        { type: "edit", changes: "fork operator selected from task 1 as selected_old" },
+        { type: "retrieve", operator_id: "selected_old", view: "full" },
+      ],
+      [{ type: "answer", content: "Compared saved state." }]
+    );
+    await s.agent.sendMessage("Inspect the earlier selection.");
+    const saved = renderDataflowActionsResult(s.outcomes[4]);
+    expect(first).toContain('scope: limit "selected": n=5');
+    expect(second).toContain('scope: limit "selected": n=2');
+    expect(saved).toContain('scope: limit "selected": n=5');
+    expect(saved).toContain('scope: limit "selected_old": n=5');
+    expect(renderDataflowActionsResult(s.outcomes[0])).toBe(first);
+    expect(s.executions()).toBe(2);
+    expect(saved).not.toContain("#### Task");
+  });
+
   test("selected execution preserves failed siblings and ignores unconnected old branches", async () => {
     const s = session([
       [

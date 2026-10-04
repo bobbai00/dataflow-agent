@@ -71,6 +71,7 @@ import { summarize, type OperatorRenderExtras } from "../context/summarize/summa
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { formatNativeDiagnostic } from "../native/diagnostics";
 import { nativeCheckLines } from "../native/checks";
+import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
@@ -3496,6 +3497,7 @@ function serializeSnapshotFull(
             describeOperator(op, snapshot.results.get(op.operatorID)?.info, {
               ...observationFormat(options.nativeEvidence ?? options),
               state: "failed",
+              scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
               issues: [`- error COMPILATION_FAILED: ${compilationError.type}: ${compilationError.message}`],
             })
           ),
@@ -3522,6 +3524,7 @@ function serializeSnapshotFull(
             describeOperator(op, info, {
               ...observationFormat(options.nativeEvidence ?? options),
               issues: ["- note: result not requested."],
+              scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
             })
           ),
           ""
@@ -3763,6 +3766,7 @@ function serializeOperatorFull(
         describeOperator(op, info, {
           ...observationFormat(options.nativeEvidence ?? options),
           implementation: options.opExtras?.(op.operatorID)?.includeCode === true,
+          scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
           issues: ["- note: result not requested."],
         })
       );
@@ -3805,6 +3809,7 @@ function serializeOperatorFull(
   if (op.nativeOp) {
     const block = describeOperator(op, info, {
       ...observationFormat(options.nativeEvidence ?? options),
+      scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
       implementation:
         opBlock ||
         !!ex?.includeCode ||

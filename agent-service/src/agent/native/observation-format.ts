@@ -96,7 +96,9 @@ export function tableCell(text: string, format: "markdown" | "tsv"): string {
  * zone is UTC by the runtime's contract; an offset is converted exactly. */
 export function utcDatetime(text: string): string {
   const match =
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?\s*(Z|z|[+-]\d{2}(?::?\d{2})?)?$/.exec(text.trim());
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?\s*(Z|z|[+-]\d{2}(?::?\d{2})?)?$/.exec(
+      text.trim()
+    );
   if (!match) return text;
   const [, y, mo, d, h, mi, sec = "00", fraction, zone] = match;
   let offsetMinutes = 0;
@@ -201,12 +203,7 @@ export interface RenderedRecords {
   complete: boolean;
 }
 
-function recordCaption(
-  view: FrozenRecords,
-  rows: FrozenRecords["rows"],
-  shapeOnly = false,
-  cutAt?: number
-): string {
+function recordCaption(view: FrozenRecords, rows: FrozenRecords["rows"], shapeOnly = false, cutAt?: number): string {
   const clipped = rows.reduce((sum, row) => sum + row.clipped, 0);
   const complete =
     !shapeOnly &&
@@ -240,7 +237,8 @@ const isContiguous = (rows: FrozenRecords["rows"]) => {
 function displayLines(rows: FrozenRecords["rows"], layout: Layout, width: number): string[] {
   if (rows.some(row => row.index === undefined)) return rows.map(row => row.line);
   const ordered = [...rows].sort((a, b) => a.index! - b.index!);
-  const gap = layout === "key-value" ? "- …" : layout === "tsv" ? "…" : `| ${Array(Math.max(1, width)).fill("…").join(" | ")} |`;
+  const gap =
+    layout === "key-value" ? "- …" : layout === "tsv" ? "…" : `| ${Array(Math.max(1, width)).fill("…").join(" | ")} |`;
   const lines: string[] = [];
   ordered.forEach((row, i) => {
     if (i > 0 && row.index! !== ordered[i - 1].index! + 1) lines.push(gap);
@@ -491,6 +489,8 @@ export interface OperatorBlock {
   result?: string;
   columns?: readonly string[];
   usedBy?: readonly string[];
+  /** Bounded structural facts from the graph and results of this observation. */
+  scope?: readonly string[];
   issues?: readonly string[];
 }
 export function operatorBlock(block: OperatorBlock): string {
@@ -517,12 +517,15 @@ export function operatorBlock(block: OperatorBlock): string {
     ...(block.result ? [`  - result: ${block.result}`] : []),
     ...(block.columns?.length ? [`  - columns: ${block.columns.join(", ")}`] : []),
     ...(block.usedBy?.length ? [`  - used by: ${block.usedBy.map(inlineCode).join(", ")}`] : []),
+    ...(block.scope ?? []).map(line => `  - scope: ${line}`),
     // An issue's own detail lines (`- at:`, `- fix:`) nest under it.
     ...(block.issues ?? []).flatMap(issue => {
       const [first, ...rest] = issue.split("\n");
       return [
         `  ${first.trimStart().startsWith("- ") ? first.trimStart() : `- ${first.trimStart()}`}`,
-        ...rest.filter(line => line.trim()).map(line => `    ${line.trimStart().startsWith("- ") ? line.trimStart() : `- ${line.trimStart()}`}`),
+        ...rest
+          .filter(line => line.trim())
+          .map(line => `    ${line.trimStart().startsWith("- ") ? line.trimStart() : `- ${line.trimStart()}`}`),
       ];
     }),
   ].join("\n");
@@ -537,6 +540,7 @@ export function describeOperator(
     definition?: boolean;
     implementation?: boolean;
     usedBy?: string[];
+    scope?: readonly string[];
     issues?: string[];
     stale?: boolean;
     definitionLimit?: boolean;
@@ -605,6 +609,7 @@ export function describeOperator(
           : "not run",
     columns: columnEntries(schema, config.columnsShown),
     ...(options.usedBy ? { usedBy: options.usedBy } : {}),
+    ...(options.scope?.length ? { scope: [...options.scope] } : {}),
     ...(options.issues ? { issues: options.issues } : {}),
   };
 }

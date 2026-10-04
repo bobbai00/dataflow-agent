@@ -20,6 +20,7 @@
 import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
 
 import { asSchema, type ModelMessage } from "ai";
+import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-budget";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
@@ -332,6 +333,7 @@ export class TexeraAgent {
 
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
+  private readonly modelInputBudget = readInputBudget(process.env);
   private readonly systemPromptBuilder:
     | ((dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string)
     | undefined;
@@ -938,7 +940,9 @@ export class TexeraAgent {
   /** HEAD when the first request arrived: the state loaded before this conversation. */
   private loadedStepId(): string | undefined {
     const first = this.turnOrder()[0];
-    return first ? (this.reActStepsByMessageId.get(first) ?? []).find(step => step.role === "user")?.parentId : undefined;
+    return first
+      ? (this.reActStepsByMessageId.get(first) ?? []).find(step => step.role === "user")?.parentId
+      : undefined;
   }
 
   /** The number of the task a step belongs to, counted like `completedStateTasks`. */
@@ -2079,7 +2083,13 @@ export class TexeraAgent {
             const visibleSteps = this.getVisibleReActSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
             // prepareStep path; cache the rendered content for the sync preview.
-            const processed = await this.contextAssembler({
+            const processed = await budgetContextAssembler(
+              this.contextAssembler,
+              () => this.getSystemInfo(),
+              this.modelInputBudget,
+              value =>
+                this.log.info({ messageId, inputBudget: this.modelInputBudget, ...value }, "full model input budget")
+            )({
               visibleSteps,
               workflowState: this.workflowState,
               snapshotStorage: this.snapshotStorage,
@@ -2390,6 +2400,7 @@ export class TexeraAgent {
    * with a small refactor.
    */
   getNextStepContext(): string {
+    if (this.modelInputBudget.tokens > 0 && this.lastRenderedContext !== undefined) return this.lastRenderedContext;
     const visibleSteps = this.getVisibleReActSteps();
     const processed = this.contextAssembler({
       visibleSteps,
@@ -2841,7 +2852,8 @@ export class TexeraAgent {
     if (this.state !== AgentStateEnum.AVAILABLE) throw new Error(`agent is ${this.state}; seed state while it is idle`);
     // Loaded state defines task numbering and the system prompt for the whole
     // session, so it can only be loaded before the first request.
-    if (this.turnOrder().length > 0) throw new Error("seed state before the first request; this session already has requests");
+    if (this.turnOrder().length > 0)
+      throw new Error("seed state before the first request; this session already has requests");
     const tool = this.tools[TOOL_NAME_DATAFLOW];
     if (!tool || typeof tool.execute !== "function") throw new Error("dataflow tool is not registered");
     this.abortController = new AbortController();

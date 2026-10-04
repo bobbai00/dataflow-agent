@@ -19,7 +19,14 @@
 
 import type { DataflowActionsResult, DataflowAction } from "../tools/dataflow-actions";
 import { parseNativeDiagnostic, nativeDiagnosticIssue } from "./diagnostics";
-import { countOf, observationFormat, operatorBlock, renderTable, tableCell, type OperatorBlock } from "./observation-format";
+import {
+  countOf,
+  observationFormat,
+  operatorBlock,
+  renderTable,
+  tableCell,
+  type OperatorBlock,
+} from "./observation-format";
 
 /** A fallback for validation and pre-execution errors. Structured native
  * diagnostics are rendered by the owner before entering this function. */
@@ -224,7 +231,11 @@ export function renderActionObservations(result: DataflowActionsResult): string 
         lines.push(
           `${countOf(all.length, "operator")}${item.action.operator_ids ? " in scope" : ""}: ${counts.join(", ")}.`
         );
-        lines.push(...blocks.filter(block => block.issues?.length || block.state === "failed").map(operatorBlock));
+        lines.push(
+          ...blocks
+            .filter(block => block.scope?.length || block.issues?.length || block.state === "failed")
+            .map(operatorBlock)
+        );
         if (output.blocked?.length)
           lines.push(`- not run: ${output.blocked.map((op: any) => `${op.id} (${op.message})`).join(", ")}`);
         // Operators that did not run, grouped by cause, in graph order.

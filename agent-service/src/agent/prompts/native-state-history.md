@@ -23,7 +23,12 @@ When a task is answered, the dataflow as it stands is saved under that task's
 number: the definition of every operator and its result. Any later task can
 read a saved version or bring it back, including the version saved by a task
 that itself brought back an earlier one, so going back never removes a
-version. Edits change only the current dataflow:
+version. Edits change only the current dataflow.
+
+A saved version records what was computed, not whether its answer was right.
+Check the needed rule and population before using it as a baseline. A wrong
+answer can still leave useful intermediate tables; inspect those tables
+separately from the final report.
 
 | Capability | Effect |
 |---|---|

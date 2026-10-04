@@ -2280,17 +2280,21 @@ class _ProcessTrace:
 
 
 def _process_input(frame):
-    """Give custom pandas code float columns with NaN-backed missing values.
+    """Give custom pandas code conventional numeric arrays where lossless.
 
     Pandas 2.2 can rank masked nullable floats as ordinary values after
     to_numeric, even while notna() still excludes them. NumPy floats preserve
-    the mask as NaN through these operations. Keep integer extension arrays
-    intact so identifiers above 2**53 never pass through float conversion.
+    the mask as NaN through these operations. Complete nullable integers can
+    become NumPy int64 directly, avoiding masked-array pivot/fill failures.
+    Keep nullable integers when missing values need their masks, and never
+    pass integer identifiers through float conversion.
     """
     output = frame.copy(deep=True)
     for name in output.columns:
         if isinstance(output[name].dtype, (pd.Float32Dtype, pd.Float64Dtype)):
             output[name] = output[name].astype("float64")
+        elif isinstance(output[name].dtype, pd.Int64Dtype) and output[name].notna().all():
+            output[name] = output[name].astype("int64")
     return output
 
 
