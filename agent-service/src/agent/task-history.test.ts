@@ -138,6 +138,28 @@ test("skipped actions and unknown provenance do not fabricate dependency edges",
   ).toBe(true);
 });
 
+test("partial execution failures retain dependencies of independently completed operators", async () => {
+  const { storage, task, reference } = await fixture();
+  const second = task(2, [reference()]);
+  (second.steps[0].toolResults![0].output as any).actions[0].status = "error";
+  expect(buildTaskGraph(storage, [task(1), second])[1].dependencies.map(d => d.task_id)).toEqual([1]);
+});
+
+test("loaded-task offsets apply to every request without numbering the seed", async () => {
+  const { storage, end } = await fixture();
+  const user: ReActStep = {
+    id: "u1",
+    messageId: "m1",
+    stepId: 1,
+    timestamp: 1,
+    role: "user",
+    content: "next question",
+    isBegin: true,
+    isEnd: false,
+  };
+  expect(taskHistoryFromSteps([user, end(1)], storage, undefined, 4)[0].taskId).toBe(5);
+});
+
 test("task index contains questions, answers and references, with no code or record dump", async () => {
   const { storage, task, reference } = await fixture();
   const text = renderTaskIndex(buildTaskGraph(storage, [task(1), task(2, [reference()])]));

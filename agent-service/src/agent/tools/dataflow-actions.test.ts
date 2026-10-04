@@ -694,6 +694,12 @@ describe("dataflow action integration", () => {
     expect(renderDataflowActionsResult(s.outcomes[0])).toBe(first);
     expect(s.executions()).toBe(2);
     expect(saved).not.toContain("#### Task");
+    const dependency = s.agent.getTaskHistory()[2].dependencies.find(edge => edge.task_id === 1)!;
+    expect(dependency.references.every(ref => ["source", "selected"].includes(ref.operator_id!))).toBe(true);
+    expect(s.outcomes[4].references?.find(ref => ref.actionIndex === 3 && ref.kind === "read")).toMatchObject({
+      operatorId: "selected",
+      savedTaskId: 1,
+    });
   });
 
   test("selected execution preserves failed siblings and ignores unconnected old branches", async () => {

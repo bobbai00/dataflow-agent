@@ -204,6 +204,12 @@ create edge source.out -> total.in`,
     { type: "retrieve", operator_id: "old_total", view: "full" },
   ]);
   assert(fork.text.includes("| 6 |"), fork.text);
+  assert.deepEqual(
+    fork.result.references
+      ?.filter((ref: any) => ref.actionIndex === 2 && ref.kind === "read")
+      .map((ref: any) => ({ operatorId: ref.operatorId, savedTaskId: ref.savedTaskId })),
+    [{ operatorId: "total", savedTaskId: 1 }]
+  );
   const restored = await run([
     { type: "edit", changes: "update operator total from task 1" },
     { type: "execute", operator_ids: ["total"] },

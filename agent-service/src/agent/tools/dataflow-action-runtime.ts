@@ -166,7 +166,7 @@ export async function executeDataflowActionBatch(
     references.push({
       actionIndex,
       kind,
-      operatorId,
+      operatorId: id,
       ...(op?.nativeOp?.revision ? { operatorRevision: op.nativeOp.revision } : {}),
       ...(info?.resultVersion?.subgraphHash ? { subgraphHash: info.resultVersion.subgraphHash } : {}),
       ...(info?.resultVersion?.id ? { resultVersion: info.resultVersion.id } : {}),
@@ -717,7 +717,13 @@ export async function executeDataflowActionBatch(
         resolveInput: id => storage.getOperatorResult(resultStep, id),
         ...(names.size ? { displayName: (id: string) => names.get(id) ?? id } : {}),
       });
-      recordReference(action.operator_id, "read", index, historical?.task_id, historical ? resultStep : undefined);
+      recordReference(
+        historical?.operator_id ?? action.operator_id,
+        "read",
+        index,
+        historical?.task_id,
+        historical ? resultStep : undefined
+      );
       if (!historical) retrieved.set(index, { operatorId: action.operator_id, info, observation });
       return {
         status: "ok",
