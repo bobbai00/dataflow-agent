@@ -161,7 +161,7 @@ An agent created with no `settings` uses
 | `maxOperatorResultCellCharLimit` | `2000` | sample cells are clipped and marked; native full retrieval preserves retained cell contents |
 | `maxSteps` | `100` | per-turn step budget |
 | `stateHistory` | `false` | native actions can inspect named operators at completed tasks, read saved views in the same inspection, and fork historical operator branches; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
-| `taskContext` | `"trajectory"` | opt-in `"dependencies"` keeps current-task ReAct and replaces earlier trajectories with questions, answers and observed operator dependencies; requires native DELTA context and `stateHistory`; see [task context](docs/observation-format/task-dependency-context.md) |
+| `taskContext` | `"trajectory"` | opt-in `"dependencies"` keeps current-task ReAct and replaces earlier trajectories with questions, answers and parent task IDs; inspect a task to retrieve its saved answer sub-DAG; requires native DELTA context and `stateHistory`; see [task context](docs/observation-format/task-dependency-context.md) |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |

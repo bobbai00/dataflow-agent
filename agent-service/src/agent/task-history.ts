@@ -32,6 +32,8 @@ export interface TaskReference {
   subgraphHash?: string;
   resultVersion?: string;
   producingStepId?: string;
+  /** Snapshot whose graph and result were actually read, including fork origins. */
+  readStepId?: string;
   savedTaskId?: number;
 }
 
@@ -70,12 +72,73 @@ export interface TaskRecord {
   }>;
   consulted_tasks: number[];
   unresolved_references: number;
+  output_roots?: {
+    basis: "answer" | "observed_reads" | "unknown";
+    roots: Array<{
+      operator_id: string;
+      step_id: string;
+      task_id: number;
+      revision?: string;
+      result_version?: string;
+      subgraph_hash?: string;
+    }>;
+  };
 }
 
 function batches(step: ReActStep): DataflowActionsResult[] {
   return (step.toolResults ?? [])
     .map(r => r.output)
     .filter((r): r is DataflowActionsResult => !!r && typeof r === "object" && r.kind === "dataflow-actions");
+}
+
+/** Explicit answer sources take precedence over exploratory result reads.
+ * Candidates remain labelled when an older/free-text answer named no sources. */
+function outputRoots(storage: WorkflowSnapshotStorage, task: TaskHistory, tasks: readonly TaskHistory[]) {
+  const answered: NonNullable<TaskRecord["output_roots"]>["roots"] = [];
+  const observed: typeof answered = [];
+  for (const step of task.steps)
+    for (const receipt of batches(step))
+      for (const ref of receipt.references ?? []) {
+        if (ref.kind !== "read" || !ref.operatorId) continue;
+        const action = receipt.actions.find(a => a.index === ref.actionIndex);
+        if (!action || action.status !== "ok" || (action.output as any)?.superseded_in_call) continue;
+        const saved = ref.savedTaskId === undefined ? undefined : tasks.find(t => t.taskId === ref.savedTaskId);
+        let stepId = ref.readStepId ?? saved?.stepId ?? step.id;
+        if (!storage.hasSnapshotFor(stepId)) continue;
+        const op = storage.getWorkflow(stepId).operators.find(o => o.operatorID === ref.operatorId);
+        const info = storage.getOperatorResult(stepId, ref.operatorId);
+        if (
+          !op ||
+          (ref.operatorRevision && op.nativeOp?.revision !== ref.operatorRevision) ||
+          (ref.resultVersion && info?.resultVersion?.id !== ref.resultVersion)
+        )
+          continue;
+        // Combine compatible reads at the task endpoint only when result identity
+        // proves they still denote exactly the same saved computation.
+        const endOp = storage.getWorkflow(task.stepId).operators.find(o => o.operatorID === ref.operatorId);
+        const endInfo = storage.getOperatorResult(task.stepId, ref.operatorId);
+        if (
+          ref.resultVersion &&
+          endInfo?.resultVersion?.id === ref.resultVersion &&
+          endOp?.nativeOp?.revision === op.nativeOp?.revision &&
+          endInfo.resultVersion?.subgraphHash === info?.resultVersion?.subgraphHash
+        )
+          stepId = task.stepId;
+        const root = {
+          operator_id: ref.operatorId,
+          step_id: stepId,
+          task_id: stepId === task.stepId ? task.taskId : (saved?.taskId ?? task.taskId),
+          ...(ref.operatorRevision ? { revision: ref.operatorRevision } : {}),
+          ...(ref.resultVersion ? { result_version: ref.resultVersion } : {}),
+          ...(ref.subgraphHash ? { subgraph_hash: ref.subgraphHash } : {}),
+        };
+        const roots = action.action.type === "answer" ? answered : observed;
+        if (!roots.some(r => r.operator_id === root.operator_id && r.step_id === root.step_id)) roots.push(root);
+      }
+  return {
+    basis: answered.length ? ("answer" as const) : observed.length ? ("observed_reads" as const) : ("unknown" as const),
+    roots: answered.length ? answered : observed,
+  };
 }
 
 /** Number every user request, including unsuccessful ones; seed state is not a task. */
@@ -217,6 +280,7 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
       dependencies: [...edges].sort(([a], [b]) => a - b).map(([task_id, references]) => ({ task_id, references })),
       consulted_tasks: [...consulted].sort((a, b) => a - b),
       unresolved_references: unresolved,
+      output_roots: outputRoots(storage, task, ordered),
     });
     // Index every snapshot earned in this task, not just its final answer.
     // A cached/inherited result keeps its earliest known producer.
@@ -239,7 +303,7 @@ const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
 const TASK_HISTORY_INTRO =
-  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads; consultations are separate. Code, tables and earlier steps remain available through inspect task/state.";
+  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads, not correctness or every semantic dependency. Inspect any relevant task to retrieve its saved answer branch and upstream operators; code and saved results are available on request.";
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
@@ -248,23 +312,7 @@ function taskQuestion(task: TaskRecord): string {
 function taskOutcome(task: TaskRecord, answerChars: number): string {
   return [
     `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
-    `Operators: ${task.operators.map(op => `${op.operator_id} (${op.change})`).join(", ") || "none changed or explicitly selected"}`,
-    `Dependencies: ${
-      task.dependencies
-        .map(
-          d =>
-            `task ${d.task_id} via ${[
-              ...new Set(
-                d.references.map(
-                  r =>
-                    `${r.operator_id ?? "task"} [${r.kind}${r.result_version ? `; result ${r.result_version.slice(0, 12)}` : r.revision ? `; revision ${r.revision.slice(0, 12)}` : ""}]`
-                )
-              ),
-            ].join(", ")}`
-        )
-        .join("; ") || "none recorded"
-    }`,
-    ...(task.consulted_tasks.length ? [`Consulted: ${task.consulted_tasks.map(n => `task ${n}`).join(", ")}`] : []),
+    `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
     ...(task.unresolved_references
       ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
       : []),

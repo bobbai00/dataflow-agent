@@ -2044,5 +2044,6 @@
       ],
       "finding": "Reference code compares market_long_direct_scores from task 16 with market_long_decade_scores from task 17. Reachability reduction would list only 17; both version baselines remain semantically needed."
     }
-  ]
+  ],
+  "csv_text_normalization": "Per-line trailing whitespace removed from question/context cells for repository formatting; dependency annotations and source hashes are unchanged."
 }

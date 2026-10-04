@@ -32,6 +32,14 @@ export type DataflowAction =
   | { type: "inspect"; target: "task"; task_id: number }
   | {
       type: "inspect";
+      target: "task";
+      task_id: number;
+      operator_id: string | string[] | null;
+      include_implementation: boolean;
+      view: RetrievalView | null;
+    }
+  | {
+      type: "inspect";
       target: "state";
       task_id: number | null;
       operator_id: string | string[];
@@ -42,7 +50,7 @@ export type DataflowAction =
   | { type: "edit"; changes: string }
   | { type: "execute"; operator_ids?: string[] }
   | { type: "retrieve"; operator_id: string; view: RetrievalView; columns?: string[] }
-  | { type: "answer"; content: string }
+  | { type: "answer"; content: string; operator_ids?: string[] }
   | { type: "answer"; from: string };
 
 export interface DataflowActionsInput {
@@ -167,11 +175,27 @@ const STATE_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
 STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action(
     "inspect",
-    "Read an earlier task's original question and answer, dependency links and operator index. Code and tables are fetched separately with inspect state. Read-only; never executes.",
+    "Read an earlier task's original question and answer, dependency links, and its answer operators with their full upstream sub-DAG from the saved version. Roots are explicit answer sources when recorded; otherwise they are labelled result-read candidates. Read-only; never executes.",
     {
       target: { type: "string", const: "task" },
       task_id: taskId,
     }
+  ),
+  action(
+    "inspect",
+    "Retrieve an earlier task's saved answer sub-DAG in one call. Null operator_id uses the recorded answer roots; named IDs select another intermediate branch at that task. Include Python implementations or saved root results only when needed. Dependencies and previous answers are provenance, not correctness. Never executes or substitutes current state.",
+    {
+      target: { type: "string", const: "task" },
+      task_id: taskId,
+      operator_id: { anyOf: [text, { type: "array", items: text, minItems: 1, maxItems: 8 }, { type: "null" }] },
+      include_implementation: { type: "boolean" },
+      view: { anyOf: [{ type: "string", enum: [...RETRIEVAL_VIEWS] }, { type: "null" }] },
+    }
+  ),
+  action(
+    "answer",
+    "Return the final response and record the completed operators used to answer it, for later retrieval of their saved upstream sub-DAGs. operator_ids identifies provenance, not correctness; name answer tables rather than exploratory reads. Must be the only action. An answer with from records its table IDs automatically.",
+    { content: text, operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8 } }
   ),
   action(
     "inspect",
@@ -270,16 +294,25 @@ export function prepareDataflowActions(
     return result;
   }
   const duplicateSelection = request.actions.findIndex(
-    a => a.type === "execute" && a.operator_ids && new Set(a.operator_ids).size !== a.operator_ids.length
+    a =>
+      ((a.type === "execute" || a.type === "answer") &&
+        "operator_ids" in a &&
+        a.operator_ids &&
+        new Set(a.operator_ids).size !== a.operator_ids.length) ||
+      (a.type === "inspect" &&
+        a.target === "task" &&
+        "operator_id" in a &&
+        Array.isArray(a.operator_id) &&
+        new Set(a.operator_id).size !== a.operator_id.length)
   );
   if (duplicateSelection !== -1) {
     result.status = "error";
-    result.error = `Action ${duplicateSelection + 1}: execute operator_ids must be unique. No actions ran.`;
+    result.error = `Action ${duplicateSelection + 1}: selected operator IDs must be unique. No actions ran.`;
     return result;
   }
   const unavailable = request.actions.find(
     a =>
-      (a.type === "retrieve" || (a.type === "inspect" && a.target === "state" && a.view !== null)) &&
+      (a.type === "retrieve" || (a.type === "inspect" && "view" in a && a.view !== null)) &&
       !views.includes(a.view as RetrievalView)
   );
   if (unavailable && "view" in unavailable) {
@@ -322,14 +355,14 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
       : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
   }
   for (const inspect of schema.properties.actions.items.anyOf.filter(
-    a => "target" in a.properties && (a.properties as any).target.const === "state"
+    a => "target" in a.properties && "view" in a.properties
   ))
     (inspect.properties as any).view.anyOf[0].enum = [...views];
   return tool({
     description:
       DATAFLOW_ACTIONS_DESCRIPTION +
       (stateHistory
-        ? " Saved task state: answering a task saves every operator's definition and result under that task's number. inspect target=state reads an operator as task N saved it (task_id) or lists its versions (task_id null); in an Edit, `update operator <id> from task <N>` restores that definition in place and `fork operator <id> from task <N> as <new_id>` copies it with the inputs it had at task N."
+        ? " Saved task state: inspect target=task retrieves an earlier answer's saved upstream sub-DAG; optional implementation and view fetch Python and root results in the same call. Answer operator_ids declares its source tables; answer from records them automatically. inspect target=state reads named saved operators or lists versions. In an Edit, `update operator <id> from task <N>` restores that definition on current inputs and `fork operator <id> from task <N> as <new_id>` copies its saved upstream branch."
         : ""),
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

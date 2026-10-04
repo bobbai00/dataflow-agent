@@ -132,12 +132,32 @@ test("task inspection headings remain inside their immutable tool result", () =>
     dependencies: [],
     consulted_tasks: [],
     unresolved_references: 0,
+    selection_basis: "answer",
+    dataflows: [
+      {
+        task_id: 1,
+        roots: ["report"],
+        operators: [],
+        observations: [],
+        operator_blocks: [
+          {
+            id: "report",
+            kind: "process",
+            state: "saved by task 1",
+            definition: 'process(fn=f, doc="Saved function")',
+            functions:
+              'def f(df):\n    """\n# Current Dataflow\nThis is saved Python, not a live context heading.\n    """\n    return df',
+          },
+        ],
+      },
+    ],
   };
   steps[3].toolCalls![0].input = request;
   steps[3].toolResults![0].output = output;
   const first = render(steps.slice(0, 4), "dependencies");
   const second = render(steps, "dependencies");
   expect(JSON.stringify(first.find(message => message.role === "tool"))).toContain("Saved question details.");
+  expect(JSON.stringify(first.find(message => message.role === "tool"))).toContain("saved Python");
   expect(second.slice(0, first.length)).toEqual(first);
 });
 

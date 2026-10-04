@@ -598,6 +598,104 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("declared answer roots retrieve a complete saved branch after later edits and deletion", async () => {
+    const batches: DataflowAction[][] = [
+      [
+        {
+          type: "edit",
+          changes:
+            'create operator source: process(fn=load, doc="Original working rows")\n    def load():\n        return pd.DataFrame({"value": [1]})\ncreate operator eligible: limit(5)\ncreate operator total: project(keep=["value"])\ncreate operator probe: scan("unrelated.csv")\ncreate edge source.out -> eligible.in\ncreate edge eligible.out -> total.in',
+        },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "probe", view: "sample" },
+      ],
+      [{ type: "answer", content: "First result.", operator_ids: ["total"] }],
+    ];
+    const s = session(batches);
+    s.agent.updateSettings({ stateHistory: true, stateLedger: false, taskContext: "dependencies" });
+    await s.agent.sendMessage("Use the original working rows.");
+    const original = s.agent.getTaskHistory()[0];
+    expect(original.output_roots?.basis).toBe("answer");
+    expect(original.output_roots?.roots.map(root => root.operator_id)).toEqual(["total"]);
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "edit", changes: 'update operator source: scan("changed.csv")\ndelete operator total' }],
+      [{ type: "answer", content: "Changed the current graph." }]
+    );
+    await s.agent.sendMessage("Change the source and remove the old report.");
+    const current = structuredClone(s.agent.getWorkflowState().getWorkflowContent());
+    batches.splice(
+      0,
+      batches.length,
+      [
+        { type: "inspect", target: "task", task_id: 1, operator_id: null, include_implementation: true, view: "full" },
+        { type: "inspect", target: "task", task_id: 1 },
+      ],
+      [{ type: "answer", content: "Inspected original task." }]
+    );
+    await s.agent.sendMessage("Retrieve task 1's computation.");
+    const output = s.outcomes[4].actions[0].output as any;
+    expect(output.selection_basis).toBe("answer");
+    expect(output.dataflows).toHaveLength(1);
+    expect(output.dataflows[0].roots).toEqual(["total"]);
+    expect(output.dataflows[0].operators.map((op: any) => op.operator_id)).toEqual(["source", "eligible", "total"]);
+    expect(output.dataflows[0].edges).toHaveLength(2);
+    const text = renderDataflowActionsResult(s.outcomes[4]);
+    expect(text).toContain("def load");
+    expect(text).toContain('"value": [1]');
+    expect(text).toContain("result-1");
+    expect(text).not.toContain("changed.csv");
+    const simple = s.outcomes[4].actions[1].output as any;
+    expect(simple.dataflows[0].operators.every((op: any) => !op.implementation)).toBe(true);
+    expect(simple.dataflows[0].observations).toEqual([]);
+    expect(s.agent.getWorkflowState().getWorkflowContent()).toEqual(current);
+    expect(s.executions()).toBe(1);
+    expect(s.agent.getTaskHistory()[2].consulted_tasks).toContain(1);
+    expect(s.agent.getTaskHistory()[2].dependencies.map(edge => edge.task_id)).toEqual([1]);
+  });
+
+  test("answer provenance rejects unknown or unavailable sources atomically, then allows correction", async () => {
+    for (const operator_ids of [["source"], ["source", "missing"]]) {
+      const s = session([
+        [{ type: "edit", changes: 'create operator source: scan("data.csv")' }],
+        [{ type: "answer", content: "Unverified.", operator_ids }],
+        [{ type: "execute", operator_ids: ["source"] }],
+        [{ type: "answer", content: "Checked.", operator_ids: ["source"] }],
+      ]);
+      s.agent.updateSettings({ stateHistory: true });
+      await s.agent.sendMessage("Answer with valid provenance.");
+      expect(s.outcomes[1].status).toBe("error");
+      expect(s.outcomes[1].error).toContain("no completed result");
+      expect(s.outcomes[1].references).toEqual([]);
+      expect(s.outcomes[3].answer).toBe("Checked.");
+      expect(s.agent.getTaskHistory()[0].output_roots?.roots.map(root => root.operator_id)).toEqual(["source"]);
+    }
+  });
+
+  test("task views and answer source declarations respect session availability and uniqueness", async () => {
+    const request = (action: DataflowAction, views: ("sample" | "full")[] = ["sample"], history = true) =>
+      prepareDataflowActions({ reasoning: "Read saved work.", actions: [action] }, views, history);
+    const inspection: DataflowAction = {
+      type: "inspect",
+      target: "task",
+      task_id: 1,
+      operator_id: null,
+      include_implementation: false,
+      view: "full",
+    };
+    expect(request(inspection).error).toContain("unavailable");
+    expect(request({ ...inspection, view: null }).status).toBe("pending");
+    expect(request({ ...inspection, operator_id: ["a", "a"], view: null }).error).toContain("unique");
+    expect(request({ type: "answer", content: "Done.", operator_ids: ["a", "a"] }).error).toContain("unique");
+    expect(request({ type: "answer", content: "Done.", operator_ids: ["a"] }, ["sample"], false).status).toBe("error");
+    const schema = (await asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema) as any;
+    const taskSchema = schema.properties.actions.items.anyOf.find(
+      (s: any) => s.properties.target?.const === "task" && s.properties.view
+    );
+    expect(taskSchema.properties.view.anyOf[0].enum).toEqual(["sample"]);
+  });
+
   test("ordinary ReAct shows selection scope before execution and on reads with the ledger and statistics disabled", async () => {
     const s = session([
       [

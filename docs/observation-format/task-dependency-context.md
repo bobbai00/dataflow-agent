@@ -19,14 +19,26 @@ rejects incompatible compaction, ledger, selector, and alternate context
 policies. A first or single task assembles exactly the same messages under
 either policy when other settings match.
 
-Each new task starts with the questions, agent-generated answers, operator
-names, and observed dependencies of earlier tasks. Answers longer than 1,200
+Each new task starts with the questions, agent-generated answers and parent
+task IDs of earlier tasks. Operator lists and access receipts stay outside the
+default model index. Answers longer than 1,200
 characters are explicitly clipped in this index. The full question and answer
 remain available through `{type: "inspect", target: "task", task_id: N}`.
-That action returns an operator index with revisions, inputs and result
-availability; it does not dump implementations or tables. Existing state
-inspection retrieves selected operators' saved definitions/results, and
-existing fork/restore commands reuse them. The current task keeps its ordinary
+That action also returns the saved answer roots and their full upstream
+sub-DAG, with each operator shown once, in dependency order. It excludes
+unrelated branches. The default read returns expressions, ports, schemas,
+availability and scope; implementations and result rows are opt-in:
+
+```json
+{"type": "inspect", "target": "task", "task_id": 1,
+ "operator_id": null, "include_implementation": true, "view": "sample"}
+```
+
+Null roots use the recorded answer branch. Named roots select an intermediate
+branch at that task's endpoint. Views follow the session's retrieval choices
+and budgets; only root results are retrieved. Neither inspection executes nor
+changes the current graph. Existing fork/restore commands reuse saved branches.
+The current task keeps its ordinary
 tool-call and tool-result frames. Its prior-task checkpoint remains immutable
 while those frames accumulate, preserving the within-task prefix.
 Earlier questions retain their initial native message frames, each followed by
@@ -47,6 +59,24 @@ Incomplete tasks remain labelled incomplete and never gain an invented answer.
 Requests that fail before an agent action remain inspectable as incomplete
 tasks; they retain their question and the inherited state before any action.
 The read-only `GET /api/agents/:id/task-history` endpoint exports the graph.
+
+With saved-state tools enabled, free-text Answer accepts optional
+`operator_ids` (one to eight unique IDs). The runtime checks that every named
+table exists and has a completed result before recording any declaration.
+Structured Answer `from` records its roots automatically. Explicit answer
+roots take precedence over exploratory reads. Older/free-text answers without
+roots use prior result reads labelled `observed_reads` candidates. Superseded
+reads are excluded, and missing roots produce an explicit note and the saved
+operator index instead of a guessed branch. Access receipts bind reads to
+their snapshot and result version; incompatible saved versions remain separate
+sub-DAGs. Later edits and deletion do not redirect a read to the live graph.
+
+The system prompt explains the mechanism with generic examples. It asks the
+agent to check filters, joins, units, grouping and coverage before reusing a
+branch; select a complete intermediate table when the previous report was
+limited; repair a faulty step and recompute downstream; and preserve baselines
+when comparing versions. The runtime checks provenance and availability, not
+semantic correctness. Benchmark dependency annotations are never solver input.
 
 An edge records observed access, not proof of semantic dependence or a correct
 answer. Text-only reuse and unrecorded external state cannot be inferred from

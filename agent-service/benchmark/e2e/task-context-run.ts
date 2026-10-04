@@ -164,7 +164,7 @@ create edge source.out -> total.in`,
     { type: "execute", operator_ids: ["total"] },
     { type: "retrieve", operator_id: "total", view: "full" },
   ]);
-  await run([{ type: "answer", content: "The sum is 6." }]);
+  await run([{ type: "answer", content: "The sum is 6.", operator_ids: ["total"] }]);
   await debug("Task 2: reuse the same calculation without changing its rule.");
   const cached = await run([
     { type: "execute", operator_ids: ["total"] },
@@ -195,6 +195,21 @@ create edge source.out -> total.in`,
   const inspection = await run([{ type: "inspect", target: "task", task_id: 2 }]);
   assert(inspection.text.includes("The cached sum is 6."));
   assert(!inspection.text.includes("def load"));
+  const branch = await run([
+    { type: "inspect", target: "task", task_id: 1, operator_id: null, include_implementation: true, view: "full" },
+  ]);
+  const graph = branch.result.actions[0].output.dataflows[0];
+  assert.equal(branch.result.actions[0].output.selection_basis, "answer");
+  assert.deepEqual(graph.roots, ["total"]);
+  assert.deepEqual(
+    graph.operators.map((op: any) => op.operator_id),
+    ["source", "total"]
+  );
+  assert.equal(graph.edges.length, 1);
+  assert(branch.text.includes("def load"), branch.text);
+  assert(branch.text.includes("| 6 |"), branch.text);
+  assert(!branch.text.includes("[10, 20, 30]"), branch.text);
+  checks.push("declared answer roots retrieve their complete original branch and result in one read");
   const old = await run([
     { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: false, view: "full" },
   ]);

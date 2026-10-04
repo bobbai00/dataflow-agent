@@ -104,7 +104,7 @@ export function renderTools(): string {
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
     "Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.\n\n" +
     "An answer ends the model loop. An answer with content must be the only action in its call; an answer with from must be the last action of its call. Actions that depend on a returned observation belong in the next call.\n" +
-    "\n## Optional historical state actions\n\nWith `stateHistory: true`, the same tool adds inspection of saved operator definitions and results by task. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:\n\n```json\n" +
+    "\n## Optional historical state actions\n\nWith `stateHistory: true`, task inspection retrieves the saved answer sub-DAG and all upstream operators, optionally including Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:\n\n```json\n" +
     JSON.stringify(schemaOf(createDataflowTool(undefined, true)), null, 2) +
     "\n```\n"
   );
@@ -182,6 +182,10 @@ export function renderAll(): Record<string, string> {
     "SYSTEM_PROMPT_WITH_STATE.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
       stateHistory: true,
       stateLedger: true,
+    }),
+    "SYSTEM_PROMPT_WITH_HISTORY.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      stateHistory: true,
+      retrievalViews: ["sample", "full"],
     }),
     "TOOLS.md": renderTools(),
     "OPERATORS.md": renderOperators(),

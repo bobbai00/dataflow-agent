@@ -160,26 +160,42 @@ export function renderActionObservations(result: DataflowActionsResult): string 
       let lines: string[] = [];
       if (item.action.type === "inspect" && item.action.target === "task") {
         const task = output as TaskRecord;
+        const body = [
+          renderTaskIndex([task], Infinity),
+          `Answer roots: ${output.selection_basis ?? "unknown"}. Recorded dependencies and sources establish provenance, not correctness.`,
+          ...(output.note ? [output.note] : []),
+          ...(output.dataflows ?? []).flatMap((graph: any) => [
+            `Saved sub-DAG: task ${graph.task_id}; roots ${graph.roots.join(", ")}; ${countOf(graph.operators.length, "operator")}.`,
+            ...graph.operator_blocks.map(operatorBlock),
+            ...(graph.observations ?? []).map(
+              (observation: any) => `Result ${observation.operator_id}:\n${observation.text}`
+            ),
+          ]),
+          ...(!output.dataflows?.length
+            ? [
+                renderTable(
+                  ["operator", "kind", "inputs", "revision", "result"],
+                  task.operators.map(op => [
+                    tableCell(op.operator_id, config.tableFormat),
+                    tableCell(op.kind, config.tableFormat),
+                    tableCell(op.inputs.join(", "), config.tableFormat),
+                    tableCell(op.revision?.slice(0, 12) ?? "unknown", config.tableFormat),
+                    op.available ? `${op.rows ?? "unknown"} rows` : "unavailable",
+                  ]),
+                  config.tableFormat
+                ),
+              ]
+            : []),
+        ].join("\n");
         return [
           title,
           // Saved questions/answers can contain Markdown headings. Quote the
           // whole record so the native frame parser keeps it inside this tool
           // result rather than mistaking it for a trailing context section.
-          renderTaskIndex([task], Infinity)
+          body
             .split("\n")
             .map(line => `> ${line}`)
             .join("\n"),
-          renderTable(
-            ["operator", "kind", "inputs", "revision", "result"],
-            task.operators.map(op => [
-              tableCell(op.operator_id, config.tableFormat),
-              tableCell(op.kind, config.tableFormat),
-              tableCell(op.inputs.join(", "), config.tableFormat),
-              tableCell(op.revision?.slice(0, 12) ?? "unknown", config.tableFormat),
-              op.available ? `${op.rows ?? "unknown"} rows` : "unavailable",
-            ]),
-            config.tableFormat
-          ),
         ].join("\n");
       }
       if (item.action.type === "inspect" && item.action.target === "graph") {

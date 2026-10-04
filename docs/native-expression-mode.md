@@ -34,6 +34,8 @@ The generated references are the source of truth for the public interface:
 
 | Action | Arguments | Result |
 |---|---|---|
+| Inspect task branch | `target: "task"`, `task_id`; optional `operator_id: null` or named roots, `include_implementation`, `view` | Original question/answer and saved answer operators with their complete upstream sub-DAG; optional Python and saved root results in the same read |
+| Declare answer sources | `type: "answer"`, `content`, optional `operator_ids` | Records completed answer tables as retrieval roots; an answer with `from` records these automatically |
 | Inspect graph | `target: "graph"` | Operator IDs, types, named ports, edges and unconnected inputs |
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
 | Edit | `changes` | Applied change count, automatically deleted edges, unconnected inputs and invalidated results |
@@ -213,9 +215,13 @@ request order, starting at 1; only completed tasks have historical state.
 A specific-task inspection can include `view: "sample_stats"` or `"full"` to
 read its saved output along with the definition. Set `view: null` for definitions
 alone. Saved reads never execute or substitute current state. Missing results
-are explicitly unavailable. There is no task-list, task-overview or task-level
-retrieval action. Operator IDs come from the full append-only conversation or
-ordinary current-graph inspection.
+are explicitly unavailable. Task inspection retrieves the answer branch from
+its saved snapshot, never the live graph. Explicit answer sources take
+precedence over exploratory reads. Without a declaration, prior result reads
+are labelled candidate roots; unknown roots remain unknown. Named roots can
+select a saved intermediate branch when the final report is unsuitable. Source
+declarations establish provenance; availability validation does not check the
+computation's semantics. See [task context](observation-format/task-dependency-context.md).
 
 A fork preserves input port positions and assigns new IDs to every dependency.
 It leaves the existing branch intact. Before execution, retrieving the fork can
@@ -230,7 +236,7 @@ and create it with current edges, or rewire the fork explicitly. Forking an
 entire branch also restores its historical input definitions. External files
 are not versioned: executing a fork reads the files at their supplied paths.
 
-The system prompt includes [generic multitask examples](../agent-service/src/agent/prompts/state-history-examples.md)
+The system prompt includes [generic multitask examples](../agent-service/src/agent/prompts/native-example-history.md)
 for reading a saved output, continuing from an earlier full population,
 applying an earlier formula to current data, and changing a temporary branch
 while preserving its baseline. Each example separates calls that depend on a

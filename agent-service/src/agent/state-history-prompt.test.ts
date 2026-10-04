@@ -34,6 +34,23 @@ function examples(view: "full" | "sample" | "sample_stats" = "sample") {
   return { prompt, section, calls };
 }
 
+test("task retrieval examples check reusable branches and declare answer roots without benchmark hints", () => {
+  for (const view of ["full", "sample", "sample_stats"] as const) {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
+    const section =
+      prompt.split("### Example: retrieve a relevant task before reusing its work")[1]?.split("### Example:")[0] ?? "";
+    const calls = Array.from(section.matchAll(/```json\n([\s\S]*?)\n```/g), m => JSON.parse(m[1]));
+    expect(calls).toHaveLength(3);
+    for (const call of calls) expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
+    expect(calls[0].actions[0]).toMatchObject({ target: "task", operator_id: null, view });
+    expect(calls[2].actions[0].operator_ids).toEqual(["by_region"]);
+    expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
+    expect(prompt).toContain("complete\nupstream sub-DAG");
+    expect(prompt).toContain("Dependency links help locate useful");
+    expect(prompt).not.toContain("{{");
+  }
+});
+
 test("scope and repair guidance is general and works in ordinary ReAct without a ledger or check interface", () => {
   const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
   expect(single).toContain("Completeness describes the stored result");

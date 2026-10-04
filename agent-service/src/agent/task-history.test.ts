@@ -170,6 +170,51 @@ test("task index contains questions, answers and references, with no code or rec
   expect(text).not.toContain("x: 1");
 });
 
+test("thin task cards show parent task IDs without operator receipts", async () => {
+  const { storage, task, reference } = await fixture();
+  const text = renderTaskIndex(buildTaskGraph(storage, [task(1), task(2, [reference()])]));
+  expect(text).toContain("Dependencies: task 1");
+  expect(text).not.toContain("Operators:");
+  expect(text).not.toContain("via source");
+  expect(text).not.toContain("[compute");
+});
+
+test("declared answer sources exclude exploratory reads and preserve read-time snapshots", async () => {
+  const { storage, task, reference } = await fixture();
+  const first = task(1);
+  const receipt = first.steps[0].toolResults![0].output as any;
+  receipt.actions = [
+    { index: 1, status: "ok", action: { type: "retrieve", operator_id: "probe", view: "sample" } },
+    { index: 2, status: "ok", action: { type: "answer", content: "2", operator_ids: ["source"] } },
+  ];
+  receipt.references = [
+    reference("read", { operatorId: "probe", readStepId: "s1" }),
+    reference("read", { actionIndex: 2, readStepId: "s1" }),
+  ];
+  const output = buildTaskGraph(storage, [first])[0].output_roots!;
+  expect(output.basis).toBe("answer");
+  expect(output.roots.map(r => r.operator_id)).toEqual(["source"]);
+  expect(output.roots[0].step_id).toBe("s1");
+});
+
+test("observed reads are labelled candidates and superseded reads are excluded", async () => {
+  const { storage, task, reference } = await fixture();
+  const first = task(1);
+  const receipt = first.steps[0].toolResults![0].output as any;
+  receipt.actions = [
+    {
+      index: 1,
+      status: "ok",
+      action: { type: "retrieve", operator_id: "source", view: "sample" },
+      output: { superseded_in_call: true },
+    },
+  ];
+  receipt.references = [reference("read", { readStepId: "s1" })];
+  expect(buildTaskGraph(storage, [first])[0].output_roots!.basis).toBe("unknown");
+  delete receipt.actions[0].output.superseded_in_call;
+  expect(buildTaskGraph(storage, [first])[0].output_roots!.basis).toBe("observed_reads");
+});
+
 test("history numbering preserves requests without an agent action and excludes seed steps", async () => {
   const { storage, end } = await fixture();
   const user = (n: number): ReActStep => ({

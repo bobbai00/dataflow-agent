@@ -40,7 +40,14 @@ import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
-import { inspectState, forkState, historicalTask, readForkResult, type HistoricalTask } from "../state-history";
+import {
+  inspectState,
+  inspectSubgraph,
+  forkState,
+  historicalTask,
+  readForkResult,
+  type HistoricalTask,
+} from "../state-history";
 import {
   executionNotes,
   provenanceLines,
@@ -167,6 +174,7 @@ export async function executeDataflowActionBatch(
       actionIndex,
       kind,
       operatorId: id,
+      readStepId: readStep,
       ...(op?.nativeOp?.revision ? { operatorRevision: op.nativeOp.revision } : {}),
       ...(info?.resultVersion?.subgraphHash ? { subgraphHash: info.resultVersion.subgraphHash } : {}),
       ...(info?.resultVersion?.id ? { resultVersion: info.resultVersion.id } : {}),
@@ -250,6 +258,89 @@ export async function executeDataflowActionBatch(
         if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
         const output = inspectTask(storage, runtime.taskHistory ?? [], action.task_id);
         references?.push({ actionIndex: index, kind: "consultation", operatorId: null, savedTaskId: action.task_id });
+        const task = historicalTask(runtime.taskHistory ?? [], action.task_id);
+        const selection = "operator_id" in action ? action.operator_id : null;
+        const implementation = "include_implementation" in action && action.include_implementation;
+        const view = "view" in action ? action.view : null;
+        const roots =
+          selection === null
+            ? (output.output_roots?.roots ?? [])
+            : (Array.isArray(selection) ? selection : [selection]).map(operator_id => ({
+                operator_id,
+                step_id: task.stepId,
+                task_id: task.taskId,
+              }));
+        const groups = new Map<string, typeof roots>();
+        for (const root of roots) groups.set(root.step_id, [...(groups.get(root.step_id) ?? []), root]);
+        const dataflows = [...groups].map(([savedStep, selected]) => {
+          const savedTask = { ...task, taskId: selected[0].task_id, stepId: savedStep };
+          const graph = inspectSubgraph(
+            storage,
+            savedTask,
+            selected.map(root => root.operator_id),
+            implementation
+          );
+          const workflow = storage.getWorkflow(savedStep);
+          const selectedIds = new Set(graph.operators.map(op => op.operator_id));
+          const observations =
+            view === null
+              ? []
+              : graph.roots.map(id => {
+                  const op = workflow.operators.find(op => op.operatorID === id)!;
+                  const info = storage.getOperatorResult(savedStep, id);
+                  if (
+                    !info ||
+                    info.error ||
+                    !["Completed", "CompletedFromCache"].includes(info.state) ||
+                    !Array.isArray(info.result)
+                  )
+                    return {
+                      operator_id: id,
+                      status: "unavailable",
+                      text: `Result ${id} is unavailable in this saved version; fork and execute to recompute.`,
+                    };
+                  const observation = selectNativeObservation({
+                    ...retrievalOptions(settings, view),
+                    op,
+                    info,
+                    workflow,
+                    resolveInput: input => storage.getOperatorResult(savedStep, input),
+                  });
+                  recordReference(id, "read", index, savedTask.taskId, savedStep);
+                  return {
+                    operator_id: id,
+                    status: "available",
+                    view,
+                    table: observation.table,
+                    text: observation.text,
+                  };
+                });
+          return {
+            ...graph,
+            operator_blocks: graph.operators.map(node => {
+              const op = workflow.operators.find(op => op.operatorID === node.operator_id)!;
+              return describeOperator(op, storage.getOperatorResult(savedStep, op.operatorID), {
+                ...result.format,
+                scope: resultScope(op, workflow, id => storage.getOperatorResult(savedStep, id)),
+                state: `saved by task ${savedTask.taskId}`,
+                implementation,
+                usedBy: workflow.operators
+                  .filter(item => selectedIds.has(item.operatorID) && item.nativeOp?.inputs.includes(op.operatorID))
+                  .map(item => item.operatorID),
+              });
+            }),
+            observations,
+          };
+        });
+        Object.assign(output, {
+          selection_basis: selection === null ? (output.output_roots?.basis ?? "unknown") : "selected",
+          dataflows,
+          ...(roots.length
+            ? {}
+            : {
+                note: "No answer roots were recorded. Use the operator index to select a saved intermediate branch with operator_id; no branch has been guessed.",
+              }),
+        });
         return { status: "ok", output };
       }
       if (action.target === "graph") {
@@ -753,6 +844,24 @@ export async function executeDataflowActionBatch(
     // and a table that cannot be the answer is refused with the reason, so
     // the model writes the answer itself in its next call.
     let composed: { answer_from: string; answer: string } | undefined;
+    if ("operator_ids" in action && action.operator_ids) {
+      // Validate the entire declaration before recording any provenance.
+      for (const id of action.operator_ids) {
+        const op = state.getOperator(id);
+        const info = current(id) ?? readForkResult(state.getWorkflowContent(), storage, id, stepId)?.info;
+        if (
+          !op ||
+          !info ||
+          info.error ||
+          !["Completed", "CompletedFromCache"].includes(info.state) ||
+          !Array.isArray(info.result)
+        )
+          throw new Error(
+            `Answer operator ${id} has no completed result. Name an existing answer table and execute it if needed, or answer without operator_ids.`
+          );
+      }
+      for (const id of action.operator_ids) recordReference(id, "read", index);
+    }
     if ("from" in action) {
       const parsed = parseAnswerFromParts(action.from);
       if ("error" in parsed) throw new Error(parsed.error);

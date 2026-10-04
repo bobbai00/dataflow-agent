@@ -264,7 +264,7 @@ An answer ends the model loop. An answer with content must be the only action in
 
 ## Optional historical state actions
 
-With `stateHistory: true`, the same tool adds inspection of saved operator definitions and results by task. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
+With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG and all upstream operators, optionally including Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
 
 ```json
 {
@@ -519,7 +519,104 @@ With `stateHistory: true`, the same tool adds inspection of saved operator defin
               "target",
               "task_id"
             ],
-            "description": "Read an earlier task's original question and answer, dependency links and operator index. Code and tables are fetched separately with inspect state. Read-only; never executes."
+            "description": "Read an earlier task's original question and answer, dependency links, and its answer operators with their full upstream sub-DAG from the saved version. Roots are explicit answer sources when recorded; otherwise they are labelled result-read candidates. Read-only; never executes."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "task"
+              },
+              "task_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "operator_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "minItems": 1,
+                    "maxItems": 8
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "include_implementation": {
+                "type": "boolean"
+              },
+              "view": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "sample_stats",
+                      "full"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "task_id",
+              "operator_id",
+              "include_implementation",
+              "view"
+            ],
+            "description": "Retrieve an earlier task's saved answer sub-DAG in one call. Null operator_id uses the recorded answer roots; named IDs select another intermediate branch at that task. Include Python implementations or saved root results only when needed. Dependencies and previous answers are provenance, not correctness. Never executes or substitutes current state."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "answer"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "maxItems": 8
+              }
+            },
+            "required": [
+              "type",
+              "content",
+              "operator_ids"
+            ],
+            "description": "Return the final response and record the completed operators used to answer it, for later retrieval of their saved upstream sub-DAGs. operator_ids identifies provenance, not correctness; name answer tables rather than exploratory reads. Must be the only action. An answer with from records its table IDs automatically."
           },
           {
             "type": "object",

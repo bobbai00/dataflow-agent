@@ -17,6 +17,55 @@
   under the License.
 -->
 
+### Example: retrieve a relevant task before reusing its work
+
+Task 3 asks for counts by region using the complete eligible records defined
+in task 1. The prior-task index contains task 1's question and answer. Retrieve
+its saved branch to check which rows it retained and which columns it used:
+
+```json
+{
+  "reasoning": "Inspect task 1's saved computation before choosing a reusable starting point.",
+  "actions": [
+    {"type": "inspect", "target": "task", "task_id": 1, "operator_id": null, "include_implementation": true, "view": "sample_stats"}
+  ]
+}
+```
+
+Suppose the returned answer root is `report`, whose upstreams include a
+`limit(5)` after grouping. That report only kept five groups; it cannot support
+counts across every region. Its earlier `eligible` working table may still
+be useful. Inspect that branch and verify its rule against the new request:
+
+```json
+{
+  "reasoning": "Check the complete working records rather than inherit the previous report's limit.",
+  "actions": [
+    {"type": "inspect", "target": "task", "task_id": 1, "operator_id": "eligible", "include_implementation": true, "view": "sample_stats"}
+  ]
+}
+```
+
+If the saved branch matches the requested rule, fork it when its historical
+inputs are needed, then build the new grouping on that branch. If its filter
+was wrong, correct the fork and recompute the affected outputs. A saved answer
+does not establish correctness, and a complete saved table does not establish
+that it contains the right rows. Use the available statistics and scope
+evidence when they help resolve those questions. Retrieve the new `by_region`
+result before answering and identify the table actually used:
+
+```json
+{
+  "reasoning": "Answer using the checked regional counts and record their source table.",
+  "actions": [
+    {"type": "answer", "content": "The checked counts are North: 12 and South: 9.", "operator_ids": ["by_region"]}
+  ]
+}
+```
+
+The declaration records provenance. The runtime checks that `by_region` has a
+completed result; the agent remains responsible for the computation and answer.
+
 ### Example: compare with an earlier task and go back
 
 Task 4 asks how every unit's score changed from task 2, including units that

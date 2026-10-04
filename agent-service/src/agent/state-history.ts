@@ -39,7 +39,7 @@ export interface StateQuery {
   include_implementation: boolean;
 }
 
-interface StateVersion {
+export interface StateVersion {
   task_id: number;
   through_task_id?: number;
   operator_id: string;
@@ -107,6 +107,55 @@ function describeStateOperator(
 const fingerprints = (workflow: WorkflowContent) => executionFingerprints(workflowExecutionPlan(workflow));
 const completed = (info: OperatorInfo | undefined) =>
   !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state) && Array.isArray(info.result);
+
+/** A task's answer branch, read from one immutable snapshot. Every ancestor
+ * appears once, before its consumers; unrelated branches are never included. */
+export function inspectSubgraph(
+  storage: WorkflowSnapshotStorage,
+  task: HistoricalTask,
+  roots: readonly string[],
+  includeImplementation: boolean
+) {
+  if (!roots.length || roots.some(id => !id.trim()) || new Set(roots).size !== roots.length)
+    throw new Error("Inspect requires unique, nonempty subgraph roots.");
+  const workflow = storage.getWorkflow(task.stepId);
+  const byId = new Map(workflow.operators.map(op => [op.operatorID, op]));
+  const ordered: string[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  function visit(id: string) {
+    if (visited.has(id)) return;
+    if (visiting.has(id)) throw new Error("Cannot inspect a cyclic saved subgraph.");
+    const op = byId.get(id);
+    if (!op) throw new Error(`Operator ${id} did not exist at task ${task.taskId}'s saved snapshot.`);
+    visiting.add(id);
+    for (const link of workflow.links.filter(link => link.target.operatorID === id)) visit(link.source.operatorID);
+    if (op.nativeOp?.inputs.some(input => !input || !visited.has(input)))
+      throw new Error(`Saved input bindings of ${id} are incomplete.`);
+    visiting.delete(id);
+    visited.add(id);
+    ordered.push(id);
+  }
+  for (const root of roots) visit(root);
+  const selected = {
+    ...workflow,
+    operators: ordered.map(id => byId.get(id)!),
+    links: workflow.links.filter(link => visited.has(link.source.operatorID) && visited.has(link.target.operatorID)),
+  };
+  const graph = inspectGraph(selected);
+  if (graph.unconnected_inputs.length)
+    throw new Error(`Saved input bindings are incomplete: ${graph.unconnected_inputs.join(", ")}.`);
+  const hashes = fingerprints(selected);
+  return {
+    task_id: task.taskId,
+    step_id: task.stepId,
+    roots: [...roots],
+    operators: ordered.map(id =>
+      describeStateOperator(storage, task, selected, id, includeImplementation, graph, hashes)
+    ),
+    edges: graph.edges,
+  };
+}
 
 export function historicalTask(tasks: readonly HistoricalTask[], taskId: number): HistoricalTask {
   const task = tasks.find(t => t.taskId === taskId);
