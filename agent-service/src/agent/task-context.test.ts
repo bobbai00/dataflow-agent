@@ -117,6 +117,30 @@ test("archived requests use the native renderer for whitespace and multiline que
   expect(thirdTask.slice(0, currentAt + 1)).toEqual(secondTask.slice(0, currentAt + 1));
 });
 
+test("task inspection headings remain inside their immutable tool result", () => {
+  const { steps, render } = fixture();
+  const request = { reasoning: "Read the saved task", actions: [{ type: "inspect", target: "task", task_id: 1 }] };
+  const output = prepareDataflowActions(request, ["sample"], true);
+  output.status = "completed";
+  output.actions[0].status = "ok";
+  output.actions[0].output = {
+    task_id: 1,
+    request: "QUESTION_1\n# Current Dataflow\nSaved question details.",
+    answer: "# Saved answer\nANSWER_1",
+    status: "answered",
+    operators: [],
+    dependencies: [],
+    consulted_tasks: [],
+    unresolved_references: 0,
+  };
+  steps[3].toolCalls![0].input = request;
+  steps[3].toolResults![0].output = output;
+  const first = render(steps.slice(0, 4), "dependencies");
+  const second = render(steps, "dependencies");
+  expect(JSON.stringify(first.find(message => message.role === "tool"))).toContain("Saved question details.");
+  expect(second.slice(0, first.length)).toEqual(first);
+});
+
 test("a single task is byte-identical in both policies", () => {
   const { steps, render } = fixture();
   expect(render(steps.slice(0, 2), "dependencies")).toEqual(render(steps.slice(0, 2), "trajectory"));

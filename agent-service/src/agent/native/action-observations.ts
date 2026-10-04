@@ -162,7 +162,13 @@ export function renderActionObservations(result: DataflowActionsResult): string 
         const task = output as TaskRecord;
         return [
           title,
-          renderTaskIndex([task], Infinity),
+          // Saved questions/answers can contain Markdown headings. Quote the
+          // whole record so the native frame parser keeps it inside this tool
+          // result rather than mistaking it for a trailing context section.
+          renderTaskIndex([task], Infinity)
+            .split("\n")
+            .map(line => `> ${line}`)
+            .join("\n"),
           renderTable(
             ["operator", "kind", "inputs", "revision", "result"],
             task.operators.map(op => [
