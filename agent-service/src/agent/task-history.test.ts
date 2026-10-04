@@ -170,7 +170,7 @@ test("task index contains questions, answers and references, with no code or rec
   expect(text).not.toContain("x: 1");
 });
 
-test("history numbering follows requests, preserves failed tasks, and excludes seed steps", async () => {
+test("history numbering preserves requests without an agent action and excludes seed steps", async () => {
   const { storage, end } = await fixture();
   const user = (n: number): ReActStep => ({
     id: `u${n}`,
@@ -192,9 +192,16 @@ test("history numbering follows requests, preserves failed tasks, and excludes s
       ["m3", 9],
     ])
   );
-  expect(history.map(t => t.taskId)).toEqual([7, 8]);
+  expect(history.map(t => t.taskId)).toEqual([7, 8, 9]);
   expect(history[1].status).toBe("incomplete");
   expect(history[1].answer).toBe("");
+  expect(history[2].status).toBe("incomplete");
+  expect(history[2].answer).toBe("");
+  expect(history[2].steps).toHaveLength(1);
+  const record = buildTaskGraph(storage, history)[2];
+  expect(record.request).toBe("question 3");
+  expect(record.operators).toEqual([]);
+  expect(record.dependencies).toEqual([]);
 });
 
 test("clipped answers are explicitly labelled and the task remains addressable", async () => {

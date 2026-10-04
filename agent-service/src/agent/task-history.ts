@@ -88,8 +88,9 @@ export function taskHistoryFromSteps(
   const requests = steps.filter(s => s.role === "user" && s.isBegin && !s.synthetic);
   return requests.flatMap((request, i) => {
     const trajectory = steps.filter(s => s.messageId === request.messageId && !s.synthetic);
-    const saved = [...trajectory].reverse().find(s => s.role === "agent" && storage.hasSnapshotFor(s.id));
-    if (!saved) return [];
+    // A provider failure can leave only the request. Keep it addressable as an
+    // incomplete task; its inherited snapshot is the state before any action.
+    const saved = [...trajectory].reverse().find(s => s.role === "agent" && storage.hasSnapshotFor(s.id)) ?? request;
     const end = [...trajectory]
       .reverse()
       .find(
