@@ -124,7 +124,6 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
               items: { type: "string", enum: [...NATIVE_OPERATOR_NAMES] },
               minItems: 1,
               maxItems: 8,
-              uniqueItems: true,
             },
           }
         ),
@@ -324,6 +323,19 @@ export function prepareDataflowActions(
     return result;
   }
   const request = input as DataflowActionsInput;
+  if (
+    request.actions.some(
+      a =>
+        a.type === "inspect" &&
+        a.target === "reference" &&
+        a.topic === "operators" &&
+        new Set(a.operator_names).size !== a.operator_names.length
+    )
+  ) {
+    result.status = "error";
+    result.error = "Reference inspection requires unique operator names. No actions ran.";
+    return result;
+  }
   const invalidHistory = request.actions.find(
     a =>
       a.type === "inspect" &&

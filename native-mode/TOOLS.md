@@ -65,8 +65,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                   ]
                 },
                 "minItems": 1,
-                "maxItems": 8,
-                "uniqueItems": true
+                "maxItems": 8
               }
             },
             "required": [
@@ -439,8 +438,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                   ]
                 },
                 "minItems": 1,
-                "maxItems": 8,
-                "uniqueItems": true
+                "maxItems": 8
               }
             },
             "required": [

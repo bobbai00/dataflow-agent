@@ -21,7 +21,7 @@ import { expect, test } from "bun:test";
 import { buildNativeModeSystemPrompt, nativeReferenceText } from "../prompts";
 import { NATIVE_OPERATORS, graphCatalogText } from "./catalog";
 import { TexeraAgent } from "../texera-agent";
-import { prepareDataflowActions } from "../tools/dataflow-actions";
+import { dataflowActionsSchema, prepareDataflowActions } from "../tools/dataflow-actions";
 import { ContextMode } from "../../types/agent";
 import { validateNativeSettings } from "./settings";
 
@@ -61,6 +61,18 @@ test("on-demand reference actions validate for single and multi-task sessions", 
     );
     expect(r.status).toBe("pending");
   }
+});
+
+test("reference schema avoids provider-rejected uniqueItems and validates duplicates locally", () => {
+  expect(JSON.stringify(dataflowActionsSchema(true))).not.toContain('"uniqueItems"');
+  const input = {
+    reasoning: "Read contracts.",
+    actions: [{ type: "inspect", target: "reference", topic: "operators", operator_names: ["join", "join"] }],
+  };
+  const result = prepareDataflowActions(input, undefined, true);
+  expect(result.status).toBe("error");
+  expect(result.error).toMatch(/unique/);
+  expect(result.actions).toHaveLength(0);
 });
 
 test("unknown reference operators reject the whole call before an edit", () => {
