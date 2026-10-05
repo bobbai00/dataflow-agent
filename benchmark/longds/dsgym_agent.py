@@ -137,9 +137,9 @@ class Compactor:
     earlier turns verbatim, the kernel inventory in the inventory mode, and
     the current request. Which turns stay verbatim is decided once per
     request, with a reserve for the request's own calls, so its calls share a
-    prompt prefix. A single message above a quarter of the budget is clipped
-    to its head and tail; within the current request, older outputs give way
-    when it outgrows its reserve."""
+    prompt prefix. Complete earlier messages reach the summarizer in bounded
+    chunks; within the current request, older outputs give way when it
+    outgrows its reserve."""
 
     SUMMARY_SHARE = 0.25  # the summary's cap
     ACTIVE_SHARE = 0.3  # the reserve for the current request's calls (the dataflow arm's)
@@ -150,7 +150,6 @@ class Compactor:
         self.log = log
         self.summary = ""
         self.upto = 0  # earlier turns covered by the summary (turn 1's request is kept apart)
-        self.message_cap = int(budget * CHARS_PER_TOKEN / 4)
         self.summarizing = False
         self.scale = 1.0  # the provider's count over the estimate, from the last agent call
         self.planned = None  # the request index the verbatim turns were chosen for
@@ -168,13 +167,6 @@ class Compactor:
         estimate's error on this call (the scale is the previous call's)."""
         return self.budget if FULL_INPUT_BUDGET else int(self.budget * 0.97 / self.scale)
 
-    def clip(self, message):
-        content = message.get("content")
-        if isinstance(content, str) and len(content) > self.message_cap:
-            head, tail = content[: self.message_cap * 2 // 3], content[-self.message_cap // 3:]
-            return {**message, "content": f"{head}\n... ({len(content) - len(head) - len(tail)} characters omitted to fit the context budget) ...\n{tail}"}
-        return message
-
     def inventory(self) -> str:
         tools = getattr(ENV, "tool_group", None)
         if tools is None or tools.allocated_container is None:
@@ -185,42 +177,56 @@ class Compactor:
             return f"(kernel inventory unavailable: {error})"
         return str(text)[:6000]
 
-    def transcript(self, turn, limit: int) -> str:
-        """The turn as text within `limit` characters: each message clipped,
-        tighter until the whole fits, then cut to its head and tail."""
-        texts = [(m.get("role"), m.get("content") if isinstance(m.get("content"), str) else json.dumps(m.get("content")))
-                 for m in turn]
-        for cap in (2000, 1000, 500, 250):
-            text = "\n".join(f"[{role}] {content[:cap]}" for role, content in texts)
-            if len(text) <= limit:
-                return text
-        return text[: limit * 2 // 3] + "\n...\n" + text[-limit // 3:]
-
     def extend_summary(self, turns, call, kwargs):
-        """Folds the turns into the summary, as many turns a call as fit the
-        budget beside the summary so far."""
-        words = max(300, min(3000, int(self.budget * 0.2 * 0.75)))
-        room = int(self.budget * 0.6 * CHARS_PER_TOKEN)
-        chunks, chunk, size = [], [], 0
-        for turn in turns:
-            text = self.transcript(turn, room)
-            if chunk and size + len(text) > room:
-                chunks.append(chunk)
-                chunk, size = [], 0
-            chunk.append(text)
-            size += len(text)
-        chunks.append(chunk)
+        """Summarize complete earlier messages in budgeted chunks.
+
+        No pre-summary clipping: every character reaches the summarizer, even
+        when a large observation needs several requests. Commit memory only
+        after all chunks succeed, so a failed call cannot corrupt the summary.
+        """
+        words = max(300, min(3000, int(self.budget * 0.12)))
         request = dict(kwargs)
         request.pop("stop", None)
+        request.pop("tools", None)
+        request.pop("tool_choice", None)
+        request["max_tokens"] = min(request.get("max_tokens", 8192), max(256, self.budget // 4))
+        pending = "\n\n".join(
+            "\n".join(f"[{message['role']}] " + (message.get("content", "")
+                         if isinstance(message.get("content"), str)
+                         else json.dumps(message.get("content"), ensure_ascii=False))
+                      for message in turn)
+            for turn in turns)
+        summary = self.summary
         self.summarizing = True
         try:
-            for chunk in chunks:
-                request["messages"] = [
-                    {"role": "system", "content": SUMMARY_SYSTEM.format(words=words)},
-                    {"role": "user", "content": f"SUMMARY SO FAR:\n{self.summary or '(empty)'}\n\nNEW TURNS:\n" + "\n\n".join(chunk)},
-                ]
-                response = call(**request)
-                self.summary = (response.choices[0].message.content or "").strip()[: int(self.budget * self.SUMMARY_SHARE * CHARS_PER_TOKEN)]
+            while pending:
+                def frame(text):
+                    return {**request, "messages": [
+                        {"role": "system", "content": SUMMARY_SYSTEM.format(words=words)},
+                        {"role": "user", "content": f"SUMMARY SO FAR:\n{summary or '(empty)'}\n\nNEW TURNS:\n{text}"},
+                    ]}
+                # The full request, including summary/system overhead, is
+                # measured with the same frozen estimator as analysis calls.
+                low, high = 0, len(pending)
+                while low < high:
+                    middle = (low + high + 1) // 2
+                    measured = (estimate_full_input(frame(pending[:middle]), FULL_INPUT_SCALE)
+                                if FULL_INPUT_BUDGET else estimate_tokens(frame(pending[:middle])["messages"]))
+                    if measured <= self.units:
+                        low = middle
+                    else:
+                        high = middle - 1
+                if not low:
+                    raise RuntimeError("Summary overhead leaves no room within the input budget")
+                response = call(**frame(pending[:low]))
+                text = (response.choices[0].message.content or "").strip()
+                if not text:
+                    raise RuntimeError("Compaction returned an empty summary; previous memory retained")
+                allowance = int(self.budget * self.SUMMARY_SHARE * CHARS_PER_TOKEN)
+                summary = (text if len(text) <= allowance else
+                           text[:allowance - 60] + "\n[Summary exceeded memory allowance; end omitted.]")
+                pending = pending[low:]
+            self.summary = summary
         finally:
             self.summarizing = False
 
@@ -230,7 +236,7 @@ class Compactor:
         system = [m for m in messages[:1] if m.get("role") == "system"]
         rest = messages[len(system):]
         starts = sorted({0, *(i for i, m in enumerate(rest) if is_turn_start(m))})
-        turns = [[self.clip(m) for m in rest[a:b]] for a, b in zip(starts, starts[1:] + [len(rest)])]
+        turns = [[dict(m) for m in rest[a:b]] for a, b in zip(starts, starts[1:] + [len(rest)])]
         # Turn 1's request stays whole; the rest of turn 1 is an earlier turn like any other.
         first, turns[0] = turns[0][:1], turns[0][1:]
         earlier, current = turns[:-1], turns[-1] if len(turns) > 1 else []
@@ -338,7 +344,8 @@ def install_usage_capture(provider: str) -> None:
         try:
             response = original(*args, **kwargs)
         except Exception as error:
-            CALLS.append({"seconds": round(time.time()-started, 3), **usage_record({}), "failed": True})
+            CALLS.append({"seconds": round(time.time()-started, 3), **usage_record({}), "failed": True,
+                          **({"summary": True} if COMPACTOR is not None and COMPACTOR.summarizing else {})})
             if WIRE_DIR is not None:
                 write_wire(WIRE_DIR, number, "error", {"error_type": type(error).__name__})
             if CALLS_FILE is not None:

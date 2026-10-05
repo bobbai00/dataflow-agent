@@ -22,6 +22,7 @@
 // of calling tools via the native protocol.
 
 import type { ModelMessage } from "ai";
+import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { CompactionStrategy, ReActStep } from "../../types/agent";
@@ -495,7 +496,16 @@ export function assembleContext(
     const prior = history.filter(t => t.steps[0]?.messageId !== currentRequest?.messageId);
     if (prior.length && currentRequest) {
       const currentSteps = visibleSteps.filter(s => s.messageId === currentRequest.messageId);
-      const messages = assembleContext(currentSteps, workflowState, snapshotStorage, mode, {
+      // Seed delta rendering at this task's saved starting workflow. A bounded
+      // checkpoint can then distinguish current work from inherited operators.
+      const initialState: ReActStep = {
+        ...currentRequest,
+        role: "agent",
+        content: "",
+        toolCalls: [{ toolName: "initialize", toolCallId: `task-start-${currentRequest.id}`, input: {} }],
+        toolResults: undefined,
+      };
+      const messages = assembleContext([initialState, ...currentSteps], workflowState, snapshotStorage, mode, {
         ...options,
         taskContext: "trajectory",
         taskHistory: undefined,
@@ -1438,7 +1448,8 @@ function renderAgentCompacted(
     keepFrom,
     latestUserContent,
     latestUserStepId,
-    createFlagsByStep
+    createFlagsByStep,
+    initSnapshot
   );
 }
 
@@ -1519,7 +1530,8 @@ function assembleBudgetedContext(
       keepFrom,
       latestUserContent,
       latestUserStepId,
-      createFlagsByStep
+      createFlagsByStep,
+      initSnapshot
     );
     bestTokens = estimateTokens(best);
     folded = d;
@@ -1550,7 +1562,8 @@ function renderCompressed(
   keepFrom: number,
   latestUserContent: string | undefined,
   latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  initSnapshot?: SnapshotData
 ): string {
   const sections: string[] = [];
 
@@ -1572,7 +1585,34 @@ function renderCompressed(
     attemptReflection: false,
     opExtras: undefined,
   };
-  const deck = serializeSnapshotCompact(boundarySnap, workflowState, deckOptions, /*sectionLevel=*/ 2);
+  // A single current task can inherit a large historical workflow. Checkpoint
+  // only its changed definitions and explicitly observed live operators; the
+  // task index and retrieval tools retain access to earlier work. References
+  // to unchanged inputs stay in the definitions without expanding upstreams.
+  let checkpoint = boundarySnap;
+  if (tasks.length === 1 && initSnapshot) {
+    const baseline = new Map(initSnapshot.workflow.operators.map(op => [op.operatorID, op]));
+    const observed = new Set<string>();
+    for (const node of tasks[0].nodes) {
+      if (node.eventIndex < keepFrom)
+        for (const id of Object.keys(node.snapshot?.nativeObservations ?? {})) observed.add(id);
+    }
+    const operators = boundarySnap.workflow.operators.filter(
+      op => observed.has(op.operatorID) || !isDeepStrictEqual(baseline.get(op.operatorID), op)
+    );
+    const ids = new Set(operators.map(op => op.operatorID));
+    checkpoint = {
+      ...boundarySnap,
+      workflow: {
+        ...boundarySnap.workflow,
+        operators,
+        links: boundarySnap.workflow.links.filter(
+          link => ids.has(link.source.operatorID) && ids.has(link.target.operatorID)
+        ),
+      },
+    };
+  }
+  const deck = serializeSnapshotCompact(checkpoint, workflowState, deckOptions, /*sectionLevel=*/ 2);
   if (deck) {
     sections.push(
       options.compactDeckHeader ??

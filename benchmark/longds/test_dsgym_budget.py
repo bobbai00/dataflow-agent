@@ -100,3 +100,68 @@ else:
     raise AssertionError("Expected call-limit rejection")
 assert len(agent.CALLS) == 40
 ''')
+
+
+def test_compaction_summarizes_complete_turns_and_preserves_the_first_request(tmp_path):
+    run_client(f'''
+from types import SimpleNamespace
+from pathlib import Path
+import copy
+import dsgym_agent as agent
+from comparison_budget import estimate_full_input
+first = {{"role": "user", "content": "Question: " + "rules " * 3000}}
+code = "<python>" + "x" * 14000 + "EXACT_HISTORICAL_RULE=17" + "y" * 60000 + "</python>"
+messages = [{{"role": "system", "content": "Rules"}}, first,
+            {{"role": "assistant", "content": code}},
+            {{"role": "user", "content": "<information>result</information>"}},
+            {{"role": "user", "content": "Question: second"}}]
+before = copy.deepcopy(messages)
+requests = []
+def summary(**kwargs):
+    assert estimate_full_input(kwargs, .92) <= 18000
+    requests.append(kwargs)
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="The saved rule is 17."))])
+compactor = agent.Compactor(18000, "inventory", Path({str(tmp_path / 'complete-summary.jsonl')!r}))
+agent.TURN_STARTS[:] = [0, 1]
+result = compactor.compact(messages, summary, {{"messages": messages, "max_tokens": 8192}})
+assert requests
+assert len(requests) >= 2, "A large complete turn must be summarized in chunks"
+assert "EXACT_HISTORICAL_RULE=17" in ''.join(request['messages'][1]['content'] for request in requests)
+assert result[1] == first, "The original request must remain intact"
+assert messages == before
+assert estimate_full_input({{"messages": result}}, .92) <= 18000
+''')
+
+
+def test_failed_summary_is_transactional_and_counted(tmp_path):
+    run_client(f'''
+from types import SimpleNamespace
+from pathlib import Path
+import dsgym_agent as agent
+attempts = []
+def provider(**kwargs):
+    attempts.append(kwargs)
+    if len(attempts) == 2:
+        raise RuntimeError("summary provider unavailable")
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="partial replacement"))])
+agent.litellm.completion = provider
+agent.install_usage_capture("openai")
+compactor = agent.Compactor(18000, "inventory", Path({str(tmp_path / 'failed-summary.jsonl')!r}))
+compactor.summary = "original complete memory"
+compactor.upto = 3
+agent.COMPACTOR = compactor
+agent.TURN_STARTS[:] = [0]
+try:
+    compactor.extend_summary([[{{"role": "assistant", "content": "x" * 150000}}]],
+                             agent.litellm.completion, {{"messages": []}})
+except RuntimeError as error:
+    assert "unavailable" in str(error)
+else:
+    raise AssertionError("Expected failed second summary chunk")
+assert compactor.summary == "original complete memory"
+assert compactor.upto == 3
+assert compactor.summarizing is False
+assert len(agent.CALLS) == 2
+assert all(call['summary'] for call in agent.CALLS)
+assert agent.CALLS[-1]['failed'] is True
+''')

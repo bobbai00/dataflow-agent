@@ -16,7 +16,14 @@
 # under the License.
 import json
 
-from numeric_gate import reference_source, run_turns
+from numeric_gate import reference_source, run_turns, diff
+
+
+def test_nonfinite_reference_values_report_mismatch_without_crashing():
+    for value in [float("nan"), float("inf"), float("-inf")]:
+        mismatches = list(diff({"fraction": 0.5}, {"fraction": value}))
+        assert len(mismatches) == 1 and mismatches[0][0] == ".fraction"
+    assert list(diff(float("nan"), float("nan"))), "Non-finite output must not pass parity"
 
 
 def test_reference_code_available_without_notebook_export(tmp_path):

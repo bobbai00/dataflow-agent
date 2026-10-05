@@ -211,7 +211,7 @@ STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   ),
   action(
     "answer",
-    "Return the final response and identify completed source tables for later task-scoped retrieval. Use this form for computed answers; name answer tables, excluding exploratory reads. The runtime validates availability, not correctness. Must be the only action. An answer with from records its table IDs automatically.",
+    "Return an explanation or answer shape that from cannot express, and identify completed source tables for later task-scoped retrieval. Prefer answer from for tabular answers: it serializes computed values and records sources automatically. Name answer tables, excluding exploratory reads. Availability is checked, not correctness. Must be the only action.",
     { content: text, operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8 } }
   ),
   action(

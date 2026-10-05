@@ -49,9 +49,10 @@ task, useful when its final report is the wrong starting point. `target:
 Any earlier task can be inspected, including one with no recorded dependency.
 These reads do not execute or change the graph.
 
-When answering a computed question in free text, set `operator_ids` to the completed
-tables actually used for the answer. An answer with `from` records its source
-tables automatically. These IDs become the roots of later task retrieval;
+For tabular answers prefer `answer` with `from`; it serializes the computed
+values and records source tables automatically. If an explanation or unsupported
+shape needs free-text `content`, set `operator_ids` to its completed source
+tables. These IDs become the roots of later task retrieval;
 exploratory reads are excluded when explicit answer roots exist. Without an
 explicit declaration, retrieval lists prior result reads as unconfirmed
 candidates without expanding their graphs or returning their tables. Select

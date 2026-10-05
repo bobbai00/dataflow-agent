@@ -43,7 +43,8 @@ test("task retrieval examples check reusable branches and declare answer roots w
     expect(calls).toHaveLength(3);
     for (const call of calls) expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
     expect(calls[0].actions[0]).toMatchObject({ target: "task", operator_id: null, view });
-    expect(calls[2].actions[0].operator_ids).toEqual(["by_region"]);
+    expect(calls[0].reasoning).toContain("task 2");
+    expect(calls[2].actions[0]).toEqual({ type: "answer", from: "by_region[region,count]" });
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
     expect(prompt).toContain("local answer computation");
     expect(prompt).toContain("saved input\nreferences");
@@ -51,6 +52,14 @@ test("task retrieval examples check reusable branches and declare answer roots w
     expect(prompt).toContain("Graph inspection requires named `operator_ids`");
     expect(prompt).toContain("Dependency links help locate useful");
     expect(prompt).not.toContain("{{");
+  }
+});
+
+test("computed answers prefer runtime composition and narrow the first retrieval", () => {
+  for (const stateHistory of [false, true]) {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory });
+    expect(prompt).toContain("Prefer `answer` with `from` for tabular answers");
+    expect(prompt).toContain("Select needed `columns` on the first retrieval");
   }
 });
 

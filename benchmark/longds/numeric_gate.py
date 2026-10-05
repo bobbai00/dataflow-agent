@@ -30,6 +30,7 @@ import argparse
 import importlib
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -143,6 +144,8 @@ def canon(x, places=None):
     if isinstance(x, bool):
         return x
     if isinstance(x, float):
+        if not math.isfinite(x):
+            return x
         if x == int(x):
             return int(x)
         return round(x, 10)

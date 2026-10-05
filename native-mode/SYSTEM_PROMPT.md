@@ -37,10 +37,9 @@ run in order.
 | `retrieve` | Read an executed operator's table in a required `view`; optional `columns` restricts the displayed fields. | Reads an existing result without executing or changing it. |
 | `answer` | Return `content`, or compose the answer from executed tables using `from`. | Completes the current task. |
 
-Batch actions whose arguments you already know. If a decision depends on an
-observation, make that decision in the next call after reading it. For example,
-a known edit can be followed by execute and retrieve in one call; choosing
-parse options from a preview requires a later call.
+Batch known edits, execute and retrieve. Make decisions that depend on a
+returned observation in the next call. Select needed `columns` on the first retrieval
+so wide tables do not obscure requested values.
 
 Each edit is atomic. Its commands are staged in order and committed together;
 an invalid command rejects the entire edit. Earlier successful edits in the
@@ -56,8 +55,10 @@ branches. Everything in scope needs connected inputs. When unrelated branches
 are unfinished or failed, execute the operators needed for the current task
 and their ancestors.
 
-An answer with `content` must be the only action in its call. An answer with
-`from` must be the last action in its call.
+Prefer `answer` with `from` for tabular answers: the runtime selects fields,
+rounds values, serializes JSON and records source tables. It is the last action
+and may follow execute. Use `content` for explanations or unsupported shapes;
+   it must be the only action.
 
 ### Editing the graph
 
@@ -348,11 +349,10 @@ these stages when an observation calls for a change.
    and source files. Preview unfamiliar file layouts before choosing parse
    options, then execute a full scan for computation. Check headers, types,
    units, missing-value markers and repeated records.
-3. **Build the analysis.** Keep loading, deriving columns, filtering, joining
-   and aggregating in separate operators so their intermediate results can be
-   examined and corrected. Prefer catalog operators. Reserve `process` for
-   one operation the catalog cannot express, such as a parser, correlation or
-   model fit. Create known operators and edges together in one edit.
+3. **Build the analysis.** Keep reusable intermediates inspectable and
+   correctable. Prefer catalog operators; use `process` for a coherent custom
+   operation, such as a parser, correlation or model fit. Create known operators
+   and edges together in one edit.
 4. **Execute and judge the evidence.** Execute the relevant graph, retrieve
    what you need, and compare what the receipts show with the request. Repair
    errors or investigate unexpected losses, missingness and duplication.
@@ -707,9 +707,10 @@ task, useful when its final report is the wrong starting point. `target:
 Any earlier task can be inspected, including one with no recorded dependency.
 These reads do not execute or change the graph.
 
-When answering a computed question in free text, set `operator_ids` to the completed
-tables actually used for the answer. An answer with `from` records its source
-tables automatically. These IDs become the roots of later task retrieval;
+For tabular answers prefer `answer` with `from`; it serializes the computed
+values and records source tables automatically. If an explanation or unsupported
+shape needs free-text `content`, set `operator_ids` to its completed source
+tables. These IDs become the roots of later task retrieval;
 exploratory reads are excluded when explicit answer roots exist. Without an
 explicit declaration, retrieval lists prior result reads as unconfirmed
 candidates without expanding their graphs or returning their tables. Select

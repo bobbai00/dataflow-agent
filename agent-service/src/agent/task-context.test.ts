@@ -74,8 +74,45 @@ function fixture() {
   const options = { agentMode: AgentMode.NATIVE, messageLayout: "native" as const };
   const render = (visible: ReActStep[], taskContext: "trajectory" | "dependencies") =>
     assembleContext(visible, state, storage, ContextMode.DELTA, { ...options, taskContext });
-  return { steps, render };
+  return { steps, render, state, storage, options };
 }
+
+test("bounded task context checkpoints exclude unchanged historical operators", () => {
+  const { steps, state, storage, options } = fixture();
+  const operator = (id: string, source: string) => ({
+    operatorID: id,
+    operatorType: "PythonUDFV2",
+    operatorVersion: "1",
+    inputPorts: [],
+    outputPorts: [],
+    operatorProperties: {},
+    showAdvanced: false,
+    nativeOp: { type: "scan", properties: { path: `${id}.csv` }, inputs: [], source },
+  });
+  const old = operator("old_source", 'old_source = scan(path="HISTORICAL_SOURCE_SECRET.csv")');
+  const current = operator("current_source", 'current_source = scan(path="current.csv")');
+  const baseline = { ...state.getWorkflowContent(), operators: [old] };
+  storage.clear();
+  for (const id of ["u1", "s1", "u2"]) storage.createSnapshot(id, baseline);
+  const active = { ...baseline, operators: [old, current] };
+  for (const id of ["s2", "s3"]) storage.createSnapshot(id, active);
+  state.setWorkflowContent(active);
+  steps[3].toolCalls![0].input = {
+    reasoning: "x".repeat(16000),
+    actions: [{ type: "inspect", target: "graph", operator_ids: ["current_source"] }],
+  };
+  const messages = assembleContext(steps, state, storage, ContextMode.DELTA, {
+    ...options,
+    taskContext: "dependencies",
+    contextWindowTokens: 800,
+  });
+  const text = JSON.stringify(messages);
+  expect(text).toContain("QUESTION_1");
+  expect(text).toContain("ANSWER_1");
+  expect(text).toContain("current_source");
+  expect(text).not.toContain("HISTORICAL_SOURCE_SECRET");
+  expect(storage.getWorkflow("s3").operators).toHaveLength(2);
+});
 
 test("dependency context indexes previous tasks while preserving current native tool pairs", () => {
   const { steps, render } = fixture();

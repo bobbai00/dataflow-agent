@@ -25,7 +25,7 @@ eligible records. Inspect task 2 to identify which parts can be reused:
 
 ```json
 {
-  "reasoning": "Inspect task 1's saved computation before choosing a reusable starting point.",
+  "reasoning": "Inspect task 2's saved computation before choosing a reusable starting point.",
   "actions": [
     {"type": "inspect", "target": "task", "task_id": 2, "operator_id": null, "include_implementation": true, "view": "sample_stats"}
   ]
@@ -53,19 +53,19 @@ was wrong, correct the fork and recompute the affected outputs. A saved answer
 does not establish correctness, and a complete saved table does not establish
 that it contains the right rows. Use the available statistics and scope
 evidence when they help resolve those questions. Retrieve the new `by_region`
-result before answering and identify the table actually used:
+result, then compose the answer directly from its requested columns:
 
 ```json
 {
   "reasoning": "Answer using the checked regional counts and record their source table.",
   "actions": [
-    {"type": "answer", "content": "The checked counts are North: 12 and South: 9.", "operator_ids": ["by_region"]}
+    {"type": "answer", "from": "by_region[region,count]"}
   ]
 }
 ```
 
-The declaration records provenance. The runtime checks that `by_region` has a
-completed result; the agent remains responsible for the computation and answer.
+The runtime serializes the rows and records `by_region` as the answer source.
+The agent remains responsible for the computation and requested fields.
 
 ### Example: compare with an earlier task and go back
 
