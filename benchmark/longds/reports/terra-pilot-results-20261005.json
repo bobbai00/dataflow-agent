@@ -2614,40 +2614,6 @@
       "solution_sha256": "5884f65e466837268c16bad827a80a0c5b1c5abb0f75f158f33ddb0e5699e458"
     }
   ],
-  "common_completed_prefixes": {
-    "history": {
-      "turns": 31,
-      "correct": 24,
-      "cost_usd": 2.5296762,
-      "provider_calls": 192
-    },
-    "dsgym": {
-      "turns": 31,
-      "correct": 14,
-      "cost_usd": 2.2299918,
-      "provider_calls": 124
-    },
-    "relative_native_cost": 0.13438811748097002,
-    "scope": {
-      "community/kaggle-survey-2021/task2": 17,
-      "business/netflix_movies_and_tv_shows/task3": 14
-    },
-    "policy": "Post-run common completed prefixes, chosen by stop boundaries; not score-selected or causal."
-  },
-  "luna_on_same_completed_prefixes": {
-    "history": {
-      "turns": 31,
-      "correct": 19,
-      "cost_usd": 0.27309438,
-      "provider_calls": 189
-    },
-    "dsgym": {
-      "turns": 31,
-      "correct": 15,
-      "cost_usd": 0.13055728,
-      "provider_calls": 84
-    }
-  },
   "local_budget_failures": [
     {
       "task": "community/kaggle-survey-2021/task2",
@@ -3019,7 +2985,9 @@
     "provider_error_responses": 0,
     "estimated_over_cap": 0,
     "actual_over_cap": 0,
-    "unsent_local_cap_failures": 2
+    "unsent_native_terminal_cap_failures": 2,
+    "dsgym_survey_q1_blocked_steps": 39,
+    "turns_affected_by_local_budget_failures": 3
   },
   "input_provenance": {
     "repo_id": "zjunlp/LongDS",
@@ -3095,5 +3063,118 @@
     "native_survey": null,
     "native_netflix": null
   },
-  "decision": "Stop at four attempts. Repair retrieval size and preservation of current tool evidence offline before any further paid pilot; no scaling."
+  "decision": "Stop at four attempts. Repair retrieval size and preservation of current tool evidence offline before any further paid pilot; no scaling.",
+  "aligned_pre_native_cap_prefixes": {
+    "history": {
+      "turns": 31,
+      "correct": 24,
+      "cost_usd": 2.5296762,
+      "provider_calls": 192
+    },
+    "dsgym": {
+      "turns": 31,
+      "correct": 14,
+      "cost_usd": 2.2299918,
+      "provider_calls": 124
+    },
+    "relative_native_cost": 0.13438811748097002,
+    "scope": {
+      "community/kaggle-survey-2021/task2": 17,
+      "business/netflix_movies_and_tv_shows/task3": 14
+    },
+    "policy": "31 aligned questions in native pre-cap prefixes. Includes baseline Survey Q1 with an empty answer after local budget rejections; not all are successful submissions in both systems."
+  },
+  "common_completed_prefixes": {
+    "history": {
+      "turns": 30,
+      "correct": 23,
+      "cost_usd": 2.452746,
+      "provider_calls": 187
+    },
+    "dsgym": {
+      "turns": 30,
+      "correct": 14,
+      "cost_usd": 2.2190338,
+      "provider_calls": 123
+    },
+    "scope": {
+      "community/kaggle-survey-2021/task2": 17,
+      "business/netflix_movies_and_tv_shows/task3": 14
+    },
+    "excluded_turns": [
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "turn_id": 1,
+        "reason": "Baseline has no final answer"
+      }
+    ],
+    "policy": "Post-run common successful submissions; dataflow Q14 limitation remains a completed, incorrect answer."
+  },
+  "manual_budget_audit": {
+    "observation_characters": 275453,
+    "paid_calls": 1,
+    "blocked_feedback_count": 39,
+    "blocked_conversation_indices": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42
+    ],
+    "final_answer": ""
+  },
+  "counter_caveat": "Generated input_budget_errors checks the native error-string wording. It misses script Survey Q1, which is empty after 39 local budget rejections. Sent request usage and original grades are unchanged.",
+  "manual_accuracy_audit": {
+    "report": "terra-pilot-accuracy-audit-20261005.json",
+    "sha256": "fcaa7e7ccd9275b3e82028d45ccb0ba9aa21e71f55d72d029aa589ae5d4475af",
+    "offline_source_sha256": "3ec8d6218d04384666a58993fe38dd84586ef26a87e9fe5f49feda97bf3b2868"
+  },
+  "luna_on_same_aligned_prefixes": {
+    "history": {
+      "turns": 31,
+      "correct": 19,
+      "cost_usd": 0.27309438,
+      "provider_calls": 189
+    },
+    "dsgym": {
+      "turns": 31,
+      "correct": 15,
+      "cost_usd": 0.13055728,
+      "provider_calls": 84
+    }
+  }
 }

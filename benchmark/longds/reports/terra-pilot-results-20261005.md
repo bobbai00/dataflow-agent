@@ -5,7 +5,7 @@ answers**, compared with DSGym's **19**, but both dataflow sessions terminate
 before Q19. This pilot exposes a context-handling failure and does not establish
 a complete-session accuracy or cost advantage.
 
-On the **31 questions completed by both systems before those stops**, dataflow
+On the **31 aligned questions before the dataflow budget stops**, dataflow
 gets **24/31** right versus DSGym's **14/31**, at **$2.52968 versus $2.22999**
 estimated solver cost: **13.4% more**. This is an encouraging diagnostic result
 on two selected prefixes, with one attempt each; it is not a benchmark-wide
@@ -28,12 +28,12 @@ for `community/kaggle-survey-2021/task2` and
 | Measure | DSGym Python | Dataflow full/history |
 | --- | ---: | ---: |
 | Planned questions | 38 | 38 |
-| Completed turns | 38 | 31 |
+| Successful final submissions | 37 | 31 |
 | Recorded outcomes, including terminal errors | 38 | 33 |
 | Correct answers recorded | 19 | 24 |
 | Official full-prefix accuracy | 50.0% | Incomplete |
 | Unattempted later questions | 0 | 5 |
-| Local input-budget failures | 0 | 2 |
+| Turns affected by local input-budget failures | 1 | 2 |
 | Valid finite JSON-object results | 36 | 31 |
 | Provider calls, including summaries | 151 | 194 |
 | Paid summary calls | 24 | 0 |
@@ -42,7 +42,7 @@ for `community/kaggle-survey-2021/task2` and
 
 | Prefix | DSGym correct / completed | Dataflow correct / completed | Dataflow stop |
 | --- | ---: | ---: | --- |
-| Survey | 12 / 19 | 14 / 17 | Q18 blocked; Q19 unattempted |
+| Survey | 12 / 18 | 14 / 17 | Q18 blocked; Q19 unattempted |
 | Netflix | 7 / 19 | 10 / 14 | Q15 blocked; Q16–Q19 unattempted |
 
 The two terminal budget errors have recorded official grades of zero. The
@@ -50,6 +50,14 @@ five later questions have no answers or judgments; they are not silently
 assigned zero. Dataflow's full-prefix accuracy therefore remains unknown.
 Its 31 completed turns include Netflix Q14's deliberate limitation answer,
 which correctly receives grade zero.
+
+A subsequent [paired accuracy audit](terra-pilot-accuracy-audit-20261005.md)
+found that DSGym Survey Q1 also fails locally: its 275,453-character printed
+table produces 39 blocked next-step attempts and an empty answer. The runner
+then continues to Q2. DSGym therefore has 38 recorded questions but only 37
+successful final submissions. The original automatic budget counter misses
+this case because it checks the native error-string wording. The saved grades,
+provider calls and costs are unchanged.
 
 Sessions run concurrently with one worker per system. Elapsed-time totals
 describe these attempts; they are not controlled standalone latency figures.
@@ -69,7 +77,8 @@ Turn-level statistics also omit the paid work immediately before the two
 native error records. The portable report uses captured wire usage to include
 that work rather than treating it as free.
 
-The common completed prefixes are Survey Q1–Q17 and Netflix Q1–Q14:
+The aligned prefixes are Survey Q1–Q17 and Netflix Q1–Q14. They include the
+baseline Q1 failure; they are not 31 successful submissions from both systems:
 
 | Aligned diagnostic scope | DSGym | Dataflow |
 | --- | ---: | ---: |
@@ -84,6 +93,13 @@ causal adjustment. A separate behavior-conditioned subset where both systems
 submit computation contains 29 questions: DSGym gets 12 right at $2.13572;
 dataflow gets 23 right at $2.25017, or 5.4% more cost. That subset excludes
 some legitimate reuse without new execution and should remain secondary.
+
+Excluding baseline Survey Q1 leaves **30 common successful submissions**:
+dataflow 23 correct at $2.45275, DSGym 14 correct at $2.21903. These remain
+descriptive subsets. The paired audit also flags Survey Q5 as a probable
+judge false negative caused by comparisons derived from rounded reference
+ratios. Official grades remain unchanged; neither that case nor the baseline
+Q1 budget failure should be credited to better numerical computation.
 
 Across all recorded work, cached input is 89.0% for dataflow and 74.6% for
 DSGym. DSGym emits 133,262 output tokens versus dataflow's 69,688, including
@@ -152,7 +168,7 @@ complete causal error taxonomy.
 ## Model comparison, scoring and integrity
 
 The native prompt, settings, prepared question hashes and all native source
-hashes match the preceding clean-input Luna full arm. On the same 31 completed
+hashes match the preceding clean-input Luna full arm. On the same 31 aligned
 prefix questions, Luna dataflow had 19 correct and Terra has 24; Luna DSGym
 had 15 and Terra has 14. Across the full planned prefixes, Luna dataflow
 completed all 38 with 22 correct, whereas Terra records 24 correct with five
