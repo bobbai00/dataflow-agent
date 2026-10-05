@@ -250,7 +250,7 @@ Much lighter than dataflow — **no Texera services needed**.
    `CODE_AGENT_API_BASE` (default `http://localhost:4000`) with
    `CODE_AGENT_API_KEY` / `LITELLM_MASTER_KEY`.
 3. `OPENAI_API_KEY` exported — the *scorer* needs it (`llm_paraphrase` and
-   `f1_approximate` call `gpt-4o-mini`), independent of the SUT's own model.
+   `f1_approximate` call `gpt-5-mini`), independent of the SUT's own model.
 
 ```bash
 export OPENAI_API_KEY=sk-...

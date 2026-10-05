@@ -1,16 +1,3 @@
 {
-  "_about": "KramaBench declares some data sources under names that do not exist in its data lake (checked 2026-10-03 against benchmark/Kramabench/data). Each entry maps a declared source to the file the task means. astronomy-hard-7 declares 3-day windows; the lake has one file per warm-up id (wu334, wu335) in each folder. astronomy-hard-9 and -11 declare omni2.txt; the file is omni2.text. astronomy-hard-12 declares a glob with four ? for six-digit times.",
-  "astronomy-hard-7": {
-    "STORM-AI/warmup/v2/OMNI2/omni2-wu334-20161022_to_20161024.csv": "STORM-AI/warmup/v2/OMNI2/omni2-wu334-20160824_to_20161023.csv",
-    "STORM-AI/warmup/v2/GOES/goes-wu334-20161022_to_20161024.csv": "STORM-AI/warmup/v2/GOES/goes-wu334-20160824_to_20161023.csv",
-    "STORM-AI/warmup/v2/Sat_Density/swarma-wu334-20161022_to_20161024.csv": "STORM-AI/warmup/v2/Sat_Density/swarma-wu334-20161023_to_20161026.csv",
-    "STORM-AI/warmup/v2/OMNI2/omni2-wu335-20161025_to_20161029.csv": "STORM-AI/warmup/v2/OMNI2/omni2-wu335-20160827_to_20161026.csv",
-    "STORM-AI/warmup/v2/GOES/goes-wu335-20161025_to_20161029.csv": "STORM-AI/warmup/v2/GOES/goes-wu335-20160827_to_20161026.csv",
-    "STORM-AI/warmup/v2/Sat_Density/swarma-wu335-20161025_to_20161029.csv": "STORM-AI/warmup/v2/Sat_Density/swarma-wu335-20161026_to_20161029.csv"
-  },
-  "astronomy-hard-9": {"omni2_low_res/omni2.txt": "omni2_low_res/omni2.text"},
-  "astronomy-hard-11": {"omni2_low_res/omni2.txt": "omni2_low_res/omni2.text"},
-  "astronomy-hard-12": {
-    "swarm/POD/SW_OPER_SP3ACOM_2__201909??T????_201909??T????_0201/*.sp3": "swarm/POD/SW_OPER_SP3ACOM_2__201909??T??????_201909??T??????_0201/*.sp3"
-  }
+  "_about": "Runtime map from a data source a KramaBench task declares to the file the task means, applied by benchmark/observation_format_smoke.py. Empty since 2026-10-05: the pinned KramaBench task files carry every correction this map held (astronomy-hard-7 from upstream 03bd9bb; astronomy-hard-9 and -11 omni2.txt -> omni2.text and the astronomy-hard-12 six-digit time glob in fork commit 6b33f01). Add an entry only for a pinned KramaBench that still declares a source its data lake lacks."
 }

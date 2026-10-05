@@ -262,7 +262,7 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | LiteLLM container — only the providers you call |
 | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` | optional: swap the local proxy for an external OpenAI-compatible gateway |
 | `JUDGE_BASE_URL`, `JUDGE_API_KEY` | optional: LongDS judge endpoint (defaults to the local proxy) |
-| `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-4o-mini directly — a dummy key silently zeroes paraphrase metrics |
+| `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-5-mini directly — a dummy key silently zeroes paraphrase metrics |
 | `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
 
 **Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build

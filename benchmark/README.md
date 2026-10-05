@@ -9,7 +9,7 @@ entry point for both. The full Texera stack must be up first
 | Where | `benchmark/Kramabench` — git **submodule**, branch `stable` | `benchmark/longds` — part of this repo |
 | Shape | 104 single-question tasks over 6 domain data lakes | 68 tasks / 2,225 turns of long-horizon multi-turn analysis |
 | Driver | `kb.py` (inside the submodule) | `run_longds.py` (one agent + one workflow per task) |
-| Scoring | repo's `evaluate.py` (gpt-4o-mini metrics — needs `OPENAI_API_KEY` in `Kramabench/.env`) | LLM judge with upstream DataMind's own prompt |
+| Scoring | repo's `evaluate.py` (gpt-5-mini metrics — needs `OPENAI_API_KEY` in `Kramabench/.env`) | LLM judge with upstream DataMind's own prompt |
 | Data | committed in the submodule, except wildfire's WeatherEvents csv (Kaggle) | downloaded per-task from HF `zjunlp/LongDS` |
 
 ## One-time setup
@@ -33,7 +33,7 @@ benchmark/Kramabench/data/longds -> ../../longds/DataMind/longds/dataset/data/lo
 
 API keys come from the repo-root `.env` (see `.env.example`) — `bin/bench.sh`
 exports it before every command. KramaBench's paraphrase/f1 metrics call
-gpt-4o-mini via `OPENAI_API_KEY` directly, and a dummy key silently zeroes
+gpt-5-mini via `OPENAI_API_KEY` directly, and a dummy key silently zeroes
 scores. (`Kramabench/.env` still works as a fallback for standalone use.)
 
 ## KramaBench
