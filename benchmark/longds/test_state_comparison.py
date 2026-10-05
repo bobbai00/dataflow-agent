@@ -100,6 +100,14 @@ def test_summary_does_not_drop_failed_missing_or_unjudged_turns():
     assert s["accuracy"] is None
 
 
+def test_cost_uses_explicit_model_rates_and_keeps_unknown_usage():
+    rates = {"input": 2, "cached": .2, "write": 2.5, "output": 12}
+    usage = {"input_tokens": 100, "output_tokens": 10, "cached_tokens": 50,
+             "cache_write_tokens": 20}
+    assert cost_of(usage, rates) == pytest.approx(.000240)
+    assert cost_of({**usage, "output_tokens": None}, rates) is None
+
+
 def test_bounded_comparison_keeps_the_same_preflight_cohort():
     selection = {"sessions": [{"task": "a"}, {"task": "b"}], "development_sessions": ["dev"]}
     gates = [{"task": "a", "exit_code": 0}, {"task": "b", "exit_code": 1}]

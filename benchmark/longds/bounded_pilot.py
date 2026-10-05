@@ -47,6 +47,17 @@ CASES = {
                    "tables": ["most_sensitive_to_decade_adjustment"]},
     },
 }
+PILOT_RATES = {
+    MODEL: RATES,
+    "gpt-5.6-terra": {"input": 2, "cached": .2, "write": 2.5, "output": 12},
+}
+
+
+def pilot_rates(model):
+    """Freeze explicit model rates instead of silently applying Luna prices."""
+    if model not in PILOT_RATES:
+        raise ValueError(f"No recorded pilot rates for {model}")
+    return dict(PILOT_RATES[model])
 
 
 def score_rubric(expected, actual, rubric):
@@ -90,6 +101,7 @@ def validate_script_control(current, previous):
 
 
 def freeze(args):
+    rates = pilot_rates(args.model)
     output = args.output.resolve()
     folder = output / args.phase
     if folder.exists():
@@ -120,7 +132,9 @@ def freeze(args):
         job.update(turn_limit=case["turn_limit"], turns_total=case["turn_limit"],
                    settings=pilot_settings(job["arm"]))
     files = [HERE / name for name in ["bounded_pilot.py", "state_comparison.py", "comparison_job.py", "comparison_capture.py",
-              "comparison_budget.py", "partial_score.py", "dsgym_agent.py", "dsgym_executor.py", "judge_longds.py", "numeric_gate.py", "input_snapshot.py"]]
+              "comparison_budget.py", "comparison_campaign.py", "comparison_report.py", "comparison_cost.py",
+              "comparison_adjudicate.py", "bounded_pilot_report.py", "partial_score.py", "dsgym_agent.py",
+              "dsgym_executor.py", "judge_longds.py", "numeric_gate.py", "input_snapshot.py"]]
     files += [ROOT / "agent-service/benchmark/multiturn/run-comparison-session.ts"]
     files += [ROOT / "agent-service/benchmark/multiturn/comparison-answer.ts"]
     files += [p for p in (ROOT / "agent-service/src").rglob("*") if p.is_file() and p.suffix in {".ts", ".md", ".py"} and not p.name.endswith(".test.ts")]
@@ -131,7 +145,7 @@ def freeze(args):
                     for name in ["manifest.json", "gold.json", "prompts.json"]} for task in CASES}
     names = {name for task in CASES for name in json.loads((output / "prepared" / task.replace("/", "__") / "manifest.json").read_text())["files"]}
     protocol = {
-        "phase": args.phase, "created_at": datetime.now(timezone.utc).isoformat(), "model": MODEL,
+        "phase": args.phase, "created_at": datetime.now(timezone.utc).isoformat(), "model": args.model,
         "reasoning_effort": "medium", "max_model_calls_per_turn": 40, "max_output_tokens_per_call": 8192,
         "context_budget": args.budget, "endpoint": args.endpoint, "api_base": args.api_base, "views": "stats",
         "full_input_policy": {"budget_tokens": args.budget, "scale": calibration["scale"], "estimator": ESTIMATOR,
@@ -145,7 +159,7 @@ def freeze(args):
         "solver_attempt_policy": "All attempts retained, no score-selected retries. One repetition is a feasibility pilot, not a benchmark-wide result.",
         "cohort_policy": "Question/dependency-selected natural prefixes; reference gate only, no solver scores used. 2020 survey rejected before solving because five published answers contain NaN.",
         "metrics_policy": "Official binary grade, strict JSON validity, frozen final-target table identity/value/rank components, calls including summaries, cache, latency, request cap and trace error audit. Unknown partial-score structures stay unscored.",
-        "rates_usd_per_million": RATES, "pricing_source": "Frozen repository fallback; estimates, not invoices",
+        "rates_usd_per_million": rates, "pricing_source": "Frozen model rates; estimates, not invoices",
         "judge": "deepseek/deepseek-v4-pro", "judge_prompt_sha256": digest(prompt),
         "source_root": str(ROOT), "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_hashes": {str(p.relative_to(ROOT)): digest(p) for p in files}, "prepared_hashes": hashes,
@@ -190,6 +204,7 @@ if __name__ == "__main__":
     parser.add_argument("--phase", default="bounded")
     parser.add_argument("--budget", type=int, default=32000)
     parser.add_argument("--reps", type=int, default=1)
+    parser.add_argument("--model", choices=list(PILOT_RATES), default=MODEL)
     parser.add_argument("--arms", nargs="+", choices=["dsgym", "history", "history-lean"], default=["dsgym", "history"])
     parser.add_argument("--input-snapshot", type=Path)
     parser.add_argument("--reuse-script-phase")

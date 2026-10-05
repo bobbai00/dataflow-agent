@@ -22,6 +22,20 @@ import pytest
 from comparison_report import bootstrap_delta, build_report, native_metrics
 
 
+def test_report_uses_frozen_model_rates_for_recorded_and_uniform_cost(tmp_path):
+    job = {'task': 'task', 'arm': 'dsgym', 'rep': 1, 'turns_total': 1}
+    rates = {'input': 2, 'cached': .2, 'write': 2.5, 'output': 12}
+    (tmp_path / 'manifest.json').write_text(json.dumps({'jobs': [job], 'rates_usd_per_million': rates}))
+    folder = tmp_path / 'runs/dsgym-r1/task'
+    folder.mkdir(parents=True)
+    row = {'turn_id': 1, 'judge': {'score': 1}, 'depends_tasks': [], 'stats': {
+        'input_tokens': 100, 'cached_tokens': 50, 'cache_write_tokens': 20, 'output_tokens': 10}}
+    (folder / 'results_eval.json').write_text(json.dumps([row]))
+    report = build_report(tmp_path)
+    assert report['turns'][0]['stats']['cost_usd'] == pytest.approx(.000240)
+    assert report['turns'][0]['uniform_cost_usd'] == pytest.approx(.000230)
+
+
 def test_uncertainty_resamples_sessions_instead_of_independent_turns():
     rows = [{'task': task, 'rep': 1, 'turn_id': tid, 'arm': arm, 'score': score}
             for task, count, scores in [('large', 50, [1, 0]), ('small', 1, [0, 1])]

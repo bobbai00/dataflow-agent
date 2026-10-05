@@ -25,7 +25,7 @@ import random
 import re
 import statistics
 
-from state_comparison import cost_of, save, summarize
+from state_comparison import RATES, cost_of, save, summarize
 from comparison_cost import analyze_cost
 from comparison_adjudicate import resolved_rows
 
@@ -124,6 +124,7 @@ def bootstrap_delta(rows, a, b, draws=4000):
 
 def build_report(folder):
     protocol = json.loads((folder / "manifest.json").read_text())
+    rates = protocol.get("rates_usd_per_million", RATES)
     rows, metrics = [], []
     for job in protocol["jobs"]:
         path = folder / "runs" / f"{job['arm']}-r{job['rep']}" / job["task"].replace("/", "__")
@@ -135,12 +136,12 @@ def build_report(folder):
         for row in resolved_rows(path):
             stats = dict(row.get("stats") or {})
             if "cost_usd" not in stats:
-                stats["cost_usd"] = cost_of(stats)
+                stats["cost_usd"] = cost_of(stats, rates)
             # Native gateway wire responses omit cache-write counters that the
             # script route reports. Retain recorded rates and also
             # show one shared fresh-input pricing rule as a sensitivity check.
             uniform = None if any(stats.get(k) is None for k in ["input_tokens", "cached_tokens", "output_tokens"]) else (
-                (stats["input_tokens"]-stats["cached_tokens"])*.20 + stats["cached_tokens"]*.02 + stats["output_tokens"]*1.20)/1e6
+                (stats["input_tokens"]-stats["cached_tokens"])*rates["input"] + stats["cached_tokens"]*rates["cached"] + stats["output_tokens"]*rates["output"])/1e6
             rows.append({**row, "stats": stats, "task": job["task"], "arm": job["arm"], "rep": job["rep"],
                          "score": row.get("judge", {}).get("score"), "uniform_cost_usd": uniform,
                          "reused_control": bool(job.get("reuse_from"))})

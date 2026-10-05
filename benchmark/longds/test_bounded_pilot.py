@@ -23,6 +23,20 @@ GOLD = {"sensitivity": [{"country": "A", "difference": 2.5},
                         {"country": "B", "difference": 1.5}]}
 
 
+def test_model_selection_freezes_the_corresponding_rates():
+    import pytest
+    from bounded_pilot import pilot_rates
+
+    luna = pilot_rates("gpt-5.6-luna")
+    terra = pilot_rates("gpt-5.6-terra")
+    assert terra == {"input": 2, "cached": .2, "write": 2.5, "output": 12}
+    assert all(terra[key] == pytest.approx(value * 10) for key, value in luna.items())
+    terra["input"] = 0
+    assert pilot_rates("gpt-5.6-terra")["input"] == 2
+    with pytest.raises(ValueError):
+        pilot_rates("unrecorded-model")
+
+
 def test_components_distinguish_selection_values_and_order():
     actual = {"sensitivity": [{"country": "B", "difference": 1.5},
                               {"country": "A", "difference": 99}]}

@@ -53,6 +53,8 @@ def script_job(protocol, job, prepared, output):
         "--model", protocol["model"], "--out", str(output / "agent"),
         "--executor-url", f"http://localhost:{number}", "--api-base", protocol["api_base"],
         "--prompts-file", str(prepared / "prompts.json"), "--matched-limits", "--wire-trace"]
+    if protocol.get("rates_usd_per_million"):
+        command += ["--token-rates", json.dumps(protocol["rates_usd_per_million"])]
     if job.get("turn_limit"):
         command += ["--turn-limit", str(job["turn_limit"])]
     if protocol["context_budget"]:
@@ -95,7 +97,7 @@ def script_job(protocol, job, prepared, output):
         manager_log.close()
 
 
-def reprice(output):
+def reprice(output, rates=None):
     file = output / "results_with_ground_truth.json"
     if not file.exists():
         return []
@@ -104,7 +106,7 @@ def reprice(output):
         stats = row.get("stats") or {}
         if "cost_usd" in stats:
             stats["original_cost_usd"] = stats["cost_usd"]
-        stats["cost_usd"] = cost_of(stats)
+        stats["cost_usd"] = cost_of(stats, rates)
         row["stats"] = stats
     save(file, rows)
     return rows
@@ -178,7 +180,7 @@ def main():
                     "WORKFLOW_EXECUTION_SERVICE_ENDPOINT": os.environ.get("WORKFLOW_EXECUTION_SERVICE_ENDPOINT", "http://localhost:38086")})
         code = subprocess.call(["bun", "run", str(ROOT / "agent-service/benchmark/multiturn/run-comparison-session.ts"),
             str(args.prepared), str(args.output), str(args.protocol)], env=env)
-    rows = reprice(args.output)
+    rows = reprice(args.output, protocol.get("rates_usd_per_million"))
     if rows:
         if job.get("benchmark") == "krama":
             from scope_verification import score_krama

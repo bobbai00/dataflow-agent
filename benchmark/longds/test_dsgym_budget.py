@@ -34,6 +34,21 @@ def run_client(code):
     assert result.returncode == 0, result.stderr
 
 
+def test_stats_use_the_frozen_rates_without_changing_provider_usage():
+    run_client('''
+import dsgym_agent as agent
+agent.TURN_STARTS[:] = [0]
+agent.CALLS[:] = [{"input_tokens": 100, "cached_tokens": 50, "cache_write_tokens": 20,
+                 "output_tokens": 10, "reasoning_tokens": 0}]
+rates = {"input": 2, "cached": .2, "write": 2.5, "output": 12}
+default = agent.stats_for(0, 1)
+terra = agent.stats_for(0, 1, rates)
+assert abs(terra["cost_usd"] - .000240) < 1e-12
+assert abs(terra["cost_usd"] - default["cost_usd"] * 10) < 1e-12
+assert all(terra[k] == default[k] for k in terra if k != "cost_usd")
+''')
+
+
 def test_script_compaction_and_summary_requests_include_system_overhead(tmp_path):
     run_client(f'''
 import copy

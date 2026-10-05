@@ -433,7 +433,8 @@ def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions
     return turns
 
 
-def stats_for(turn_index: int, elapsed: float) -> dict:
+def stats_for(turn_index: int, elapsed: float, rates=None) -> dict:
+    rates = RATES if rates is None else rates
     start = TURN_STARTS[turn_index] if turn_index < len(TURN_STARTS) else len(CALLS)
     end = TURN_STARTS[turn_index + 1] if turn_index + 1 < len(TURN_STARTS) else len(CALLS)
     calls = CALLS[start:end]
@@ -453,10 +454,10 @@ def stats_for(turn_index: int, elapsed: float) -> dict:
         "llm_calls": sum(1 for c in calls if not c.get("summary")),
         "summary_calls": sum(1 for c in calls if c.get("summary")),
         "cost_usd": None if any(v is None for v in [input_tokens, cached, written, output]) else (
-            (input_tokens - cached - written) * RATES["input"]
-            + cached * RATES["cached"]
-            + written * RATES["write"]
-            + output * RATES["output"]
+            (input_tokens - cached - written) * rates["input"]
+            + cached * rates["cached"]
+            + written * rates["write"]
+            + output * rates["output"]
         )
         / 1e6,
         "elapsed_seconds": round(elapsed, 3),
@@ -468,6 +469,7 @@ def main() -> int:
     ap.add_argument("--manifest", type=Path, required=True)
     ap.add_argument("--gold", type=Path, required=True)
     ap.add_argument("--model", required=True)
+    ap.add_argument("--token-rates", type=json.loads, help="frozen accounting rates; does not affect model requests")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--executor-url", required=True)
     ap.add_argument("--api-base", required=True, help="OpenAI-compatible proxy, e.g. http://localhost:34000/v1")
@@ -544,7 +546,7 @@ def main() -> int:
                 "answer": solution.get("solution") or "",
                 "error": solution.get("error"),
                 "steps": solution.get("steps", 0),
-                "stats": stats_for(index, solution.get("execution_time", 0.0)),
+                "stats": stats_for(index, solution.get("execution_time", 0.0), args.token_rates),
             }
         )
     (args.out / "answers.json").write_text(json.dumps(answers, indent=2, ensure_ascii=False))

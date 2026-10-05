@@ -93,15 +93,16 @@ def make_jobs(tasks, arms, reps, phase="holdout", limit=None):
     return jobs
 
 
-def cost_of(stats):
+def cost_of(stats, rates=None):
+    rates = RATES if rates is None else rates
     if any(stats.get(k) is None for k in ["input_tokens", "output_tokens", "cached_tokens"]):
         return None
     inp, out, cached = (stats[k] for k in ["input_tokens", "output_tokens", "cached_tokens"])
     written = stats.get("cache_write_tokens") or 0
     if min(inp, out, cached, written) < 0 or cached + written > inp:
         raise ValueError("Inconsistent provider token usage")
-    return ((inp-cached-written)*RATES["input"] + cached*RATES["cached"] +
-            written*RATES["write"] + out*RATES["output"])/1e6
+    return ((inp-cached-written)*rates["input"] + cached*rates["cached"] +
+            written*rates["write"] + out*rates["output"])/1e6
 
 
 def summarize(jobs, rows):
