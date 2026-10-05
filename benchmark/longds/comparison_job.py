@@ -29,17 +29,24 @@ import time
 from state_comparison import HERE, ROOT, cost_of, port, save, verify_sources, verify_inputs
 
 
+def executor_command(manifest, workspace, number):
+    data_dir = Path(manifest["data_dir"])
+    command = [str(ROOT / ".venv/bin/python"), str(HERE / "dsgym_executor.py"),
+               "--port", str(number), "--data-root", str((ROOT / data_dir).resolve()),
+               "--workspace", str(workspace), "--timeout", "240"]
+    if not data_dir.is_absolute():
+        command += ["--data-relative", str(data_dir)]
+    return command
+
+
 def script_job(protocol, job, prepared, output):
     import requests
     manifest = json.loads((prepared / "manifest.json").read_text())
-    data_root = (ROOT / manifest["data_dir"]).resolve()
     workspace = output / "kernel"
     workspace.mkdir()
     number = port()
     manager_log = (output / "executor.log").open("x")
-    manager = subprocess.Popen([str(ROOT / ".venv/bin/python"), str(HERE / "dsgym_executor.py"),
-        "--port", str(number), "--data-root", str(data_root), "--workspace", str(workspace),
-        "--data-relative", manifest["data_dir"], "--timeout", "240"],
+    manager = subprocess.Popen(executor_command(manifest, workspace, number),
         stdout=manager_log, stderr=subprocess.STDOUT)
     command = [str(HERE / ".dsgym-venv/bin/python"), str(HERE / "dsgym_agent.py"),
         "--manifest", str(prepared / "manifest.json"), "--gold", str(prepared / "gold.json"),

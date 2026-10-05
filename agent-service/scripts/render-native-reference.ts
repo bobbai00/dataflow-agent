@@ -83,6 +83,9 @@ export function renderSystemPrompt(): string {
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
     "\n\nEnabling stateHistory adds the following instructions and historical actions:\n\n" +
     NATIVE_STATE_HISTORY.trim().replaceAll("{{RETRIEVE_EXAMPLE_VIEW}}", "sample") +
+    '\n\nWith `nativePromptDetail: "on_demand"`, the initial prompt keeps operator signatures and shorter generic examples. ' +
+    'Use `inspect` with `target: "reference"` for selected operator contracts or a feature-matched worked example. ' +
+    "[SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt](SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt) shows this variant with historical state enabled. Both prompt variants expose the same tool schema." +
     "\n"
   );
 }
@@ -103,8 +106,9 @@ export function renderTools(): string {
     "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
     "Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.\n\n" +
+    "Reference inspection returns canonical documentation for up to eight selected operators, or a single-task, statistics or history example. It reads no workflow data, executes nothing and adds no task dependency. Examples respect the session's available retrieval views and evidence/history features.\n\n" +
     "An answer ends the model loop. An answer with content must be the only action in its call; an answer with from must be the last action of its call. Actions that depend on a returned observation belong in the next call.\n" +
-    "\n## Optional historical state actions\n\nWith `stateHistory: true`, task inspection retrieves the saved answer sub-DAG and all upstream operators, optionally including Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:\n\n```json\n" +
+    "\n## Optional historical state actions\n\nWith `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:\n\n```json\n" +
     JSON.stringify(schemaOf(createDataflowTool(undefined, true)), null, 2) +
     "\n```\n"
   );
@@ -188,6 +192,11 @@ export function renderAll(): Record<string, string> {
       retrievalViews: ["sample", "full"],
     }),
     "TOOLS.md": renderTools(),
+    "SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt": buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      nativePromptDetail: "on_demand",
+      stateHistory: true,
+      retrievalViews: ["sample_stats", "full"],
+    }),
     "OPERATORS.md": renderOperators(),
   };
 }

@@ -2393,9 +2393,11 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
                 ? "graph"
                 : item.action.target === "task"
                   ? `task ${item.action.task_id}`
-                  : Array.isArray(item.action.operator_id)
-                    ? item.action.operator_id.join(", ")
-                    : item.action.operator_id,
+                  : item.action.target === "reference"
+                    ? `reference ${item.action.topic === "operators" ? item.action.operator_names.join(", ") : item.action.example}`
+                    : Array.isArray(item.action.operator_id)
+                      ? item.action.operator_id.join(", ")
+                      : item.action.operator_id,
             argsSummary: item.status,
             output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
           });

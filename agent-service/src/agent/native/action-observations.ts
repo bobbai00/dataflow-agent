@@ -94,6 +94,8 @@ function versionChange(versions: any[], index: number): string {
 
 function target(action: DataflowAction): string {
   if (action.type === "inspect") {
+    if (action.target === "reference")
+      return ` reference ${action.topic === "operators" ? action.operator_names.join(", ") : action.example}`;
     if (action.target === "graph") return " graph";
     if (action.target === "task") return ` task ${action.task_id}`;
     if (action.target === "state")
@@ -119,6 +121,8 @@ export function renderActionObservations(result: DataflowActionsResult): string 
         return `${title} (${failed ? `action ${failed.index} failed` : "an earlier action failed"})`;
       }
       const output = item.output as any;
+      if (item.status === "ok" && item.action.type === "inspect" && item.action.target === "reference")
+        return `${title}\n${output.text}`;
       if (item.status === "error" && !(output && typeof output === "object" && Array.isArray(output.operators)))
         return [
           title,

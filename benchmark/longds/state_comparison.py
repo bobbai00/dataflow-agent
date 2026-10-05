@@ -70,7 +70,7 @@ def build_prompts(manifest):
     first = (
         "You are an expert data scientist working through a long analysis with me. "
         "I will send requests one at a time about the same data.\n\n"
-        "Data files available (use these relative paths verbatim; never modify input files):\n"
+        "Data files available (use these paths verbatim; never modify input files):\n"
         + "\n".join(" - " + f for f in manifest["files"])
         + "\n\nYour analytical state persists across requests. Name reusable calculations and working tables "
         "meaningfully. Keep complete working tables separately from ranked answer selections. "
@@ -141,7 +141,7 @@ def port():
         return sock.getsockname()[1]
 
 
-def prepare(output, task):
+def prepare(output, task, data_snapshot=None):
     from prepare import _norm_turn_ids
     from _paths import DATAMIND
     domain, dataset, tid = task.split("/")
@@ -151,12 +151,13 @@ def prepare(output, task):
     meta = {m["turn"]: m for m in json.loads((source / "metadata.json").read_text())}
     key = task.replace("/", "__")
     folder = output / "prepared" / key
-    files = ["data/longds/" + task + "/data/" + str(p.relative_to(data))
-             for p in sorted(data.rglob("*")) if p.is_file()]
+    files = (list(data_snapshot["files"]) if data_snapshot is not None else
+             ["data/longds/" + task + "/data/" + str(p.relative_to(data))
+              for p in sorted(data.rglob("*")) if p.is_file()])
     if not files:
         raise ValueError(f"No input data: {task}")
     manifest = {"key": key, "domain": domain, "dataset_name": dataset, "task_id": tid,
-                "data_dir": "data/longds/" + task + "/data", "files": files,
+                "data_dir": data_snapshot["data_dir"] if data_snapshot is not None else "data/longds/" + task + "/data", "files": files,
                 "turns": [{k: t[k] for k in ["turn_id", "context", "question"]} for t in turns]}
     gold = {"key": key, "turns": [{**t, "state_type": meta.get(t["turn_id"], {}).get("state_type", []),
             "depends_tasks": _norm_turn_ids(meta.get(t["turn_id"], {}).get("depends_tasks", [])),
@@ -253,6 +254,9 @@ def verify_sources(protocol):
 
 
 def verify_inputs(protocol, task, prepared):
+    if protocol.get("input_snapshot"):
+        from input_snapshot import verify_snapshot
+        verify_snapshot(protocol["input_snapshot"])
     for name, sha in protocol.get("prepared_hashes", {}).get(task, {}).items():
         if digest(prepared / name) != sha:
             raise RuntimeError(f"Frozen solver input changed: {task}/{name}")

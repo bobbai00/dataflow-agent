@@ -36,6 +36,90 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               },
               "target": {
                 "type": "string",
+                "const": "reference"
+              },
+              "topic": {
+                "type": "string",
+                "const": "operators"
+              },
+              "operator_names": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "scan",
+                    "project",
+                    "cast",
+                    "filter",
+                    "map",
+                    "aggregate",
+                    "join",
+                    "union",
+                    "distinct",
+                    "sort",
+                    "limit",
+                    "window",
+                    "unpivot",
+                    "pivot",
+                    "process"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "topic",
+              "operator_names"
+            ],
+            "description": "Read selected operator contracts from the same catalog as the initial prompt. Documentation only; never reads results, executes or edits state."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "reference"
+              },
+              "topic": {
+                "type": "string",
+                "const": "example"
+              },
+              "example": {
+                "type": "string",
+                "enum": [
+                  "single",
+                  "statistics",
+                  "history"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "topic",
+              "example"
+            ],
+            "description": "Read a worked example adapted to this session's views and features. Documentation only; never executes or changes state. History and statistics examples require their features to be enabled."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
                 "const": "graph"
               }
             },
@@ -290,11 +374,13 @@ Only execute runs the graph. Retrieve reads existing results for the current gra
 
 Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.
 
+Reference inspection returns canonical documentation for up to eight selected operators, or a single-task, statistics or history example. It reads no workflow data, executes nothing and adds no task dependency. Examples respect the session's available retrieval views and evidence/history features.
+
 An answer ends the model loop. An answer with content must be the only action in its call; an answer with from must be the last action of its call. Actions that depend on a returned observation belong in the next call.
 
 ## Optional historical state actions
 
-With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG and all upstream operators, optionally including Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
+With `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
 
 ```json
 {
@@ -314,6 +400,90 @@ With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG an
       "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
       "items": {
         "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "reference"
+              },
+              "topic": {
+                "type": "string",
+                "const": "operators"
+              },
+              "operator_names": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "scan",
+                    "project",
+                    "cast",
+                    "filter",
+                    "map",
+                    "aggregate",
+                    "join",
+                    "union",
+                    "distinct",
+                    "sort",
+                    "limit",
+                    "window",
+                    "unpivot",
+                    "pivot",
+                    "process"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "topic",
+              "operator_names"
+            ],
+            "description": "Read selected operator contracts from the same catalog as the initial prompt. Documentation only; never reads results, executes or edits state."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "const": "reference"
+              },
+              "topic": {
+                "type": "string",
+                "const": "example"
+              },
+              "example": {
+                "type": "string",
+                "enum": [
+                  "single",
+                  "statistics",
+                  "history"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "topic",
+              "example"
+            ],
+            "description": "Read a worked example adapted to this session's views and features. Documentation only; never executes or changes state. History and statistics examples require their features to be enabled."
+          },
           {
             "type": "object",
             "additionalProperties": false,

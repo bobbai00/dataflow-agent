@@ -37,7 +37,7 @@ import {
   type RetrievalView,
 } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
-import { graphCatalogText } from "./native/catalog";
+import { graphCatalogText, graphCatalogIndexText } from "./native/catalog";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
@@ -232,6 +232,7 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   stateHistory?: boolean;
   /** `stateLedger`: task ledgers in Answer receipts, provenance cards in Edit receipts, execution notes. */
   stateLedger?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
 }
 
 const nativeFragment = (name: string) =>
@@ -253,6 +254,7 @@ const NATIVE_FRAGMENTS = {
   taskExamples: nativeFragment("native-example-tasks.md"),
   reviseExample: nativeFragment("native-example-revise.md"),
   historyExamples: nativeFragment("native-example-history.md"),
+  leanExamples: nativeFragment("native-example-lean.md"),
 };
 
 /** What a session offers, as the prompt fragments name it. */
@@ -318,15 +320,17 @@ function adaptReceipts(text: string, options: NativePromptLayoutOptions, flags: 
     // An execute receipt gives a block only to an operator with something to
     // report; without its flow lines, a block may have nothing left.
     let execute = false;
-    lines = lines.filter((line, i) => {
-      if (line.startsWith("### ")) execute = /^### \d+\. execute\b/.test(line);
-      if (!execute || !line.startsWith("- **")) return true;
-      const end = lines.findIndex((next, j) => j > i && !next.startsWith("  "));
-      const fields = lines.slice(i + 1, end < 0 ? lines.length : end);
-      if (fields.some(field => /^  - (error|note|check|flow)\b/.test(field))) return true;
-      fields.forEach((_, k) => (lines[i + 1 + k] = "\u0000"));
-      return false;
-    }).filter(line => line !== "\u0000");
+    lines = lines
+      .filter((line, i) => {
+        if (line.startsWith("### ")) execute = /^### \d+\. execute\b/.test(line);
+        if (!execute || !line.startsWith("- **")) return true;
+        const end = lines.findIndex((next, j) => j > i && !next.startsWith("  "));
+        const fields = lines.slice(i + 1, end < 0 ? lines.length : end);
+        if (fields.some(field => /^  - (error|note|check|flow)\b/.test(field))) return true;
+        fields.forEach((_, k) => (lines[i + 1 + k] = "\u0000"));
+        return false;
+      })
+      .filter(line => line !== "\u0000");
     const tsv = (line: string) => {
       if (/^\|(?:---\|)+$/.test(line)) return undefined;
       if (!line.startsWith("| ")) return line;
@@ -435,7 +439,11 @@ export function buildNativeModeSystemPrompt(
         : "Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it; inspect when you need a current definition, and execute when you need a current result.";
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
   const fields: Record<string, string> = {
-    OPERATOR_CATALOG: graphCatalogText(),
+    OPERATOR_CATALOG:
+      options.nativePromptDetail === "on_demand"
+        ? "Signatures and ports are listed below. Read a needed contract with inspect target=reference, topic=operators, operator_names=[...]. This is documentation, not graph state; it never executes or changes an operator. Reuse reference material already in context.\n\n" +
+          graphCatalogIndexText()
+        : graphCatalogText(),
     CONTEXT_LAYOUT: context,
     RETRIEVAL: nativeRetrievalText(options),
     RECORD_LAYOUT:
@@ -450,7 +458,8 @@ export function buildNativeModeSystemPrompt(
         )
       : "",
     EARLIER_TASKS: flags.multi ? nativeStateText(options) : "",
-    EXAMPLES: nativeRetrievalExamples(options),
+    EXAMPLES:
+      options.nativePromptDetail === "on_demand" ? NATIVE_FRAGMENTS.leanExamples : nativeRetrievalExamples(options),
   };
   let prompt = NATIVE_MODE_TEMPLATE.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
     if (!(key in fields)) throw new Error(`unknown prompt field {{${key}}}`);
@@ -458,9 +467,36 @@ export function buildNativeModeSystemPrompt(
   });
   prompt = adaptReceipts(applySections(prompt, flags), options, flags);
   // Example calls use only the views this session's tool schema offers.
-  prompt = prompt.replace(/"view": "sample_stats"/g, `"view": "${view}"`);
-  if (!views.includes("full")) prompt = prompt.replace(/"view": "full"/g, `"view": "${view}"`);
+  prompt = prompt.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) prompt = prompt.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
   return prompt.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** The same contracts and feature-matched examples used by the full prompt. */
+export function nativeReferenceText(
+  request:
+    | { topic: "operators"; operator_names: string[] }
+    | { topic: "example"; example: "single" | "statistics" | "history" },
+  options: NativePromptLayoutOptions
+): string {
+  if (request.topic === "operators") return graphCatalogText(request.operator_names);
+  const flags = nativeFlags(options);
+  if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");
+  const text =
+    request.example === "single"
+      ? NATIVE_FRAGMENTS.singleExample
+      : request.example === "history"
+        ? NATIVE_FRAGMENTS.historyExamples
+        : [flags.data ? NATIVE_FRAGMENTS.dataExamples : "", flags.flow ? NATIVE_FRAGMENTS.flowExamples : ""]
+            .filter(Boolean)
+            .join("\n\n");
+  if (!text) throw new Error("Data and flow statistics are disabled for this session.");
+  let rendered = adaptReceipts(applySections(text, flags), options, flags);
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  rendered = rendered.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) rendered = rendered.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
+  return rendered;
 }
 
 // ---------------------------------------------------------------------------

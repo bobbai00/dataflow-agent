@@ -68,6 +68,15 @@ def score_rubric(expected, actual, rubric):
             "partial_score": sum(t["partial_score"] for t in tables.values()) / len(tables)}
 
 
+def pilot_settings(arm):
+    if arm == "dsgym":
+        return None
+    if arm not in {"history", "history-lean"}:
+        raise ValueError(f"Unknown pilot arm: {arm}")
+    return {**arm_settings("history"), "taskContext": "dependencies",
+            "nativePromptDetail": "on_demand" if arm == "history-lean" else "full"}
+
+
 def freeze(args):
     output = args.output.resolve()
     folder = output / args.phase
@@ -77,15 +86,29 @@ def freeze(args):
     if calibration["estimator"] != ESTIMATOR or args.budget <= 0:
         raise ValueError("A matching calibration and positive input budget are required")
     gates = {row["task"]: row for row in json.loads((output / "gates-prefix.json").read_text())}
-    jobs = make_jobs(list(CASES), ["dsgym", "history"], args.reps, args.phase)
+    snapshot = None
+    if args.input_snapshot:
+        from input_snapshot import verify_snapshot
+        snapshot = json.loads(args.input_snapshot.read_text())
+        verify_snapshot(snapshot)
+        if set(snapshot["tasks"]) != set(CASES):
+            raise ValueError("Raw snapshot tasks differ from the frozen cohort")
+        for task in CASES:
+            prepared = json.loads((output / "prepared" / task.replace("/", "__") / "manifest.json").read_text())
+            selected = snapshot["tasks"][task]
+            if any(prepared[field] != selected[field] for field in ["data_dir", "files"]):
+                raise ValueError(f"Prepared inputs differ from the raw snapshot: {task}")
+    if len(set(args.arms)) != len(args.arms) or "dsgym" not in args.arms:
+        raise ValueError("Unique arms including the Python baseline are required")
+    jobs = make_jobs(list(CASES), args.arms, args.reps, args.phase)
     for job in jobs:
         case = CASES[job["task"]]
         if gates[job["task"]]["exit_code"] or gates[job["task"]]["turn_limit"] != case["turn_limit"]:
             raise ValueError(f"Reference prefix did not pass: {job['task']}")
         job.update(turn_limit=case["turn_limit"], turns_total=case["turn_limit"],
-                   settings=None if job["arm"] == "dsgym" else {**arm_settings("history"), "taskContext": "dependencies"})
+                   settings=pilot_settings(job["arm"]))
     files = [HERE / name for name in ["bounded_pilot.py", "state_comparison.py", "comparison_job.py", "comparison_capture.py",
-              "comparison_budget.py", "partial_score.py", "dsgym_agent.py", "dsgym_executor.py", "judge_longds.py", "numeric_gate.py"]]
+              "comparison_budget.py", "partial_score.py", "dsgym_agent.py", "dsgym_executor.py", "judge_longds.py", "numeric_gate.py", "input_snapshot.py"]]
     files += [ROOT / "agent-service/benchmark/multiturn/run-comparison-session.ts"]
     files += [p for p in (ROOT / "agent-service/src").rglob("*") if p.is_file() and p.suffix in {".ts", ".md", ".py"} and not p.name.endswith(".test.ts")]
     files += list((HERE / "DataMind/longds/runners/DSGym/dsgym/agents").rglob("*.py"))
@@ -101,6 +124,9 @@ def freeze(args):
         "full_input_policy": {"budget_tokens": args.budget, "scale": calibration["scale"], "estimator": ESTIMATOR,
                               "calibration_sha256": digest(args.calibration), "semantics": "Full input including system/tool schemas; measured provider usage audited separately."},
         "wire_root": str(output / "wire"), "repetitions": args.reps, "cases": CASES,
+        "input_snapshot": snapshot,
+        "input_snapshot_sha256": digest(args.input_snapshot) if snapshot else None,
+        "prompt_ablation_policy": "Full and on-demand native prompts use identical tools, state retrieval, observations and caps; only initial operator detail and worked examples differ.",
         "baseline_policy": "Persistent repo Python kernel, same-model incremental summary of complete older messages in bounded chunks plus live kernel inventory. All summary calls/cost included. No resets.",
         "script_kernel_notice": args.kernel_notice,
         "solver_attempt_policy": "All attempts retained, no score-selected retries. One repetition is a feasibility pilot, not a benchmark-wide result.",
@@ -135,6 +161,8 @@ if __name__ == "__main__":
     parser.add_argument("--phase", default="bounded")
     parser.add_argument("--budget", type=int, default=32000)
     parser.add_argument("--reps", type=int, default=1)
+    parser.add_argument("--arms", nargs="+", choices=["dsgym", "history", "history-lean"], default=["dsgym", "history"])
+    parser.add_argument("--input-snapshot", type=Path)
     parser.add_argument("--kernel-notice", action="store_true")
     parser.add_argument("--endpoint", default="http://localhost:3068")
     parser.add_argument("--api-base", default="http://localhost:4000/v1")

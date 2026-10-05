@@ -18,6 +18,7 @@
  */
 
 import type { AgentSettings } from "../../types/agent";
+import { nativeReferenceText } from "../prompts";
 import type { OperatorInfo } from "../../types/execution";
 import type { WorkflowContent } from "../../types/workflow";
 import { WorkflowState } from "../workflow-state";
@@ -254,6 +255,12 @@ export async function executeDataflowActionBatch(
   await runDataflowActions(result, async (action, index) => {
     assertCurrent();
     if (action.type === "inspect") {
+      if (action.target === "reference") {
+        return {
+          status: "ok",
+          output: { text: nativeReferenceText(action, { ...settings, checks: settings.nativeChecks }) },
+        };
+      }
       if (action.target === "task") {
         if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
         const output = inspectTask(storage, runtime.taskHistory ?? [], action.task_id);

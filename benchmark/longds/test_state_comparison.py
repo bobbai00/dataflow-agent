@@ -106,3 +106,43 @@ def test_bounded_comparison_keeps_the_same_preflight_cohort():
     assert select_tasks("holdout", selection, gates) == ["a"]
     assert select_tasks("bounded", selection, gates) == ["a"]
     assert select_tasks("development", selection, gates) == ["dev"]
+
+
+def test_prepare_uses_snapshot_inventory_without_exposing_gold(tmp_path, monkeypatch):
+    import _paths
+    from state_comparison import prepare
+
+    task = "domain/dataset/task1"
+    source = tmp_path / "upstream/task/longds" / task
+    source.mkdir(parents=True)
+    (source / "task.json").write_text(json.dumps([
+        {"turn_id": 1, "context": "Use the original records.", "question": "Count rows.",
+         "answer": "secret-answer", "code": "secret-reference"}]))
+    (source / "metadata.json").write_text(json.dumps([
+        {"turn": 1, "depends_tasks": [9], "state_type": ["Rollback"]}]))
+    monkeypatch.setattr(_paths, "DATAMIND", tmp_path / "upstream")
+    raw = tmp_path / "inputs/data"
+    raw.mkdir(parents=True)
+    selected = raw / "published.csv"
+    selected.write_text("value\n1\n")
+    (raw / "previous-output.csv").write_text("secret-output")
+    snapshot = {"data_dir": str(raw), "files": [str(selected)]}
+    prepared = prepare(tmp_path / "run", task, data_snapshot=snapshot)
+    assert prepared["files"] == [str(selected)]
+    assert prepared["data_dir"] == str(raw)
+    for name in ["manifest.json", "prompts.json"]:
+        text = (tmp_path / "run/prepared/domain__dataset__task1" / name).read_text()
+        assert str(selected) in text
+        for secret in ["previous-output", "secret-answer", "secret-reference", "depends_tasks", "Rollback"]:
+            assert secret not in text
+
+
+def test_executor_mounts_absolute_inputs_at_their_own_path():
+    from comparison_job import executor_command
+    from pathlib import Path
+
+    relative = executor_command({"data_dir": "data/input"}, Path("/tmp/private"), 5055)
+    assert relative[relative.index("--data-relative") + 1] == "data/input"
+    absolute = executor_command({"data_dir": "/tmp/raw-inputs"}, Path("/tmp/private"), 5055)
+    assert "--data-relative" not in absolute
+    assert absolute[absolute.index("--data-root") + 1] == "/tmp/raw-inputs"

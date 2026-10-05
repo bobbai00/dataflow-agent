@@ -700,7 +700,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           );
         else fail('on must be "key", ["k1", "k2"] or [("left_key", "right_key")].', "on");
       }
-      if (kwargs.how) props.type = oneOf(kwargs.how, "how", ["inner", "left", "right", "full", "cross", "semi", "anti"]);
+      if (kwargs.how)
+        props.type = oneOf(kwargs.how, "how", ["inner", "left", "right", "full", "cross", "semi", "anti"]);
       if (kwargs.nulls_equal) props.nullsEqual = bool(kwargs.nulls_equal, "nulls_equal");
       if (kwargs.suffix) props.rightSuffix = str(kwargs.suffix, "suffix");
       if (kwargs.validate)
@@ -962,10 +963,22 @@ export function graphOperatorPorts(def: NativeOperatorDef): string {
     : "in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader";
 }
 
-export function graphCatalogText(): string {
-  return NATIVE_OPERATORS.map(
-    def => `${graphOperatorSignature(def)}\n    Ports: ${graphOperatorPorts(def)}.\n    ${def.brief}`
-  ).join("\n\n");
+export function graphCatalogText(names?: readonly string[]): string {
+  const selected = names
+    ? names.map(name => {
+        const def = NATIVE_BY_NAME.get(name);
+        if (!def) throw new Error(`Unknown operator: ${name}`);
+        return def;
+      })
+    : NATIVE_OPERATORS;
+  return selected
+    .map(def => `${graphOperatorSignature(def)}\n    Ports: ${graphOperatorPorts(def)}.\n    ${def.brief}`)
+    .join("\n\n");
+}
+
+/** Signatures and ports stay visible when contracts are retrieved on demand. */
+export function graphCatalogIndexText(): string {
+  return NATIVE_OPERATORS.map(def => `${graphOperatorSignature(def)} — ${graphOperatorPorts(def)}`).join("\n");
 }
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.

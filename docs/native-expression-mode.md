@@ -198,6 +198,23 @@ that transcript, so successive requests preserve the existing message prefix.
 
 ## Implementation
 
+### Optional prompt reference
+
+`nativePromptDetail: "on_demand"` keeps the role, graph grammar, action effects,
+observation semantics and historical-state instructions, while replacing the
+full initial operator reference and tutorials with signatures and shorter
+generic examples. The default remains `"full"`.
+
+Retrieve a needed contract with
+`{"type":"inspect","target":"reference","topic":"operators","operator_names":["join","process"]}`.
+Retrieve a worked example with
+`{"type":"inspect","target":"reference","topic":"example","example":"single"}`;
+`statistics` and `history` examples require those session features. Examples
+use the offered retrieval views. Reference reads never execute, edit the graph
+or add analytical dependencies. Both prompt variants expose the same tools.
+The reference comes from the same catalog and example templates as the full
+prompt. [Rendered prompt](../native-mode/SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt).
+
 ### Optional historical state
 
 Set `stateHistory: true` when creating a native agent to expose historical

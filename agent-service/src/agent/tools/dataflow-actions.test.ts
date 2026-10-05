@@ -316,7 +316,7 @@ describe("ordered dataflow actions", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.properties.actions.items.anyOf).toHaveLength(10);
+    expect(schema.properties.actions.items.anyOf).toHaveLength(12);
     expect(schema.properties.edits).toBeUndefined();
     const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);
@@ -598,6 +598,24 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("reference lookups preserve the graph and do not become answer source reads", async () => {
+    const s = session([
+      [{ type: "inspect", target: "reference", topic: "operators", operator_names: ["join", "process"] }],
+      [{ type: "inspect", target: "reference", topic: "example", example: "single" }],
+      [{ type: "answer", content: "Read the relevant documentation." }],
+    ]);
+    s.agent.updateSettings({ stateHistory: true, taskContext: "dependencies", nativePromptDetail: "on_demand" });
+    const before = structuredClone(s.agent.getWorkflowState().getWorkflowContent());
+    await s.agent.sendMessage("Inspect the reference.");
+    expect(s.agent.getWorkflowState().getWorkflowContent()).toEqual(before);
+    expect(s.executions()).toBe(0);
+    expect(s.outcomes[0].references).toEqual([]);
+    expect(s.outcomes[0].observe).toEqual([]);
+    expect(renderDataflowActionsResult(s.outcomes[0])).toContain("reference join, process: ok");
+    expect(renderDataflowActionsResult(s.outcomes[0])).toContain("join(");
+    expect(renderDataflowActionsResult(s.outcomes[0])).not.toContain("pivot(");
+  });
+
   test("unconfirmed answer sources remain candidates until a branch is explicitly selected", async () => {
     const batches: DataflowAction[][] = [
       [{ type: "edit", changes: 'create operator source: scan("data.csv")\ncreate operator probe: scan("probe.csv")' }],

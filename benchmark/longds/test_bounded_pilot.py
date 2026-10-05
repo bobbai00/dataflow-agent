@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from bounded_pilot import score_rubric
+from bounded_pilot import score_rubric, pilot_settings
 
 RUBRIC = {"key_fields": ["country"], "value_fields": ["difference"],
           "ordered": True, "decimals": 4, "tables": ["sensitivity"]}
@@ -46,3 +46,13 @@ def test_missing_group_is_not_dropped_from_the_denominator():
     result = score_rubric(gold, {"group_a": GOLD["sensitivity"]}, rubric)
     assert result["partial_score"] == .5
     assert result["tables"]["group_b"]["missing_answer"]
+
+
+def test_clean_prompt_ablation_changes_only_reference_detail():
+    full, lean = pilot_settings("history"), pilot_settings("history-lean")
+    assert {key for key in full if full[key] != lean[key]} == {"nativePromptDetail"}
+    assert full["nativePromptDetail"] == "full"
+    assert lean["nativePromptDetail"] == "on_demand"
+    assert full["taskContext"] == "dependencies"
+    assert full["stateHistory"] and not full["stateLedger"]
+    assert pilot_settings("dsgym") is None

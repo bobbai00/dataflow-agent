@@ -25,8 +25,11 @@ import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
 import { renderActionObservations } from "../native/action-observations";
 import type { ObservationFormatSettings } from "../native/observation-format";
 import type { TaskReference } from "../task-history";
+import { NATIVE_OPERATOR_NAMES } from "../native/catalog";
 
 export type DataflowAction =
+  | { type: "inspect"; target: "reference"; topic: "operators"; operator_names: string[] }
+  | { type: "inspect"; target: "reference"; topic: "example"; example: "single" | "statistics" | "history" }
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "graph"; operator_ids: string[] }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
@@ -110,6 +113,30 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
       "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
     items: {
       anyOf: [
+        action(
+          "inspect",
+          "Read selected operator contracts from the same catalog as the initial prompt. Documentation only; never reads results, executes or edits state.",
+          {
+            target: { type: "string", const: "reference" },
+            topic: { type: "string", const: "operators" },
+            operator_names: {
+              type: "array",
+              items: { type: "string", enum: [...NATIVE_OPERATOR_NAMES] },
+              minItems: 1,
+              maxItems: 8,
+              uniqueItems: true,
+            },
+          }
+        ),
+        action(
+          "inspect",
+          "Read a worked example adapted to this session's views and features. Documentation only; never executes or changes state. History and statistics examples require their features to be enabled.",
+          {
+            target: { type: "string", const: "reference" },
+            topic: { type: "string", const: "example" },
+            example: { type: "string", enum: ["single", "statistics", "history"] },
+          }
+        ),
         action("inspect", "List operator IDs, kinds, and data edges with their ports. Does not execute.", {
           target: { type: "string", const: "graph" },
         }),
@@ -258,7 +285,7 @@ function validationMessage(input: any, stateHistory: boolean): string {
         ) ??
         (item?.type === "inspect" ? undefined : candidates[0]);
       if (!selected)
-        return `Action ${index + 1} (inspect): target must be graph, operator${stateHistory ? ", state, or task" : ""}.`;
+        return `Action ${index + 1} (inspect): target must be graph, operator, reference${stateHistory ? ", state, or task" : ""}.`;
       if (!selected.validate(item))
         return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;
     }

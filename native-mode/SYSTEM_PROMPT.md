@@ -751,3 +751,5 @@ Read an earlier result with `inspect`. Fork it when you need to compute with
 it next to the current version, and update from it when the request returns
 to that rule for what follows. Use a saved definition or result rather than
 reconstructing it from memory.
+
+With `nativePromptDetail: "on_demand"`, the initial prompt keeps operator signatures and shorter generic examples. Use `inspect` with `target: "reference"` for selected operator contracts or a feature-matched worked example. [SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt](SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt) shows this variant with historical state enabled. Both prompt variants expose the same tool schema.

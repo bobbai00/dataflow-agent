@@ -298,6 +298,8 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  records repeated across sources, join fan-out, row effects inside a
    *  process function). Off by default. */
   nativeChecks: boolean;
+  /** Initial native reference material; omitted/full retains the complete prompt. */
+  nativePromptDetail?: "full" | "on_demand";
   /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
   stateHistory: boolean;
   /** System-verified reuse of earlier state in native mode: a ledger of each
@@ -560,6 +562,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   flowEvidence: false,
   dataflowReasoning: true,
   nativeChecks: false,
+  nativePromptDetail: "full",
   stateHistory: false,
   stateLedger: false,
   resultSelection: "all",
@@ -681,6 +684,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
   stateHistory?: boolean;
   stateLedger?: boolean;
   parallelToolCalls?: boolean;
@@ -786,6 +790,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
   stateHistory?: boolean;
   stateLedger?: boolean;
   parallelToolCalls?: boolean;

@@ -162,6 +162,7 @@ An agent created with no `settings` uses
 | `maxSteps` | `100` | per-turn step budget |
 | `stateHistory` | `false` | native actions can inspect named operators at completed tasks, read saved views in the same inspection, and fork historical operator branches; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
 | `taskContext` | `"trajectory"` | opt-in `"dependencies"` keeps current-task ReAct and replaces earlier trajectories with questions, answers and parent task IDs; inspect a task to retrieve its saved answer sub-DAG; requires native DELTA context and `stateHistory`; see [task context](docs/observation-format/task-dependency-context.md) |
+| `nativePromptDetail` | `"full"` | opt-in `"on_demand"` keeps signatures and shorter generic examples initially; reference inspections retrieve selected operator contracts or feature-matched examples; see [prompt reference](docs/native-expression-mode.md#optional-prompt-reference) |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
