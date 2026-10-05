@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 import pytest
 
-from bounded_pilot_report import strict_answer, job_diagnostics
+from bounded_pilot_report import strict_answer, job_diagnostics, both_attempted_pairs
 
 
 def test_strict_json_contract_rejects_nonfinite_and_nonobject_answers():
@@ -74,3 +74,20 @@ def test_missing_request_capture_never_turns_recorded_work_into_zero_cost(tmp_pa
     (tmp_path / "test/runs/dsgym-r1/domain__dataset__task1/agent/wire/000001-request.json").unlink()
     with pytest.raises(ValueError, match="request capture"):
         job_diagnostics(tmp_path, "test", job, protocol)
+
+
+def test_attempted_cost_subsets_are_separately_paired_for_each_native_arm():
+    rows = [
+        {"task": "a", "rep": 1, "turn_id": 1, "arm": "dsgym", "code_attempted": True, "score": 1, "cost_usd": 1},
+        {"task": "a", "rep": 1, "turn_id": 2, "arm": "dsgym", "code_attempted": True, "score": 0, "cost_usd": 2},
+        {"task": "a", "rep": 1, "turn_id": 1, "arm": "history", "code_attempted": True, "score": 1, "cost_usd": 3},
+        {"task": "a", "rep": 1, "turn_id": 2, "arm": "history", "code_attempted": False, "score": 0, "cost_usd": 4},
+        {"task": "a", "rep": 1, "turn_id": 1, "arm": "history-lean", "code_attempted": False, "score": 0, "cost_usd": 5},
+        {"task": "a", "rep": 1, "turn_id": 2, "arm": "history-lean", "code_attempted": True, "score": 0, "cost_usd": None},
+    ]
+    pairs = both_attempted_pairs(rows)
+    assert pairs["history"]["dsgym"] == {"turns": 1, "correct": 1, "cost_usd": 1, "unknown_cost_turns": 0}
+    assert pairs["history-lean"]["dsgym"] == {"turns": 1, "correct": 0, "cost_usd": 2, "unknown_cost_turns": 0}
+    assert pairs["history"]["history"]["cost_usd"] == 3
+    assert pairs["history-lean"]["history-lean"]["cost_usd"] is None
+    assert pairs["history-lean"]["history-lean"]["unknown_cost_turns"] == 1

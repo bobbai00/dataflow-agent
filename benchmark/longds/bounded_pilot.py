@@ -77,6 +77,18 @@ def pilot_settings(arm):
             "nativePromptDetail": "on_demand" if arm == "history-lean" else "full"}
 
 
+def validate_script_control(current, previous):
+    for field in ["model", "reasoning_effort", "context_budget", "full_input_policy",
+                  "script_kernel_notice", "prepared_hashes"]:
+        if current[field] != previous[field]:
+            raise ValueError(f"Control differs from the current protocol: {field}")
+    for name, sha in previous["source_hashes"].items():
+        if name.startswith("benchmark/longds/") and name not in {
+            "benchmark/longds/bounded_pilot.py", "benchmark/longds/numeric_gate.py", "benchmark/longds/partial_score.py"}:
+            if current["source_hashes"].get(name) != sha:
+                raise ValueError(f"Baseline source changed: {name}")
+
+
 def freeze(args):
     output = args.output.resolve()
     folder = output / args.phase
@@ -141,6 +153,22 @@ def freeze(args):
         "jobs": jobs, "runtime": {"python": sys.version, "executable": sys.executable,
             "packages": {n: metadata.version(n) for n in ["numpy", "pandas", "scipy", "scikit-learn", "statsmodels", "ipykernel", "jupyter-client"]}},
     }
+    if args.reuse_script_phase:
+        from comparison_campaign import completed_artifacts, job_key
+        if args.reuse_script_phase == args.phase:
+            raise ValueError("A control must come from an earlier phase")
+        previous_folder = output / args.reuse_script_phase
+        previous = json.loads((previous_folder / "manifest.json").read_text())
+        validate_script_control(protocol, previous)
+        for job in jobs:
+            if job["arm"] == "dsgym":
+                path = previous_folder / "runs" / job_key(job)
+                if not completed_artifacts(path, job["turns_total"]):
+                    raise ValueError("The complete predeclared Python control is not ready")
+                job["reuse_from"] = str(path)
+        protocol["reused_script_control"] = {
+            "phase": args.reuse_script_phase, "protocol_sha256": digest(previous_folder / "manifest.json"),
+            "policy": "Reuse both complete predeclared Python sessions; no score selection, rerun or rejudging. Baseline source, inputs and request policy match."}
     for name, sha in protocol["source_hashes"].items():
         archive = folder / "source" / name
         archive.parent.mkdir(parents=True, exist_ok=True)
@@ -163,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--reps", type=int, default=1)
     parser.add_argument("--arms", nargs="+", choices=["dsgym", "history", "history-lean"], default=["dsgym", "history"])
     parser.add_argument("--input-snapshot", type=Path)
+    parser.add_argument("--reuse-script-phase")
     parser.add_argument("--kernel-notice", action="store_true")
     parser.add_argument("--endpoint", default="http://localhost:3068")
     parser.add_argument("--api-base", default="http://localhost:4000/v1")

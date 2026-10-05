@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from bounded_pilot import score_rubric, pilot_settings
+from bounded_pilot import score_rubric, pilot_settings, validate_script_control
 
 RUBRIC = {"key_fields": ["country"], "value_fields": ["difference"],
           "ordered": True, "decimals": 4, "tables": ["sensitivity"]}
@@ -56,3 +56,23 @@ def test_clean_prompt_ablation_changes_only_reference_detail():
     assert full["taskContext"] == "dependencies"
     assert full["stateHistory"] and not full["stateLedger"]
     assert pilot_settings("dsgym") is None
+
+
+def test_reusing_a_control_requires_identical_solver_inputs_and_baseline_source():
+    import copy
+    import pytest
+
+    previous = {"model": "model", "reasoning_effort": "medium", "context_budget": 32000,
+                "full_input_policy": {"scale": 1}, "script_kernel_notice": True,
+                "prepared_hashes": {"task": {"prompts.json": "hash"}},
+                "source_hashes": {"benchmark/longds/dsgym_agent.py": "original"}}
+    current = copy.deepcopy(previous)
+    current["source_hashes"]["agent-service/src/agent/tools/dataflow-actions.ts"] = "native-fix"
+    validate_script_control(current, previous)
+    for field, value in [("prepared_hashes", {}), ("full_input_policy", {"scale": 2})]:
+        changed = {**current, field: value}
+        with pytest.raises(ValueError):
+            validate_script_control(changed, previous)
+    current["source_hashes"]["benchmark/longds/dsgym_agent.py"] = "changed"
+    with pytest.raises(ValueError):
+        validate_script_control(current, previous)

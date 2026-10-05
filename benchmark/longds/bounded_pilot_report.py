@@ -48,6 +48,30 @@ def strict_answer(value):
         return None, False
 
 
+def both_attempted_pairs(rows):
+    """Pair each native arm with the baseline without duplicating its costs."""
+    lookup = {(r["task"], r["rep"], r["turn_id"], r["arm"]): r for r in rows}
+    result = {}
+    for arm in sorted({r["arm"] for r in rows} - {"dsgym"}):
+        paired = []
+        for row in rows:
+            if row["arm"] != arm:
+                continue
+            baseline = lookup.get((row["task"], row["rep"], row["turn_id"], "dsgym"))
+            if baseline and row["code_attempted"] and baseline["code_attempted"]:
+                paired.extend([row, baseline])
+        result[arm] = {}
+        for label in ["dsgym", arm]:
+            selected = [r for r in paired if r["arm"] == label]
+            unknown = sum(r["cost_usd"] is None for r in selected)
+            result[arm][label] = {
+                "turns": len(selected), "correct": sum(r["score"] == 1 for r in selected),
+                "cost_usd": sum(r["cost_usd"] for r in selected) if not unknown else None,
+                "unknown_cost_turns": unknown,
+            }
+    return result
+
+
 def job_diagnostics(output, phase, job, protocol):
     path = output / phase / "runs" / f"{job['arm']}-r{job['rep']}" / job["task"].replace("/", "__")
     steps, message_turn, attempted, mechanical = {}, {}, set(), Counter()
@@ -185,28 +209,13 @@ def phase_report(output, phase):
             "unknown_usage_calls": unknown,
             "elapsed_seconds": sum(r["elapsed_seconds"] or 0 for r in chosen),
         }
-    lookup = {(r["task"], r["rep"], r["turn_id"], r["arm"]): r for r in rows}
-    paired = []
-    for r in rows:
-        if r["arm"] == "history":
-            b = lookup.get((r["task"], r["rep"], r["turn_id"], "dsgym"))
-            if b and r["code_attempted"] and b["code_attempted"]:
-                paired += [r, b]
-    matched = {}
-    for arm in by_arm:
-        selected = [r for r in paired if r["arm"] == arm]
-        unknown = sum(r["cost_usd"] is None for r in selected)
-        matched[arm] = {
-            "turns": len(selected),
-            "correct": sum(r["score"] == 1 for r in selected),
-            "cost_usd": sum(r["cost_usd"] for r in selected) if not unknown else None,
-            "unknown_cost_turns": unknown,
-        }
+    matched_pairs = both_attempted_pairs(rows)
     return {
         "source_revision": protocol["source_revision"],
         "protocol_sha256": hashlib.sha256((output / phase / "manifest.json").read_bytes()).hexdigest(),
         "summary": by_arm,
-        "both_attempted_subset": matched,
+        "both_attempted_subset": matched_pairs.get("history", {}),
+        "both_attempted_subsets": matched_pairs,
         "jobs": jobs,
         "turns": rows,
     }
