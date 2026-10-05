@@ -122,6 +122,7 @@ def freeze(args):
     files = [HERE / name for name in ["bounded_pilot.py", "state_comparison.py", "comparison_job.py", "comparison_capture.py",
               "comparison_budget.py", "partial_score.py", "dsgym_agent.py", "dsgym_executor.py", "judge_longds.py", "numeric_gate.py", "input_snapshot.py"]]
     files += [ROOT / "agent-service/benchmark/multiturn/run-comparison-session.ts"]
+    files += [ROOT / "agent-service/benchmark/multiturn/comparison-answer.ts"]
     files += [p for p in (ROOT / "agent-service/src").rglob("*") if p.is_file() and p.suffix in {".ts", ".md", ".py"} and not p.name.endswith(".test.ts")]
     files += list((HERE / "DataMind/longds/runners/DSGym/dsgym/agents").rglob("*.py"))
     prompt = HERE / "DataMind/longds/runners/DSGym/scripts/prompt.py"

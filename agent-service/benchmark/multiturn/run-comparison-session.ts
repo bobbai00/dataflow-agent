@@ -25,6 +25,7 @@ import { createAgent, deleteAgent } from "../../src/api/agent-service-api";
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { WorkflowState } from "../../src/agent/workflow-state";
 import { env } from "../../src/config/env";
+import { comparisonAnswer } from "./comparison-answer";
 
 const [preparedArg, outputArg, protocolArg] = Bun.argv.slice(2);
 assert.ok(preparedArg && outputArg && protocolArg, "Use prepared-dir output-dir protocol.json");
@@ -140,15 +141,7 @@ try {
     zip(`${dir}/workflow.json.gz`, await json(`${agentUrl}/workflow`));
     if (settings.stateHistory) save(`${dir}/task-history.json`, await json(`${agentUrl}/task-history`));
     const modelSteps = steps.filter((s: any) => s.role === "agent");
-    const ended = [...modelSteps].reverse().find((s: any) => s.isEnd);
-    const answered = modelSteps
-      .flatMap((s: any) =>
-        (s.toolResults ?? []).flatMap((r: any) =>
-          r.output?.kind === "dataflow-actions" && typeof r.output.answer === "string" ? [r.output.answer] : []
-        )
-      )
-      .at(-1);
-    const answer = answered ?? ended?.content ?? response?.answer ?? "";
+    const { answer, completed } = comparisonAnswer(modelSteps, response?.answer);
     const total = (field: string) =>
       modelSteps.every((s: any) => s.usage?.[field] != null)
         ? modelSteps.reduce((n: number, s: any) => n + s.usage[field], 0)
@@ -178,13 +171,13 @@ try {
       state_type: gold.state_type,
       depends_tasks: gold.depends_tasks,
       depends_span: gold.depends_span,
-      success: !!answered && !!ended,
-      error: ended ? null : "No completed answer",
+      success: completed,
+      error: completed ? null : "No successful Answer action",
       steps: modelSteps.length,
       stats,
       history_actions: historyActions,
     });
-    save(`${dir}/answer.json`, { answer, completed: !!ended });
+    save(`${dir}/answer.json`, { answer, completed });
     save(`${dir}/stats.json`, stats);
     save("results_with_ground_truth.json", records);
     save("summary.json", {
@@ -195,9 +188,9 @@ try {
       answers_present: records.filter(r => r.solution).length,
     });
     console.log(
-      `DONE ${job.arm} ${manifest.key} ${turn.turn_id}/${turns.length} calls=${modelSteps.length} answer=${!!answered}`
+      `DONE ${job.arm} ${manifest.key} ${turn.turn_id}/${turns.length} calls=${modelSteps.length} answer=${completed}`
     );
-    if (!ended) throw new Error("Incomplete turn; preserving partial session");
+    if (!completed) throw new Error("No successful Answer action; preserving partial session");
   }
 } finally {
   for (const [resource, action] of [
