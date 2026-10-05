@@ -165,3 +165,23 @@ assert len(agent.CALLS) == 2
 assert all(call['summary'] for call in agent.CALLS)
 assert agent.CALLS[-1]['failed'] is True
 ''')
+
+
+def test_kernel_protocol_notice_changes_only_system_instructions():
+    run_client('''
+import dsgym_agent as agent
+from state_comparison import build_prompts
+manifest = {"data_dir": "data", "files": ["data/input.csv"], "turns": [
+    {"turn_id": 1, "context": "Use the supplied data.", "question": "Count rows."},
+    {"turn_id": 2, "context": "", "question": "Find the mean."}]}
+gold = {"turns": [{"turn_id": 1, "answer": "PRIVATE_REFERENCE"},
+                  {"turn_id": 2, "answer": "PRIVATE_REFERENCE"}]}
+prompts = build_prompts(manifest)
+original = agent.build_turns(manifest, gold, 2, prompts=prompts)
+clarified = agent.build_turns(manifest, gold, 2, prompts=prompts, kernel_notice=True)
+assert clarified[0]['prompt'][0]['content'].startswith(original[0]['prompt'][0]['content'])
+assert "runner executes every nonempty <python> block" in clarified[0]['prompt'][0]['content']
+assert clarified[0]['prompt'][1:] == original[0]['prompt'][1:]
+assert clarified[1]['prompt'] == original[1]['prompt']
+assert all("PRIVATE_REFERENCE" not in m['content'] for t in clarified for m in t['prompt'])
+''')

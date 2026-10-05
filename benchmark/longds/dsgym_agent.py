@@ -385,8 +385,16 @@ formulas when combining versions. Inspect stored definitions and computed
 components to explain a result rather than reconstructing a formula from memory.
 """
 
+KERNEL_PROTOCOL_NOTICE = """
+Runtime: The runner executes every nonempty <python> block in your persistent
+Python kernel and returns stdout and errors in the next <information> message.
+Emit your code block, end your response before writing <information>, and use
+the returned results on your next step. Execution is available through this
+text protocol; no function-call tool is required.
+"""
 
-def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False, shared=False, prompts=None) -> list[dict]:
+
+def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False, shared=False, prompts=None, kernel_notice=False) -> list[dict]:
     """Upstream's `load_dataset` shape: the system prompt names the data
     directory; every turn is `context\\nQuestion: question`. With `shared`,
     each turn's message is instead the text the dataflow arm receives
@@ -395,6 +403,8 @@ def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions
     system_prompt = SYSTEM_PROMPT.format(PATH=str((WORKTREE / manifest["data_dir"]).resolve()))
     if functions:
         system_prompt += "\n" + FUNCTIONS_GUIDANCE
+    if kernel_notice:
+        system_prompt += "\n" + KERNEL_PROTOCOL_NOTICE
     gold_by_id = {t["turn_id"]: t for t in gold["turns"]}
     shared_text = {}
     if prompts is not None:
@@ -470,6 +480,7 @@ def main() -> int:
     ap.add_argument("--prompts-file", type=Path, help="frozen interface-neutral task text for matched comparisons")
     ap.add_argument("--matched-limits", action="store_true", help="one gateway attempt per model call, matched 8192 output cap")
     ap.add_argument("--wire-trace", action="store_true", help="capture provider requests and all returned choices, excluding credentials")
+    ap.add_argument("--kernel-notice", action="store_true", help="clarify the text-based Python execution protocol without changing task requests")
     ap.add_argument("--reset-at", type=int, default=0,
                     help="restart the kernel before this turn (upstream's reset_env_times), keeping the conversation")
     ap.add_argument("--reset-notice", default="", help="text prepended to the reset turn's message")
@@ -495,7 +506,7 @@ def main() -> int:
     manifest = json.loads(args.manifest.read_text())
     gold = json.loads(args.gold.read_text())
     prompts = json.loads(args.prompts_file.read_text()) if args.prompts_file else None
-    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions, shared=args.shared_protocol, prompts=prompts)
+    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions, shared=args.shared_protocol, prompts=prompts, kernel_notice=args.kernel_notice)
     if args.reset_at and args.reset_notice:
         message = turns[args.reset_at - 1]["prompt"][-1]
         message["content"] = f"{args.reset_notice}\n\n{message['content']}"

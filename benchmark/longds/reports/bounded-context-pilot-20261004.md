@@ -52,3 +52,24 @@ that is reported; any further cap or control experiment requires a separately
 frozen protocol. The comparison bundles prompt/context/interface changes, so it
 cannot isolate the causal effect of a single fix. Costs use frozen repository
 fallback rates and are estimates, not provider invoices.
+
+## Verification adjustment after the first pass
+
+The first pass completed all 76 answers. It exposed a real overflow failure:
+user turns have no owned snapshots, so the starting-workflow identity must be
+resolved to its preceding action. The initial unit fixture incorrectly gave
+user turns snapshots. The revised regression uses the production structure,
+fails on the first-pass implementation, and passes after the fix.
+
+One further paired pass uses exactly the same two prefixes and 32k policy.
+The Python baseline additionally receives a generic execution-protocol notice:
+the runner executes `<python>` blocks and supplies the subsequent observations,
+with no formal function-call tool required. This changes no question, analytical
+rule, file, kernel lifetime or reference answer. It addresses model claims that
+a verified executable kernel was unavailable. Both passes remain separately
+reported; this is verification after a discovered bug, not best-of selection.
+
+The first-pass automatic target-component scorer encountered equivalent JSON
+structures with different field names. Those remain unscored in its frozen
+metric; a separately labeled manual component audit may map reported fields to
+the question-defined table requirements. Official judgments remain unchanged.

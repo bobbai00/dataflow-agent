@@ -102,6 +102,7 @@ def freeze(args):
                               "calibration_sha256": digest(args.calibration), "semantics": "Full input including system/tool schemas; measured provider usage audited separately."},
         "wire_root": str(output / "wire"), "repetitions": args.reps, "cases": CASES,
         "baseline_policy": "Persistent repo Python kernel, same-model incremental summary of complete older messages in bounded chunks plus live kernel inventory. All summary calls/cost included. No resets.",
+        "script_kernel_notice": args.kernel_notice,
         "solver_attempt_policy": "All attempts retained, no score-selected retries. One repetition is a feasibility pilot, not a benchmark-wide result.",
         "cohort_policy": "Question/dependency-selected natural prefixes; reference gate only, no solver scores used. 2020 survey rejected before solving because five published answers contain NaN.",
         "metrics_policy": "Official binary grade, strict JSON validity, frozen final-target table identity/value/rank components, calls including summaries, cache, latency, request cap and trace error audit. Unknown partial-score structures stay unscored.",
@@ -134,6 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--phase", default="bounded")
     parser.add_argument("--budget", type=int, default=32000)
     parser.add_argument("--reps", type=int, default=1)
+    parser.add_argument("--kernel-notice", action="store_true")
     parser.add_argument("--endpoint", default="http://localhost:3068")
     parser.add_argument("--api-base", default="http://localhost:4000/v1")
     freeze(parser.parse_args())

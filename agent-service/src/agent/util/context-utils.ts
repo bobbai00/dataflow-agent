@@ -498,8 +498,12 @@ export function assembleContext(
       const currentSteps = visibleSteps.filter(s => s.messageId === currentRequest.messageId);
       // Seed delta rendering at this task's saved starting workflow. A bounded
       // checkpoint can then distinguish current work from inherited operators.
+      const initialSnapshot = snapshotStorage.getAssociatedSnapshot(currentRequest.id);
       const initialState: ReActStep = {
         ...currentRequest,
+        // User turns have no owned snapshot. Resolve the preceding action's
+        // identity so buildPath can load the actual starting workflow.
+        id: initialSnapshot.reactStepId ?? currentRequest.id,
         role: "agent",
         content: "",
         toolCalls: [{ toolName: "initialize", toolCallId: `task-start-${currentRequest.id}`, input: {} }],

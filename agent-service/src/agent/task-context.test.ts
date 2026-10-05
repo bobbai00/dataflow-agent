@@ -93,7 +93,9 @@ test("bounded task context checkpoints exclude unchanged historical operators", 
   const current = operator("current_source", 'current_source = scan(path="current.csv")');
   const baseline = { ...state.getWorkflowContent(), operators: [old] };
   storage.clear();
-  for (const id of ["u1", "s1", "u2"]) storage.createSnapshot(id, baseline);
+  // User turns do not own snapshots in the running agent. Their state resolves
+  // through the preceding action, exactly as it does in an imported run.
+  storage.createSnapshot("s1", baseline);
   const active = { ...baseline, operators: [old, current] };
   for (const id of ["s2", "s3"]) storage.createSnapshot(id, active);
   state.setWorkflowContent(active);

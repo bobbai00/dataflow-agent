@@ -50,6 +50,8 @@ def script_job(protocol, job, prepared, output):
         command += ["--turn-limit", str(job["turn_limit"])]
     if protocol["context_budget"]:
         command += ["--context-budget", str(protocol["context_budget"]), "--compaction", "inventory"]
+    if protocol.get("script_kernel_notice"):
+        command.append("--kernel-notice")
     try:
         for _ in range(60):
             if manager.poll() is not None:
