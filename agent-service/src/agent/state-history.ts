@@ -157,6 +157,120 @@ export function inspectSubgraph(
   };
 }
 
+export interface TaskInputReference {
+  task_id: number;
+  step_id: string;
+  operator_id: string;
+  type?: string;
+  revision?: string;
+  subgraph_hash?: string;
+  result: NonNullable<StateVersion["result"]>;
+  scope?: string[];
+}
+
+/** Collapse unchanged earlier computations at their saved input boundaries.
+ * Compare whole incoming graphs and result identities, not just definitions:
+ * changing an ancestor makes its unchanged consumers part of this task too. */
+export function inspectTaskSubgraph(
+  storage: WorkflowSnapshotStorage,
+  task: HistoricalTask,
+  tasks: readonly HistoricalTask[],
+  roots: readonly string[],
+  includeImplementation: boolean,
+  requestingTaskId = task.taskId
+) {
+  const full = inspectSubgraph(storage, task, roots, includeImplementation);
+  // A declared answer can read an older result directly, including through
+  // a fork. Its saved computation is an input to the answering task.
+  if (task.taskId < requestingTaskId) {
+    return {
+      ...full,
+      task_id: requestingTaskId,
+      representation: "task_local" as const,
+      operators: [],
+      edges: [],
+      boundary_inputs: roots.map(operatorId => {
+        const node = full.operators.find(op => op.operator_id === operatorId)!;
+        return {
+          task_id: task.taskId,
+          step_id: task.stepId,
+          operator_id: operatorId,
+          type: node.type,
+          revision: node.revision,
+          subgraph_hash: node.subgraph_hash,
+          result: node.result ?? { available: false, state: "unavailable" },
+        } satisfies TaskInputReference;
+      }),
+      upstream_operator_count: full.operators.length,
+    };
+  }
+  const workflow = storage.getWorkflow(task.stepId);
+  const inputs = new Map<string, string[]>();
+  for (const link of workflow.links) {
+    const id = link.target.operatorID;
+    inputs.set(id, [...(inputs.get(id) ?? []), link.source.operatorID]);
+  }
+  const byId = new Map(full.operators.map(op => [op.operator_id, op]));
+  const earlier = tasks
+    .filter(previous => previous.taskId < task.taskId)
+    .sort((a, b) => a.taskId - b.taskId)
+    .map(previous => {
+      const workflow = storage.getWorkflow(previous.stepId);
+      return { task: previous, hashes: fingerprints(workflow) };
+    });
+  const local = new Set<string>();
+  const boundary = new Map<string, TaskInputReference>();
+  function visit(id: string) {
+    if (local.has(id) || boundary.has(id)) return;
+    const node = byId.get(id)!;
+    const current = storage.getOperatorResult(task.stepId, id);
+    // Restoring a once-used rule still changes this task relative to its
+    // immediate predecessor; do not collapse that edit into an older task.
+    const unchanged = earlier.at(-1)?.hashes.get(id)?.subgraphHash === node.subgraph_hash;
+    const owner =
+      unchanged &&
+      earlier.find(previous => {
+        const hash = previous.hashes.get(id)?.subgraphHash;
+        if (!hash || hash !== node.subgraph_hash) return false;
+        const saved = storage.getOperatorResult(previous.task.stepId, id);
+        return (
+          completed(current) === completed(saved) &&
+          (current?.resultVersion?.id ?? null) === (saved?.resultVersion?.id ?? null)
+        );
+      });
+    if (owner) {
+      const saved = storage.getResolvedOperatorResult(owner.task.stepId, id);
+      boundary.set(id, {
+        task_id: owner.task.taskId,
+        step_id: owner.task.stepId,
+        operator_id: id,
+        type: node.type,
+        revision: node.revision,
+        subgraph_hash: node.subgraph_hash,
+        result: {
+          available: completed(saved?.value),
+          state: saved?.value.state ?? "unavailable",
+          rows: saved?.value.totalRowCount,
+          result_version: saved?.value.resultVersion?.id,
+          producing_step: saved?.sourceStepId,
+        },
+      });
+      return;
+    }
+    for (const input of inputs.get(id) ?? []) visit(input);
+    local.add(id);
+  }
+  for (const root of roots) visit(root);
+  return {
+    ...full,
+    representation: "task_local" as const,
+    operators: full.operators.filter(op => local.has(op.operator_id)),
+    edges: full.edges.filter(edge => [...local].some(id => edge.includes(` -> ${id}.`))),
+    boundary_inputs: [...boundary.values()],
+    upstream_operator_count: full.operators.length,
+  };
+}
+
 export function historicalTask(tasks: readonly HistoricalTask[], taskId: number): HistoricalTask {
   const task = tasks.find(t => t.taskId === taskId);
   if (!task)

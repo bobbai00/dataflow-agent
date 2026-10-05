@@ -165,13 +165,36 @@ create edge source.out -> total.in`,
     { type: "retrieve", operator_id: "total", view: "full" },
   ]);
   await run([{ type: "answer", content: "The sum is 6.", operator_ids: ["total"] }]);
-  await debug("Task 2: reuse the same calculation without changing its rule.");
+  await debug("Task 2: reuse the sum and add a calculation on the same prepared scores.");
   const cached = await run([
     { type: "execute", operator_ids: ["total"] },
     { type: "retrieve", operator_id: "total", view: "full" },
   ]);
   assert(cached.result.actions[0].output.operators.some((o: any) => o.state === "cached"));
-  await run([{ type: "answer", content: "The cached sum is 6." }]);
+  await run([
+    {
+      type: "edit",
+      changes: `create operator task2_shift: map(lambda row: {"score": row["score"] + 1}, doc="Add one to each score")
+create operator task2_doubled: map(lambda row: {"score": row["score"] * 2}, doc="Double each shifted score")
+create operator task2_selected: filter(lambda row: row["score"] >= 6, doc="Keep doubled scores at least six")
+create operator task2_ranked: sort(by=("score", "desc"))
+create operator task2_answer: aggregate(sum_score=sum("score"))
+create edge source.out -> task2_shift.in
+create edge task2_shift.out -> task2_doubled.in
+create edge task2_doubled.out -> task2_selected.in
+create edge task2_selected.out -> task2_ranked.in
+create edge task2_ranked.out -> task2_answer.in`,
+    },
+    { type: "execute", operator_ids: ["task2_answer"] },
+    { type: "retrieve", operator_id: "task2_answer", view: "full" },
+  ]);
+  await run([
+    {
+      type: "answer",
+      content: "The cached sum is 6. The transformed sum is 14.",
+      operator_ids: ["total", "task2_answer"],
+    },
+  ]);
   let tasks = await history();
   assert(
     tasks[1].dependencies.some((d: any) => d.task_id === 1 && d.references.some((r: any) => r.kind === "compute")),
@@ -195,6 +218,45 @@ create edge source.out -> total.in`,
   const inspection = await run([{ type: "inspect", target: "task", task_id: 2 }]);
   assert(inspection.text.includes("The cached sum is 6."));
   assert(!inspection.text.includes("def load"));
+  const local = await run([
+    {
+      type: "inspect",
+      target: "task",
+      task_id: 2,
+      operator_id: "task2_answer",
+      include_implementation: true,
+      view: "full",
+    },
+  ]);
+  const localGraph = local.result.actions[0].output.dataflows[0];
+  assert.equal(localGraph.operators.length, 5);
+  assert.deepEqual(
+    localGraph.boundary_inputs.map((input: any) => [input.operator_id, input.task_id]),
+    [["source", 1]]
+  );
+  assert.equal(localGraph.observations.length, 1);
+  assert.equal(localGraph.upstream_operator_count, 6);
+  assert(local.text.includes("| 14 |"), local.text);
+  assert(!local.text.includes("def load"), local.text);
+  const expanded = await run([
+    { type: "inspect", target: "task", task_id: 1, operator_id: "source", include_implementation: true, view: "full" },
+  ]);
+  assert(expanded.text.includes("def load"), expanded.text);
+  assert.equal(expanded.result.actions[0].output.dataflows[0].operators.length, 1);
+  const expandedInput = expanded.result.actions[0].output.dataflows[0].operators[0];
+  assert.equal(localGraph.boundary_inputs[0].result.result_version, expandedInput.result.result_version);
+  assert.equal(localGraph.boundary_inputs[0].result.producing_step, expandedInput.result.producing_step);
+  checks.push(
+    "five local operators reuse one pinned input; selective expansion returns the original definition and result"
+  );
+  const unscoped = await debug([{ type: "inspect", target: "graph" }]);
+  assert.equal(unscoped.result.status, "error");
+  const scoped = await run([{ type: "inspect", target: "graph", operator_ids: ["task2_answer"] }]);
+  assert.deepEqual(
+    scoped.result.actions[0].output.operators.map((op: any) => op.id),
+    ["task2_answer"]
+  );
+  checks.push("whole-session graph inspection is rejected; named current operators remain inspectable");
   const branch = await run([
     { type: "inspect", target: "task", task_id: 1, operator_id: null, include_implementation: true, view: "full" },
   ]);
@@ -231,7 +293,13 @@ create edge source.out -> total.in`,
     { type: "retrieve", operator_id: "total", view: "full" },
   ]);
   assert(restored.text.includes("| 60 |"), restored.text);
-  await run([{ type: "answer", content: "The saved sum is 6 and the current sum is 60." }]);
+  await run([
+    {
+      type: "answer",
+      content: "The saved sum is 6 and the current sum is 60.",
+      operator_ids: ["old_total", "total"],
+    },
+  ]);
   tasks = await history();
   assert(tasks[3].consulted_tasks.includes(2));
   assert(
@@ -239,7 +307,23 @@ create edge source.out -> total.in`,
   );
   assert(tasks[3].dependencies.some((d: any) => d.task_id === 1));
   checks.push("task inspection is consultation; saved reads, forks and restores address task 1");
-  await debug("Task 5: remove the current source, then inspect the saved task-1 result.");
+  await debug("Task 5: inspect both task-4 answer versions, remove the current source, then inspect task 1.");
+  const versions = await run([
+    { type: "inspect", target: "task", task_id: 4, operator_id: null, include_implementation: true, view: "full" },
+  ]);
+  const savedGraphs = versions.result.actions[0].output.dataflows;
+  assert.equal(savedGraphs.length, 2);
+  assert(savedGraphs.every((graph: any) => graph.task_id === 4 && graph.operators.length === 0));
+  assert.deepEqual(
+    savedGraphs.flatMap((graph: any) => graph.boundary_inputs.map((input: any) => [input.operator_id, input.task_id])),
+    [
+      ["total", 1],
+      ["total", 3],
+    ]
+  );
+  assert(versions.text.includes("| 6 |") && versions.text.includes("| 60 |"), versions.text);
+  assert(!versions.text.includes("def load"), versions.text);
+  checks.push("answer roots from distinct saved versions stay separate and reuse only pinned input references");
   await run([
     { type: "edit", changes: "delete operator source\ndelete operator total" },
     { type: "inspect", target: "task", task_id: 1 },

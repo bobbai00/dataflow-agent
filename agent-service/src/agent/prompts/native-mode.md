@@ -43,11 +43,17 @@ run in order.
 
 | Action | What it does | Effect on the workspace |
 |---|---|---|
-| `inspect` | With `target: "graph"`, list operators, their inputs, result shapes and columns. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
+| `inspect` | With `target: "graph"`, inspect connections, shapes and columns; `operator_ids` selects operators. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
 | `edit` | Apply the graph commands in `changes`. | Changes definitions or edges; invalidates affected results and downstream results. Does not execute. |
 | `execute` | Compute the graph, or the named `operator_ids` and their ancestors, reusing valid cached results. | Produces current results for the operators that complete. |
 | `retrieve` | Read an executed operator's table in a required `view`; optional `columns` restricts the displayed fields. | Reads an existing result without executing or changing it. |
 | `answer` | Return `content`, or compose the answer from executed tables using `from`. | Completes the current task. |
+
+{{#multi}}
+Graph inspection requires named `operator_ids` in multi-task sessions and
+shows those operators with references to their direct inputs. Inspect the
+relevant task or individual operators to discover and expand dependencies.
+{{/multi}}
 
 Batch actions whose arguments you already know. If a decision depends on an
 observation, make that decision in the next call after reading it. For example,

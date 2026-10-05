@@ -711,7 +711,8 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
         availableRetrievalViews(this.settings),
-        this.settings.stateHistory
+        this.settings.stateHistory,
+        this.settings.multiTask || this.settings.stateHistory
       );
     }
 

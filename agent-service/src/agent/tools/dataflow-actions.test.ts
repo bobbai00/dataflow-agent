@@ -148,7 +148,7 @@ describe("receipt details found in live runs", () => {
 
   test("the graph index shortens singular and saved shapes", async () => {
     const text = await receipt(
-      { type: "inspect", target: "graph" },
+      { type: "inspect", target: "graph", operator_ids: ["one", "copy"] },
       {
         operators: [],
         unconnected_inputs: [],
@@ -316,7 +316,7 @@ describe("ordered dataflow actions", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.properties.actions.items.anyOf).toHaveLength(9);
+    expect(schema.properties.actions.items.anyOf).toHaveLength(10);
     expect(schema.properties.edits).toBeUndefined();
     const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);
@@ -598,6 +598,75 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("unconfirmed answer sources remain candidates until a branch is explicitly selected", async () => {
+    const batches: DataflowAction[][] = [
+      [{ type: "edit", changes: 'create operator source: scan("data.csv")\ncreate operator probe: scan("probe.csv")' }],
+      [
+        { type: "execute", operator_ids: ["source", "probe"] },
+        { type: "retrieve", operator_id: "source", view: "sample" },
+        { type: "retrieve", operator_id: "probe", view: "sample" },
+      ],
+      [{ type: "answer", content: "An answer without declared sources." }],
+    ];
+    const s = session(batches);
+    s.agent.updateSettings({ stateHistory: true, taskContext: "dependencies" });
+    await s.agent.sendMessage("First task.");
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "inspect", target: "task", task_id: 1, operator_id: null, include_implementation: true, view: "full" }],
+      [{ type: "answer", content: "Sources need selection." }]
+    );
+    await s.agent.sendMessage("Inspect the first task.");
+    const automatic = s.outcomes[3].actions[0].output as any;
+    expect(automatic.selection_basis).toBe("observed_reads");
+    expect(automatic.output_roots.roots).toHaveLength(2);
+    expect(automatic.dataflows).toEqual([]);
+    expect(renderDataflowActionsResult(s.outcomes[3])).toContain("Select");
+    batches.splice(
+      0,
+      batches.length,
+      [
+        {
+          type: "inspect",
+          target: "task",
+          task_id: 1,
+          operator_id: "source",
+          include_implementation: false,
+          view: "full",
+        },
+      ],
+      [{ type: "answer", content: "Selected the source." }]
+    );
+    await s.agent.sendMessage("Inspect the selected branch.");
+    const selected = s.outcomes[5].actions[0].output as any;
+    expect(selected.selection_basis).toBe("selected");
+    expect(selected.dataflows[0].operators.map((op: any) => op.operator_id)).toEqual(["source"]);
+    expect(selected.dataflows[0].observations.map((op: any) => op.operator_id)).toEqual(["source"]);
+    expect(s.executions()).toBe(1);
+  });
+
+  test("history tools expose scoped graph inspection and reject whole-session discovery", () => {
+    const schema = asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema as any;
+    const graphs = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.target?.const === "graph");
+    expect(graphs).toHaveLength(1);
+    expect(graphs[0].required).toContain("operator_ids");
+    expect(
+      prepareDataflowActions(
+        { reasoning: "Inspect.", actions: [{ type: "inspect", target: "graph" }] },
+        ["sample"],
+        true
+      ).status
+    ).toBe("error");
+    expect(
+      prepareDataflowActions(
+        { reasoning: "Inspect.", actions: [{ type: "inspect", target: "graph", operator_ids: ["source"] }] },
+        ["sample"],
+        true
+      ).status
+    ).toBe("pending");
+  });
+
   test("declared answer roots retrieve a complete saved branch after later edits and deletion", async () => {
     const batches: DataflowAction[][] = [
       [

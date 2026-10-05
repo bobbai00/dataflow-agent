@@ -31,7 +31,7 @@ run in order.
 
 | Action | What it does | Effect on the workspace |
 |---|---|---|
-| `inspect` | With `target: "graph"`, list operators, their inputs, result shapes and columns. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
+| `inspect` | With `target: "graph"`, inspect connections, shapes and columns; `operator_ids` selects operators. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
 | `edit` | Apply the graph commands in `changes`. | Changes definitions or edges; invalidates affected results and downstream results. Does not execute. |
 | `execute` | Compute the graph, or the named `operator_ids` and their ancestors, reusing valid cached results. | Produces current results for the operators that complete. |
 | `retrieve` | Read an executed operator's table in a required `view`; optional `columns` restricts the displayed fields. | Reads an existing result without executing or changing it. |
@@ -686,24 +686,37 @@ numbers carried only in prose. An entry marked incomplete has no completed
 answer. Clipped answers are labelled; inspect the task to read the original.
 
 Use `inspect` with `target: "task"` and `task_id` to retrieve the original
-question and answer together with the answer operators and their complete
-upstream sub-DAG. This is the saved version, including every intermediate
-definition needed by those operators, rather than today's graph. Set
-`include_implementation: true` when Python is needed, and a `view` when saved
-root results are needed; use `operator_id: null` for automatic answer roots.
-The simple task inspection returns definitions without Python or tables.
+question and answer together with the local answer computation. Operators
+created or changed for that computation, and their affected downstream steps,
+are shown. Unchanged computations from earlier tasks appear as saved input
+references with their operator IDs, owning task numbers and versions. For
+example, if task 1 prepared records with ten operators and task 2 added five
+operators on those records, task 2 shows its five operators and a reference to
+task 1's prepared table. The earlier ten operators remain saved.
+
+Expand only an input you need to examine: inspect its owning `task_id` and
+`operator_id` to reveal that task's computation, or use `target: "state"` for
+the definition and immediate inputs. Set `include_implementation: true` when
+local Python is needed, and a `view` when selected root results are needed;
+use `operator_id: null` for declared answer roots. Earlier-input references
+contain metadata and scope, not Python or table records. The simple task
+inspection returns local definitions without Python or tables.
 Named `operator_id` values select a different intermediate branch at that
 task, useful when its final report is the wrong starting point. `target:
 "state"` still reads specific saved operators or lists their version changes.
 Any earlier task can be inspected, including one with no recorded dependency.
 These reads do not execute or change the graph.
 
-When answering in free text, optionally set `operator_ids` to the completed
+When answering a computed question in free text, set `operator_ids` to the completed
 tables actually used for the answer. An answer with `from` records its source
 tables automatically. These IDs become the roots of later task retrieval;
 exploratory reads are excluded when explicit answer roots exist. Without an
-explicit declaration, retrieval labels prior result reads as candidates, not
-verified answer sources. Unknown roots are reported instead of guessed.
+explicit declaration, retrieval lists prior result reads as unconfirmed
+candidates without expanding their graphs or returning their tables. Select
+an `operator_id` explicitly to inspect a candidate branch. Unknown roots are
+reported instead of guessed. Graph inspection in multi-task sessions requires
+named `operator_ids`; discover relevant work through the task index rather
+than requesting the entire session graph.
 
 When a task is answered, the dataflow as it stands is saved under that task's
 number: the definition of every operator and its result. Any later task can
@@ -723,7 +736,7 @@ answering. Preserve the earlier version when the question compares versions.
 
 | Capability | Effect |
 |---|---|
-| `inspect` with `target: "task"` and `task_id` | Read the task's answer branch and all its upstream operators from their saved snapshot. Optional `operator_id` selects intermediate roots; `include_implementation` and `view` request Python and saved root results in the same call. |
+| `inspect` with `target: "task"` and `task_id` | Read the local answer computation and versioned earlier-input references. Optional `operator_id` selects intermediate roots; `include_implementation` requests local Python, and `view` requests selected root results. Expand an input through its owning task and operator ID. |
 | `answer` with `content` and optional `operator_ids` | Answer and identify the completed source tables for later sub-DAG retrieval. The runtime checks availability, not semantic correctness. An answer with `from` records its roots automatically. |
 | `inspect` with `target: "state"`, `operator_id` and `task_id` | Read the operator and its immediate inputs as task N saved them. `include_implementation` controls attached Python, and a `view` adds the saved result. `task_id: null` lists its versions and the tasks in which each held. Leaves the current dataflow unchanged. |
 | `fork operator <id> from task <N> as <new_id>` inside an edit | Copy the operator and the inputs it had at task N into the current dataflow under new identifiers, with their saved results, so later operators can compute with that version. The operator itself is unchanged. |

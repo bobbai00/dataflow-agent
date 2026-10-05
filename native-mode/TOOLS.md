@@ -55,6 +55,36 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               },
               "target": {
                 "type": "string",
+                "const": "graph"
+              },
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "maxItems": 8
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "operator_ids"
+            ],
+            "description": "Inspect only the named current operators and their direct input references, shapes and columns. Expand individual inputs as needed; never executes."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
                 "const": "operator"
               },
               "operator_id": {
@@ -295,13 +325,24 @@ With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG an
               "target": {
                 "type": "string",
                 "const": "graph"
+              },
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "maxItems": 8
               }
             },
             "required": [
               "type",
-              "target"
+              "target",
+              "operator_ids"
             ],
-            "description": "List operator IDs, kinds, and data edges with their ports. Does not execute."
+            "description": "Inspect only the named current operators and their direct input references, shapes and columns. Expand individual inputs as needed; never executes."
           },
           {
             "type": "object",
@@ -519,7 +560,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG an
               "target",
               "task_id"
             ],
-            "description": "Read an earlier task's original question and answer, dependency links, and its answer operators with their full upstream sub-DAG from the saved version. Roots are explicit answer sources when recorded; otherwise they are labelled result-read candidates. Read-only; never executes."
+            "description": "Read an earlier question, answer and dependency links with the local answer computation and references to unchanged saved inputs. Without declared answer roots, list candidates for explicit selection instead of expanding exploratory reads. No Python or result tables in this form. Never executes."
           },
           {
             "type": "object",
@@ -585,7 +626,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG an
               "include_implementation",
               "view"
             ],
-            "description": "Retrieve an earlier task's saved answer sub-DAG in one call. Null operator_id uses the recorded answer roots; named IDs select another intermediate branch at that task. Include Python implementations or saved root results only when needed. Dependencies and previous answers are provenance, not correctness. Never executes or substitutes current state."
+            "description": "Retrieve the task's local answer computation with versioned earlier-input references. Null operator_id uses declared answer roots; absent sources remain unexpanded candidates. Named IDs select an intermediate branch. Expand a saved input by inspecting its owning task and operator ID. include_implementation adds local Python only; view adds selected root results only. Never executes; earlier answers and dependencies do not prove correctness."
           },
           {
             "type": "object",
@@ -616,7 +657,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer sub-DAG an
               "content",
               "operator_ids"
             ],
-            "description": "Return the final response and record the completed operators used to answer it, for later retrieval of their saved upstream sub-DAGs. operator_ids identifies provenance, not correctness; name answer tables rather than exploratory reads. Must be the only action. An answer with from records its table IDs automatically."
+            "description": "Return the final response and identify completed source tables for later task-scoped retrieval. Use this form for computed answers; name answer tables, excluding exploratory reads. The runtime validates availability, not correctness. Must be the only action. An answer with from records its table IDs automatically."
           },
           {
             "type": "object",

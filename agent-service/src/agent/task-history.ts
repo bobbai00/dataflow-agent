@@ -303,7 +303,7 @@ const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
 const TASK_HISTORY_INTRO =
-  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads, not correctness or every semantic dependency. Inspect any relevant task to retrieve its saved answer branch and upstream operators; code and saved results are available on request.";
+  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads, not correctness or every semantic dependency. Inspect a relevant task for its local answer computation and versioned earlier-input references. Expand selected inputs when needed; Python and selected result tables are available on request.";
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
@@ -313,6 +313,7 @@ function taskOutcome(task: TaskRecord, answerChars: number): string {
   return [
     `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
     `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
+    `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => root.operator_id).join(", ") : "not declared; inspect the task to select a candidate branch"}`,
     ...(task.unresolved_references
       ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
       : []),

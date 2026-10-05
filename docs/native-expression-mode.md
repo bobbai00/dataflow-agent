@@ -34,9 +34,9 @@ The generated references are the source of truth for the public interface:
 
 | Action | Arguments | Result |
 |---|---|---|
-| Inspect task branch | `target: "task"`, `task_id`; optional `operator_id: null` or named roots, `include_implementation`, `view` | Original question/answer and saved answer operators with their complete upstream sub-DAG; optional Python and saved root results in the same read |
+| Inspect task branch | `target: "task"`, `task_id`; optional `operator_id: null` or named roots, `include_implementation`, `view` | Original question/answer, local answer computation and versioned earlier-input references; optional local Python and selected root results |
 | Declare answer sources | `type: "answer"`, `content`, optional `operator_ids` | Records completed answer tables as retrieval roots; an answer with `from` records these automatically |
-| Inspect graph | `target: "graph"` | Operator IDs, types, named ports, edges and unconnected inputs |
+| Inspect graph | `target: "graph"`, `operator_ids` | Named current operators, direct input references, ports, result shapes and unconnected inputs; single-task sessions also allow an unscoped graph read |
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
 | Edit | `changes` | Applied change count, automatically deleted edges, unconnected inputs and invalidated results |
 | Execute | none | Completed operator count, errors and diagnostics; valid cached results can be reused |
@@ -215,10 +215,15 @@ request order, starting at 1; only completed tasks have historical state.
 A specific-task inspection can include `view: "sample_stats"` or `"full"` to
 read its saved output along with the definition. Set `view: null` for definitions
 alone. Saved reads never execute or substitute current state. Missing results
-are explicitly unavailable. Task inspection retrieves the answer branch from
-its saved snapshot, never the live graph. Explicit answer sources take
-precedence over exploratory reads. Without a declaration, prior result reads
-are labelled candidate roots; unknown roots remain unknown. Named roots can
+are explicitly unavailable. Task inspection retrieves the local answer
+computation from its saved snapshot, never the live graph. Unchanged earlier
+computations appear as input references naming their owning task and version.
+Expand one with that task number and operator ID; a saved operator read can
+instead reveal only its definition and immediate inputs. A changed ancestor or
+result identity keeps its affected downstream operators in the local graph.
+Explicit answer sources take precedence over exploratory reads. Without a
+declaration, prior reads remain unexpanded candidates with no automatic result
+retrieval; unknown roots remain unknown. Named roots can
 select a saved intermediate branch when the final report is unsuitable. Source
 declarations establish provenance; availability validation does not check the
 computation's semantics. See [task context](observation-format/task-dependency-context.md).

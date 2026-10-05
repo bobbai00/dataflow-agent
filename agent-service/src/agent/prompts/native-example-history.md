@@ -19,23 +19,24 @@
 
 ### Example: retrieve a relevant task before reusing its work
 
-Task 3 asks for counts by region using the complete eligible records defined
-in task 1. The prior-task index contains task 1's question and answer. Retrieve
-its saved branch to check which rows it retained and which columns it used:
+Task 1 prepared eligible records. Task 2 added a grouping by category and a
+top-five report. Task 3 now asks for counts by region using the complete
+eligible records. Inspect task 2 to identify which parts can be reused:
 
 ```json
 {
   "reasoning": "Inspect task 1's saved computation before choosing a reusable starting point.",
   "actions": [
-    {"type": "inspect", "target": "task", "task_id": 1, "operator_id": null, "include_implementation": true, "view": "sample_stats"}
+    {"type": "inspect", "target": "task", "task_id": 2, "operator_id": null, "include_implementation": true, "view": "sample_stats"}
   ]
 }
 ```
 
-Suppose the returned answer root is `report`, whose upstreams include a
-`limit(5)` after grouping. That report only kept five groups; it cannot support
-counts across every region. Its earlier `eligible` working table may still
-be useful. Inspect that branch and verify its rule against the new request:
+The local computation shows category grouping followed by `limit(5)`, and a
+saved input reference to task 1's `eligible` table. Neither the grouping nor
+the five-row report answers the new regional question. The input reference
+helps locate reusable work but does not prove that its filter was correct.
+Expand just that input and verify its rule against the new request:
 
 ```json
 {

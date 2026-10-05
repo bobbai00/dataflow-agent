@@ -45,7 +45,10 @@ test("task retrieval examples check reusable branches and declare answer roots w
     expect(calls[0].actions[0]).toMatchObject({ target: "task", operator_id: null, view });
     expect(calls[2].actions[0].operator_ids).toEqual(["by_region"]);
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
-    expect(prompt).toContain("complete\nupstream sub-DAG");
+    expect(prompt).toContain("local answer computation");
+    expect(prompt).toContain("saved input\nreferences");
+    expect(prompt).toContain("without expanding their graphs");
+    expect(prompt).toContain("Graph inspection requires named `operator_ids`");
     expect(prompt).toContain("Dependency links help locate useful");
     expect(prompt).not.toContain("{{");
   }

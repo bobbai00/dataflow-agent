@@ -28,6 +28,7 @@ import type { TaskReference } from "../task-history";
 
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
+  | { type: "inspect"; target: "graph"; operator_ids: string[] }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
   | { type: "inspect"; target: "task"; task_id: number }
   | {
@@ -114,6 +115,14 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         }),
         action(
           "inspect",
+          "Inspect only the named current operators and their direct input references, shapes and columns. Expand individual inputs as needed; never executes.",
+          {
+            target: { type: "string", const: "graph" },
+            operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8 },
+          }
+        ),
+        action(
+          "inspect",
           "Read an operator's definition, ports, connections and description. Request its registered Python functions when needed.",
           {
             target: { type: "string", const: "operator" },
@@ -172,10 +181,18 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
 
 const taskId = { type: "integer", minimum: 1 };
 const STATE_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
+STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf = STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.filter(
+  a =>
+    !(
+      "target" in a.properties &&
+      (a.properties.target as { const: string }).const === "graph" &&
+      !("operator_ids" in a.properties)
+    )
+);
 STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action(
     "inspect",
-    "Read an earlier task's original question and answer, dependency links, and its answer operators with their full upstream sub-DAG from the saved version. Roots are explicit answer sources when recorded; otherwise they are labelled result-read candidates. Read-only; never executes.",
+    "Read an earlier question, answer and dependency links with the local answer computation and references to unchanged saved inputs. Without declared answer roots, list candidates for explicit selection instead of expanding exploratory reads. No Python or result tables in this form. Never executes.",
     {
       target: { type: "string", const: "task" },
       task_id: taskId,
@@ -183,7 +200,7 @@ STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   ),
   action(
     "inspect",
-    "Retrieve an earlier task's saved answer sub-DAG in one call. Null operator_id uses the recorded answer roots; named IDs select another intermediate branch at that task. Include Python implementations or saved root results only when needed. Dependencies and previous answers are provenance, not correctness. Never executes or substitutes current state.",
+    "Retrieve the task's local answer computation with versioned earlier-input references. Null operator_id uses declared answer roots; absent sources remain unexpanded candidates. Named IDs select an intermediate branch. Expand a saved input by inspecting its owning task and operator ID. include_implementation adds local Python only; view adds selected root results only. Never executes; earlier answers and dependencies do not prove correctness.",
     {
       target: { type: "string", const: "task" },
       task_id: taskId,
@@ -194,7 +211,7 @@ STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   ),
   action(
     "answer",
-    "Return the final response and record the completed operators used to answer it, for later retrieval of their saved upstream sub-DAGs. operator_ids identifies provenance, not correctness; name answer tables rather than exploratory reads. Must be the only action. An answer with from records its table IDs automatically.",
+    "Return the final response and identify completed source tables for later task-scoped retrieval. Use this form for computed answers; name answer tables, excluding exploratory reads. The runtime validates availability, not correctness. Must be the only action. An answer with from records its table IDs automatically.",
     { content: text, operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8 } }
   ),
   action(
@@ -300,6 +317,10 @@ export function prepareDataflowActions(
         a.operator_ids &&
         new Set(a.operator_ids).size !== a.operator_ids.length) ||
       (a.type === "inspect" &&
+        a.target === "graph" &&
+        "operator_ids" in a &&
+        new Set(a.operator_ids).size !== a.operator_ids.length) ||
+      (a.type === "inspect" &&
         a.target === "task" &&
         "operator_id" in a &&
         Array.isArray(a.operator_id) &&
@@ -339,8 +360,21 @@ export function prepareDataflowActions(
   return result;
 }
 
-export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews(), stateHistory = false) {
+export function createDataflowTool(
+  views: readonly RetrievalView[] = availableRetrievalViews(),
+  stateHistory = false,
+  multiTask = stateHistory
+) {
   const schema = structuredClone(dataflowActionsSchema(stateHistory));
+  if (multiTask)
+    schema.properties.actions.items.anyOf = schema.properties.actions.items.anyOf.filter(
+      a =>
+        !(
+          "target" in a.properties &&
+          (a.properties.target as { const: string }).const === "graph" &&
+          !("operator_ids" in a.properties)
+        )
+    );
   const descriptions = {
     full: "full requests records up to its character cap; narrow large tables first",
     sample: "sample checks layout and example values with a small record view",
@@ -362,7 +396,7 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
     description:
       DATAFLOW_ACTIONS_DESCRIPTION +
       (stateHistory
-        ? " Saved task state: inspect target=task retrieves an earlier answer's saved upstream sub-DAG; optional implementation and view fetch Python and root results in the same call. Answer operator_ids declares its source tables; answer from records them automatically. inspect target=state reads named saved operators or lists versions. In an Edit, `update operator <id> from task <N>` restores that definition on current inputs and `fork operator <id> from task <N> as <new_id>` copies its saved upstream branch."
+        ? " Saved tasks: inspect target=task returns the local computation and versioned earlier-input references. Expand selected inputs through their owning task or target=state. Python and selected root results are optional. Declare Answer operator_ids or use answer from; missing roots remain candidates without automatic expansion. Graph inspection requires named operator_ids. In an Edit, `update operator <id> from task <N>` restores that definition on current inputs and `fork operator <id> from task <N> as <new_id>` copies its saved upstream branch."
         : ""),
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

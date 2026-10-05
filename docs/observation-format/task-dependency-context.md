@@ -20,24 +20,42 @@ policies. A first or single task assembles exactly the same messages under
 either policy when other settings match.
 
 Each new task starts with the questions, agent-generated answers and parent
-task IDs of earlier tasks. Operator lists and access receipts stay outside the
-default model index. Answers longer than 1,200
+task IDs of earlier tasks, plus their declared answer-table IDs. Operator lists
+and access receipts stay outside the default model index. Answers longer than 1,200
 characters are explicitly clipped in this index. The full question and answer
 remain available through `{type: "inspect", target: "task", task_id: N}`.
-That action also returns the saved answer roots and their full upstream
-sub-DAG, with each operator shown once, in dependency order. It excludes
-unrelated branches. The default read returns expressions, ports, schemas,
-availability and scope; implementations and result rows are opt-in:
+That action returns the local computation behind declared answer roots:
+operators introduced or changed for the answer, including affected downstream
+steps. Unchanged earlier computations become versioned input references with
+their owning task, operator ID, revision, availability, row count and scope.
+It excludes unrelated branches and deduplicates shared inputs. The default
+read returns local expressions, ports, schemas, availability and scope;
+local implementations and selected root-result rows are opt-in:
 
 ```json
 {"type": "inspect", "target": "task", "task_id": 1,
  "operator_id": null, "include_implementation": true, "view": "sample"}
 ```
 
-Null roots use the recorded answer branch. Named roots select an intermediate
+Null roots use declared answer sources. Named roots select an intermediate
 branch at that task's endpoint. Views follow the session's retrieval choices
 and budgets; only root results are retrieved. Neither inspection executes nor
 changes the current graph. Existing fork/restore commands reuse saved branches.
+Expand an input reference with its owning task and operator ID, or inspect the
+saved operator and its direct inputs. A task can contain no local operators
+when its answer simply reuses an earlier result. Missing earlier results stay
+explicitly unavailable; they are never fabricated. Matching considers incoming
+computation fingerprints and result identity, so a changed upstream or fresh
+materialization cannot be hidden just because downstream definitions are
+unchanged. Restoring an older computation remains local if it differs from the
+immediately preceding task. An answer read directly from an older saved version,
+including through a fork, is represented as a saved input to the answering task.
+The full provenance and saved graphs remain on the server.
+
+In multi-task sessions, `inspect target="graph"` requires `operator_ids` and
+returns only those current operators with direct input references. The task
+index provides discovery; whole-session graph dumps are not exposed by the
+multi-task tool schema. Single-task sessions keep unscoped graph inspection.
 The current task keeps its ordinary
 tool-call and tool-result frames. Its prior-task checkpoint remains immutable
 while those frames accumulate, preserving the within-task prefix.
@@ -65,7 +83,9 @@ With saved-state tools enabled, free-text Answer accepts optional
 table exists and has a completed result before recording any declaration.
 Structured Answer `from` records its roots automatically. Explicit answer
 roots take precedence over exploratory reads. Older/free-text answers without
-roots use prior result reads labelled `observed_reads` candidates. Superseded
+roots list prior result reads labelled `observed_reads` candidates. They do not
+automatically expand candidate graphs or attach their result tables, even when
+a view was requested. Select a candidate operator explicitly. Superseded
 reads are excluded, and missing roots produce an explicit note and the saved
 operator index instead of a guessed branch. Access receipts bind reads to
 their snapshot and result version; incompatible saved versions remain separate
@@ -92,7 +112,8 @@ failed/skipped actions, incomplete tasks, loaded-task numbering, clipped
 answers, tool availability, incompatible settings, stable within-task prefixes,
 and exact first-task parity. The live `task-context-run.ts` fixture exercises
 five tasks through the real engine with no model calls: cached sums, changed
-inputs, historical inspection, fork, restore and deletion. Resources allocated
+inputs, five local operators with a pinned earlier input, selective expansion,
+scoped graph inspection, historical inspection, fork, restore and deletion. Resources allocated
 by the fixture are removed only after confirming terminal execution.
 
 The matched pilot is frozen by `benchmark/longds/task_context_verification.py`.

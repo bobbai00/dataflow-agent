@@ -42,7 +42,7 @@ import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
 import {
   inspectState,
-  inspectSubgraph,
+  inspectTaskSubgraph,
   forkState,
   historicalTask,
   readForkResult,
@@ -264,7 +264,9 @@ export async function executeDataflowActionBatch(
         const view = "view" in action ? action.view : null;
         const roots =
           selection === null
-            ? (output.output_roots?.roots ?? [])
+            ? output.output_roots?.basis === "answer"
+              ? output.output_roots.roots
+              : []
             : (Array.isArray(selection) ? selection : [selection]).map(operator_id => ({
                 operator_id,
                 step_id: task.stepId,
@@ -274,11 +276,13 @@ export async function executeDataflowActionBatch(
         for (const root of roots) groups.set(root.step_id, [...(groups.get(root.step_id) ?? []), root]);
         const dataflows = [...groups].map(([savedStep, selected]) => {
           const savedTask = { ...task, taskId: selected[0].task_id, stepId: savedStep };
-          const graph = inspectSubgraph(
+          const graph = inspectTaskSubgraph(
             storage,
             savedTask,
+            runtime.taskHistory ?? [],
             selected.map(root => root.operator_id),
-            implementation
+            implementation,
+            task.taskId
           );
           const workflow = storage.getWorkflow(savedStep);
           const selectedIds = new Set(graph.operators.map(op => op.operator_id));
@@ -317,6 +321,14 @@ export async function executeDataflowActionBatch(
                 });
           return {
             ...graph,
+            boundary_inputs: graph.boundary_inputs.map(input => {
+              const savedWorkflow = storage.getWorkflow(input.step_id);
+              const savedOp = savedWorkflow.operators.find(op => op.operatorID === input.operator_id)!;
+              return {
+                ...input,
+                scope: resultScope(savedOp, savedWorkflow, id => storage.getOperatorResult(input.step_id, id)),
+              };
+            }),
             operator_blocks: graph.operators.map(node => {
               const op = workflow.operators.find(op => op.operatorID === node.operator_id)!;
               return describeOperator(op, storage.getOperatorResult(savedStep, op.operatorID), {
@@ -338,21 +350,38 @@ export async function executeDataflowActionBatch(
           ...(roots.length
             ? {}
             : {
-                note: "No answer roots were recorded. Use the operator index to select a saved intermediate branch with operator_id; no branch has been guessed.",
+                note: "No confirmed answer roots were recorded. Select operator_id from the result-read candidates or operator index to inspect a saved branch; exploratory reads have not been expanded or retrieved.",
               }),
         });
         return { status: "ok", output };
       }
       if (action.target === "graph") {
-        // The graph with what is known of every table: rows and columns of
-        // completed results, so a listing is not followed by a schema read.
-        const graph = inspectGraph(state.getWorkflowContent());
+        if (!("operator_ids" in action) && (settings.multiTask || settings.stateHistory))
+          throw new Error(
+            "Graph inspection in multi-task sessions requires operator_ids. Use the task index to inspect a saved task, or name current operators; the whole session graph is not returned."
+          );
+        const workflow = state.getWorkflowContent();
+        const selected = "operator_ids" in action ? new Set(action.operator_ids) : undefined;
+        if (selected)
+          for (const id of selected)
+            if (!state.getOperator(id)) throw new Error(`UNKNOWN_OPERATOR: ${id} does not exist in the current graph.`);
+        const graph = inspectGraph(workflow);
         return {
           status: "ok",
           output: {
             ...graph,
-            operators: graph.operators.map(item => ({ ...item, ...resultSummary(current(item.id)) })),
-            operator_blocks: topologicalOperators(state.getAllOperators()).map(op => block(op, { definition: false })),
+            edges: selected
+              ? graph.edges.filter(edge => [...selected].some(id => edge.includes(` -> ${id}.`)))
+              : graph.edges,
+            unconnected_inputs: selected
+              ? graph.unconnected_inputs.filter(port => [...selected].some(id => port.startsWith(`${id}.`)))
+              : graph.unconnected_inputs,
+            operators: graph.operators
+              .filter(item => !selected || selected.has(item.id))
+              .map(item => ({ ...item, ...resultSummary(current(item.id)) })),
+            operator_blocks: topologicalOperators(state.getAllOperators())
+              .filter(op => !selected || selected.has(op.operatorID))
+              .map(op => block(op, { definition: false })),
           },
         };
       }

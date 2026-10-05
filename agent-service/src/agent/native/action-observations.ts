@@ -164,9 +164,34 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           renderTaskIndex([task], Infinity),
           `Answer roots: ${output.selection_basis ?? "unknown"}. Recorded dependencies and sources establish provenance, not correctness.`,
           ...(output.note ? [output.note] : []),
+          ...(output.selection_basis === "observed_reads"
+            ? [
+                `Result-read candidates (not confirmed answer sources): ${task.output_roots?.roots.map(root => root.operator_id).join(", ") || "none"}.`,
+              ]
+            : []),
           ...(output.dataflows ?? []).flatMap((graph: any) => [
-            `Saved sub-DAG: task ${graph.task_id}; roots ${graph.roots.join(", ")}; ${countOf(graph.operators.length, "operator")}.`,
+            `Saved task computation: task ${graph.task_id}; roots ${graph.roots.join(", ")}; ${countOf(graph.operators.length, "local operator")}; ${countOf(graph.boundary_inputs?.length ?? 0, "saved input reference")}. Full upstream lineage: ${countOf(graph.upstream_operator_count ?? graph.operators.length, "operator")}; expand selected inputs when needed.`,
             ...graph.operator_blocks.map(operatorBlock),
+            ...(graph.boundary_inputs?.length
+              ? [
+                  renderTable(
+                    ["saved input", "task", "revision", "result"],
+                    graph.boundary_inputs.map((input: any) => [
+                      tableCell(input.operator_id, config.tableFormat),
+                      String(input.task_id),
+                      tableCell(input.revision?.slice(0, 12) ?? "unknown", config.tableFormat),
+                      input.result.available
+                        ? `${input.result.rows ?? "unknown"} rows`
+                        : "unavailable; expand and execute to recompute",
+                    ]),
+                    config.tableFormat
+                  ),
+                  ...graph.boundary_inputs.flatMap((input: any) =>
+                    (input.scope ?? []).map((scope: string) => `Input ${input.operator_id}: ${scope}`)
+                  ),
+                  "Expand a saved input with inspect target=task, its task_id and operator_id; target=state reads its definition and direct inputs. Input references contain no table records or Python.",
+                ]
+              : []),
             ...(graph.observations ?? []).map(
               (observation: any) => `Result ${observation.operator_id}:\n${observation.text}`
             ),
