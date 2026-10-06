@@ -263,7 +263,7 @@ RESUMABLE = ('benchmark/longds/context_state_pilot.py', 'benchmark/longds/catalo
              'benchmark/longds/context_state_score.py')
 
 
-def run(root, resume=False, only_agent=None):
+def run(root, resume=False, only_agent=None, only_jobs=None):
     """Run the frozen jobs. With `resume`, jobs that already finished every question are
     kept, failed or partial job folders are set aside, and the harness files named in
     RESUMABLE may differ from the freeze (their new hashes are recorded)."""
@@ -289,6 +289,8 @@ def run(root, resume=False, only_agent=None):
         selected = []
         for job in jobs:
             if only_agent and job['agent'] != only_agent:
+                continue
+            if only_jobs and job_key(job) not in only_jobs:
                 continue
             output = folder / 'runs' / job_key(job)
             done = output / 'job.json'
@@ -338,6 +340,7 @@ if __name__ == '__main__':
     parser.add_argument('--endpoint', help='agent-service endpoint recorded in the protocol and used by the run')
     parser.add_argument('--resume', action='store_true', help='rerun failed or partial jobs of a started run')
     parser.add_argument('--only-agent', choices=list(AGENTS), help='with --resume: restrict to one agent')
+    parser.add_argument('--only-jobs', nargs='*', help='with --resume: restrict to these job folder names')
     arguments = parser.parse_args()
     if arguments.action == 'prepare':
         prepare_cases(arguments.root.resolve(), arguments.cases or [])
@@ -353,4 +356,4 @@ if __name__ == '__main__':
                tuple(arguments.contexts), tuple(arguments.agents), arguments.judge_model,
                arguments.concurrency, arguments.endpoint)
     else:
-        run(arguments.root.resolve(), arguments.resume, arguments.only_agent)
+        run(arguments.root.resolve(), arguments.resume, arguments.only_agent, arguments.only_jobs)
