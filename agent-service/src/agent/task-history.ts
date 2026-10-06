@@ -405,9 +405,15 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
   const changes = (task.operator_changes ?? []).filter(
     block => !collapsed.has(block.id) && !block.state.startsWith("deleted")
   );
-  const deletions = task.operator_deletions?.length
-    ? task.operator_deletions
-    : (task.operator_changes ?? []).filter(block => block.state.startsWith("deleted"));
+  // An operator created and deleted several times in one task is one deletion.
+  const deletions = [
+    ...new Map(
+      (task.operator_deletions?.length
+        ? task.operator_deletions
+        : (task.operator_changes ?? []).filter(block => block.state.startsWith("deleted"))
+      ).map(block => [block.id, block] as const)
+    ).values(),
+  ];
   const changedIds = new Set((task.operator_changes ?? []).map(block => block.id));
   const referenced = task.operators.filter(op => op.result_summary && !changedIds.has(op.operator_id));
   return [
