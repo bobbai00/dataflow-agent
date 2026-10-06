@@ -180,9 +180,16 @@ rebuilding earlier calculations.
 
 The other two Q4 runs fail differently. Luna Dataflow trajectory has the full
 289-row original population, but its earlier place classification has already
-excluded E067 from the main belt. Terra Python trajectory counts all events
-instead of the requested main-belt events. These are a cascade from an earlier
-transformation and a new scope/filter mistake, respectively.
+excluded E067 from the main belt. Terra Python trajectory is a judge decision,
+not a solver error: its answer carries every requested value (both hours, the
+main-belt counts 31/29, the removed count 2, both ordered strongest-event
+lists and the five core candidates) and adds total-event counts 32/30 beside
+them; the judge scored it 0 for those extra fields. The sentence that stood
+here before the 2026-10-06 audit, that this run "counts all events instead of
+the requested main-belt events", was wrong. The official tally keeps the
+judge's zero; read as a solver result, that arm is 5/8, and the earthquake Q4
+row above is the one verdict in this pilot that a second judge would plausibly
+flip.
 
 **Cascades and fresh computation errors.** The missing original event carries
 into Q5's removed-pressure denominator: several runs report 2.2101% instead of

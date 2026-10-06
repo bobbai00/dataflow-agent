@@ -525,3 +525,49 @@ working-table checks and coverage. It distinguishes the paid solver revision
 from post-run evaluator corrections and a regression-tested diagnostic fix
 for invalid result projections. Statistics and snippets remain independent
 catalog opt-ins and are off in this pilot. No scaling is recommended yet.
+
+### 2026-10-06 audit of 9db5efcfa and the fixes that followed
+
+The bounded pilot could not test the mechanism: no `@N` reference in any of
+its 64 answers pointed at a version that differed from the current table, so
+the only discriminating question was earthquake Q4, and the judge model was
+not the paper's. A full read of the traces and the implementation found the
+mechanism close to the design with these defects, all fixed the same day
+(agent suite 1,449 tests, taxonomy pytest 112, references regenerated):
+
+- Live edits in a saved-versions session accepted the retired `fork … as …`
+  and `update … from task N`; they now fail with the `@N` form to use, and
+  only recorded traces replay them (`legacyVersionCommands`).
+- A saved-result handle could be deleted by its hidden ID, and a handle whose
+  consumer or edge was deleted stayed in the graph; both fixed in the planner.
+- Retention was silent: a session without an engine connection, or an engine
+  `retain` failure, sealed the task as if its results were saved. The boundary
+  receipt now carries `Retention: RETENTION_UNAVAILABLE …` or
+  `RETENTION_FAILED …`, and the agent logs the failure.
+- `diff` could never raise `DIFF_COLUMNS` for a key listed as a value column
+  (the collision check ran first); the order is fixed and the taxonomy test
+  covers the three `DIFF_*` codes.
+- Tool text still described forks and `retrieve`; the saved-mode `edit` text
+  did not mention `update X from X@N`, `create V from X@N` or `X@N.out`; the
+  `answer from` text omitted `top N by column`; the inspect validator named
+  targets that do not exist in saved mode; the operator_ids error suggested
+  answering without sources. All rewritten.
+- The boundary receipt did not say what was saved. Each changed block now
+  ends with ``saved as `id@N` `` or `saved: no completed result`, and a
+  `Saved versions:` line lists the task's versions and the unchanged ones
+  still readable (capped at twelve names).
+- A batched `read` with `columns` failed when any table lacked any column and
+  paged before validating; it now keeps each table's present columns, notes
+  the missing ones, and errors only for a table with none of them.
+- The tie refusal suggested a column from the example data (`market asc`);
+  it now names a column that identifies the rows when one exists.
+- Prompt sections 5.1–5.2 are implemented in `native-multi-task.md` and
+  `native-state-history.md` (rendered history prompt 4.8k words).
+
+Still open from the work list: the live example session (5.3) regenerated
+from the engine, the catalog footer (item 8), the scorer's four checks (item
+11), and the Q4 verdict note in the pilot report. The predeclared run that
+follows (Netflix task 2, Kiva task 1, water task 1; dataflow and Python, both
+with the catalog policy; Terra and Luna; one rep; the paper's DeepSeek judge
+through OpenRouter) measures, before anything else, how many `@N` references
+point at versions that differ from the current table.

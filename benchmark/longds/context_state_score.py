@@ -37,20 +37,28 @@ from openai import OpenAI
 import pandas as pd
 
 from _paths import DATAMIND
-from context_state_pilot import CASES, job_key
+from context_state_pilot import job_key
 from judge_longds import judge_one, load_judge_prompt
 from numeric_gate import AutoImportNS, PRELUDE, TURN_MARKER, reference_source, json_blobs, diff
 from state_comparison import ROOT, cost_of, digest, save
 from state_oracle import annotated_closure, dependency_agreement, native_answer_references, script_answer_references
 from state_pilot_score import state_anchor, answer_components
 
-JUDGE_RATES = {'input': 1.75, 'cached': .175, 'write': 1.75, 'output': 14.}
+JUDGE_RATES = {'gpt-5.2': {'input': 1.75, 'cached': .175, 'write': 1.75, 'output': 14.}}
+
+
+def judge_client():
+    """The judge endpoint is chosen by environment, like judge_longds.py."""
+    return OpenAI(base_url=os.environ.get('JUDGE_BASE_URL', 'http://localhost:4000/v1'),
+                  api_key=os.environ.get('JUDGE_API_KEY') or os.environ['LITELLM_MASTER_KEY'],
+                  max_retries=0, timeout=300)
 
 
 def build_oracles(root):
     directory = root / 'private-oracle'
     directory.mkdir(exist_ok=False)
-    for task, spec in CASES.items():
+    protocol = json.loads((root / 'pilot' / 'protocol.json').read_text())
+    for task, spec in protocol['cases'].items():
         taskdir = DATAMIND / 'task/longds_v1.1' / task
         source = reference_source(taskdir).replace('../../../../../data/longds', str(ROOT / 'data/longds'))
         marks = list(TURN_MARKER.finditer(source))
@@ -104,15 +112,13 @@ def judge_record(folder, directory, record, gold, protocol, prompt):
     except FileExistsError:
         # A duplicate may be in flight, but a crash is never resubmitted.
         return {'score': None, 'error_detail': 'Judge intent exists; wait for cache result without resubmission'}
-    client = OpenAI(base_url='http://localhost:4000/v1', api_key=os.environ['LITELLM_MASTER_KEY'],
-                    max_retries=0, timeout=180)
-    result = judge_one(client, model, prompt, turn, retries=1, max_tokens=8192)
-    amount = 0.
-    for usage in result.get('usage', []):
+    result = judge_one(judge_client(), model, prompt, turn, retries=1, max_tokens=8192)
+    amount = 0. if model in JUDGE_RATES else None
+    for usage in result.get('usage', []) if amount is not None else []:
         details = usage.get('prompt_tokens_details') or {}
         stats = {'input_tokens': usage.get('prompt_tokens'), 'output_tokens': usage.get('completion_tokens'),
                  'cached_tokens': details.get('cached_tokens', 0), 'cache_write_tokens': 0}
-        cost = cost_of(stats, JUDGE_RATES)
+        cost = cost_of(stats, JUDGE_RATES[model])
         if cost is None:
             amount = None
             break
@@ -152,15 +158,22 @@ def structural_metrics(record, directory, agent):
     actions = [a for batch in batches for a in batch.get('actions', [])]
     saved_reads = [op for a in actions if a['type'] == 'read' and a.get('view') is not None
                    for op in a['operator_ids'] if '@' in op]
+    saved_answer_sources = [op for a in actions if a['type'] == 'answer'
+                            for op in (a.get('operator_ids') or []) + re.findall(r'\b([A-Za-z_]\w*@\d+)', a.get('from', ''))
+                            if '@' in op]
     changes = '\n'.join(a.get('changes', '') for a in actions if a['type'] == 'edit')
     trace = json.loads(gzip.open(directory / 'react_steps.json.gz', 'rt').read())['steps']
     counts = {'executed': 0, 'cached': 0}
     historical_cached, completed_saved_reads, failed_actions = [], [], 0
-    tool_errors = 0
+    tool_errors, retention_warnings, unavailable_results, legacy_rejections = 0, 0, 0, 0
     for step in trace:
         for receipt in step.get('toolResults', []):
             output = receipt.get('output')
             tool_errors += bool(receipt.get('isError') or isinstance(output, dict) and output.get('status') == 'error')
+            text = json.dumps(output) if output is not None else ''
+            retention_warnings += text.count('RETENTION_')
+            unavailable_results += text.count('HISTORICAL_RESULT_UNAVAILABLE')
+            legacy_rejections += text.count('Forks are not available') + text.count('to make the definition saved at the end of task')
             if not isinstance(output, dict):
                 continue
             for action in output.get('actions', []):
@@ -183,9 +196,12 @@ def structural_metrics(record, directory, agent):
             'saved_edges_requested': re.findall(r'create edge ([^\s]+@\d+)\.out', changes),
             'definition_variants_requested': re.findall(r'create operator (\S+) from (\S+@\d+)', changes),
             'definition_updates_requested': re.findall(r'update operator (\S+) from (\S+@\d+)', changes),
+            'saved_answer_sources': saved_answer_sources,
             'operator_outcomes': counts, 'tool_error_calls': tool_errors,
             'failed_actions': failed_actions, 'completed_saved_reads': completed_saved_reads,
             'historical_cached_inputs': historical_cached,
+            'retention_warnings': retention_warnings, 'unavailable_results': unavailable_results,
+            'legacy_command_rejections': legacy_rejections,
             'largest_code_chars': max((len(a.get('changes', '')) for a in actions), default=0)}
 
 
@@ -235,25 +251,44 @@ def evaluate(root, adapters=None, judge=True):
                      'artifact': str(directory)})
     save(folder / 'metrics.json', rows)
     summaries = []
+    labels = ('Initial', 'Update', 'Rollback', 'Counterfactual')
     for model in protocol['models']:
         for agent in protocol['agents']:
             for context in protocol['contexts']:
                 selected = [r for r in rows if (r['model'], r['agent'], r['context']) == (model, agent, context)]
                 judged = [r for r in selected if r['judge'].get('score') is not None]
                 expected = sum(c['turns'] for c in protocol['cases'].values())
+                structure = [r['structure'] for r in selected if r['agent'] == 'dataflow']
+                saved_uses = {key: sum(len(s.get(key, [])) for s in structure) for key in
+                              ('saved_reads_requested', 'saved_edges_requested', 'definition_variants_requested',
+                               'definition_updates_requested', 'saved_answer_sources', 'completed_saved_reads')}
                 summaries.append({'model': model, 'agent': agent, 'context': context,
                     'expected': expected, 'attempted': len(selected), 'judged': len(judged),
                     'correct': sum(r['judge']['score'] == 1 for r in judged),
                     'accuracy': statistics.mean(r['judge']['score'] for r in judged) if len(judged) == expected else None,
+                    'by_label': {label: {'judged': sum(label in r['state_types'] for r in judged),
+                                         'correct': sum(label in r['state_types'] and r['judge']['score'] == 1 for r in judged)}
+                                 for label in labels},
+                    'turns_with_saved_reference': sum(bool(s.get('saved_reads_requested') or s.get('saved_edges_requested')
+                                                           or s.get('definition_variants_requested') or s.get('definition_updates_requested')
+                                                           or s.get('saved_answer_sources')) for s in structure),
+                    'saved_version_uses': saved_uses,
+                    'retention_warnings': sum(s.get('retention_warnings', 0) for s in structure),
+                    'unavailable_results': sum(s.get('unavailable_results', 0) for s in structure),
+                    'legacy_command_rejections': sum(s.get('legacy_command_rejections', 0) for s in structure),
+                    'incomplete_turns': sum(not r['completed'] for r in selected),
                     'cost_usd': sum(r['stats']['cost_usd'] or 0 for r in selected),
                     'llm_calls': sum(r['stats']['llm_calls'] for r in selected),
                     'input_tokens': sum(r['stats']['input_tokens'] or 0 for r in selected),
                     'cached_tokens': sum(r['stats']['cached_tokens'] or 0 for r in selected),
                     'output_tokens': sum(r['stats']['output_tokens'] or 0 for r in selected),
                     'elapsed_seconds': sum(r['stats']['elapsed_seconds'] for r in selected)})
-    judge_cost = sum(json.loads(p.read_text()).get('cost_usd') or 0 for p in (folder / 'judge-cache').glob('*.json')
-                     if not p.name.endswith('.started.json')) if (folder / 'judge-cache').exists() else 0
+    verdicts = [json.loads(p.read_text()) for p in (folder / 'judge-cache').glob('*.json')
+                if not p.name.endswith('.started.json')] if (folder / 'judge-cache').exists() else []
+    judge_cost = sum(v.get('cost_usd') or 0 for v in verdicts)
     save(folder / 'summary.json', {'arms': summaries, 'judge_cost_usd': judge_cost,
+                                 'judge_cost_estimated': all(v.get('cost_usd') is not None for v in verdicts),
+                                 'judge_model': protocol['judge']['model'],
                                  'solver_cost_usd': sum(a['cost_usd'] for a in summaries)})
     for row in summaries:
         print(json.dumps(row), flush=True)

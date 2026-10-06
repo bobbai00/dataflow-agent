@@ -40,9 +40,10 @@ from _paths import DATAMIND, UPSTREAM_PROMPT
 from bounded_pilot import pilot_rates
 from catalog_pilot import Kernel, solve
 from native_catalog_pilot import Native, SETTINGS
-from prepare import resolve_task_selection
+from prepare import prepare_one, resolve_task_selection
 from state_comparison import ROOT, HERE, build_prompts, digest, save
 
+# The 2026-10-06 bounded pilot: two short prefixes. `--cases` selects others.
 CASES = {
     'geoscience/marmara-region-earthquakes-apr-2324-2025/task1': {
         'turns': 5, 'rationale': 'Cleaning updates the working set; Q4 and Q5 compare with pre-cleaning events.'},
@@ -52,6 +53,33 @@ CASES = {
 MODELS = ('gpt-5.6-terra', 'gpt-5.6-luna')
 CONTEXTS = ('catalog', 'trajectory')
 AGENTS = ('dataflow', 'python')
+DEFAULT_JUDGE = 'gpt-5.2'
+
+
+def label_counts(task):
+    """State labels of a Lite session, from its evaluator-only metadata."""
+    meta = json.loads((DATAMIND / 'task/longds_v1.1' / task / 'metadata.json').read_text())
+    counts = {}
+    for entry in meta:
+        for label in entry.get('state_type', []):
+            counts[label] = counts.get(label, 0) + 1
+    return {'turns': len(meta), 'labels': counts}
+
+
+def prepare_cases(root, items):
+    """Prepared inputs for Lite sessions (`task` or `task:turns`), in the layout `freeze` checks."""
+    _, entries = resolve_task_selection(DATAMIND, 'v1.1', 'lite')
+    for item in items:
+        task, _, turns = item.partition(':')
+        entry = next((e for e in entries if '/'.join(e[f] for f in ('task_domain', 'dataset_name', 'task_id')) == task), None)
+        if entry is None:
+            raise ValueError(f'Task is outside the Lite split: {task}')
+        manifest = prepare_one(entry, int(turns) if turns else None, task_root=DATAMIND / 'task/longds_v1.1',
+                               output_root=root / 'prepared', data_root=ROOT / 'data/longds', version='v1.1', split='lite')
+        if manifest is None:
+            raise RuntimeError(f'Could not prepare {task}')
+        save(root / 'prepared' / task.replace('/', '__') / 'prompts.json', build_prompts(manifest))
+        print(f'PREPARED {task}: {len(manifest["turns"])} turns, {len(manifest["files"])} files', flush=True)
 
 
 def native_settings(context):
@@ -95,7 +123,8 @@ def source_files():
     return sorted(set(files))
 
 
-def freeze(root, spend_limit):
+def freeze(root, spend_limit, cases_spec=None, models=MODELS, contexts=CONTEXTS, agents=AGENTS,
+           judge_model=DEFAULT_JUDGE, concurrency=2, endpoint=None):
     if spend_limit <= 0:
         raise ValueError('Spend guard must be positive')
     folder = root / 'pilot'
@@ -103,9 +132,11 @@ def freeze(root, spend_limit):
     _, entries = resolve_task_selection(DATAMIND, 'v1.1', 'lite')
     allowed = {'/'.join(e[f] for f in ('task_domain', 'dataset_name', 'task_id')) for e in entries}
     cases = {}
-    for task, spec in CASES.items():
+    for task, spec in (cases_spec or CASES).items():
         prepared = root / 'prepared' / task.replace('/', '__')
         manifest = json.loads((prepared / 'manifest.json').read_text())
+        if not spec.get('turns'):
+            spec = {**spec, 'turns': len(manifest['turns'])}
         validate_case(manifest, allowed, spec['turns'])
         prompts = build_prompts(manifest)
         if json.loads((prepared / 'prompts.json').read_text()) != prompts:
@@ -114,7 +145,7 @@ def freeze(root, spend_limit):
                        'hashes': {name: digest(prepared / name) for name in ('manifest.json', 'gold.json', 'prompts.json')},
                        'input_hashes': {name: digest(ROOT / name) for name in manifest['files']}}
     jobs = [{'task': task, 'agent': agent, 'context': context, 'model': model}
-            for task in CASES for model in MODELS for context in CONTEXTS for agent in AGENTS]
+            for task in cases for model in models for context in contexts for agent in agents]
     random.Random(106).shuffle(jobs)
     sources = {str(p.relative_to(ROOT)): digest(p) for p in source_files()}
     with zipfile.ZipFile(folder / 'source.zip', 'x', zipfile.ZIP_DEFLATED) as archive:
@@ -125,21 +156,25 @@ def freeze(root, spend_limit):
             archive.writestr(name, body)
     save(folder / 'protocol.json', {
         'created_at': datetime.now(timezone.utc).isoformat(), 'cases': cases, 'jobs': jobs,
-        'models': list(MODELS), 'contexts': list(CONTEXTS), 'agents': list(AGENTS),
-        'attempts_per_session': 1, 'max_model_calls_per_question': 40, 'max_output_tokens': 8192,
-        'input_token_cap': None, 'compaction': False, 'concurrency': 2,
+        'models': list(models), 'contexts': list(contexts), 'agents': list(agents),
+        'attempts_per_session': 1, 'max_model_calls_per_question': 40,
+        'max_output_tokens': {'python': 8192, 'dataflow': 'agent-service default; no explicit cap in settings'},
+        'input_token_cap': None, 'compaction': False, 'concurrency': concurrency,
+        'agent_service_endpoint': endpoint or os.environ.get('TEXERA_AGENT_SERVICE_ENDPOINT', 'http://localhost:3071'),
         'catalog_statistics': False, 'catalog_records': 0, 'inventory': 'paths only',
-        'native_settings': {c: native_settings(c) for c in CONTEXTS},
+        'native_settings': {c: native_settings(c) for c in contexts},
         'baseline': 'Ordinary persistent Python with script catalog or exact trajectory; retention freely chosen.',
         'python_answer_receipt': 'Immutable task/script catalog boundary in both policies.',
         'task_prompt_policy': 'Identical question and first-request analysis instructions; framework system/tools differ.',
         'solver_attempt_policy': 'Every question in each natural prefix; no replay, injected gold, retries or scaling.',
         'spend_guard_usd': spend_limit,
         'spend_guard_policy': 'Stop dispatch after completed question; two in-flight questions may overshoot. Judge cost separate.',
-        'rates_usd_per_million': {m: pilot_rates(m) for m in MODELS},
+        'rates_usd_per_million': {m: pilot_rates(m) for m in models},
         'pricing_policy': 'Configured gateway token rates with cache discount; estimates, not invoices.',
-        'judge': {'model': 'gpt-5.2', 'prompt_sha256': digest(UPSTREAM_PROMPT), 'attempts': 1,
-                  'protocol': 'Upstream binary rubric; same judge for all arms, no published-score claim.'},
+        'judge': {'model': judge_model, 'prompt_sha256': digest(UPSTREAM_PROMPT), 'attempts': 1,
+                  'endpoint': os.environ.get('JUDGE_BASE_URL', 'http://localhost:4000/v1'),
+                  'protocol': 'Upstream binary rubric; same judge for all arms' +
+                              ('; the paper\'s judge model' if 'deepseek-v4-pro' in judge_model else ', no published-score claim')},
         'metrics': ['official binary score', 'declared-root dependency agreement and coverage',
                     'exact saved-result reads/inputs', 'current-table preservation',
                     'oracle-keyed working-table checks and coverage', 'executed/cached operator counts',
@@ -148,7 +183,7 @@ def freeze(root, spend_limit):
         'source_status': subprocess.check_output(['git', 'status', '--short'], cwd=ROOT, text=True),
         'source_hashes': sources,
     })
-    print(f'Frozen {len(jobs)} small sessions, {sum(CASES[j["task"]]["turns"] for j in jobs)} questions.', flush=True)
+    print(f'Frozen {len(jobs)} sessions, {sum(cases[j["task"]]["turns"] for j in jobs)} questions.', flush=True)
 
 
 def job_key(job):
@@ -236,6 +271,8 @@ def run(root):
                 raise ValueError('Raw input changed after freeze')
     with (folder / 'paid-started.json').open('x') as out:
         json.dump({'started_at': datetime.now(timezone.utc).isoformat()}, out)
+    if protocol.get('agent_service_endpoint'):
+        os.environ['TEXERA_AGENT_SERVICE_ENDPOINT'] = protocol['agent_service_endpoint']
     guard = SpendGuard(protocol['spend_guard_usd'])
     rows = []
     with ThreadPoolExecutor(max_workers=protocol['concurrency']) as pool:
@@ -250,11 +287,29 @@ def run(root):
 if __name__ == '__main__':
     load_dotenv(ROOT / '.env', override=False)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['freeze', 'run'])
+    parser.add_argument('action', choices=['prepare', 'freeze', 'run'])
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--spend-limit', type=float, default=8.)
+    parser.add_argument('--cases', nargs='*', help='domain/dataset/task[:turns]; omitted turns means the whole session')
+    parser.add_argument('--models', nargs='*', default=list(MODELS))
+    parser.add_argument('--contexts', nargs='*', default=list(CONTEXTS))
+    parser.add_argument('--agents', nargs='*', default=list(AGENTS))
+    parser.add_argument('--judge-model', default=DEFAULT_JUDGE)
+    parser.add_argument('--concurrency', type=int, default=2)
+    parser.add_argument('--endpoint', help='agent-service endpoint recorded in the protocol and used by the run')
     arguments = parser.parse_args()
-    if arguments.action == 'freeze':
-        freeze(arguments.root.resolve(), arguments.spend_limit)
+    if arguments.action == 'prepare':
+        prepare_cases(arguments.root.resolve(), arguments.cases or [])
+    elif arguments.action == 'freeze':
+        selected = None
+        if arguments.cases:
+            selected = {}
+            for item in arguments.cases:
+                task, _, turns = item.partition(':')
+                selected[task] = {'turns': int(turns) if turns else 0, **label_counts(task),
+                                  'rationale': 'Predeclared whole-session run' if not turns else 'Predeclared prefix'}
+        freeze(arguments.root.resolve(), arguments.spend_limit, selected, tuple(arguments.models),
+               tuple(arguments.contexts), tuple(arguments.agents), arguments.judge_model,
+               arguments.concurrency, arguments.endpoint)
     else:
         run(arguments.root.resolve())

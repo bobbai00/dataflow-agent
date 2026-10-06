@@ -223,60 +223,50 @@ or add analytical dependencies. Both prompt variants expose the same tools.
 The reference comes from the same catalog and example templates as the full
 prompt. [Rendered prompt](../native-mode/SYSTEM_PROMPT_ON_DEMAND_WITH_HISTORY.txt).
 
-### Optional historical state
+### Optional saved versions
 
-Set `stateHistory: true` when creating a native agent to expose historical
-inspection, forking and retrieval. The default is `false`. All tasks continue
-on one graph, and DELTA keeps the action transcript. Task numbers follow user
-request order, starting at 1; only completed tasks have historical state.
+Set `stateHistory: true` when creating a native agent to keep saved versions
+across tasks. The default is `false`. All tasks continue on one graph, and
+DELTA keeps the action transcript. Task numbers follow user request order,
+starting at 1. When a task is answered, every operator with a completed result
+is saved under that task's number and the boundary receipt lists what was
+saved; the engine retains the exact materializations (`retain`), and a task
+whose retention failed says so in its receipt (`RETENTION_FAILED`,
+`RETENTION_UNAVAILABLE`) instead of promising results it cannot serve.
 
-| Action | Arguments | Result |
+`scores` names the current operator and `scores@2` the version saved at the
+end of task 2: its definition, its inputs as they were then, and its result.
+A version is read-only. The public actions in such a session are `edit`,
+`execute` (named operators and their ancestors), `read` and `answer`:
+
+| Use | How | Result |
 |---|---|---|
-| Inspect saved operator | `target: "state"`, `task_id`, nonnull `operator_id`, `include_implementation`, `view` | Historical expression, ports, edges, functions, dependency hash and optional saved result |
-| Inspect operator history | Same, with `task_id: null`, `view: null` | Change points across completed tasks, including upstream changes and deletion; `through_task_id` groups unchanged state |
-| Batch operator inspection | `operator_id: ["eligible", "score"]` | Up to eight named operators, with shared graph-proof computation |
-| Fork | `task_id`, `operator_id`, `new_operator_id` | New copies of the operator and all upstream definitions, with an ID mapping |
+| Read a version | `read` with `operator_ids: ["scores@2"]`; `view: null` for definitions only, a result view for its saved records; `columns` narrows them | The saved definition, direct inputs, shape and records; never executes |
+| Connect a saved table | `create edge scores@2.out -> comparison.in[0]` | The engine binds the retained materialization through a hidden handle; no ancestors are copied or executed; an evicted result fails with `HISTORICAL_RESULT_UNAVAILABLE` |
+| Make an old rule current | `update operator scores from scores@2` | The task-2 definition on today's inputs; the receipt names inputs that changed since then; dependents recompute on the next execute |
+| Edit a copy of an old computation | `create operator variant from scores@2` | One editable operator whose direct inputs are the saved tables; the default operators stay untouched |
+| Compare versions | `diff(key=[...], columns=[...])` over `scores@2` and `scores` | One row per key with `status` and each column's old, new and delta values |
+| Answer from a version | `answer` with `from: "scores@2[...] top 5 by score desc, unit asc"` or `operator_ids: ["scores@2"]` | Composed from the complete saved table; the sources are recorded |
 
-A specific-task inspection can include `view: "sample_stats"` or `"full"` to
-read its saved output along with the definition. Set `view: null` for definitions
-alone. Saved reads never execute or substitute current state. Missing results
-are explicitly unavailable. Task inspection retrieves the local answer
-computation from its saved snapshot, never the live graph. Unchanged earlier
-computations appear as input references naming their owning task and version.
-Expand one with that task number and operator ID; a saved operator read can
-instead reveal only its definition and immediate inputs. A changed ancestor or
-result identity keeps its affected downstream operators in the local graph.
-Explicit answer sources take precedence over exploratory reads. Without a
-declaration, prior reads remain unexpanded candidates with no automatic result
-retrieval; unknown roots remain unknown. Named roots can
-select a saved intermediate branch when the final report is unsuitable. Source
-declarations establish provenance; availability validation does not check the
-computation's semantics. See [task context](observation-format/task-dependency-context.md).
-
-A fork preserves input port positions and assigns new IDs to every dependency.
-It leaves the existing branch intact. Before execution, retrieving the fork can
-read its source observation, labeled with the original task, operator and result
-version. This is a saved observation, potentially sampled, rather than a new
-engine materialization. Execute computes the copied graph for downstream use.
-Changing a definition or input invalidates this saved-result fallback, as does
-materializing new inputs without completing the descendant.
-
-To reuse an old formula with current data, inspect the historical definition
-and create it with current edges, or rewire the fork explicitly. Forking an
-entire branch also restores its historical input definitions. External files
-are not versioned: executing a fork reads the files at their supplied paths.
+The retired `fork operator … as …` and `update operator … from task N`
+commands are refused with the `@N` form to use; recorded traces that contain
+them still replay. A saved-result handle cannot be deleted and is dropped
+automatically when its consumer or edge goes. A batched `read` with `columns`
+keeps, for each table, the columns it has and notes the missing ones; only a
+table with none of them is an error. Saved reads never execute, never
+substitute a newer table and never rerun an old definition on today's files.
+External files are not versioned: a definition made current again reads the
+files at their supplied paths. See [the state model](observation-format/state-versions-design-2026-10-06.md).
 
 The system prompt includes [generic multitask examples](../agent-service/src/agent/prompts/native-example-history.md)
-for reading a saved output, continuing from an earlier full population,
-applying an earlier formula to current data, and changing a temporary branch
-while preserving its baseline. Each example separates calls that depend on a
-new observation. These examples are included only when `stateHistory` is
-enabled; the default prompt stays unchanged. Saved tasks address the existing
-snapshot tree. Completed task catalogs are frozen on their existing endpoint
-snapshots and retained in exported action traces; there is no separate task
-store. Prior-task context shows chronological operator blocks with final saved
-definitions, answer-source markers, separate deletions and compact fork
-references. Python bodies and result records remain on demand. See the
+for reading a saved output, a permanent rule change, an editable variant, a
+keyed comparison and an old rule on current data. They are included only when
+`stateHistory` is enabled; the default prompt stays unchanged. Completed task
+catalogs are frozen on their existing endpoint snapshots and retained in
+exported action traces; there is no separate task store. Prior-task context
+shows chronological operator blocks with final saved definitions, what each
+task saved, answer-source markers and separate deletions. Python bodies and
+result records remain on demand. See the
 [implemented catalog design](observation-format/prior-task-operator-catalog-design.md).
 
 ### Graph implementation
@@ -286,9 +276,10 @@ references. Python bodies and result records remain on demand. See the
 operator-local functions without executing them. `tools/graph-edits.ts` stages
 and validates a private graph, then returns a complete plan for the runtime to
 commit after checking cancellation and ownership. Saved-version commands share
-that ordered draft with ordinary commands, so interleaved restores and forks do
-not jump ahead of preceding edits. New receipts record this ordering policy;
-older saved-version traces retain their previous replay semantics.
+that ordered draft with ordinary commands, so an `update … from scores@2`
+between two edits does not jump ahead of the edit before it. New receipts
+record this ordering policy; older saved-version traces retain their previous
+replay semantics, including the retired fork and restore commands.
 
 Logical port connections become ordered native inputs and physical engine
 ports. The native compiler and Python validator check definitions and callback
