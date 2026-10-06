@@ -20,6 +20,21 @@ import { expect, test } from "bun:test";
 import { asSchema } from "ai";
 import { createDataflowTool, type DataflowActionsResult } from "./dataflow-actions";
 
+test("saved-version wire schema avoids provider-rejected uniqueItems while rejecting duplicates locally", async () => {
+  const tool = createDataflowTool(["full"], true, true);
+  expect(JSON.stringify(asSchema(tool.inputSchema).jsonSchema)).not.toContain('"uniqueItems"');
+  for (const action of [
+    { type: "read", operator_ids: ["scores", "scores"], view: null, columns: null, include_implementation: false },
+    { type: "read", operator_ids: ["scores"], view: "full", columns: ["key", "key"], include_implementation: false },
+    { type: "answer", content: "{}", operator_ids: ["scores", "scores"] },
+  ]) {
+    const result = await tool.execute!({ reasoning: "Validate source selections.", actions: [action] } as any,
+      {} as any) as DataflowActionsResult;
+    expect(result.status).toBe("error");
+    expect(result.actions).toHaveLength(0);
+  }
+});
+
 test("saved-version tools expose read with definitions-only access and no history-copy actions", async () => {
   const tool = createDataflowTool(["full", "sample"], true, true);
   const schema = asSchema(tool.inputSchema).jsonSchema as any;

@@ -565,8 +565,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                   "pattern": "\\S"
                 },
                 "minItems": 1,
-                "maxItems": 8,
-                "uniqueItems": true
+                "maxItems": 8
               },
               "view": {
                 "anyOf": [
@@ -594,8 +593,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                       "minLength": 1,
                       "pattern": "\\S"
                     },
-                    "minItems": 1,
-                    "uniqueItems": true
+                    "minItems": 1
                   },
                   {
                     "type": "null"
@@ -632,8 +630,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                   "minLength": 1,
                   "pattern": "\\S"
                 },
-                "maxItems": 8,
-                "uniqueItems": true
+                "maxItems": 8
               }
             },
             "required": [

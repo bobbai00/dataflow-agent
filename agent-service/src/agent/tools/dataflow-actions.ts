@@ -267,13 +267,13 @@ SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf = SAVED_ACTIONS_SCHEMA.prope
 );
 SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action("read", "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns.", {
-    operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8, uniqueItems: true },
+    operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8 },
     view: { anyOf: [{ type: "string", enum: [...RETRIEVAL_VIEWS] }, { type: "null" }] },
     include_implementation: { type: "boolean" },
-    columns: { anyOf: [{ type: "array", items: text, minItems: 1, uniqueItems: true }, { type: "null" }] },
+    columns: { anyOf: [{ type: "array", items: text, minItems: 1 }, { type: "null" }] },
   }),
   action("answer", "Give the final response and declare its completed source tables (current IDs or ID@task). Pass [] only when no table was used. Must be the sole action. Sources record provenance, not correctness.", {
-    content: text, operator_ids: { type: "array", items: text, maxItems: 8, uniqueItems: true },
+    content: text, operator_ids: { type: "array", items: text, maxItems: 8 },
   })
 );
 export const dataflowActionsSchema = (stateHistory = false, savedVersions = false) =>
@@ -351,6 +351,11 @@ export function prepareDataflowActions(
     return result;
   }
   const request = input as DataflowActionsInput;
+  if (request.actions.some(a => a.type === "read" && a.columns && new Set(a.columns).size !== a.columns.length)) {
+    result.status = "error";
+    result.error = "Read requires unique column names. No actions ran.";
+    return result;
+  }
   if (
     request.actions.some(
       a =>
