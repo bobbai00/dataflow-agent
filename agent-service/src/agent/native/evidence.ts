@@ -71,7 +71,13 @@ export interface NativeObservationOptions extends ObservationFormatOptions {
   view?: RetrievalView;
   dataMaxChars?: number;
   flowMaxChars?: number;
+  /** false leaves upstream summaries out of the flow selection, so the
+   * operator's own facts get the whole budget (execute receipts). */
+  upstream?: boolean;
 }
+
+/** The line that marks flow facts left out for the budget. */
+export const FLOW_OMITTED_NOTICE = "- note: flow facts omitted (budget).";
 
 /** Audit metadata is not appended to model text. Full version references are
  * retained here; short prefixes in text are display labels, not cache keys. */
@@ -864,7 +870,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         "flow",
         "measurement",
         `Scan ${scan.preview ? "preview only (not full source)" : "parsed selected sources"}; files selected=${scan.selectedFiles}/${scan.resolvedFiles}, omitted=${scan.omittedFiles}; output=${out} rows.`,
-        96
+        // Ahead of the per-file lines: with many files, their findings fill
+        // the budget, and the file and row counts must not be what is cut.
+        98
       );
       // Per source, only what the parse found: a header row that reads as
       // data (with the nearby row that reads as a header) and empty sources.
@@ -1117,8 +1125,10 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   }
   if (flow) {
     const budget = Math.max(0, context.flowMaxChars ?? maxChars);
-    const facts = evidence.facts.filter(f => f.family === "flow").sort((a, b) => b.priority - a.priority);
-    const notice = "- note: flow facts omitted (budget).";
+    const facts = evidence.facts
+      .filter(f => f.family === "flow" && (context.upstream !== false || !f.upstream))
+      .sort((a, b) => b.priority - a.priority);
+    const notice = FLOW_OMITTED_NOTICE;
     const allText = facts.map(fact => {
       const origin = fact.upstream && (context.displayName?.(fact.upstream.operatorId) ?? fact.upstream.operatorId);
       const text = fact.text.replace(/^Flow upstream [^:]+:\s*/, "").replace(/^Flow \w+:\s*/, "");

@@ -23,7 +23,7 @@ import type { OperatorInfo } from "../../types/execution";
 import type { WorkflowContent } from "../../types/workflow";
 import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
-import { selectNativeObservation, type NativeObservation } from "../native/evidence";
+import { FLOW_OMITTED_NOTICE, selectNativeObservation, type NativeObservation } from "../native/evidence";
 import { resultScope } from "../native/result-scope";
 import { inspectTask, type TaskHistory, type TaskReference } from "../task-history";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
@@ -743,7 +743,7 @@ export async function executeDataflowActionBatch(
             .map(op => {
               const outcome = outcomes.find(item => item.id === op.operatorID)!;
               const info = current(op.operatorID);
-              const flow =
+              const observation =
                 settings.flowEvidence && info && !info.error
                   ? selectNativeObservation({
                       ...flowObservationOptions(settings),
@@ -752,15 +752,18 @@ export async function executeDataflowActionBatch(
                       workflow,
                       resolveInput: current,
                     })
-                      .chunks.filter(
-                        chunk =>
-                          chunk.id.startsWith("flow.") &&
-                          chunk.id !== "flow.contract" &&
-                          chunk.id !== "flow.omitted" &&
-                          !chunk.upstream
-                      )
-                      .map(chunk => chunk.text)
-                  : [];
+                  : undefined;
+              // The operator's own measurements; its contract is not repeated
+              // here. Say so when the budget cut one of them.
+              const own = (id: string) => id.startsWith("flow.") && id !== "flow.contract" && id !== "flow.omitted";
+              const flow = observation
+                ? [
+                    ...observation.chunks.filter(chunk => own(chunk.id) && !chunk.upstream).map(chunk => chunk.text),
+                    ...(observation.omitted.some(item => item.reason === "budget" && own(item.id))
+                      ? [FLOW_OMITTED_NOTICE]
+                      : []),
+                  ]
+                : [];
               const issues = [
                 ...("message" in outcome ? [outcome.message!] : []),
                 ...("checks" in outcome ? (outcome.checks ?? []) : []).map(line =>

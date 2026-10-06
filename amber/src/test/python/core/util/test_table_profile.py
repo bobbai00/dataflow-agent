@@ -297,3 +297,67 @@ def test_negative_and_positive_zero_are_one_value():
     # Two tasks showed "-0.0" and "0.0" as two distinct values; pandas counts one.
     _, result = collect(pd.DataFrame({"x": pd.Series([-0.0, 0.0, 1.5], dtype="float64")}))
     assert result["columns"]["x"]["distinctCount"] == 2
+
+
+def test_per_file_scan_details_cannot_displace_native_counters():
+    plain = {"format": "csv", "sizeBytes": 4096, "mtimeNs": "1700000000000000000", "skipLines": 0, "outputRows": 3}
+    sources = [{"path": f"/data/sat/swarma-wu{i:03d}-{'x' * 120}.csv", **plain} for i in range(700)]
+    sources[5] = {**sources[5], "headerCheck": {"blank": 2}}
+    sources[9] = {**sources[9], "outputRows": 0}
+    metadata = {
+        "operatorId": "density",
+        "operatorRevision": "0123456789abcdef",
+        "operatorType": "Scan",
+        "inputOperators": [],
+        "inputRows": [],
+        "outputRows": 3,
+        "operations": {
+            "scan": {"preview": False, "complete": True, "resolvedFiles": 700, "selectedFiles": 700,
+                     "omittedFiles": 0, "sources": sources}
+        },
+    }
+    profile = ProfileAccumulator("worker-0", metadata)
+    profile.add(pd.DataFrame({"flag": ["a", "b", "a"]}))
+    profile.finish()
+    original = profile.snapshot()
+    payload = profile.encode()
+    result = json.loads(payload)
+    assert len(payload.encode()) <= profile.limits.max_payload_bytes
+    scan = result["native"]["operations"]["scan"]
+    assert {k: scan[k] for k in ("resolvedFiles", "selectedFiles", "omittedFiles")} == {
+        "resolvedFiles": 700, "selectedFiles": 700, "omittedFiles": 0}
+    assert [s["path"] for s in scan["sources"]] == [sources[5]["path"], sources[9]["path"]]
+    assert scan["sourcesOmitted"] == 698
+    assert "scan_sources_payload_budget" in result["omissions"]
+    assert result["columns"]["flag"]["frequencies"] == original["columns"]["flag"]["frequencies"]
+    assert profile.snapshot() == original
+
+
+def test_scan_findings_outlast_value_dictionaries():
+    sources = [
+        {"path": f"/data/legal/report_{i:02d}.csv", "format": "csv", "sizeBytes": 2048, "mtimeNs": "1",
+         "skipLines": 0, "outputRows": 80, "headerCheck": {"blank": 3, "suggest": {"skipLines": 2, "header": ["Year", "State"]}}}
+        for i in range(27)
+    ]
+    metadata = {
+        "operatorId": "legal",
+        "operatorRevision": "0123456789abcdef",
+        "operatorType": "Scan",
+        "inputOperators": [],
+        "inputRows": [],
+        "outputRows": 240,
+        "operations": {
+            "scan": {"preview": False, "complete": True, "resolvedFiles": 27, "selectedFiles": 27,
+                     "omittedFiles": 0, "sources": sources}
+        },
+    }
+    frame = pd.DataFrame({f"c{j}": [f"value {j}-{i}-{'w' * 40}" for i in range(240)] for j in range(35)})
+    profile = ProfileAccumulator("worker-0", metadata, limits=ProfileLimits(max_seconds=10))
+    profile.add(frame)
+    profile.finish()
+    payload = profile.encode()
+    result = json.loads(payload)
+    assert len(payload.encode()) <= profile.limits.max_payload_bytes
+    scan = result["native"]["operations"]["scan"]
+    assert scan["sources"] == sources and "sourcesOmitted" not in scan
+    assert "payload_budget" in result["omissions"] and "scan_sources_payload_budget" not in result["omissions"]

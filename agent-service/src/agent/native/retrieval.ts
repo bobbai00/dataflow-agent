@@ -71,5 +71,6 @@ export function flowObservationOptions(settings: Partial<AgentSettings>): Native
     maxRows: settings.maxResultRows,
     dataMaxChars: 0,
     flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
+    upstream: false,
   };
 }

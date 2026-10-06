@@ -21,7 +21,7 @@ import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ProfileColumn } from "./profiles";
-import { collectNativeEvidence, restrictNativeObservation, selectNativeObservation } from "./evidence";
+import { collectNativeEvidence, FLOW_OMITTED_NOTICE, restrictNativeObservation, selectNativeObservation } from "./evidence";
 import { downstreamRelevantColumns } from "./evidence-lineage";
 
 function column(rows = 5, nulls = 1): ProfileColumn {
@@ -1166,4 +1166,22 @@ test("aggregate semantics: what a distinct count counts, a key that pools entiti
   // A flag the lineage filtered on has been read: no line.
   f.workflow.operators[0].nativeOp!.properties = { keep: ["Case_excluded", "GlobalID", "GACCName", "state"] };
   expect(factText(f)).not.toContain("was read by no operator");
+});
+
+test("per-file scan findings cannot push the file and row counts out of the flow budget", () => {
+  const f = fixture("Scan", { files: "data/legal/*.csv" });
+  const sources = Array.from({ length: 30 }, (_, i) => ({
+    path: `/data/legal/2024_CSN_Report_${String(i).padStart(2, "0")}_${"Category".repeat(4)}.csv`,
+    headerCheck: { blank: 3, suggest: { skipLines: 2, header: ["Year", "Category", "# of Reports", "Percentage"] } },
+  }));
+  f.info.tableProfile!.native!.operations = {
+    scan: { preview: false, resolvedFiles: 30, selectedFiles: 30, omittedFiles: 0, sources },
+  };
+  // The execute receipt's selection: flow only, the operator's own facts.
+  const own = observe(f, { data: false, flowMaxChars: 2000, upstream: false });
+  const flow = own.chunks.filter(chunk => chunk.id.startsWith("flow."));
+  expect(flow[0].text).toBe("- flow: Scan parsed selected sources; files selected=30/30, omitted=0; output=3 rows.");
+  expect(flow.at(-1)!.text).toBe(FLOW_OMITTED_NOTICE);
+  expect(own.omitted.some(item => item.reason === "budget" && item.id.startsWith("flow.scan.header."))).toBe(true);
+  expect(own.text.length).toBeLessThanOrEqual(2000 + own.chunks[0].text.length + 1);
 });

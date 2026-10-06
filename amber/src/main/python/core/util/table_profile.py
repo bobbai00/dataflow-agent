@@ -405,6 +405,23 @@ class ProfileAccumulator:
             if removed:
                 result["omissions"] = sorted(set(result["omissions"]) | {"native_witness_payload_budget"})
                 payload = encode_with_size()
+        # Per-file scan details are optional as well: the file counters stay
+        # exact without them, and a glob over a few hundred files otherwise
+        # overflows the envelope and loses every native counter. Files without
+        # a finding (a header check, no data rows) go first; the findings go
+        # only after the value dictionaries, before the native counters.
+        native = result.get("native") or {}
+        scan = (native.get("operations") or {}).get("scan")
+        if not (isinstance(scan, dict) and isinstance(scan.get("sources"), list)):
+            scan = None
+        if scan is not None and len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
+            sources = scan["sources"]
+            kept = [s for s in sources if isinstance(s, dict) and (s.get("headerCheck") or s.get("outputRows") == 0)]
+            if len(kept) < len(sources):
+                scan["sources"] = kept
+                scan["sourcesOmitted"] = len(sources) - len(kept)
+                result["omissions"] = sorted(set(result["omissions"]) | {"scan_sources_payload_budget"})
+                payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             result["omissions"] = sorted(set(result["omissions"]) | {"payload_budget"})
             # Drop the largest value dictionaries first. A wide table should
@@ -428,6 +445,12 @@ class ProfileAccumulator:
                 # Leave room for the payloadBytes field to change width.
                 if size + 32 <= self.limits.max_payload_bytes:
                     break
+            payload = encode_with_size()
+        while scan is not None and scan["sources"] and len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
+            keep = len(scan["sources"]) // 2
+            scan["sourcesOmitted"] = scan.get("sourcesOmitted", 0) + len(scan["sources"]) - keep
+            scan["sources"] = scan["sources"][:keep]
+            result["omissions"] = sorted(set(result["omissions"]) | {"scan_sources_payload_budget"})
             payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             result["native"] = None
