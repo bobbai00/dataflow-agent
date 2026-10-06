@@ -266,6 +266,15 @@ def structural_metrics(record, directory, agent):
             'largest_code_chars': max((len(a.get('changes', '')) for a in actions), default=0)}
 
 
+def safe_components(expected, answer):
+    """The partial-component diagnostic, or an explicit unknown when its generic rubric
+    cannot identify the gold rows (e.g. tables keyed by country and sector)."""
+    try:
+        return answer_components(expected, answer)
+    except ValueError as error:
+        return {'partial_score': None, 'reason': f'unscorable: {error}'}
+
+
 def answers_folder(run):
     """Where a job's answers live. An interrupted checkpoint replay holds none; the
     replay's recorded source is the preserved prefix it was rebuilding."""
@@ -325,7 +334,7 @@ def evaluate(root, adapters=None, judge=True, judge_workers=4):
         verdict = json.loads((directory / 'judge.json').read_text()) if (directory / 'judge.json').exists() else {}
         rows.append({**job, 'run': job_key(job), 'answers_from': run.name, 'turn_id': number, 'completed': record['completed'],
                      'stats': record['stats'], 'judge': verdict,
-                     'answer_components': answer_components(gold['turns'][number-1]['answer'], record['answer']),
+                     'answer_components': safe_components(gold['turns'][number-1]['answer'], record['answer']),
                      'state_anchors': anchors, 'state_anchor_coverage': sum(a['coverage'] for a in anchors)/len(anchors) if anchors else None,
                      'lineage': lineage, 'definition_lineage': definitions,
                      'structure': structural_metrics(record, directory, job['agent']),
