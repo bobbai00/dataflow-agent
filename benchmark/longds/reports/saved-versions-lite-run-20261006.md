@@ -19,7 +19,151 @@
 
 # Saved versions on whole Lite sessions, 2026-10-06
 
-## Stopped status
+## Verdict
+
+Ordinary persistent Python beat the dataflow agent on accuracy with both
+models, and saved versions never decided an answer. The run is clean enough
+to support both statements for these three sessions and one rep.
+
+| Model | Paired questions | Dataflow correct | Python correct | Only dataflow | Only Python | Dataflow cost | Python cost |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Luna | 103 | 12 | 36 | 1 | 25 | $0.73 | $0.97 |
+| Terra | 105 | 50 | 59 | 7 | 16 | $6.47 | $8.04 |
+
+Pairs are the same session, model and question answered in both arms; Kiva
+Luna Q36–37 have no Python answer and are left out of both arms. The exact
+McNemar p-values are below 0.001 (Luna) and 0.093 (Terra), but questions are
+not independent: an early error is inherited by most later questions, so the
+real sample is a handful of early errors per session. Judge: the paper's
+`deepseek/deepseek-v4-pro` through OpenRouter, upstream binary rubric, all
+418 preserved answers judged once, $1.10.
+
+| Session | Model | Dataflow correct | Python correct |
+|---|---|---:|---:|
+| Netflix task 2 | Luna | 2/34 | 2/34 |
+| Netflix task 2 | Terra | 8/34 | 10/34 |
+| Water-potability task 1 | Luna | 9/34 | 24/34 |
+| Water-potability task 1 | Terra | 24/34 | 26/34 |
+| Kiva task 1 | Luna | 1/35 | 10/35 |
+| Kiva task 1 | Terra | 18/37 | 23/37 |
+
+Dataflow's lower dollar cost is a cache artifact, not efficiency. Python's
+first call of every question was 0.2% cached against 95% for dataflow,
+because the Python catalog moves the finished request into a new catalog
+message; on later calls both reuse about 90–95%. Dataflow sent more input:
+11.98M tokens against 8.39M on Terra.
+
+## Why dataflow lost
+
+Three readers traced every question on which the two arms of the same model
+disagree, reproducing key values from the raw data. Almost every loss starts
+at an early question and is then inherited.
+
+- **Misread rules at the start, never noticed.** Kiva Luna Q1 kept the right
+  population (53 countries, 655,309 loans) but ranked "larger is higher"
+  descending and percentile-ranked a completion gap that the rule keeps raw.
+  Applying exactly those two errors reproduces its Turkey/Housing 88.884. Its
+  own receipts showed a 21%-complete market with a completion-gap score of
+  0.14 and a one-loan cell with loan scale 98.14; no step questioned them.
+  Water Luna Q2 left the already-repaired chemicals out of the neighbour
+  distance (pH 7.0634 against 7.0778); Q6 ran the count screen only on
+  initially repaired rows. Netflix: all four arms missed the Q1 rule "carry
+  forward up to eight ranked launch markets", which sinks most membership
+  answers in both arms.
+- **Wiring the wrong stage.** Dataflow splits "the five" into pool, sort,
+  limit and project, and then connects the wrong one. Water Luna Q9 used the
+  368-row eligible pool instead of the five-row contrast list (106 contrast
+  sources per band against 2); Q18 repeated it; Terra Q11 called the whole
+  328-row upper decile "the shortlist". Python keeps `.head(5)` on one line.
+- **Copying an early misreading forward.** Luna dataflow read earlier
+  operator bodies and retyped the wrong `initial_gap_any` filter into 11
+  later operators; Luna Python re-read the CSV and re-ran its correct repair
+  in 25 of 34 questions. Netflix Terra dataflow retyped a genre mapping that
+  misses "Comedies" and "TV Mysteries" into 15 operators, while the correct
+  explicit mapping it wrote at Q5 was never reused. Rules live inside long
+  `process()` bodies, so reuse means copying code, not connecting a rule.
+- **Rule changes answered but never applied to the main line.** Kiva Q12
+  narrows the population and Q23 restricts to complete evidence, both "from
+  here on". Each became a side table; the main `final_concentration_matches`
+  stayed relaxed and Terra dataflow's Q26 and Q36 read it. Python had the same
+  problem at different questions (water Q20's tail removal was dropped from
+  Q27 on by both Luna arms).
+- **Checking.** Calls per question were close at the root questions; the
+  difference is what was checked. Luna Python printed the distance columns
+  per chemical at water Q2; dataflow answered water Q9 after a receipt showed
+  368 rows where five were meant, and Terra Q6 after a receipt showed 0 rows.
+
+Small calculation drift also flips near-ties late in Kiva: Terra dataflow's
+Q16 dropped incomplete rows before ranking (81 of 86 countries), which moves
+scores by about 0.03–0.2 and decides Q29, Q31–Q33 and Q37.
+
+The judge errs in both directions about equally across arms: none of 12
+sampled Netflix zeros is format-only, while several water 1s pass on one
+checked field (e.g. Luna dataflow Q6, Terra Python Q15).
+
+## Saved versions
+
+Across the six dataflow sessions, 535 accesses read the data of a saved
+version: 533 returned exactly the current table, and two could not be
+checked. No rule was ever changed in place in a later task, there was no
+`update … from …@N` restore in 62 Rollback questions, and every Update became
+a new operator. Old states therefore always existed under their own names,
+and `name@N` was an alias. No counterfactual leaked into a later answer in
+any arm, and on Rollback questions no arm chose the wrong earlier rule. Where
+saved tables did help, it was reuse, not versioning: Terra dataflow answered
+water Q13 straight from `hardness_band_contrast_summary@9` and got the exact
+Q18 ranks from `conductivity_reduced_severity@15`, which both Python arms
+lacked. These Lite sessions never require an overwritten state, so they
+cannot show a versioning benefit.
+
+## What to change
+
+1. **One current version per rule, with changes propagating.** The benefit
+   worth building is not history but propagation: when a request changes a
+   rule from here on, editing the operator that defines it should recompute
+   everything built on it. That would have prevented the stale main line.
+   It needs rules as small operators (a genre mapping, an eligibility filter,
+   a weight table) rather than code inside `process()` bodies, so that a
+   change is an in-place edit and reuse is an edge, not a copy.
+2. **Flag a rule change that never reaches the main line.** When a new
+   operator takes over an existing operator's role, the receipt should name
+   the tables that still read the old one.
+3. **Make "the selection" explicit.** Wrong-stage wiring of pool versus top-N
+   happened in both models; a receipt that states the row count against the
+   requested count ("368 rows; the question asks for five") is a cheap check.
+4. **Test versioning on sessions that overwrite state,** after 1 makes
+   in-place edits normal; until then Rollbacks never need `@N`.
+5. **Equalize the context layout before any cost claim.** Give Python the
+   same append-only request and boundary frames, and verify cache reuse.
+
+## Is the run clean?
+
+Yes, for this comparison.
+
+- 7 of 12 sessions ran end to end. Five were interrupted by model-API
+  timeouts or one connection error (Netflix and water Luna dataflow at Q23
+  and Q26; Kiva and water Terra Python at Q6; Kiva Luna Python at Q26),
+  rebuilt from their completed answers, and continued.
+- The rebuild did not change what the model saw. For both dataflow sessions
+  the prior-task catalog after replay equals the original in every visible
+  field; for the three Python sessions the first continued context is
+  byte-identical to the interrupted attempt's. Settings, system prompt and
+  tools are identical, and the rebuilt tables were value-checked.
+- Five interrupted questions were rerun from a clean checkpoint, never chosen
+  by score. No infrastructure error appears in any authoritative trace.
+- Solver code did not change after the freeze at ce9ec8a2f. The harness
+  changes were the Python kernel's data path and a longer model timeout for
+  the continuations (180 s to 900 s for Python; a 900 s service for dataflow).
+- Kiva Luna Python Q36–37 were never answered; its 35 answers live in the
+  preserved prefix that the evaluator now reads.
+
+## Operational record from the stop
+
+The rest of this report was written when the run was stopped on 2026-10-06
+at 21:04 UTC, before judging. Its costs, recovery details and resume
+instructions still apply; its statements that judging is pending do not.
+
+### Stopped status
 
 Stopped at the user's request on 2026-10-06 at 21:04 UTC. The campaign
 runner, its Python executor and kernel, and the private completion
@@ -48,7 +192,7 @@ records the full path. The interrupted directory's
 `verified: false`; a future resume must replay and verify the checkpoint
 before any new model call.
 
-## Costs at the stop
+### Costs at the stop
 
 Costs below are configured token-rate estimates for preserved answers,
 including cached input discounts. They exclude abandoned attempts and
@@ -96,7 +240,7 @@ including potentially incorrect ones. There were no judge-selected
 solver retries. Replaying scripts and repairing exports made no model
 calls, so their setup time adds no model-token charge.
 
-## What was run
+### What was run
 
 Three whole LongDS v1.1 Lite sessions, chosen on 2026-10-06 before any run
 for their state labels: Netflix task 2 (34 turns: 15 Update, 14 Rollback, 10
@@ -172,7 +316,7 @@ Unavailable observations remain unknown. Annotated Rollback labels and
 a wrong final answer do not, by themselves, establish a wrong-version
 error. That rate remains unmeasured without audited state adapters.
 
-## Recovery and accounting
+### Recovery and accounting
 
 Completed answers are retained, including incorrect ones. Only incomplete
 questions stopped by infrastructure are continued. The harness rebuilds
@@ -207,7 +351,7 @@ dependency labels or benchmark state-type labels. One run per arm and
 three selected conversations provide a small comparison; they do not
 establish a general accuracy or cost advantage.
 
-## Why the recorded costs differ
+### Why the recorded costs differ
 
 The completed Netflix and water conversations expose a large cache
 difference at task boundaries. On each task's first call, Dataflow reused
@@ -259,7 +403,7 @@ to historical state recovery. Before the next paid comparison, give the
 Python catalog the same append-only request/boundary policy and verify
 cache reuse. The present campaign retains its frozen layout.
 
-## Historical state actually used
+### Historical state actually used
 
 Across the six Dataflow sessions (210 turns), 160 turns successfully
 referenced a historical operator. The audit found 535 historical data
@@ -293,7 +437,7 @@ different historical data access under any of these labels. This is a
 coverage finding, not proof that saved-version semantics are broken or
 that historical data can never help.
 
-## Code and verification saved
+### Code and verification saved
 
 Two commits contain the completed implementation work from this session:
 
@@ -342,7 +486,7 @@ when harness repairs were committed later. `evaluation-source.zip` and
 `evaluation-protocol.json` capture the 90 Python source files prepared
 for evaluation at `73d22a3eb`; prepared does not mean judging started.
 
-## Remaining work and limitations
+### Remaining work and limitations
 
 The work is paused. Nothing below is scheduled or running.
 
@@ -390,7 +534,7 @@ the saved catalog entry. This was not fixed or reverified in this session.
 The historical-reference audit likewise does not settle eviction behavior
 under a storage cap.
 
-## Resume instructions, only after an explicit resume request
+### Resume instructions, only after an explicit resume request
 
 Run from this worktree. The final two questions need the existing Python
 executor and model gateway; the stopped private native agent is not
@@ -427,7 +571,7 @@ judge's intent files before restarting; do not blindly resubmit uncertain
 in-flight calls. The resulting summary must have 420 scored answers before
 claiming a finished accuracy comparison.
 
-## Artifacts
+### Artifacts
 
 - Protocol, jobs, runs and preserved checkpoints:
   `/var/tmp/versions-lite-run-20261006/pilot/`.
