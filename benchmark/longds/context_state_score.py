@@ -266,6 +266,19 @@ def structural_metrics(record, directory, agent):
             'largest_code_chars': max((len(a.get('changes', '')) for a in actions), default=0)}
 
 
+def answers_folder(run):
+    """Where a job's answers live. An interrupted checkpoint replay holds none; the
+    replay's recorded source is the preserved prefix it was rebuilding."""
+    if (run / 'records.json').exists():
+        return run
+    verification = run / 'replay-verification.json'
+    if verification.exists():
+        source = Path(json.loads(verification.read_text())['source'])
+        if (source / 'records.json').exists():
+            return source
+    return run
+
+
 def evaluate(root, adapters=None, judge=True, judge_workers=4):
     folder = root / 'pilot'
     protocol = json.loads((folder / 'protocol.json').read_text())
@@ -279,7 +292,7 @@ def evaluate(root, adapters=None, judge=True, judge_workers=4):
     audit = json.loads(adapters.read_text()) if adapters else {}
     items = []
     for job in protocol['jobs']:
-        run = folder / 'runs' / job_key(job)
+        run = answers_folder(folder / 'runs' / job_key(job))
         records = json.loads((run / 'records.json').read_text()) if (run / 'records.json').exists() else []
         gold = json.loads((Path(protocol['cases'][job['task']]['prepared']) / 'gold.json').read_text())
         for record in records:
@@ -310,7 +323,7 @@ def evaluate(root, adapters=None, judge=True, judge_workers=4):
         oracle = json.loads(oracle_path.read_text()) if oracle_path.exists() and specs else None
         anchors = [state_anchor(oracle, tables, spec) for spec in specs] if oracle else []
         verdict = json.loads((directory / 'judge.json').read_text()) if (directory / 'judge.json').exists() else {}
-        rows.append({**job, 'run': run.name, 'turn_id': number, 'completed': record['completed'],
+        rows.append({**job, 'run': job_key(job), 'answers_from': run.name, 'turn_id': number, 'completed': record['completed'],
                      'stats': record['stats'], 'judge': verdict,
                      'answer_components': answer_components(gold['turns'][number-1]['answer'], record['answer']),
                      'state_anchors': anchors, 'state_anchor_coverage': sum(a['coverage'] for a in anchors)/len(anchors) if anchors else None,
