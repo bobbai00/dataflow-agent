@@ -211,7 +211,7 @@ class SpendGuard:
             self.total += cost
 
 
-def run_job(job, protocol, folder, guard):
+def run_job(job, protocol, folder, guard, spend_file=None):
     output = folder / 'runs' / job_key(job)
     output.mkdir(parents=True, exist_ok=False)
     prepared = Path(protocol['cases'][job['task']]['prepared'])
@@ -240,7 +240,7 @@ def run_job(job, protocol, folder, guard):
             save(directory / 'record.json', record)
             save(output / 'records.json', records)
             guard.add(record['stats']['cost_usd'])
-            save(folder / 'spend.json', {'solver_cost_usd': guard.total, 'estimate': True})
+            save(spend_file or folder / 'spend.json', {'solver_cost_usd': guard.total, 'estimate': True})
             if not record['completed']:
                 error = 'Question incomplete; later dependent questions not attempted'
                 break
@@ -257,11 +257,21 @@ def run_job(job, protocol, folder, guard):
     return {**job, 'path': str(output), 'error': error, 'attempted_questions': len(records)}
 
 
-def run(root):
+RESUMABLE = ('benchmark/longds/context_state_pilot.py', 'benchmark/longds/catalog_pilot.py')
+
+
+def run(root, resume=False, only_agent=None):
+    """Run the frozen jobs. With `resume`, jobs that already finished every question are
+    kept, failed or partial job folders are set aside, and the harness files named in
+    RESUMABLE may differ from the freeze (their new hashes are recorded)."""
     folder = root / 'pilot'
     protocol = json.loads((folder / 'protocol.json').read_text())
+    changed = {}
     for name, sha in protocol['source_hashes'].items():
         if digest(ROOT / name) != sha:
+            if resume and name in RESUMABLE:
+                changed[name] = digest(ROOT / name)
+                continue
             raise ValueError(f'Runtime source differs from freeze: {name}')
     for case in protocol['cases'].values():
         for name, sha in case['hashes'].items():
@@ -270,17 +280,42 @@ def run(root):
         for name, sha in case['input_hashes'].items():
             if digest(ROOT / name) != sha:
                 raise ValueError('Raw input changed after freeze')
-    with (folder / 'paid-started.json').open('x') as out:
-        json.dump({'started_at': datetime.now(timezone.utc).isoformat()}, out)
+    jobs = protocol['jobs']
+    if resume:
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        selected = []
+        for job in jobs:
+            if only_agent and job['agent'] != only_agent:
+                continue
+            output = folder / 'runs' / job_key(job)
+            done = output / 'job.json'
+            if done.exists():
+                state = json.loads(done.read_text())
+                if state.get('error') is None and state['attempted_questions'] == state['expected_questions']:
+                    continue
+                output.rename(output.parent / f'{output.name}.failed-{stamp}')
+            elif output.exists():
+                output.rename(output.parent / f'{output.name}.partial-{stamp}')
+            selected.append(job)
+        jobs = selected
+        resumes = protocol.setdefault('resumes', [])
+        resumes.append({'at': datetime.now(timezone.utc).isoformat(), 'jobs': [job_key(j) for j in jobs],
+                        'only_agent': only_agent, 'harness_hashes_now': changed})
+        save(folder / 'protocol.json', protocol)
+        jobs_file, spend_file = folder / f'jobs-resume-{stamp}.json', folder / f'spend-resume-{stamp}.json'
+    else:
+        with (folder / 'paid-started.json').open('x') as out:
+            json.dump({'started_at': datetime.now(timezone.utc).isoformat()}, out)
+        jobs_file, spend_file = folder / 'jobs.json', folder / 'spend.json'
     if protocol.get('agent_service_endpoint'):
         os.environ['TEXERA_AGENT_SERVICE_ENDPOINT'] = protocol['agent_service_endpoint']
     guard = SpendGuard(protocol['spend_guard_usd'])
     rows = []
     with ThreadPoolExecutor(max_workers=protocol['concurrency']) as pool:
-        futures = [pool.submit(run_job, j, protocol, folder, guard) for j in protocol['jobs']]
+        futures = [pool.submit(run_job, j, protocol, folder, guard, spend_file) for j in jobs]
         for future in as_completed(futures):
             rows.append(future.result())
-            save(folder / 'jobs.json', rows)
+            save(jobs_file, rows)
     print(json.dumps({'sessions': len(rows), 'solver_cost_usd': guard.total,
                       'incomplete_sessions': sum(bool(r['error']) for r in rows)}), flush=True)
 
@@ -298,6 +333,8 @@ if __name__ == '__main__':
     parser.add_argument('--judge-model', default=DEFAULT_JUDGE)
     parser.add_argument('--concurrency', type=int, default=2)
     parser.add_argument('--endpoint', help='agent-service endpoint recorded in the protocol and used by the run')
+    parser.add_argument('--resume', action='store_true', help='rerun failed or partial jobs of a started run')
+    parser.add_argument('--only-agent', choices=list(AGENTS), help='with --resume: restrict to one agent')
     arguments = parser.parse_args()
     if arguments.action == 'prepare':
         prepare_cases(arguments.root.resolve(), arguments.cases or [])
@@ -313,4 +350,4 @@ if __name__ == '__main__':
                tuple(arguments.contexts), tuple(arguments.agents), arguments.judge_model,
                arguments.concurrency, arguments.endpoint)
     else:
-        run(arguments.root.resolve())
+        run(arguments.root.resolve(), arguments.resume, arguments.only_agent)

@@ -82,8 +82,11 @@ class Kernel:
         self.output = output
         self.port = port()
         self.log = (output / 'executor.log').open('x')
+        # A relative data_dir is relative to the repo root (where `data/` lives), whatever the cwd.
+        data_dir = Path(manifest['data_dir'])
+        data_root = data_dir.resolve() if data_dir.is_absolute() else (ROOT / data_dir).resolve()
         command = [str(ROOT / '.venv/bin/python'), str(HERE / 'dsgym_executor.py'), '--port', str(self.port),
-                   '--data-root', str(Path(manifest['data_dir']).resolve()), '--workspace', str(output / 'kernel'),
+                   '--data-root', str(data_root), '--workspace', str(output / 'kernel'),
                    '--timeout', '240']
         if not Path(manifest['data_dir']).is_absolute():
             command += ['--data-relative', manifest['data_dir']]
