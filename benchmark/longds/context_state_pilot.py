@@ -258,9 +258,11 @@ def run_job(job, protocol, folder, guard, spend_file=None):
 
 
 # Harness files that may change between a freeze and a resume: the runner, the Python
-# baseline's kernel wiring and the scorer. Solver code and prompts are never exempt.
+# baseline's kernel wiring, and evaluator-only scripts that no solver imports. Solver code
+# and prompts are never exempt.
 RESUMABLE = ('benchmark/longds/context_state_pilot.py', 'benchmark/longds/catalog_pilot.py',
-             'benchmark/longds/context_state_score.py')
+             'benchmark/longds/context_state_score.py', 'benchmark/longds/versions_reference_study.py',
+             'benchmark/longds/versions_run_report.py')
 
 
 def run(root, resume=False, only_agent=None, only_jobs=None):
