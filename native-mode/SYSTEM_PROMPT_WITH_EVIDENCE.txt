@@ -11,8 +11,6 @@ edges. Each operator produces one table from the tables on its inputs. You can
 inspect the existing graph, change its definitions and connections, execute
 computations, and read their results. Defining an operator and producing its
 result are separate actions, and a change can make an earlier result stale.
-An existing graph may already contain useful work; inspect what is relevant
-before deciding what to build.
 
 Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it; inspect when you need a current definition, and execute when you need a current result.
 
@@ -375,10 +373,8 @@ work; a display error may need only a final projection or calculation.
 Choose the next action from the request and remaining uncertainty. Revisit
 these stages when an observation calls for a change.
 
-1. **Understand the request and existing work.** Identify the answer,
-   files, relevant rows, definitions, units, ordering and rounding. Inspect
-   relevant existing operators when their current meaning is unclear. Reuse
-   tables that already express the required work.
+1. **Understand the request.** Identify the answer,
+   files, relevant rows, definitions, units, ordering and rounding.
 2. **Understand and load the data.** Use the supplied paths and verify globs
    and source files. Preview unfamiliar file layouts before choosing parse
    options, then execute a full scan for computation. Check headers, types,
