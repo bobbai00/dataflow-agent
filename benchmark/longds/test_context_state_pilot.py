@@ -19,10 +19,36 @@ import unittest
 import json
 from pathlib import Path
 import tempfile
+import shutil
+import context_state_pilot
 from context_state_pilot import validate_case, SpendGuard, native_settings, attempt_spend, solver_signature, visible_tables
 
 
 class PilotContractTest(unittest.TestCase):
+    def test_resume_preserves_an_answer_saved_before_the_observer_failed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            first = {'turn_id': 1, 'completed': True}
+            (run / 'records.json').write_text(json.dumps([first]))
+            for number, completed in [(2, True), (3, False)]:
+                directory = run / f't{number:02d}'
+                directory.mkdir()
+                (directory / 'record.json').write_text(json.dumps({'turn_id': number, 'completed': completed}))
+            self.assertEqual([r['turn_id'] for r in context_state_pilot.completed_prefix(run)], [1, 2])
+
+    def test_resume_shares_immutable_tables_without_sharing_mutable_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / 'source', root / 'target'
+            (source / 'observer').mkdir(parents=True)
+            (source / 'observer/table.pkl').write_bytes(b'immutable table')
+            (source / 'record.json').write_text('{}')
+            shutil.copytree(source, target, copy_function=context_state_pilot.copy_checkpoint_file)
+            self.assertEqual((source / 'observer/table.pkl').stat().st_ino,
+                             (target / 'observer/table.pkl').stat().st_ino)
+            (target / 'record.json').write_text('{"reused_from":"source"}')
+            self.assertEqual((source / 'record.json').read_text(), '{}')
+
     def test_replay_compares_visible_tables_not_internal_materialization_ids(self):
         capture = {'snapshot': {'workflow': {'operators': [
             {'operatorID': '_saved_handle', 'savedResult': {'taskId': 1}},

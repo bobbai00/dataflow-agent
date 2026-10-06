@@ -24,6 +24,7 @@ an unmodified upstream DSGym runner. Judge outputs are evaluated separately.
 """
 import argparse
 import ast
+import errno
 import fcntl
 import gzip
 import hashlib
@@ -310,6 +311,39 @@ def visible_tables(capture):
     return {name: table for name, table in capture.get('observerTables', {}).items() if name not in hidden}
 
 
+def completed_prefix(run):
+    """Include answers persisted before an observer export or aggregate save failed.
+    Never discard a completed answer merely because records.json missed it."""
+    aggregate = run / 'records.json'
+    indexed = {r['turn_id']: r for r in json.loads(aggregate.read_text())} if aggregate.exists() else {}
+    for path in sorted(run.glob('t[0-9][0-9]/record.json')):
+        record = json.loads(path.read_text())
+        indexed.setdefault(record['turn_id'], record)
+    prefix = []
+    for number, record in sorted(indexed.items()):
+        if number != len(prefix) + 1:
+            raise ValueError('Checkpoint has a gap; recover artifacts before continuing')
+        if not record['completed']:
+            if any(r['completed'] for n, r in indexed.items() if n > number):
+                raise ValueError('Completed answers follow an incomplete checkpoint')
+            break
+        prefix.append(record)
+    return prefix
+
+
+def copy_checkpoint_file(source, target):
+    """A sealed observer table is immutable. Share its bytes on the same volume;
+    records and judge verdicts remain independent, since recovery rewrites them."""
+    if Path(source).suffix == '.pkl':
+        try:
+            os.link(source, target)
+            return str(target)
+        except OSError as exc:
+            if exc.errno != errno.EXDEV:
+                raise
+    return shutil.copy2(source, target)
+
+
 def replay_prefix(instance, job, previous, records, output):
     """Rebuild only agent-authored state. Verify the checkpoint before any paid continuation."""
     started = time.monotonic()
@@ -370,16 +404,12 @@ def run_job(job, protocol, folder, guard, spend_file=None, resume_from=None):
             instance = Kernel(manifest, output)
             client = OpenAI(base_url='http://localhost:4000/v1', api_key=os.environ['LITELLM_MASTER_KEY'],
                             max_retries=0, timeout=protocol.get('completion', {}).get('transport_timeout_seconds', 180))
-        if resume_from and (resume_from / 'records.json').exists():
-            prefix = []
-            for record in json.loads((resume_from / 'records.json').read_text()):
-                if not record['completed']:
-                    break
-                prefix.append(record)
+        if resume_from:
+            prefix = completed_prefix(resume_from)
             replay_prefix(instance, job, resume_from, prefix, output)
             for record in prefix:
                 target = output / f't{record["turn_id"]:02d}'
-                shutil.copytree(resume_from / target.name, target)
+                shutil.copytree(resume_from / target.name, target, copy_function=copy_checkpoint_file)
                 reused = {**record, 'reused_from': record.get('reused_from') or str(resume_from / target.name)}
                 save(target / 'record.json', reused)
                 records.append(reused)
