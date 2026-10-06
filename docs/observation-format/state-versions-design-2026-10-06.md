@@ -494,10 +494,13 @@ A five-task live engine fixture on 2026-10-06 used no model calls and verified:
 The fixture caught a result-lookup bug: a cached handle is registered under a
 new output-port ID but retains the original producer URI. Lookup now matches
 the registered port; its URI remains the original table. Regression coverage
-is in HistoricalResultServiceSpec. The three targeted engine suites passed
-22 tests; the Python runtime suites passed 49 tests; the complete agent suite
-passed 1,442 tests, with typechecking and generated references current. These checks establish the tested
-mechanics, not benchmark accuracy or savings.
+is in HistoricalResultServiceSpec. The latest HistoricalResultService and
+StructuredResultTransport checks passed 18 tests; earlier fingerprint checks
+also passed. The Python runtime suites passed 49 tests; the complete agent
+suite passed 1,444 tests, with typechecking and generated references current.
+Full observer pagination also caught and fixed a small-integer JSON row-count
+deserialization error. These checks establish the tested mechanics, not
+benchmark accuracy or savings.
 
 Local artifacts: `/var/tmp/lean-versions-live-check-6/verification.json` and
 its RPC responses and frozen captures. The migrated live suites
@@ -505,5 +508,20 @@ its RPC responses and frozen captures. The migrated live suites
 passed. A deliberate eviction check confirmed that a saved input reports
 `HISTORICAL_RESULT_UNAVAILABLE` without rebuilding its ancestors. The private
 reference gate reproduced all eight selected Lite answers (earthquake Q1–Q5,
-university rankings Q1–Q3). Model results and state-scoring coverage belong in
-the separate pilot report; these mechanical checks do not establish savings.
+university rankings Q1–Q3).
+
+The bounded Terra/Luna pilot is complete: **64/64 answers and judgments** over
+catalog/trajectory and Dataflow/ordinary persistent Python. Seven arms score
+4/8, while Terra Dataflow trajectory scores 3/8. Dataflow costs 1.59–2.05 times
+Python within the same model and context policy. The model-cost estimate is
+$1.34 for solvers plus $0.45 for judging; no additional paid runs followed.
+Actual trace checks confirm all 32 chronological task deltas and 52 later
+comparisons of immutable saved records and canonical boundary content. The
+pilot establishes neither an accuracy nor a cost advantage.
+
+The [pilot report](../../benchmark/longds/reports/saved-versions-lite-pilot-20261006.md)
+records the frozen source, exact costs, judge sensitivity, wrong-stage selection,
+working-table checks and coverage. It distinguishes the paid solver revision
+from post-run evaluator corrections and a regression-tested diagnostic fix
+for invalid result projections. Statistics and snippets remain independent
+catalog opt-ins and are off in this pilot. No scaling is recommended yet.

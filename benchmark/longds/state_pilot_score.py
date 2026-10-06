@@ -140,6 +140,16 @@ def state_anchor(oracle, tables, spec):
     if item is None:
         return {**base, 'match': None, 'coverage': 0, 'reason': 'unmapped_or_unavailable'}
     frame = pd.read_pickle(item['file']) if 'file' in item else pd.DataFrame(item['records'])
+    for predicate in spec.get('where', []):
+        name = predicate['column']
+        if name not in frame:
+            return {**base, 'match': None, 'coverage': 0, 'reason': 'missing_population_column'}
+        if 'equals' in predicate:
+            frame = frame.loc[frame[name].eq(predicate['equals'])]
+        elif predicate.get('nonempty'):
+            frame = frame.loc[frame[name].notna() & frame[name].astype(str).str.strip().ne('')]
+        else:
+            raise ValueError('Unknown explicit population predicate')
     needed = list(dict.fromkeys(spec['keys'] + spec['columns']))
     actual = pd.DataFrame(index=frame.index)
     for target in needed:
@@ -160,6 +170,14 @@ def state_anchor(oracle, tables, spec):
             continue
         if kind == 'datetime':
             actual[name] = pd.to_datetime(actual[name])
+        elif kind == 'datetime_wall':
+            # Explicit adapter for a question specified in local clock labels,
+            # rather than instants: compare those labels without a timezone.
+            values = pd.to_datetime(actual[name])
+            zone = spec.get('timezones', {}).get(name)
+            if zone:
+                values = values.dt.tz_convert(zone)
+            actual[name] = values.dt.tz_localize(None)
         elif kind == 'numeric':
             actual[name] = pd.to_numeric(actual[name])
         else:

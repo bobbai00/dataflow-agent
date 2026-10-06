@@ -24,6 +24,19 @@ from state_pilot_score import answer_components, actual_tables, branch_preservat
 
 
 class PilotScoreTest(unittest.TestCase):
+    def test_clock_adapter_requires_an_explicit_timezone_basis(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'oracle.parquet'
+            pd.DataFrame({'id': ['A'], 'time': pd.to_datetime(['2025-04-23 13:01:02'])}).to_parquet(path)
+            oracle = {'turns': [{'frames': [{'name': 'working', 'file': str(path), 'digest': 'd'}]}]}
+            tables = {'main': {'records': [{'id': 'A', 'time': '2025-04-23T10:01:02Z'}],
+                              'complete': True, 'rows': 1, 'version': 'v'}}
+            spec = {'oracle_turn': 1, 'oracle_name': 'working', 'actual_name': 'main',
+                    'keys': ['id'], 'columns': ['time'], 'types': {'time': 'datetime_wall'}}
+            self.assertFalse(state_anchor(oracle, tables, spec)['match'])
+            spec['timezones'] = {'time': 'Europe/Istanbul'}
+            self.assertTrue(state_anchor(oracle, tables, spec)['match'])
+
     def test_explicit_datetime_adapter_aligns_engine_json_to_python_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'oracle.parquet'
@@ -34,6 +47,19 @@ class PilotScoreTest(unittest.TestCase):
             spec = {'oracle_turn': 1, 'oracle_name': 'working', 'actual_name': 'main',
                     'rename': {'timestamp': 'time'}, 'keys': ['id'], 'columns': ['time'],
                     'types': {'time': 'datetime'}}
+            self.assertTrue(state_anchor(oracle, tables, spec)['match'])
+
+    def test_explicit_population_adapter_supports_a_retention_mask(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'oracle.parquet'
+            pd.DataFrame({'id': ['A'], 'value': [1]}).to_parquet(path)
+            oracle = {'turns': [{'frames': [{'name': 'working', 'file': str(path), 'digest': 'd'}]}]}
+            tables = {'main': {'records': [{'id': 'A', 'value': 1, 'retained': True},
+                                          {'id': 'B', 'value': 2, 'retained': False}],
+                              'complete': True, 'rows': 2, 'version': 'v'}}
+            spec = {'oracle_turn': 1, 'oracle_name': 'working', 'actual_name': 'main',
+                    'keys': ['id'], 'columns': ['value'],
+                    'where': [{'column': 'retained', 'equals': True}]}
             self.assertTrue(state_anchor(oracle, tables, spec)['match'])
 
     def test_unrecognized_answer_is_not_silently_scored_as_wrong(self):

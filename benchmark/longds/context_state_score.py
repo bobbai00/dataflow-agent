@@ -150,30 +150,42 @@ def structural_metrics(record, directory, agent):
                 'largest_code_chars': max((len(s['source']) for s in scripts), default=0)}
     batches = record.get('native_actions', [])
     actions = [a for batch in batches for a in batch.get('actions', [])]
-    saved_reads = [op for a in actions if a['type'] == 'read' for op in a['operator_ids'] if '@' in op]
+    saved_reads = [op for a in actions if a['type'] == 'read' and a.get('view') is not None
+                   for op in a['operator_ids'] if '@' in op]
     changes = '\n'.join(a.get('changes', '') for a in actions if a['type'] == 'edit')
     trace = json.loads(gzip.open(directory / 'react_steps.json.gz', 'rt').read())['steps']
     counts = {'executed': 0, 'cached': 0}
+    historical_cached, completed_saved_reads, failed_actions = [], [], 0
     tool_errors = 0
     for step in trace:
         for receipt in step.get('toolResults', []):
-            tool_errors += bool(receipt.get('isError'))
             output = receipt.get('output')
+            tool_errors += bool(receipt.get('isError') or isinstance(output, dict) and output.get('status') == 'error')
             if not isinstance(output, dict):
                 continue
             for action in output.get('actions', []):
+                failed_actions += action.get('status') == 'error'
+                requested = action.get('action', {})
+                if requested.get('type') == 'read' and requested.get('view') is not None and action.get('status') == 'ok':
+                    completed_saved_reads.extend(op for op in requested.get('operator_ids', []) if '@' in op)
                 if action.get('action', {}).get('type') != 'execute':
                     continue
                 result = action.get('output') or {}
+                if not isinstance(result, dict):
+                    continue
                 for outcome in result.get('operators', []):
                     if outcome.get('status') == 'ok' and outcome.get('state') in counts:
                         counts[outcome['state']] += 1
+                        if outcome['state'] == 'cached' and '@' in outcome['id']:
+                            historical_cached.append(outcome['id'])
     return {'execution_actions': sum(a['type'] == 'execute' for a in actions),
             'read_actions': sum(a['type'] == 'read' for a in actions), 'saved_reads_requested': saved_reads,
             'saved_edges_requested': re.findall(r'create edge ([^\s]+@\d+)\.out', changes),
             'definition_variants_requested': re.findall(r'create operator (\S+) from (\S+@\d+)', changes),
             'definition_updates_requested': re.findall(r'update operator (\S+) from (\S+@\d+)', changes),
             'operator_outcomes': counts, 'tool_error_calls': tool_errors,
+            'failed_actions': failed_actions, 'completed_saved_reads': completed_saved_reads,
+            'historical_cached_inputs': historical_cached,
             'largest_code_chars': max((len(a.get('changes', '')) for a in actions), default=0)}
 
 
@@ -204,6 +216,11 @@ def evaluate(root, adapters=None, judge=True):
                       else script_answer_references(records, record))
         lineage = dependency_agreement(references, annotated_closure(gold['turns'], number))
         lineage['references'] = references
+        definitions = None
+        if job['agent'] == 'dataflow':
+            definition_refs = [{**r, 'task_id': r.get('definition_task', r.get('task_id'))} for r in references]
+            definitions = dependency_agreement(definition_refs, annotated_closure(gold['turns'], number))
+            definitions['granularity'] = 'declared graph closure, definition-introducing tasks; checkpoint reads reported separately'
         specs = audit.get(run.name, {}).get(str(number), [])
         oracle = json.loads((root / 'private-oracle' / job['task'].replace('/', '__') / 'manifest.json').read_text())
         anchors = [state_anchor(oracle, tables, spec) for spec in specs]
@@ -212,7 +229,8 @@ def evaluate(root, adapters=None, judge=True):
                      'stats': record['stats'], 'judge': verdict,
                      'answer_components': answer_components(gold['turns'][number-1]['answer'], record['answer']),
                      'state_anchors': anchors, 'state_anchor_coverage': sum(a['coverage'] for a in anchors)/len(anchors) if anchors else None,
-                     'lineage': lineage, 'structure': structural_metrics(record, directory, job['agent']),
+                     'lineage': lineage, 'definition_lineage': definitions,
+                     'structure': structural_metrics(record, directory, job['agent']),
                      'exported_tables': len(tables), 'state_types': gold['turns'][number-1].get('state_type', []),
                      'artifact': str(directory)})
     save(folder / 'metrics.json', rows)

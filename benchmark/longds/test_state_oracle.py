@@ -22,6 +22,34 @@ from state_oracle import (compare_state_table, dependency_agreement, classify_up
 
 
 class StateOracleTest(unittest.TestCase):
+    def test_script_lineage_cannot_take_a_same_value_write_from_a_future_turn(self):
+        old = {'version': 'same-value', 'changed_task': 1, 'parents': []}
+        future = {'version': 'same-value', 'changed_task': 4, 'parents': []}
+        answer = {'version': 'answer-value', 'changed_task': 2,
+                  'parents': [{'name': 'x', 'version': 'same-value', 'task_id': 1}]}
+        current = {'turn_id': 2, 'source_bindings': {'answer': answer},
+                   'scripts': [{'written_bindings': {'answer': answer}}]}
+        records = [{'turn_id': 1, 'scripts': [{'written_bindings': {'x': old}}]}, current,
+                   {'turn_id': 4, 'scripts': [{'written_bindings': {'x': future}}]}]
+        refs = script_answer_references(records, current)
+        self.assertEqual({r['task_id'] for r in refs}, {1})
+
+    def test_historical_graph_resolves_immutable_handles_outside_the_visible_delta(self):
+        snapshot = {'workflow': {'operators': [
+            {'operatorID': 'answer', 'nativeOp': {'revision': 'a'}},
+            {'operatorID': 'raw_alias', 'savedResult': {'operatorId': 'raw', 'taskId': 1}},
+            {'operatorID': 'score_alias', 'savedResult': {'operatorId': 'score', 'taskId': 2}}],
+            'links': [{'source': {'operatorID': 'score_alias'}, 'target': {'operatorID': 'answer'}}]}}
+        tasks = [{'task_id': 1, 'operators': [
+                    {'operator_id': 'raw', 'change': 'created', 'revision': 'r', 'inputs': []}]},
+                 {'task_id': 2, 'operators': [
+                    {'operator_id': 'score', 'change': 'created', 'revision': 's', 'inputs': ['raw_alias']}]},
+                 {'task_id': 3, 'operators': [{'operator_id': 'answer', 'change': 'created', 'revision': 'a'}],
+                  'output_roots': {'basis': 'answer', 'roots': [{'operator_id': 'answer'}]}}]
+        refs = native_answer_references({'snapshot': snapshot, 'history': {'tasks': tasks}}, 3)
+        self.assertEqual({r['task_id'] for r in refs}, {1, 2})
+        self.assertFalse(any(r.get('unresolved_operator') for r in refs))
+
     def test_native_saved_handle_traverses_the_historical_graph_not_todays_rule(self):
         snapshot = {'workflow': {'operators': [
             {'operatorID': 'answer', 'nativeOp': {'revision': 'a'}},

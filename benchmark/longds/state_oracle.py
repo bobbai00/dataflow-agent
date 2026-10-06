@@ -124,6 +124,10 @@ def script_answer_references(records, current):
     """
     nodes = {}
     for record in records:
+        # A later same-value write can have the same content hash and a
+        # different producer. It cannot become an earlier answer's parent.
+        if record.get('turn_id', current['turn_id']) > current['turn_id']:
+            continue
         for script in record.get('scripts', []):
             for name, binding in script.get('written_bindings', {}).items():
                 nodes[(name, binding['version'])] = binding
@@ -189,6 +193,14 @@ def native_answer_references(capture, task_id):
         if saved_task is not None and saved_task != task_id:
             node = records.get(saved_task, {}).get(op_id)
             if node is None:
+                # Read-only result handles are excluded from the visible
+                # operator delta. Their immutable savedResult descriptor is
+                # still available in the captured graph. Only handles may
+                # resolve through today's graph, never a mutable definition.
+                handle = operators.get(op_id, {}).get('savedResult')
+                if handle:
+                    visit(handle['operatorId'], handle['taskId'])
+                    return
                 references.append({'kind': 'definition', 'task_id': saved_task,
                                    'operator_id': op_id, 'unresolved_operator': True})
                 return

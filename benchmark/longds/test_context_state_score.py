@@ -31,7 +31,8 @@ class StructuralMetricTest(unittest.TestCase):
                 'action': {'type': 'execute'}, 'status': 'ok', 'output': {'operators': [
                     {'id': 'old@1', 'status': 'ok', 'state': 'cached'},
                     {'id': 'consumer', 'status': 'ok', 'state': 'executed'},
-                    {'id': 'failed', 'status': 'error', 'state': 'failed'}]}}]}}]}]}
+                    {'id': 'failed', 'status': 'error', 'state': 'failed'}]}}, {
+                'action': {'type': 'execute'}, 'status': 'error', 'output': 'Unknown target'}]}}]}]}
             with gzip.open(directory / 'react_steps.json.gz', 'wt') as stream:
                 json.dump(trace, stream)
             metrics = structural_metrics({'native_actions': []}, directory, 'dataflow')
