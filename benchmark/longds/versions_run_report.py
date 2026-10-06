@@ -36,6 +36,35 @@ def fmt(n, d):
     return f'{n}/{d}' + (f' ({100 * n / d:.0f}%)' if d else '')
 
 
+def paired_results(metrics):
+    """Exclude unjudged pairs; compare costs on exactly the same correct questions."""
+    pairs = defaultdict(dict)
+    for row in metrics:
+        pairs[(row['model'], row['context'], row['task'], row['turn_id'])][row['agent']] = row
+    groups = {}
+    for (model, context, _, _), pair in sorted(pairs.items()):
+        if set(pair) != {'dataflow', 'python'} or any(r['judge'].get('score') is None for r in pair.values()):
+            continue
+        total = groups.setdefault((model, context), {'model': model, 'context': context, 'judged_pairs': 0,
+            'both_correct': 0, 'dataflow_only': 0, 'python_only': 0, 'both_wrong': 0,
+            'dataflow_cost': 0., 'python_cost': 0., 'unknown_costs': 0})
+        total['judged_pairs'] += 1
+        correct = {agent: pair[agent]['judge']['score'] == 1 for agent in pair}
+        if all(correct.values()):
+            total['both_correct'] += 1
+            for agent in pair:
+                cost = pair[agent]['stats'].get('cost_usd')
+                total['unknown_costs'] += cost is None
+                total[agent + '_cost'] += cost or 0
+        elif correct['dataflow']:
+            total['dataflow_only'] += 1
+        elif correct['python']:
+            total['python_only'] += 1
+        else:
+            total['both_wrong'] += 1
+    return list(groups.values())
+
+
 def report(root):
     folder = root / 'pilot'
     protocol = json.loads((folder / 'protocol.json').read_text())
@@ -54,6 +83,27 @@ def report(root):
         lines.append(f"| {arm_name(row)} | {fmt(row['correct'], row['judged'])} | {row['attempted']}/{row['expected']} | "
                      f"{row['incomplete_turns']} | {row['cost_usd']:.2f} | {row['llm_calls']} | {row['input_tokens']:,} | "
                      f"{row['cached_tokens']:,} | {row['output_tokens']:,} |")
+    lines.append('')
+    lines.append('Physical solver attempts, including infrastructure retries:')
+    lines.append('')
+    lines.append('| Arm | Known cost (USD) | Requests with unknown usage | Budget reserve (not a bill) |')
+    lines.append('|---|---|---|---|')
+    for row in summary['arms']:
+        lines.append(f"| {arm_name(row)} | {row.get('all_attempt_cost_usd', row['cost_usd']):.2f} | "
+                     f"{row.get('unknown_cost_requests', 0)} | {row.get('unknown_cost_reserve_usd', 0):.2f} |")
+    lines.append('')
+    lines.append('Input cache reuse at task boundaries and within tasks:')
+    lines.append('')
+    lines.append('| Arm | First-call observations | First-call cached input | Later-call cached input |')
+    lines.append('|---|---|---|---|')
+    for row in summary['arms']:
+        first_input = row.get('first_call_input_tokens', 0)
+        first_cached = row.get('first_call_cached_tokens', 0)
+        later_input = row['input_tokens'] - first_input
+        later_cached = row['cached_tokens'] - first_cached
+        first = f'{100*first_cached/first_input:.1f}%' if first_input else 'unknown'
+        later = f'{100*later_cached/later_input:.1f}%' if later_input and first_input else 'unknown'
+        lines.append(f"| {arm_name(row)} | {row.get('first_call_usage_coverage', 0)}/{row['attempted']} | {first} | {later} |")
     lines.append('')
     lines.append('Accuracy by state label (a turn counts under each of its labels):')
     lines.append('')
@@ -76,6 +126,16 @@ def report(root):
     for (task, arm), v in sorted(per.items()):
         lines.append(f"| `{task.split('/')[1]}/{task.split('/')[2]}` | {arm} | {fmt(v['correct'], v['judged'])} | {v['cost']:.2f} |")
     lines.append('')
+    lines.append('Matched questions: costs below include only questions both solvers answered correctly.')
+    lines.append('')
+    lines.append('| Model | Judged pairs | Both correct | Dataflow only | Python only | Both wrong | Dataflow cost | Python cost |')
+    lines.append('|---|---|---|---|---|---|---|---|')
+    for pair in paired_results(metrics):
+        suffix = ' + unknown' if pair['unknown_costs'] else ''
+        lines.append(f"| {pair['model'].replace('gpt-5.6-', '').title()} ({pair['context']}) | {pair['judged_pairs']} | "
+                     f"{pair['both_correct']} | {pair['dataflow_only']} | {pair['python_only']} | {pair['both_wrong']} | "
+                     f"${pair['dataflow_cost']:.2f}{suffix} | ${pair['python_cost']:.2f}{suffix} |")
+    lines.append('')
     lines.append('Saved-version references (dataflow arms):')
     lines.append('')
     lines.append('| Arm | Turns with a reference | Reads | Edges | Variants | Definition updates | Answer sources | Retention warnings | Unavailable | Legacy rejections |')
@@ -89,24 +149,40 @@ def report(root):
                      f"{u['saved_answer_sources']} | {row['retention_warnings']} | {row['unavailable_results']} | {row['legacy_command_rejections']} |")
     if study:
         lines.append('')
-        lines.append('Which references discriminated (the version differed from the current table when used):')
+        lines.append('Successful data accesses compared with the live table immediately before access:')
         lines.append('')
-        lines.append('| Arm | References | Discriminating | Same as current | Absent now | Turns with a discriminating reference | Correct among them |')
-        lines.append('|---|---|---|---|---|---|---|')
+        lines.append('| Arm | Data accesses | Different values | Same as current | Absent now | Unknown | Turns with different/absent state | Correct among judged |')
+        lines.append('|---|---|---|---|---|---|---|---|')
         by_arm = defaultdict(list)
         for r in study:
             by_arm[(r['model'], r['context'])].append(r)
         for (model, context), rows in sorted(by_arm.items()):
-            refs = [r for r in rows if r['kind']]
+            refs = [r for r in rows if r['kind'] and r.get('scope') == 'data']
             disc = [r for r in refs if r['verdict'] in ('discriminating', 'operator_absent_now')]
             turns = {(r['run'], r['turn']): r['score'] for r in disc}
             correct = sum(1 for s in turns.values() if s == 1)
+            unknown = sum(r['verdict'] not in ('discriminating', 'same_as_current', 'operator_absent_now') for r in refs)
             lines.append(f"| {model.replace('gpt-5.6-', '').title()} dataflow ({context}) | {len(refs)} | "
                          f"{sum(r['verdict'] == 'discriminating' for r in refs)} | {sum(r['verdict'] == 'same_as_current' for r in refs)} | "
-                         f"{sum(r['verdict'] == 'operator_absent_now' for r in refs)} | {len(turns)} | {fmt(correct, len(turns))} |")
+                         f"{sum(r['verdict'] == 'operator_absent_now' for r in refs)} | {unknown} | {len(turns)} | "
+                         f"{fmt(correct, sum(s is not None for s in turns.values()))} |")
+        lines.append('')
+        lines.append('Definition inspections and copies are separate from historical data access:')
+        lines.append('')
+        lines.append('| Arm | Definition accesses | Different definition | Same definition | Absent now | Unknown |')
+        lines.append('|---|---|---|---|---|---|')
+        for (model, context), rows in sorted(by_arm.items()):
+            refs = [r for r in rows if r['kind'] and r.get('scope') == 'definition']
+            unknown = sum(r['verdict'] not in ('definition_differs', 'same_definition', 'operator_absent_now') for r in refs)
+            lines.append(f"| {model.replace('gpt-5.6-', '').title()} dataflow ({context}) | {len(refs)} | "
+                         f"{sum(r['verdict'] == 'definition_differs' for r in refs)} | {sum(r['verdict'] == 'same_definition' for r in refs)} | "
+                         f"{sum(r['verdict'] == 'operator_absent_now' for r in refs)} | {unknown} |")
     lines.append('')
-    lines.append(f"Judge cost: ${summary['judge_cost_usd']:.2f}" + ('' if summary.get('judge_cost_estimated') else ' (not estimated for this judge model)') +
-                 f"; solver cost ${summary['solver_cost_usd']:.2f}.")
+    lines.append(f"Known judge cost: ${summary['judge_cost_usd']:.2f}" + ('' if summary.get('judge_cost_estimated') else ' (some request costs unknown)') + '.')
+    lines.append(f"Selected solver answers/attempts: ${summary.get('selected_solver_cost_usd', sum(a['cost_usd'] for a in summary['arms'])):.2f}; "
+                 f"all physical solver attempts, including retries: ${summary['solver_cost_usd']:.2f} known. "
+                 f"Unknown usage: {summary.get('solver_unknown_cost_requests', 0)} requests; "
+                 f"${summary.get('solver_cost_reserve_usd', 0):.2f} reserved against the budget, not a claimed bill.")
     return '\n'.join(lines)
 
 

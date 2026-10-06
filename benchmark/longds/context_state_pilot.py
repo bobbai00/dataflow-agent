@@ -23,14 +23,20 @@ The Python control uses the repository's persistent DSGym-style executor, not
 an unmodified upstream DSGym runner. Judge outputs are evaluated separately.
 """
 import argparse
+import ast
+import fcntl
+import gzip
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import random
+import shutil
 import subprocess
 import threading
+import time
 import zipfile
 
 from dotenv import load_dotenv
@@ -41,7 +47,7 @@ from bounded_pilot import pilot_rates
 from catalog_pilot import Kernel, solve
 from native_catalog_pilot import Native, SETTINGS
 from prepare import prepare_one, resolve_task_selection
-from state_comparison import ROOT, HERE, build_prompts, digest, save
+from state_comparison import ROOT, HERE, build_prompts, digest, save, cost_of
 
 # The 2026-10-06 bounded pilot: two short prefixes. `--cases` selects others.
 CASES = {
@@ -193,8 +199,8 @@ def job_key(job):
 
 
 class SpendGuard:
-    def __init__(self, limit):
-        self.limit, self.total = limit, 0.
+    def __init__(self, limit, initial=0.):
+        self.limit, self.total = limit, initial
         self.lock = threading.Lock()
         self.stopped = False
 
@@ -211,7 +217,144 @@ class SpendGuard:
             self.total += cost
 
 
-def run_job(job, protocol, folder, guard, spend_file=None):
+def solver_signature(source, name):
+    """Freeze model-facing Python logic while allowing kernel startup repairs."""
+    tree = ast.parse(source)
+    if name.endswith('catalog_pilot.py'):
+        selected = []
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.Assign)):
+                selected.append(node)
+            elif isinstance(node, ast.ClassDef) and node.name == 'Kernel':
+                selected.extend(n for n in node.body if isinstance(n, ast.FunctionDef) and n.name != '__init__')
+        return ast.dump(ast.Module(body=selected, type_ignores=[]))
+    return ast.dump(next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'native_settings'))
+
+
+def attempt_spend(folder, run_keys=None):
+    """All physical attempts, including archived and interrupted turns; reused prefix
+    records retain their original analytical cost but are never billed twice.
+    Unknown timeout calls reserve $0.25 (Luna) / $2.50 (Terra), not a claimed bill."""
+    known, uncertain, reserve = 0., 0, 0.
+    for run in (folder / 'runs').glob('*'):
+        key = run.name.split('.failed-', 1)[0].split('.partial-', 1)[0]
+        if not run.is_dir() or run_keys is not None and key not in run_keys:
+            continue
+        records = json.loads((run / 'records.json').read_text()) if (run / 'records.json').exists() else []
+        indexed = {r.get('turn_id', i): r for i, r in enumerate(records)}
+        for directory in run.glob('t[0-9][0-9]'):
+            if (directory / 'record.json').exists():
+                indexed.setdefault(int(directory.name[1:]), json.loads((directory / 'record.json').read_text()))
+        for number, record in indexed.items():
+            if record.get('reused_from'):
+                continue
+            stats = record['stats']
+            if stats.get('cost_usd') is not None:
+                known += stats['cost_usd']
+                missing = int('timed out' in str(record.get('error', '')).lower())
+            else:
+                missing = 1
+                trace = run / f't{number:02d}' / 'react_steps.json.gz'
+                if trace.exists():
+                    model = record.get('model', 'gpt-5.6-luna')
+                    with gzip.open(trace, 'rt') as source:
+                        steps = json.load(source)['steps']
+                    missing = 0
+                    for step in steps:
+                        if step.get('role') != 'agent':
+                            continue
+                        usage = step.get('usage')
+                        if not usage:
+                            missing += 1
+                            continue
+                        measured = {'input_tokens': usage.get('inputTokens'), 'output_tokens': usage.get('outputTokens'),
+                                    'cached_tokens': usage.get('cachedInputTokens'), 'cache_write_tokens': usage.get('cacheCreationInputTokens', 0)}
+                        amount = cost_of(measured, pilot_rates(model))
+                        if amount is None:
+                            missing += 1
+                        else:
+                            known += amount
+            uncertain += missing
+            reserve += missing * (2.5 if 'terra' in record.get('model', run.name) else .25)
+        # A process may die after a provider response but before writing its turn record.
+        for directory in run.glob('t[0-9][0-9]'):
+            if int(directory.name[1:]) in indexed:
+                continue
+            model = 'gpt-5.6-terra' if '__terra__' in run.name else 'gpt-5.6-luna'
+            responses = list(directory.glob('*-response.json'))
+            for response in responses:
+                usage = json.loads(response.read_text()).get('usage') or {}
+                measured = {'input_tokens': usage.get('prompt_tokens'), 'output_tokens': usage.get('completion_tokens'),
+                            'cached_tokens': (usage.get('prompt_tokens_details') or {}).get('cached_tokens', 0)}
+                amount = cost_of(measured, pilot_rates(model))
+                if amount is not None:
+                    known += amount
+                else:
+                    uncertain += 1
+                    reserve += 2.5 if 'terra' in model else .25
+            unmatched = max(0, len(list(directory.glob('*-request.json'))) - len(responses))
+            uncertain += unmatched
+            reserve += unmatched * (2.5 if 'terra' in model else .25)
+    return {'known_cost_usd': known, 'unknown_requests': uncertain, 'unknown_cost_reserve_usd': reserve,
+            'guard_cost_usd': known + reserve, 'estimate': True}
+
+
+def rows_digest(rows):
+    serialized = sorted(json.dumps(row, sort_keys=True, ensure_ascii=False, default=str) for row in rows)
+    return hashlib.sha256('\n'.join(serialized).encode()).hexdigest()
+
+
+def visible_tables(capture):
+    hidden = {op['operatorID'] for op in capture.get('snapshot', {}).get('workflow', {}).get('operators', [])
+              if op.get('savedResult')}
+    return {name: table for name, table in capture.get('observerTables', {}).items() if name not in hidden}
+
+
+def replay_prefix(instance, job, previous, records, output):
+    """Rebuild only agent-authored state. Verify the checkpoint before any paid continuation."""
+    started = time.monotonic()
+    for record in records:
+        if job['agent'] == 'python':
+            for script in record['scripts']:
+                result = instance.code(record['turn_id'], script['source'])
+                if result['success'] != script['success']:
+                    raise RuntimeError('Python prefix replay differs from recorded execution')
+        else:
+            instance.rpc('debug', content=record['prompt'])
+            for batch in record['native_actions']:
+                if isinstance(batch, str):
+                    try:
+                        batch = json.loads(batch)
+                    except ValueError:
+                        continue  # Invalid arguments applied no graph action.
+                instance.rpc('debug', tool='dataflow', args=batch)
+        print(f'REPLAYED {job_key(job)} Q{record["turn_id"]}', flush=True)
+    differences = []
+    if records:
+        turn = records[-1]['turn_id']
+        if job['agent'] == 'python':
+            actual = instance.capture(output / 'replay-observer')
+            expected = json.loads((previous / f't{turn:02d}' / 'observer/bindings.json').read_text())
+            differences = [name for name, item in expected.items() if item.get('file') and
+                           actual.get(name, {}).get('version') != item['version']]
+        else:
+            actual = instance.capture(output / 'replay-observer')
+            with gzip.open(previous / f't{turn:02d}' / 'observer/capture.json.gz', 'rt') as source:
+                expected = json.load(source)
+            for name, table in visible_tables(expected).items():
+                if not table.get('complete'):
+                    continue
+                other = actual.get('observerTables', {}).get(name)
+                if not other or not other.get('complete') or rows_digest(table['rows']) != rows_digest(other['rows']):
+                    differences.append(name)
+    save(output / 'replay-verification.json', {'prefix_turns': len(records), 'differences': differences,
+                                              'elapsed_seconds': time.monotonic() - started,
+                                              'model_calls': 0, 'source': str(previous)})
+    if differences:
+        raise RuntimeError('Prefix checkpoint values differ: ' + ', '.join(differences))
+
+
+def run_job(job, protocol, folder, guard, spend_file=None, resume_from=None):
     output = folder / 'runs' / job_key(job)
     output.mkdir(parents=True, exist_ok=False)
     prepared = Path(protocol['cases'][job['task']]['prepared'])
@@ -221,13 +364,27 @@ def run_job(job, protocol, folder, guard, spend_file=None):
     try:
         guard.check()
         if job['agent'] == 'dataflow':
-            instance = Native(output, job['model'], settings=native_settings(job['context']),
+            instance = Native(output, job['model'], settings=protocol['native_settings'][job['context']],
                               complete_observer_tables=True)
         else:
             instance = Kernel(manifest, output)
             client = OpenAI(base_url='http://localhost:4000/v1', api_key=os.environ['LITELLM_MASTER_KEY'],
-                            max_retries=0, timeout=180)
-        for turn in manifest['turns']:
+                            max_retries=0, timeout=protocol.get('completion', {}).get('transport_timeout_seconds', 180))
+        if resume_from and (resume_from / 'records.json').exists():
+            prefix = []
+            for record in json.loads((resume_from / 'records.json').read_text()):
+                if not record['completed']:
+                    break
+                prefix.append(record)
+            replay_prefix(instance, job, resume_from, prefix, output)
+            for record in prefix:
+                target = output / f't{record["turn_id"]:02d}'
+                shutil.copytree(resume_from / target.name, target)
+                reused = {**record, 'reused_from': record.get('reused_from') or str(resume_from / target.name)}
+                save(target / 'record.json', reused)
+                records.append(reused)
+            save(output / 'records.json', records)
+        for turn in manifest['turns'][len(records):]:
             guard.check()
             directory = output / f"t{turn['turn_id']:02d}"
             if job['agent'] == 'dataflow':
@@ -240,7 +397,9 @@ def run_job(job, protocol, folder, guard, spend_file=None):
             save(directory / 'record.json', record)
             save(output / 'records.json', records)
             guard.add(record['stats']['cost_usd'])
-            save(spend_file or folder / 'spend.json', {'solver_cost_usd': guard.total, 'estimate': True})
+            with guard.lock:
+                save(spend_file or folder / 'spend.json', {'guard_cost_usd': guard.total, 'estimate': True,
+                                                        'includes_unknown_usage_reserve': True})
             if not record['completed']:
                 error = 'Question incomplete; later dependent questions not attempted'
                 break
@@ -266,18 +425,32 @@ RESUMABLE = ('benchmark/longds/context_state_pilot.py', 'benchmark/longds/catalo
 
 
 def run(root, resume=False, only_agent=None, only_jobs=None):
+    with (root / 'pilot' / 'run.lock').open('a+') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another runner owns this campaign; do not move its live artifacts')
+        return _run(root, resume, only_agent, only_jobs)
+
+
+def _run(root, resume=False, only_agent=None, only_jobs=None):
     """Run the frozen jobs. With `resume`, jobs that already finished every question are
     kept, failed or partial job folders are set aside, and the harness files named in
     RESUMABLE may differ from the freeze (their new hashes are recorded)."""
     folder = root / 'pilot'
     protocol = json.loads((folder / 'protocol.json').read_text())
     changed = {}
-    for name, sha in protocol['source_hashes'].items():
-        if digest(ROOT / name) != sha:
-            if resume and name in RESUMABLE:
-                changed[name] = digest(ROOT / name)
-                continue
-            raise ValueError(f'Runtime source differs from freeze: {name}')
+    with zipfile.ZipFile(folder / 'source.zip') as archive:
+        for name, sha in protocol['source_hashes'].items():
+            if digest(ROOT / name) != sha:
+                evaluator_test = name.startswith('benchmark/longds/test_')
+                if resume and (name in RESUMABLE or evaluator_test):
+                    if name.endswith(('/catalog_pilot.py', '/context_state_pilot.py')):
+                        if solver_signature(archive.read(name).decode(), name) != solver_signature((ROOT / name).read_text(), name):
+                            raise ValueError(f'Model-facing solver logic differs from freeze: {name}')
+                    changed[name] = digest(ROOT / name)
+                    continue
+                raise ValueError(f'Runtime source differs from freeze: {name}')
     for case in protocol['cases'].values():
         for name, sha in case['hashes'].items():
             if digest(Path(case['prepared']) / name) != sha:
@@ -286,6 +459,7 @@ def run(root, resume=False, only_agent=None, only_jobs=None):
             if digest(ROOT / name) != sha:
                 raise ValueError('Raw input changed after freeze')
     jobs = protocol['jobs']
+    previous_attempts = {}
     if resume:
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         selected = []
@@ -300,9 +474,18 @@ def run(root, resume=False, only_agent=None, only_jobs=None):
                 state = json.loads(done.read_text())
                 if state.get('error') is None and state['attempted_questions'] == state['expected_questions']:
                     continue
-                output.rename(output.parent / f'{output.name}.failed-{stamp}')
+                previous = output.parent / f'{output.name}.failed-{stamp}'
+                output.rename(previous)
+                previous_attempts[job_key(job)] = previous
             elif output.exists():
-                output.rename(output.parent / f'{output.name}.partial-{stamp}')
+                previous = output.parent / f'{output.name}.partial-{stamp}'
+                output.rename(previous)
+                previous_attempts[job_key(job)] = previous
+            previous = previous_attempts.get(job_key(job))
+            if previous and (previous / 'replay-verification.json').exists():
+                verified = json.loads((previous / 'replay-verification.json').read_text())
+                if not (previous / 'records.json').exists() and verified.get('source'):
+                    previous_attempts[job_key(job)] = Path(verified['source'])
             selected.append(job)
         jobs = selected
         resumes = protocol.setdefault('resumes', [])
@@ -316,14 +499,18 @@ def run(root, resume=False, only_agent=None, only_jobs=None):
         jobs_file, spend_file = folder / 'jobs.json', folder / 'spend.json'
     if protocol.get('agent_service_endpoint'):
         os.environ['TEXERA_AGENT_SERVICE_ENDPOINT'] = protocol['agent_service_endpoint']
-    guard = SpendGuard(protocol['spend_guard_usd'])
+    initial_spend = attempt_spend(folder)
+    save(folder / 'all-attempt-spend.json', initial_spend)
+    guard = SpendGuard(protocol['spend_guard_usd'], initial=initial_spend['guard_cost_usd'])
     rows = []
     with ThreadPoolExecutor(max_workers=protocol['concurrency']) as pool:
-        futures = [pool.submit(run_job, j, protocol, folder, guard, spend_file) for j in jobs]
+        futures = [pool.submit(run_job, j, protocol, folder, guard, spend_file, previous_attempts.get(job_key(j))) for j in jobs]
         for future in as_completed(futures):
             rows.append(future.result())
             save(jobs_file, rows)
-    print(json.dumps({'sessions': len(rows), 'solver_cost_usd': guard.total,
+    final_spend = attempt_spend(folder)
+    save(folder / 'all-attempt-spend.json', final_spend)
+    print(json.dumps({'sessions': len(rows), **final_spend,
                       'incomplete_sessions': sum(bool(r['error']) for r in rows)}), flush=True)
 
 

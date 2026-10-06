@@ -18,20 +18,24 @@
 """Which `operator@N` references pointed at a version that differed from the
 current table when they were made.
 
-A reference is *discriminating* when using the saved version could give a
-different answer than using the current operator: the operator was changed or
-deleted by a task after N, or its recorded result version at N differs from
-the current one at the referencing turn. A reference to a version that still
-equals the current table exercises nothing the current graph could not give.
+Successful accesses are compared with state immediately before that action.
+Discriminating data references require different complete table contents, or
+an operator genuinely absent from the live graph. Definition differences are
+reported separately. Missing captures or within-turn unobserved values remain
+unknown; a different execution identity alone never proves different values.
 
 Reads the pilot's records and observer captures; makes no model calls.
 """
 import argparse
 from collections import Counter
+from copy import deepcopy
 import gzip
+import hashlib
 import json
 from pathlib import Path
 import re
+from context_state_pilot import rows_digest, visible_tables
+from context_state_score import normalized_native_actions
 
 REFERENCE = re.compile(r'\b([A-Za-z_]\w*)@([1-9]\d*)\b')
 
@@ -74,37 +78,88 @@ def capture_at(run, turn):
     return json.loads(gzip.open(path, 'rt').read()) if path.exists() else None
 
 
-def version_at_save(tasks, operator, n):
-    """The result version recorded for `operator` at task n's save point, or the
-    latest earlier record (an operator unchanged since then keeps its version)."""
-    for task in sorted((t for t in tasks if t['task_id'] <= n), key=lambda t: -t['task_id']):
-        for op in task.get('operators', []):
-            if op['operator_id'] == operator and op.get('result_version'):
-                return op['result_version'], task['task_id']
-    return None, None
-
-
-def classify(reference, turn, capture, history_before):
+def classify(reference, turn, saved_state, current_state):
+    """Compare state immediately before a successful access. Different execution
+    identities alone do not establish different values; missing proof stays unknown."""
     kind, operator, n = reference
-    tasks = history_before.get('tasks', []) if history_before else []
-    changed_after = [t['task_id'] for t in tasks if n < t['task_id'] < turn and any(
-        b['id'] == operator for b in (t.get('operator_changes') or []) + (t.get('operator_deletions') or []))]
-    saved, recorded_at = version_at_save(tasks, operator, n)
-    current = (capture or {}).get('observerTables', {}).get(operator, {}).get('version') if capture else None
-    if isinstance(current, dict):
-        current = current.get('id')
-    if changed_after:
-        verdict = 'discriminating'
-    elif saved and current and saved != current:
-        verdict = 'discriminating'
-    elif saved and current and saved == current:
+    saved, current = saved_state.get(operator), current_state.get(operator)
+    definition = kind in ('read_definition', 'copy_definition', 'update_definition')
+    if not saved or not definition and not saved.get('available'):
+        verdict = 'historical_result_unavailable'
+    elif definition and not saved.get('definition'):
+        verdict = 'historical_definition_unknown'
+    elif not current or not current.get('present'):
+        verdict = 'operator_absent_now'
+    elif definition:
+        verdict = ('same_definition' if saved['definition'] == current.get('definition') else
+                   'definition_differs' if current.get('definition') else 'current_definition_unknown')
+    elif not current.get('available'):
+        verdict = 'current_result_unknown'
+    elif saved.get('value_hash') and current.get('value_hash'):
+        verdict = 'same_as_current' if saved['value_hash'] == current['value_hash'] else 'discriminating'
+    elif saved.get('result_version') and saved.get('result_version') == current.get('result_version'):
         verdict = 'same_as_current'
-    elif current is None and saved:
-        verdict = 'operator_absent_now'  # deleted or renamed since: the saved version is the only copy
     else:
         verdict = 'unknown'
     return {'kind': kind, 'operator': operator, 'task': n, 'turn': turn, 'verdict': verdict,
-            'changed_after_by_tasks': changed_after, 'saved_version_recorded_at': recorded_at}
+            'scope': 'definition' if definition else 'data', 'saved_version_recorded_at': n if saved else None,
+            'changed_after_by_tasks': []}
+
+
+def compact_capture(capture, value_cache=None):
+    state = {}
+    tables = visible_tables(capture)
+    operators = capture.get('snapshot', {}).get('workflow', {}).get('operators', [])
+    saved_handles = {op['operatorID']: f"{op['savedResult']['operatorId']}@{op['savedResult']['taskId']}"
+                     for op in operators if op.get('savedResult')}
+    for op in operators:
+        if op.get('savedResult'):
+            continue
+        name = op['operatorID']
+        info = capture.get('snapshot', {}).get('results', {}).get(name, {})
+        table = tables.get(name, {})
+        version = info.get('resultVersion') or table.get('version') or {}
+        version_id = version.get('id') if isinstance(version, dict) else version
+        native = op.get('nativeOp') or {}
+        semantic_inputs = [saved_handles.get(i, i) for i in native.get('inputs', [])]
+        definition = (hashlib.sha256(json.dumps({'type': native['type'], 'inputs': semantic_inputs,
+                                                'properties': native.get('properties', {})},
+                                               sort_keys=True).encode()).hexdigest() if native.get('type') else None)
+        value_hash = None
+        if table.get('complete') and 'rows' in table:
+            cache_key = (name, version_id)
+            if value_cache is not None and version_id and cache_key in value_cache:
+                value_hash = value_cache[cache_key]
+            else:
+                value_hash = rows_digest(table['rows'])
+                if value_cache is not None and version_id:
+                    value_cache[cache_key] = value_hash
+        state[name] = {'present': True, 'available': not info.get('error') and info.get('state') in ('Completed', 'CompletedFromCache'),
+                       'result_version': version_id,
+                       'definition': definition, 'operator_revision': native.get('revision'),
+                       'inputs': semantic_inputs,
+                       'value_hash': value_hash}
+    return state
+
+
+def apply_edit(state, output):
+    for name in output.get('invalidated_results', []):
+        if name in state:
+            state[name] = {**state[name], 'available': False, 'value_hash': None, 'result_version': None}
+    for change in output.get('changes', []):
+        name = change.get('operator_id')
+        verb = change.get('operation')
+        if verb == 'delete_operator':
+            state.pop(name, None)
+        elif name and verb in ('create_operator', 'update_operator', 'copy_definition', 'restore_operator'):
+            state[name] = {**state.get(name, {}), 'present': True, 'available': False, 'definition': None,
+                           'value_hash': None, 'result_version': None}
+    for block in output.get('operator_blocks', []):
+        if block.get('id') in state and block.get('inputs') is not None:
+            inputs = [i['id'] if isinstance(i, dict) else i for i in block['inputs']]
+            if inputs != state[block['id']].get('inputs'):
+                state[block['id']]['definition'] = None
+            state[block['id']]['inputs'] = inputs
 
 
 def edits_in(actions, existing):
@@ -127,7 +182,9 @@ def edits_in(actions, existing):
                 counts['updated_in_place' if op in existing else 'updated_new'] += 1
             elif verb == 'delete':
                 counts['deleted'] += 1
-            if verb != 'delete':
+            if verb == 'delete':
+                existing.discard(op)
+            else:
                 existing.add(op)
     return counts
 
@@ -146,30 +203,79 @@ def study(root):
             continue
         gold = json.loads((Path(protocol['cases'][job['task']]['prepared']) / 'gold.json').read_text())['turns']
         records = json.loads((run / 'records.json').read_text())
+        states, sealed, versions, value_cache, definitions = {}, {}, {}, {}, {}
+        for record in records:
+            capture = capture_at(run, record['turn_id'])
+            state = compact_capture(capture, value_cache) if capture else {}
+            del capture  # Do not retain a full observer while loading the next one.
+            states[record['turn_id']] = state
+            if record['completed']:
+                sealed[record['turn_id']] = state
+            for name, value in state.items():
+                if value.get('available') and value.get('result_version'):
+                    versions[(name, value['result_version'])] = value
+                if value.get('operator_revision') and value.get('definition'):
+                    definitions[(name, value['operator_revision'])] = value['definition']
         existing = set()
         for record in records:
             turn = record['turn_id']
-            actions = [a for batch in record.get('native_actions', []) for a in batch.get('actions', [])]
-            refs = references_in(actions)
-            capture = capture_at(run, turn)
-            previous = capture_at(run, turn - 1) if turn > 1 else None
-            history_before = (previous or {}).get('history') if previous else {'tasks': []}
+            requested, malformed = normalized_native_actions(record)
+            trace_path = run / f't{turn:02d}' / 'react_steps.json.gz'
+            with gzip.open(trace_path, 'rt') as source:
+                steps = json.load(source)['steps']
+            current = deepcopy(states.get(turn - 1, {}))
+            actions, classified = [], []
+            for step in steps:
+                for receipt in step.get('toolResults', []):
+                    batch = receipt.get('output')
+                    if not isinstance(batch, dict):
+                        continue
+                    for item in batch.get('actions', []):
+                        if item.get('status') != 'ok':
+                            continue
+                        action = item.get('action')
+                        if not isinstance(action, dict):
+                            continue
+                        # A read's exact result identity can resolve state at
+                        # access even if the same immutable proof was exported
+                        # only at the turn boundary. Never use a different ID.
+                        for ref in batch.get('references', []):
+                            if ref.get('actionIndex') != item.get('index') or ref.get('savedTaskId') is not None:
+                                continue
+                            name = ref.get('operatorId')
+                            proof = versions.get((name, ref.get('resultVersion')))
+                            if proof:
+                                current[name] = deepcopy(proof)
+                            elif name in current and ref.get('operatorRevision'):
+                                current[name]['definition'] = definitions.get((name, ref['operatorRevision']))
+                        actions.append(action)
+                        for ref in references_in([action]):
+                            classified.append(classify(ref, turn, sealed.get(ref[2], {}), current))
+                        output = item.get('output')
+                        if action.get('type') == 'edit' and isinstance(output, dict):
+                            apply_edit(current, output)
+                        elif action.get('type') == 'execute' and isinstance(output, dict):
+                            for op in output.get('operators', []):
+                                if op.get('state') != 'executed' or op.get('id') not in current:
+                                    continue
+                                current[op['id']].update(available=False, value_hash=None, result_version=None)
             judged = metrics.get((key, turn), {}).get('judge', {}).get('score')
             expected = gold[turn - 1]
             labels = expected.get('state_type', [])
             depends = expected.get('depends_tasks', [])
-            classified = [classify(ref, turn, capture, history_before) for ref in refs]
             edits = edits_in(actions, existing)
-            referenced_tasks = sorted({ref[2] for ref in refs})
+            referenced_tasks = sorted({ref['task'] for ref in classified})
             turns.append({'run': key, 'model': job['model'], 'context': job['context'], 'turn': turn, 'score': judged,
                           'labels': labels, 'depends_tasks': depends, 'referenced_tasks': referenced_tasks,
+                          'malformed_tool_calls': malformed, 'requested_references': len(references_in(requested)),
+                          'successful_references': len(classified),
                           'references_in_depends': sum(t in depends for t in referenced_tasks),
-                          'discriminating_references': sum(c['verdict'] in ('discriminating', 'operator_absent_now') for c in classified),
+                          'discriminating_references': sum(c['scope'] == 'data' and c['verdict'] in ('discriminating', 'operator_absent_now') for c in classified),
                           'same_as_current_references': sum(c['verdict'] == 'same_as_current' for c in classified),
                           'edits': dict(edits), 'calls': record['stats'].get('llm_calls'), 'cost_usd': record['stats'].get('cost_usd')})
             for c in classified:
                 rows.append({'run': key, 'model': job['model'], 'context': job['context'], 'score': judged, 'labels': labels, **c})
-            if not refs:
+            if not classified:
                 rows.append({'run': key, 'model': job['model'], 'context': job['context'], 'score': judged,
                              'labels': labels, 'kind': None, 'operator': None, 'task': None, 'turn': turn,
                              'verdict': 'no_reference', 'changed_after_by_tasks': [], 'saved_version_recorded_at': None})
@@ -202,7 +308,7 @@ def main():
     print(f'turns {len(turns)}, turns with a saved-version reference {len(with_ref)}')
     print('references by verdict:', dict(Counter(r['verdict'] for r in rows if r['kind'])))
     print('references by kind:', dict(Counter(r['kind'] for r in rows if r['kind'])))
-    disc = [r for r in rows if r['verdict'] in ('discriminating', 'operator_absent_now')]
+    disc = [r for r in rows if r.get('scope') == 'data' and r['verdict'] in ('discriminating', 'operator_absent_now')]
     print('discriminating references:', len(disc), 'in', len({(r["run"], r["turn"]) for r in disc}), 'turns')
     for r in disc[:20]:
         print(f"  {r['run']} t{r['turn']:02d} {r['kind']} {r['operator']}@{r['task']} score={r['score']} labels={r['labels']} changed_after={r['changed_after_by_tasks']}")

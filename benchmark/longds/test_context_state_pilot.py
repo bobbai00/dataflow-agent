@@ -16,10 +16,51 @@
 # under the License.
 
 import unittest
-from context_state_pilot import validate_case, SpendGuard, native_settings
+import json
+from pathlib import Path
+import tempfile
+from context_state_pilot import validate_case, SpendGuard, native_settings, attempt_spend, solver_signature, visible_tables
 
 
 class PilotContractTest(unittest.TestCase):
+    def test_replay_compares_visible_tables_not_internal_materialization_ids(self):
+        capture = {'snapshot': {'workflow': {'operators': [
+            {'operatorID': '_saved_handle', 'savedResult': {'taskId': 1}},
+            {'operatorID': '_saved_user_table'}]}},
+            'observerTables': {'_saved_handle': {'rows': []}, '_saved_user_table': {'rows': [1]}}}
+        self.assertEqual(list(visible_tables(capture)), ['_saved_user_table'])
+
+    def test_resume_budget_includes_archives_but_not_reused_prefixes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for name, record in [('old.failed-test', {'stats': {'cost_usd': .7}}),
+                                 ('new', {'stats': {'cost_usd': .7}, 'reused_from': 'old/t01'}),
+                                 ('other', {'stats': {'cost_usd': .4}})]:
+                run = folder / 'runs' / name
+                run.mkdir(parents=True)
+                (run / 'records.json').write_text(json.dumps([record]))
+            total = attempt_spend(folder)
+            self.assertAlmostEqual(total['known_cost_usd'], 1.1)
+            guard = SpendGuard(1, initial=total['known_cost_usd'])
+            with self.assertRaises(RuntimeError):
+                guard.check()
+
+    def test_arm_spending_includes_only_its_current_and_archived_attempts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for name, cost in [('native', .1), ('native.failed-old', .2), ('python', .4)]:
+                run = folder / 'runs' / name
+                run.mkdir(parents=True)
+                (run / 'records.json').write_text(json.dumps([{'stats': {'cost_usd': cost}}]))
+            self.assertAlmostEqual(attempt_spend(folder, {'native'})['known_cost_usd'], .3)
+
+    def test_solver_prompt_and_loop_changes_are_not_resume_exempt(self):
+        source = 'SHARED = "one"\ndef solve():\n return 1\nclass Kernel:\n def __init__(self):\n  self.root="old"\n'
+        wiring = source.replace('self.root="old"', 'self.root="new"')
+        self.assertEqual(solver_signature(source, 'catalog_pilot.py'), solver_signature(wiring, 'catalog_pilot.py'))
+        self.assertNotEqual(solver_signature(source, 'catalog_pilot.py'), solver_signature(source.replace('"one"', '"two"'), 'catalog_pilot.py'))
+        self.assertNotEqual(solver_signature(source, 'catalog_pilot.py'), solver_signature(source.replace('return 1', 'return 2'), 'catalog_pilot.py'))
+
     def test_missing_prefix_or_evaluator_fields_are_rejected(self):
         manifest = {'domain': 'd', 'dataset_name': 'x', 'task_id': 't',
                     'longds_version': 'v1.1', 'split': 'lite', 'files': ['data/x.csv'],
