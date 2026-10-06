@@ -107,11 +107,36 @@ def classify(reference, turn, capture, history_before):
             'changed_after_by_tasks': changed_after, 'saved_version_recorded_at': recorded_at}
 
 
+def edits_in(actions, existing):
+    """Operators created, updated in place (an operator that existed before this turn),
+    deleted, and definitions copied or restored from a saved version."""
+    counts = Counter()
+    for action in actions:
+        if action.get('type') != 'edit':
+            continue
+        for line in action.get('changes', '').splitlines():
+            m = re.match(r'(create|update|delete) operator (\w+)(?::| from (\w+)@(\d+)|\s*$)', line)
+            if not m:
+                continue
+            verb, op, source, _ = m.groups()
+            if source:
+                counts['copied_from_saved' if verb == 'create' else 'restored_from_saved'] += 1
+            elif verb == 'create':
+                counts['created'] += 1
+            elif verb == 'update':
+                counts['updated_in_place' if op in existing else 'updated_new'] += 1
+            elif verb == 'delete':
+                counts['deleted'] += 1
+            if verb != 'delete':
+                existing.add(op)
+    return counts
+
+
 def study(root):
     folder = root / 'pilot'
     protocol = json.loads((folder / 'protocol.json').read_text())
     metrics = {(m['run'], m['turn_id']): m for m in json.loads((folder / 'metrics.json').read_text())} if (folder / 'metrics.json').exists() else {}
-    rows = []
+    rows, turns = [], []
     for job in protocol['jobs']:
         if job['agent'] != 'dataflow':
             continue
@@ -119,7 +144,9 @@ def study(root):
         run = folder / 'runs' / key
         if not (run / 'records.json').exists():
             continue
+        gold = json.loads((Path(protocol['cases'][job['task']]['prepared']) / 'gold.json').read_text())['turns']
         records = json.loads((run / 'records.json').read_text())
+        existing = set()
         for record in records:
             turn = record['turn_id']
             actions = [a for batch in record.get('native_actions', []) for a in batch.get('actions', [])]
@@ -128,24 +155,48 @@ def study(root):
             previous = capture_at(run, turn - 1) if turn > 1 else None
             history_before = (previous or {}).get('history') if previous else {'tasks': []}
             judged = metrics.get((key, turn), {}).get('judge', {}).get('score')
-            labels = metrics.get((key, turn), {}).get('state_types', [])
-            for ref in refs:
-                rows.append({'run': key, 'model': job['model'], 'context': job['context'], 'score': judged,
-                             'labels': labels, **classify(ref, turn, capture, history_before)})
+            expected = gold[turn - 1]
+            labels = expected.get('state_type', [])
+            depends = expected.get('depends_tasks', [])
+            classified = [classify(ref, turn, capture, history_before) for ref in refs]
+            edits = edits_in(actions, existing)
+            referenced_tasks = sorted({ref[2] for ref in refs})
+            turns.append({'run': key, 'model': job['model'], 'context': job['context'], 'turn': turn, 'score': judged,
+                          'labels': labels, 'depends_tasks': depends, 'referenced_tasks': referenced_tasks,
+                          'references_in_depends': sum(t in depends for t in referenced_tasks),
+                          'discriminating_references': sum(c['verdict'] in ('discriminating', 'operator_absent_now') for c in classified),
+                          'same_as_current_references': sum(c['verdict'] == 'same_as_current' for c in classified),
+                          'edits': dict(edits), 'calls': record['stats'].get('llm_calls'), 'cost_usd': record['stats'].get('cost_usd')})
+            for c in classified:
+                rows.append({'run': key, 'model': job['model'], 'context': job['context'], 'score': judged, 'labels': labels, **c})
             if not refs:
                 rows.append({'run': key, 'model': job['model'], 'context': job['context'], 'score': judged,
                              'labels': labels, 'kind': None, 'operator': None, 'task': None, 'turn': turn,
                              'verdict': 'no_reference', 'changed_after_by_tasks': [], 'saved_version_recorded_at': None})
-    return rows
+    return rows, turns
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     args = parser.parse_args()
-    rows = study(args.root.resolve())
+    rows, turns = study(args.root.resolve())
     out = args.root.resolve() / 'pilot' / 'reference-study.json'
     out.write_text(json.dumps(rows, indent=1))
+    (args.root.resolve() / 'pilot' / 'turn-study.json').write_text(json.dumps(turns, indent=1))
+    edits = Counter()
+    for t in turns:
+        edits.update(t['edits'])
+    print('edits over all dataflow turns:', dict(edits))
+    by_label = {}
+    for label in ('Initial', 'Update', 'Rollback', 'Counterfactual'):
+        sel = [t for t in turns if label in t['labels']]
+        if sel:
+            by_label[label] = {'turns': len(sel), 'with_reference': sum(bool(t['referenced_tasks']) for t in sel),
+                               'with_discriminating': sum(t['discriminating_references'] > 0 for t in sel),
+                               'in_place_updates': sum(t['edits'].get('updated_in_place', 0) + t['edits'].get('restored_from_saved', 0) for t in sel),
+                               'created': sum(t['edits'].get('created', 0) for t in sel)}
+    print('by label:', json.dumps(by_label))
     turns = {(r['run'], r['turn']) for r in rows}
     with_ref = {(r['run'], r['turn']) for r in rows if r['kind']}
     print(f'turns {len(turns)}, turns with a saved-version reference {len(with_ref)}')
@@ -155,14 +206,6 @@ def main():
     print('discriminating references:', len(disc), 'in', len({(r["run"], r["turn"]) for r in disc}), 'turns')
     for r in disc[:20]:
         print(f"  {r['run']} t{r['turn']:02d} {r['kind']} {r['operator']}@{r['task']} score={r['score']} labels={r['labels']} changed_after={r['changed_after_by_tasks']}")
-    by_label = Counter()
-    for (run, turn) in with_ref:
-        for r in rows:
-            if (r['run'], r['turn']) == (run, turn):
-                for label in r['labels']:
-                    by_label[label] += 1
-                break
-    print('turns with a reference, by label:', dict(by_label))
     print('written', out)
 
 
