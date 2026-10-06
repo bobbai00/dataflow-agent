@@ -49,9 +49,10 @@ JUDGE_RATES = {'gpt-5.2': {'input': 1.75, 'cached': .175, 'write': 1.75, 'output
 
 def judge_client():
     """The judge endpoint is chosen by environment, like judge_longds.py."""
+    # A reasoning judge over a long JSON answer can take several minutes.
     return OpenAI(base_url=os.environ.get('JUDGE_BASE_URL', 'http://localhost:4000/v1'),
                   api_key=os.environ.get('JUDGE_API_KEY') or os.environ['LITELLM_MASTER_KEY'],
-                  max_retries=0, timeout=300)
+                  max_retries=0, timeout=900)
 
 
 def build_oracles(root):
@@ -112,7 +113,13 @@ def judge_record(folder, directory, record, gold, protocol, prompt):
     except FileExistsError:
         # A duplicate may be in flight, but a crash is never resubmitted.
         return {'score': None, 'error_detail': 'Judge intent exists; wait for cache result without resubmission'}
-    result = judge_one(judge_client(), model, prompt, turn, retries=1, max_tokens=8192)
+    result = judge_one(judge_client(), model, prompt, turn, retries=2, max_tokens=8192)
+    if result.get('score') is None and 'judge call failed' in str(result.get('error_detail', '')):
+        # A transport failure is not a verdict: leave no cache entry or intent, so the next
+        # evaluate resubmits it.
+        (cache / (key + '.started.json')).unlink(missing_ok=True)
+        save(destination, {**result, 'cache_reused': False})
+        return result
     amount = 0. if model in JUDGE_RATES else None
     for usage in result.get('usage', []) if amount is not None else []:
         details = usage.get('prompt_tokens_details') or {}
