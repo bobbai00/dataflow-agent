@@ -823,6 +823,10 @@ def _join_keys(spec):
 def _diff(spec, left, right, operations):
     props = spec["properties"]
     keys, columns = props["key"], props["columns"]
+    # Key values already appear in the output; comparing a key to itself adds
+    # no information, so require compared columns to be distinct from keys.
+    if set(keys) & set(columns):
+        raise _error(spec, "DIFF_COLUMNS", "Compare value columns separately from entity keys.")
     output_columns = [*keys, "status"]
     for column in columns:
         output_columns.extend(f"{column}_{suffix}" for suffix in ("left", "right", "delta", "abs_delta"))
@@ -849,10 +853,6 @@ def _diff(spec, left, right, operations):
                 frame[column] = frame[column].astype("Int64")
             elif pd.api.types.is_bool_dtype(frame[column]):
                 frame[column] = frame[column].astype("boolean")
-    # Key values already appear in the output; comparing a key to itself adds
-    # no information, so require compared columns to be distinct from keys.
-    if set(keys) & set(columns):
-        raise _error(spec, "DIFF_COLUMNS", "Compare value columns separately from entity keys.")
     left_values = left_values.rename(columns={c: f"{c}_left" for c in columns})
     right_values = right_values.rename(columns={c: f"{c}_right" for c in columns})
     output = left_values.merge(right_values, on=keys, how="outer", sort=False, validate="one_to_one", indicator=marker)

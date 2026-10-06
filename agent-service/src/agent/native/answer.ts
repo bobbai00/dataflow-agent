@@ -184,8 +184,14 @@ export function selectAnswerRows(id: string, info: OperatorInfo | undefined, sel
   let sorted: Record<string, unknown>[];
   try { sorted = [...rows].sort(compare); }
   catch (error) { return { reason: error instanceof Error ? error.message : String(error) }; }
-  if (sorted.length > selection.n && compare(sorted[selection.n - 1], sorted[selection.n]) === 0)
-    return { reason: `Boundary tie at row ${selection.n}; specify another sort column, such as market asc, to choose the requested rows.` };
+  if (sorted.length > selection.n && compare(sorted[selection.n - 1], sorted[selection.n]) === 0) {
+    // Suggest a column that names each row, when the table has one.
+    const used = new Set(selection.by.map(key => key.column));
+    const label = Object.keys(sorted[0] ?? {}).find(
+      name => !used.has(name) && sorted.every(row => typeof row[name] === "string" && row[name] !== "") && new Set(sorted.map(row => row[name])).size === sorted.length
+    );
+    return { reason: `Boundary tie at row ${selection.n}; add a tie-breaking sort column${label ? `, such as ${label} asc,` : ""} to choose the requested rows.` };
+  }
   const selected = sorted.slice(0, selection.n);
   return { ...info, result: selected, totalRowCount: selected.length, displayedRows: selected.length, truncated: false };
 }

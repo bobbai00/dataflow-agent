@@ -33,6 +33,8 @@ import type { NativeValidationRepair } from "../native/validation-repair";
 export interface ToolContext {
   metadataStore?: WorkflowSystemMetadata;
   nativeValidationRepair?: NativeValidationRepair;
+  /** Replaying recorded edits: accept the retired `fork … as …` and `update … from task N` commands. */
+  legacyVersionCommands?: boolean;
   settings?: {
     maxOperatorResultCharLimit?: number;
     toolTimeoutMs?: number;

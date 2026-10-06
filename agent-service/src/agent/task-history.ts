@@ -73,6 +73,8 @@ export interface TaskRecord {
   answer: string;
   /** Exact answer selection, separate from the full working-table sources. */
   answer_from?: string;
+  /** Operators with a completed result at the answer: readable later as `ID@task_id`. */
+  saved_versions?: string[];
   status: "answered" | "incomplete";
   operators: TaskOperator[];
   /** First-edit order, with one final saved definition per changed operator. */
@@ -202,7 +204,7 @@ export function taskHistoryFromSteps(
 export function buildTaskGraph(
   storage: WorkflowSnapshotStorage,
   tasks: readonly TaskHistory[],
-  options: Pick<ObservationFormatOptions, "catalogStatistics" | "catalogRecords"> = {}
+  options: Pick<ObservationFormatOptions, "catalogStatistics" | "catalogRecords"> & { stateHistory?: boolean } = {}
 ): TaskRecord[] {
   const includeResultStatistics = options.catalogStatistics === true;
   const recordLimit = options.catalogRecords ?? 0;
@@ -309,6 +311,17 @@ export function buildTaskGraph(
         }
       }
     const workflow = storage.getWorkflow(task.stepId);
+    // What the answer saved: every visible operator whose result was complete
+    // at that step. Hidden saved-result handles are references, not versions.
+    const savedVersions = options.stateHistory
+      ? workflow.operators
+          .filter(op => !op.savedResult)
+          .filter(op => {
+            const info = storage.getOperatorResult(task.stepId, op.operatorID);
+            return !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state);
+          })
+          .map(op => op.operatorID)
+      : undefined;
     const operatorRecords = taskCatalogRecords(storage, task, touched.keys(), recordLimit);
     const operators = [...touched].map(([id, change]): TaskOperator => {
       const op = workflow.operators.find(o => o.operatorID === id);
@@ -346,6 +359,7 @@ export function buildTaskGraph(
         return action?.type === "answer" && "from" in action ? { answer_from: action.from } : {};
       })(),
       status: task.status,
+      ...(savedVersions ? { saved_versions: savedVersions } : {}),
       operators,
       ...taskOperatorCatalog(storage, task, delta, roots, includeResultStatistics, ordered),
       ...(Object.keys(operatorRecords).length ? { operator_records: operatorRecords } : {}),
@@ -363,7 +377,7 @@ const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
 const TASK_HISTORY_INTRO =
-  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Operator blocks show added or modified operators in first-edit order, with their final saved definitions for that task. Dependencies record computation and reads, not correctness or every semantic dependency. Read relevant ID@task definitions (view=null) or completed results; include_implementation supplies process bodies on demand. Saved result addresses are immutable.";
+  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Operator blocks show added or modified operators in first-edit order, with their final saved definitions for that task. Dependencies record computation and reads, not correctness or every semantic dependency. Read relevant ID@task definitions (view=null) or completed results; include_implementation supplies process bodies on demand. Saved result addresses are immutable. Each entry's Saved versions line names what that task saved; an operator unchanged since an earlier task is also readable under that earlier number.";
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
@@ -375,9 +389,15 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
   const collapsed = new Set(
     task.forks?.flatMap(fork => fork.collapsed_operator_ids.filter(id => !recordText(id))) ?? []
   );
+  const saved = task.saved_versions ? new Set(task.saved_versions) : undefined;
+  const versionLine = (block: OperatorBlock) =>
+    !saved || block.state.startsWith("deleted")
+      ? []
+      : [saved.has(block.id) ? `  - saved as ${inlineCode(`${block.id}@${task.task_id}`)}` : "  - saved: no completed result"];
   const blockWithRecords = (block: OperatorBlock) =>
     [
       operatorBlock(block),
+      ...versionLine(block),
       ...(recordText(block.id)
         ?.split("\n")
         .map(line => `  ${line}`) ?? []),
@@ -399,6 +419,7 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
     ...(task.answer_from ? [`Selection: ${task.answer_from}`] : []),
     `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
     `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => inlineCode(`${root.operator_id}@${root.task_id}`)).join(", ") || "[] (explicitly no table)" : "not declared"}`,
+    ...(saved ? [savedVersionsLine(task.task_id, saved, changedIds)] : []),
     ...(includeOperatorChanges && referenced.length
       ? [
           "Referenced results:",
@@ -418,6 +439,21 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
   ]
     .join("\n")
     .trimEnd();
+}
+
+/** The versions a task saved: the ones it changed first, then the rest of
+ * the graph, which an earlier task may already have saved under its number. */
+function savedVersionsLine(taskId: number, saved: ReadonlySet<string>, changed: ReadonlySet<string>): string {
+  const name = (id: string) => inlineCode(`${id}@${taskId}`);
+  if (!saved.size) return "Saved versions: none (no operator had a completed result).";
+  const changedSaved = [...saved].filter(id => changed.has(id));
+  const unchanged = [...saved].filter(id => !changed.has(id));
+  const shown = unchanged.slice(0, Math.max(0, 12 - changedSaved.length));
+  const more = unchanged.length - shown.length;
+  return (
+    `Saved versions: ${changedSaved.map(name).join(", ") || "none changed in this task"}` +
+    (unchanged.length ? `; unchanged, still readable: ${shown.map(name).join(", ")}${more > 0 ? ` … +${more} more` : ""}` : "")
+  );
 }
 
 export function renderTaskIndex(

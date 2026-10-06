@@ -92,6 +92,8 @@ export interface DataflowActionsResult {
   task_catalog?: Readonly<TaskRecord>;
   /** Versioned receipt protocol; absent on imported legacy action traces. */
   saved_versions?: true;
+  /** Set when this task's results could not be retained in the engine for later `@N` use. */
+  retention?: string;
 }
 
 const text = { type: "string", minLength: 1, pattern: "\\S" };
@@ -179,7 +181,7 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "execute",
-          "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately.",
+          "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately.",
           { operator_ids: { type: "array", items: text, minItems: 1 } }
         ),
         action(
@@ -203,7 +205,7 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "answer",
-          "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed); several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, over 50 rows, unrounded decimals) is refused with the reason.",
+          "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed), and optionally a cut over the complete table: top N by column asc|desc, with further columns to break ties; several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, more than 50 rows after any cut, unrounded decimals, a tie at the cut) is refused with the reason.",
           { from: text }
         ),
       ],
@@ -265,6 +267,12 @@ SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf = SAVED_ACTIONS_SCHEMA.prope
     (a.properties.type.const === "answer" && "from" in a.properties) ||
     ("target" in a.properties && (a.properties.target as { const: string }).const === "reference")
 );
+for (const entry of SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf) {
+  entry.description = entry.description.replace("retrieve tables separately", "read tables separately");
+  if (entry.properties.type.const === "edit" && "changes" in entry.properties)
+    (entry.properties as unknown as { changes: { description: string } }).changes.description =
+      "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port; update operator id from id@N (the definition saved at the end of task N becomes current on today's inputs); create operator new from id@N (an editable copy with its saved direct inputs). A saved result is an edge source as id@N.out. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed edit applies no changes.";
+}
 SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action("read", "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns.", {
     operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8 },
@@ -310,7 +318,7 @@ function validationMessage(input: any, stateHistory: boolean, savedVersions = fa
         ) ??
         (item?.type === "inspect" ? undefined : candidates[0]);
       if (!selected)
-        return `Action ${index + 1} (inspect): target must be graph, operator, reference${stateHistory ? ", state, or task" : ""}.`;
+        return `Action ${index + 1} (inspect): target must be ${savedVersions ? "reference" : `graph, operator, reference${stateHistory ? ", state, or task" : ""}`}.`;
       if (!selected.validate(item))
         return `Action ${index + 1} (${item.type}): ${ajv.errorsText(selected.validate.errors?.slice(0, 1))}.`;
     }

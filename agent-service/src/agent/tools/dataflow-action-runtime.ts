@@ -540,8 +540,15 @@ export async function executeDataflowActionBatch(
       for (const selected of selections) {
         const { address, op, workflow, task } = selected;
         let info = selected.info;
+        // Several tables share one columns list: each table keeps the columns
+        // it has, and a table with none of them is an error.
+        const schema = new Set(info?.resultSchema?.map(c => c.name) ?? []);
+        const absent = schema.size ? (action.columns ?? []).filter(name => !schema.has(name)) : [];
+        if (action.view !== null && info && action.columns && absent.length === action.columns.length)
+          throw new Error(`UNKNOWN_COLUMN: ${address} has no columns ${absent.join(", ")}.`);
+        const columns = action.columns ? action.columns.filter(name => !absent.includes(name)) : undefined;
         if (action.view === "full" && info && Array.isArray(info.result) && info.result.length < (info.totalRowCount ?? info.outputTuples) && runtime.readResult)
-          info = await runtime.readResult(op, info, action.columns ?? undefined, false);
+          info = await runtime.readResult(op, info, columns, false);
         const names = (id: string) => {
           const displayed = displayedOperatorId(workflow, id);
           return task && displayed === id ? `${id}@${task.taskId}` : displayed;
@@ -555,15 +562,13 @@ export async function executeDataflowActionBatch(
         operatorBlocks.push(selectedBlock);
         recordReference(op.operatorID, action.view === null ? "definition" : "read", index, task?.taskId, task?.stepId);
         if (action.view !== null && info) {
-          const schema = new Set(info.resultSchema?.map(c => c.name) ?? []);
-          const unknown = (action.columns ?? []).filter(name => schema.size && !schema.has(name));
-          if (unknown.length) throw new Error(`UNKNOWN_COLUMN: ${address} has no columns ${unknown.join(", ")}.`);
           const observation = selectNativeObservation({
             ...retrievalOptions(settings, action.view), op, info, workflow,
-            ...(action.columns ? { columns: action.columns } : {}), displayName: names,
+            ...(columns ? { columns } : {}), displayName: names,
             resolveInput: id => task ? storage.getOperatorResult(task.stepId, id) : current(id),
           });
-          observations.push({operator_id:address,text:observation.text});
+          const note = absent.length ? `\n${address} has no columns ${absent.join(", ")}; its other requested columns are shown.` : "";
+          observations.push({operator_id:address,text:observation.text + note});
           if (!task && selected.info)
             currentReads.set(`${index}:${op.operatorID}`, {operatorId:op.operatorID,info:selected.info,observation,actionIndex:index});
         }
@@ -594,7 +599,9 @@ export async function executeDataflowActionBatch(
       const plan = await planVersionedGraphEdit(
         before,
         action.changes,
-        { ...context, settings },
+        // Saved-versions sessions address versions as ID@task; the retired
+        // fork/restore commands remain for legacy history sessions and replay.
+        { ...context, settings, legacyVersionCommands: context.legacyVersionCommands || !result.saved_versions },
         storage,
         runtime.historicalTasks ?? []
       );
@@ -917,7 +924,7 @@ export async function executeDataflowActionBatch(
           !Array.isArray(info.result)
         )
           throw new Error(
-            `Answer operator ${id} has no completed result. Name an existing answer table and execute it if needed, or answer without operator_ids.`
+            `Answer operator ${id} has no completed result. Name an existing answer table and execute it if needed, or ${result.saved_versions ? "pass [] if no table was used" : "answer without operator_ids"}.`
           );
       }
       for (const id of action.operator_ids) {
@@ -957,7 +964,19 @@ export async function executeDataflowActionBatch(
       }
       composed = { answer_from: parsed.parts.map(part => part.id).join(", "), answer: outcome.json };
     }
-    if (settings.stateHistory && runtime.retainResults) await runtime.retainResults();
+    // Saved versions are only as good as their retained materializations:
+    // a task whose results were not retained says so in its boundary receipt.
+    if (settings.stateHistory || result.saved_versions) {
+      if (!runtime.retainResults)
+        result.retention = "RETENTION_UNAVAILABLE: no engine connection retained this task's results; connecting them as inputs or paging them in full will fail.";
+      else {
+        try {
+          await runtime.retainResults();
+        } catch (error) {
+          result.retention = `RETENTION_FAILED: ${error instanceof Error ? error.message : String(error)}. Connecting this task's results as inputs or paging them in full will fail.`;
+        }
+      }
+    }
     if (settings.stateLedger) {
       // The answer is recorded in the step; the receipt carries the task's
       // ledger instead of echoing the answer a second time.

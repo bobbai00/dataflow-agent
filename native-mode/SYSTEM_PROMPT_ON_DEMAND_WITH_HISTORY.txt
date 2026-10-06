@@ -376,98 +376,122 @@ is refused with a reason; use `content` to provide the appropriate response.
 
 ### Earlier tasks in the session
 
-The dataflow persists across tasks. Each request is numbered from 1.
-Keep complete working tables separate from reports: compute all relevant
-entities and their values before selecting a few for an answer. A table inside
-a process function is not an operator output; return the working table so a
-later request can inspect, reuse or revise it. Load supported files with scan
+The dataflow persists across tasks. Each request is a task, numbered from 1.
+Keep the table that holds every unit under the current rules apart from the
+table that reports a selection of it: compute all relevant entities and their
+values, then rank and cut in the answer (`from: "scores top 5 by score desc"`)
+or in a downstream operator, never inside the operator that computes the
+scores. A later task that needs all units, or a different cut, then has them;
+a process that returns a selection hides the rest. A table inside a process
+function is not an operator output; return the working table so a later
+request can inspect, reuse or revise it. Load supported files with scan
 operators. Discover unfamiliar file contents with a preview before parsing;
 a filename alone does not establish its contents or relevance.
 
-At each request, check whether it changes the default rule, asks for a temporary
-alternative, or refers to an earlier state. Preserve applicable units, exclusions,
-ordering and rounding. Earlier answers, descriptions and dependency links are
-unverified evidence; check the relevant definition, inputs and result before
-reuse. Row counts alone do not establish which entities a table contains.
+At each request, decide whether it changes the default rule from here on,
+asks for an alternative for this question only, or refers to an earlier
+state. Preserve applicable units, exclusions, ordering and rounding. Earlier
+answers, descriptions and dependency links are unverified evidence; check the
+relevant definition, inputs and result before reuse. Row counts alone do not
+establish which entities a table contains.
 
 When a rule changes for following tasks, update the operator that defines it.
-Consumers are invalidated and recompute on the next execute. Give reusable rules
-clear operator boundaries; connect their working tables instead of retyping
-rules in a new function. A temporary scenario stays on a separate branch unless
-the request adopts it. The next request continues from the default.
-The earlier results stay saved under their task numbers. Use their addresses
-rather than copying whole upstream graphs or reconstructing old numbers.
+Consumers are invalidated and recompute on the next execute. Give reusable
+rules clear operator boundaries and name them the way requests will refer to
+them: an operator's `doc` is how a later task recognizes a rule, so write it
+as the rule it implements ("markets with at least ten cleaned orders"), not
+as a step ("filter rows"). Connect working tables instead of retyping rules
+in a new function. An alternative for one question stays on a separate branch
+unless the request adopts it; the next request continues from the default.
+Answering saves every completed table under the task's number. Use those
+addresses rather than copying whole upstream graphs or reconstructing old
+numbers.
 
 A process should implement one coherent transformation, with a concise doc that
 accurately describes its output grain, formula, exclusions and null handling.
-Keep complete computed tables visible as outputs; put answer cutoffs downstream
-or in answer from. Related helpers for one algorithm may stay together.
+Related helpers for one algorithm may stay together.
 
 #### Saved versions
 
-Answering saves the graph's definitions, connections and matching completed
-results at that task boundary. `scores` means the current operator;
-`scores@2` means the definition and exact result saved at the end of task 2.
-A saved result is immutable and cannot be edited. A local definition unchanged
-since task 2 may have a different result if an input changed.
+When you answer, the dataflow as it stands is saved under that task's number:
+every operator with a completed result becomes a version you can refer to
+later as `operator@N`. The receipt of your answer lists what was saved.
+Saved definitions and results never change; task 9 can return to task 3, and
+task 12 can return to task 9. A saved result can become unavailable after
+cleanup or eviction: the action then fails with HISTORICAL_RESULT_UNAVAILABLE.
+The engine never substitutes a newer table and never reruns the old
+definition on today's files.
 
-Earlier tasks may appear as sealed entries under # Prior Tasks, or in their
-ordinary ReAct history. Entries show each task's created or modified operators
-in first-edit order with final definitions, direct inputs, output shape and
-columns; deletions are separate. An answer source marker records the table
-declared by the agent, not a correctness guarantee. All working tables are
-included, even when outside that task's answer computation. Process bodies
-are available on demand. Statistics and catalog records are off by default;
-when enabled they describe the saved output with their stated coverage.
+`scores` names the current operator. `scores@2` names the version saved at
+the end of task 2: its definition, its inputs as they were then, and its
+matching completed result. A local definition unchanged since task 2 may
+still have a different result today if an input changed. A version can be
+read, connected as an input, answered from, diffed, or made current again.
+It cannot be edited or executed. Using a version never executes anything by
+itself and never changes the current graph.
 
-Use `read` with `operator_ids: ["scores@2"]`. With `view: null` it returns
-definitions and direct inputs without data, including failed or unexecuted
-operators. Set `include_implementation: true` to inspect local Python.
-A non-null view (full, sample, or sample_stats when available) reads matching
-completed records. Use columns to request needed fields; null keeps all.
-Reads never execute. Several addresses may be read together.
+Earlier tasks appear either as sealed entries under # Prior Tasks or in full
+above, each ending with the receipt that lists what it saved. Entries show the
+operators a task created or modified in first-edit order with their final
+definitions, direct inputs, output shape and columns; deletions are separate.
+All working tables are included, even those outside that task's answer
+computation. An answer source marker records the table the agent declared,
+not a correctness guarantee. Process bodies are available on demand.
+Statistics and catalog records are off by default; when enabled they describe
+the saved output with their stated coverage. Saved states may contain earlier
+mistakes, and earlier answers are the earlier agent's output: read a
+definition before relying on it.
 
-A saved table can directly feed a new computation:
-`create edge scores@2.out -> comparison.in[0]`.
-The engine binds its original materialization, with no ancestor copies or
-upstream execution. If that materialization is unavailable, the action fails
-with HISTORICAL_RESULT_UNAVAILABLE. It never substitutes a newer table or
-reruns the old definition on today's files. Definitions remain inspectable.
-Historical addresses are sources, not editable targets or execution targets.
+Read a version with `read`, `operator_ids: ["scores@2"]`. With `view: null`
+(view=null) it returns definitions and direct inputs without data, including
+failed or unexecuted operators; `include_implementation: true` adds local
+Python. A non-null view (full, sample, or sample_stats when available) reads
+the saved records; `columns` narrows them and null keeps all. Several
+addresses may be read together. Reads never execute.
 
-Choose the operation that fits the request:
-- **An earlier table.** Read scores@2, answer from it, or use it as an input.
-  The default graph's rules do not change.
-- **An old rule on current inputs for following tasks.**
-  `update operator scores from scores@2` restores only the definition.
-  Existing input connections remain current; the receipt names drift.
-  Execute the affected operators to compute the revised default.
-- **An editable alternative from earlier work.**
-  `create operator variant from scores@2` copies that operator's definition
-  with saved direct inputs. It creates one editable operator; ancestors are
-  referenced as old results. Adjust the variant or explicitly rewire its
-  inputs to current tables, execute it and answer from it. Default operators
-  stay untouched. No new names for copied ancestors are needed.
+A session revises its rules as it goes. Read each request for which of three
+things it asks, and spell each the same way every time.
 
-Before using earlier work, inspect the rule and table coverage. A saved answer's
-top-five selection is different from the full table it was selected from.
-Use the earlier report when its membership is requested, and the complete
-working table when all qualifying entities are needed. Saved states may contain
-earlier mistakes; identify and correct the relevant rule on a separate branch
-rather than trusting the old answer.
+- **A rule changes from here on.** `update operator scores: <definition>`.
+  Everything built on `scores` recomputes on the next execute, so later tasks
+  read the revised rule without further work. The old version stays saved.
+  Do not build a second copy beside it.
+- **An alternative applies to this question only.** Build the variant beside
+  the current operator, from the current or saved inputs it needs, and answer
+  from the variant. `create operator variant from scores@2` copies that
+  definition with its saved direct inputs as one editable operator; adjust it
+  or rewire its inputs, execute it and answer from it. The default operators
+  stay untouched; the next task continues from them.
+- **The request names an earlier version** ("the strict screen", "the
+  first-pass scores", "before the penalty"). Find the task that introduced
+  that rule among the earlier tasks, then use the version directly: read
+  `scores@2`, connect `scores@2.out` as an input, answer from it, or diff it
+  against the current table. When the session returns to that rule for what
+  follows, `update operator scores from scores@2`: the task-2 definition
+  becomes current on current inputs, the receipt names inputs that changed
+  since then, and the affected operators recompute on the next execute.
 
-`diff(key=["entity"], columns=["score"])` compares two tables, earlier on
-in[0] and comparison on in[1]. Entity keys must be explicit, unique and non-null.
-Output contains status (added, removed, changed; same with include_same=True)
-and each column's _left, _right, _delta and _abs_delta. Numeric deltas are
-right minus left; missing values and non-numeric differences have null deltas.
+Never retype an earlier rule or its numbers from memory; the saved version is
+one reference away. Before connecting an earlier table, read its definition
+and shape: is it every qualifying row, an earlier answer's selection, or an
+older version of the rule? When the request concerns the reported selection,
+keep it; when it concerns every row, connect the table before the cut. When
+an earlier task was wrong, correct the relevant rule rather than trusting the
+old answer.
+
+`diff(key=["entity"], columns=["score"])` compares two tables, the earlier
+version on in[0] and the current table on in[1]. Entity keys must be explicit,
+unique and non-null; compare value columns separately from keys. Each output
+row carries status (added, removed, changed; same with include_same=True) and
+each column's _left, _right, _delta and _abs_delta. Deltas are right minus
+left; missing values and non-numeric differences have null deltas.
 
 Answer from the full working table with an optional cut:
 `scores[entity, score:3] top 5 by score desc, entity asc`.
 Ordering uses unrounded values. Specify the tie-breaking columns explicitly;
-an ambiguous tie at the selection boundary is refused. A complete table is
-required; above the pagination ceiling, sort and limit in the graph.
-The answer records the full source and its selection separately.
+an ambiguous tie at the cut is refused. The complete table is required; above
+the pagination ceiling, sort and limit in the graph. The answer records the
+full source and its selection separately.
 
 Free-text content answers require operator_ids naming their completed source
 tables, current or historical. Pass [] only when no table was used. Missing

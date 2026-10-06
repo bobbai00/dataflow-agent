@@ -124,7 +124,8 @@ export function renderActionObservations(result: DataflowActionsResult): string 
       const output = item.output as any;
       if (item.status === "ok" && item.action.type === "answer" && result.saved_versions && result.task_catalog) {
         const boundary = renderTaskBoundary(result.task_catalog);
-        return `${title}\n${boundary.split("\n").map(line => `> ${line}`).join("\n")}`;
+        const retention = result.retention ? [`> Retention: ${result.retention}`] : [];
+        return [title, ...boundary.split("\n").map(line => `> ${line}`), ...retention].join("\n");
       }
       if (item.status === "ok" && item.action.type === "inspect" && item.action.target === "reference")
         return `${title}\n${output.text}`;

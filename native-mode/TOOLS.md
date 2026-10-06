@@ -245,7 +245,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "type",
               "operator_ids"
             ],
-            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately."
+            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately."
           },
           {
             "type": "object",
@@ -351,7 +351,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "type",
               "from"
             ],
-            "description": "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed); several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, over 50 rows, unrounded decimals) is refused with the reason."
+            "description": "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed), and optionally a cut over the complete table: top N by column asc|desc, with further columns to break ties; several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, more than 50 rows after any cut, unrounded decimals, a tie at the cut) is refused with the reason."
           }
         ]
       }
@@ -496,7 +496,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes."
+                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port; update operator id from id@N (the definition saved at the end of task N becomes current on today's inputs); create operator new from id@N (an editable copy with its saved direct inputs). A saved result is an edge source as id@N.out. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed edit applies no changes."
               }
             },
             "required": [
@@ -527,7 +527,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "type",
               "operator_ids"
             ],
-            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately."
+            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this when unrelated branches are unfinished or failed. Returns status and errors; read tables separately."
           },
           {
             "type": "object",
@@ -547,7 +547,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "type",
               "from"
             ],
-            "description": "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed); several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, over 50 rows, unrounded decimals) is refused with the reason."
+            "description": "Compose the final response from executed tables and end the loop: from is a table id, optionally with a projection [key=column:digits, ..., :digits] that names the keys, picks the columns and rounds numbers (:full keeps a value as computed), and optionally a cut over the complete table: top N by column asc|desc, with further columns to break ties; several parts separated by ; (key=table[...]) give one answer key per table. One row gives an object, several rows a list of row objects, one column a list. May follow execute in the same call; a table the runtime cannot answer from (empty, more than 50 rows after any cut, unrounded decimals, a tie at the cut) is refused with the reason."
           },
           {
             "type": "object",

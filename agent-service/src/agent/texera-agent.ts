@@ -2663,7 +2663,11 @@ export class TexeraAgent {
                         item.action.changes,
                         // Replay earned capabilities even when the receiving
                         // agent has not exposed historical tools yet.
-                        { metadataStore: this.metadataStore, settings: { ...this.settings, stateHistory: true } },
+                        {
+                          metadataStore: this.metadataStore,
+                          settings: { ...this.settings, stateHistory: true },
+                          legacyVersionCommands: true,
+                        },
                         this.snapshotStorage,
                         this.completedStateTasks()
                       );
@@ -3077,7 +3081,14 @@ export class TexeraAgent {
           },
           execute: operatorIds => this.executePostStepChanges([], [], true, operatorIds),
           ...(savedResultClient ? {
-            retainResults: () => retainSnapshotResults(savedResultClient, this.workflowState.getWorkflowContent(), id => this.snapshotStorage.getOperatorResult(stepId, id)),
+            retainResults: async () => {
+              try {
+                await retainSnapshotResults(savedResultClient, this.workflowState.getWorkflowContent(), id => this.snapshotStorage.getOperatorResult(stepId, id));
+              } catch (error) {
+                this.log.error({ err: error, stepId }, "saved versions: retaining this task's results failed");
+                throw error;
+              }
+            },
             readResult: (op: import("../types/workflow").OperatorPredicate, info: OperatorInfo, columns?: string[], requireComplete?: boolean) => readMaterializedResult(savedResultClient, op, info, { columns, requireComplete,
               ...(requireComplete ? {} : { maxBytes: this.settings.fullResultCharLimit }) }),
           } : {}),

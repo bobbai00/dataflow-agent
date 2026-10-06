@@ -245,6 +245,14 @@ export async function planGraphEdit(
       if (operation === "fork_operator" || operation === "restore_operator" || operation === "copy_definition") {
         if (!resolveVersion) throw new Error("Saved-version commands require stateHistory.");
         const versionCommand = command as unknown as VersionCommand;
+        // `fork … as …` and `update … from task N` were retired with the
+        // saved-versions model; recorded edits still replay them.
+        if ((operation === "fork_operator" || operation === "restore_operator") && !context.legacyVersionCommands)
+          throw new Error(
+            operation === "fork_operator"
+              ? `Forks are not available. \`create operator ${versionCommand.as ?? "<new>"} from ${id}@${versionCommand.task}\` creates an editable copy with its saved direct inputs; \`create edge ${id}@${versionCommand.task}.out -> <target>.<port>\` connects the saved result.`
+              : `Use \`update operator ${id} from ${id}@${versionCommand.task}\` to make the definition saved at the end of task ${versionCommand.task} current on today's inputs.`
+          );
         const resolved = resolveVersion(versionCommand, stagedWorkflow());
         versions.push({
           command: {
@@ -318,6 +326,7 @@ export async function planGraphEdit(
         receipts.push({ operation, operator_id: id });
       } else if (operation === "delete_operator") {
         const node = required(id);
+        if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
         const removed = [...edges.values()].filter(e => e.source === id || e.target === id);
         for (const edge of removed) {
           edges.delete(edgeText(edge));
@@ -361,6 +370,14 @@ export async function planGraphEdit(
         changed.add(edge.target);
         receipts.push({ operation, edge: edgeText({ ...edge, source: command.source }) });
       }
+    }
+    // A saved-result handle exists only to feed an edge. One left without a
+    // consumer (its edge or consumer was deleted) leaves the draft with it.
+    for (const [id, template] of templates) {
+      if (!template.savedResult || !nodes.has(id)) continue;
+      if ([...edges.values()].some(edge => edge.source === id)) continue;
+      nodes.delete(id);
+      templates.delete(id);
     }
     location = "Resulting graph: ";
     for (const [id, view] of nodes) {
