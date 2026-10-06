@@ -54,6 +54,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                     "map",
                     "aggregate",
                     "join",
+                    "diff",
                     "union",
                     "distinct",
                     "sort",
@@ -427,6 +428,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                     "map",
                     "aggregate",
                     "join",
+                    "diff",
                     "union",
                     "distinct",
                     "sort",
@@ -488,65 +490,6 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
             "properties": {
               "type": {
                 "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "graph"
-              },
-              "operator_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "\\S"
-                },
-                "minItems": 1,
-                "maxItems": 8
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_ids"
-            ],
-            "description": "Inspect only the named current operators and their direct input references, shapes and columns. Expand individual inputs as needed; never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "operator"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              },
-              "include_implementation": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id",
-              "include_implementation"
-            ],
-            "description": "Read an operator's definition, ports, connections and description. Request its registered Python functions when needed."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
                 "const": "edit"
               },
               "changes": {
@@ -561,20 +504,6 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "changes"
             ],
             "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "execute"
-              }
-            },
-            "required": [
-              "type"
-            ],
-            "description": "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
           },
           {
             "type": "object",
@@ -606,92 +535,6 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
             "properties": {
               "type": {
                 "type": "string",
-                "const": "retrieve"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              },
-              "view": {
-                "type": "string",
-                "enum": [
-                  "sample_stats",
-                  "full"
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "operator_id",
-              "view"
-            ],
-            "description": "Read an existing result: sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics; full requests records up to its character cap; narrow large tables first. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "retrieve"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              },
-              "view": {
-                "type": "string",
-                "enum": [
-                  "sample_stats",
-                  "full"
-                ]
-              },
-              "columns": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "\\S"
-                },
-                "minItems": 1
-              }
-            },
-            "required": [
-              "type",
-              "operator_id",
-              "view",
-              "columns"
-            ],
-            "description": "Read an existing result restricted to the named columns, in the same views (sample_stats, full); use it on a wide table instead of a projection operator when only some columns are needed. Never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "answer"
-              },
-              "content": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S"
-              }
-            },
-            "required": [
-              "type",
-              "content"
-            ],
-            "description": "Return the final response and end the loop. Must be the only action; base the answer on results already received."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
                 "const": "answer"
               },
               "from": {
@@ -712,64 +555,18 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
             "properties": {
               "type": {
                 "type": "string",
-                "const": "inspect"
+                "const": "read"
               },
-              "target": {
-                "type": "string",
-                "const": "task"
-              },
-              "task_id": {
-                "type": "integer",
-                "minimum": 1
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "task_id"
-            ],
-            "description": "Read an earlier question, answer and dependency links with the local answer computation and references to unchanged saved inputs. Without declared answer roots, list candidates for explicit selection instead of expanding exploratory reads. No Python or result tables in this form. Never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "task"
-              },
-              "task_id": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "operator_id": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1,
-                    "pattern": "\\S"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "pattern": "\\S"
-                    },
-                    "minItems": 1,
-                    "maxItems": 8
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "include_implementation": {
-                "type": "boolean"
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true
               },
               "view": {
                 "anyOf": [
@@ -784,17 +581,36 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                     "type": "null"
                   }
                 ]
+              },
+              "include_implementation": {
+                "type": "boolean"
+              },
+              "columns": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
               "type",
-              "target",
-              "task_id",
-              "operator_id",
+              "operator_ids",
+              "view",
               "include_implementation",
-              "view"
+              "columns"
             ],
-            "description": "Retrieve the task's local answer computation with versioned earlier-input references. Null operator_id uses declared answer roots; absent sources remain unexpanded candidates. Named IDs select an intermediate branch. Expand a saved input by inspecting its owning task and operator ID. include_implementation adds local Python only; view adds selected root results only. Never executes; earlier answers and dependencies do not prove correctness."
+            "description": "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns."
           },
           {
             "type": "object",
@@ -816,8 +632,8 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                   "minLength": 1,
                   "pattern": "\\S"
                 },
-                "minItems": 1,
-                "maxItems": 8
+                "maxItems": 8,
+                "uniqueItems": true
               }
             },
             "required": [
@@ -825,77 +641,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "content",
               "operator_ids"
             ],
-            "description": "Return an explanation or answer shape that from cannot express, and identify completed source tables for later task-scoped retrieval. Prefer answer from for tabular answers: it serializes computed values and records sources automatically. Name answer tables, excluding exploratory reads. Availability is checked, not correctness. Must be the only action."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "state"
-              },
-              "task_id": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "operator_id": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1,
-                    "pattern": "\\S"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "pattern": "\\S"
-                    },
-                    "minItems": 1,
-                    "maxItems": 8
-                  }
-                ]
-              },
-              "include_implementation": {
-                "type": "boolean"
-              },
-              "view": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "sample_stats",
-                      "full"
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "task_id",
-              "operator_id",
-              "include_implementation",
-              "view"
-            ],
-            "description": "Inspect named operators at a completed task, including immediate input definitions. Null task lists their version changes and dependency hashes. Set view to null for definitions only, or a result view with a specific task to read saved data in the same call. Never executes or substitutes current state."
+            "description": "Give the final response and declare its completed source tables (current IDs or ID@task). Pass [] only when no table was used. Must be the sole action. Sources record provenance, not correctness."
           }
         ]
       }

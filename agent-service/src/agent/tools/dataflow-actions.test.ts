@@ -235,11 +235,10 @@ describe("receipt details found in live runs", () => {
 describe("ordered dataflow actions", () => {
   test("historical retrieval honors the same available views as current retrieval", () => {
     const schema = asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema as any;
-    const retrieves = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.type.const === "retrieve");
-    expect(retrieves).toHaveLength(2);
-    for (const retrieve of retrieves) expect(retrieve.properties.view.enum).toEqual(["sample"]);
-    const inspect = schema.properties.actions.items.anyOf.find((a: any) => a.properties.target?.const === "state");
-    expect(inspect.properties.view.anyOf[0].enum).toEqual(["sample"]);
+    const reads = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.type.const === "read");
+    expect(reads).toHaveLength(1);
+    expect(reads[0].properties.view.anyOf[0].enum).toEqual(["sample"]);
+    expect(reads[0].properties.view.anyOf[1]).toEqual({type:"null"});
     const input = {
       reasoning: "Read.",
       actions: [
@@ -310,7 +309,7 @@ describe("ordered dataflow actions", () => {
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
       asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("fork operator <id> from task <N> as <new_id>");
+    expect(s.agent.getSettings().systemPrompt).toContain("create operator variant from scores@2");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
@@ -556,7 +555,9 @@ function session(batches: DataflowAction[][]) {
       async runTurn(input) {
         for (const [i, actions] of batches.entries()) {
           const args = { reasoning: "Check the next result.", actions };
-          const output = await input.tools.dataflow.execute(args);
+          // Stored legacy action fixtures exercise replay, not the new public
+          // history schema. Saved-version public actions have their own suite.
+          const output = prepareDataflowActions(args, ["full", "sample", "sample_stats"], agent.getSettings().stateHistory);
           await input.onStepFinish({
             text: "",
             toolCalls: [{ toolName: "dataflow", toolCallId: `t${i}`, input: args }],
@@ -598,6 +599,129 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("mixed saved-version edits preserve command order and remain atomic", async () => {
+    const batches: DataflowAction[][] = [
+      [{ type: "edit", changes: 'create operator source: scan("old.csv")' }],
+      [{ type: "answer", content: "Saved source." }],
+    ];
+    const s = session(batches);
+    s.agent.updateSettings({ stateHistory: true, stateLedger: false, taskContext: "dependencies" });
+    await s.agent.sendMessage("Save the original source.");
+    batches.splice(
+      0,
+      batches.length,
+      [
+        {
+          type: "edit",
+          changes:
+            'create operator independent: scan("other.csv")\n' +
+            'update operator source: scan("changed.csv")\n' +
+            "fork operator source from task 1 as earlier\n" +
+            "update operator source from task 1",
+        },
+      ],
+      [{ type: "answer", content: "Restored." }]
+    );
+    await s.agent.sendMessage("Edit, fork and restore in this sequence.");
+    const edit = s.outcomes[2].actions[0].output as any;
+    expect(edit.ordered_versions).toBe(true);
+    expect(edit.changes.map((change: any) => change.operator_id)).toEqual([
+      "independent",
+      "source",
+      "earlier",
+      "source",
+    ]);
+    expect(s.agent.getWorkflowState().getOperator("source")!.nativeOp!.source).toBe('scan("old.csv")');
+    expect(s.agent.getTaskHistory()[1].operator_changes!.map(block => block.id)).toEqual([
+      "independent",
+      "source",
+      "earlier",
+    ]);
+    const before = structuredClone(s.agent.getWorkflowState().getWorkflowContent());
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "edit", changes: "fork operator source from task 1 as rejected\nupdate operator missing: limit(1)" }],
+      [{ type: "answer", content: "Rejected the whole edit." }]
+    );
+    await s.agent.sendMessage("Reject this draft.");
+    expect(s.agent.getWorkflowState().getWorkflowContent()).toEqual(before);
+    expect(s.agent.getTaskHistory()[2].operator_changes).toEqual([]);
+    expect(s.outcomes[4].operators).toEqual([]);
+  });
+
+  test("task catalog frames survive inspection, settings changes and trace import", async () => {
+    const batches: DataflowAction[][] = [
+      [
+        {
+          type: "edit",
+          changes:
+            'create operator source: scan("input.csv")\ncreate operator report: limit(1)\ncreate edge source.out -> report.in',
+        },
+        { type: "execute" },
+      ],
+      [{ type: "answer", content: "First answer.", operator_ids: ["report"] }],
+    ];
+    const s = session(batches);
+    s.agent.updateSettings({ stateHistory: true, stateLedger: false, taskContext: "dependencies" });
+    await s.agent.sendMessage("Keep the first catalog.");
+    const original = JSON.stringify(s.agent.getTaskHistory()[0]);
+    s.agent.updateSettings({ retrievalViews: ["full", "sample"], columnsShown: 1 });
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "inspect", target: "task", task_id: 1 }],
+      [{ type: "edit", changes: "fork operator report from task 1 as earlier_report" }],
+      [{ type: "answer", content: "Second answer." }]
+    );
+    await s.agent.sendMessage("Inspect and fork the saved report.");
+    expect(JSON.stringify(s.agent.getTaskHistory()[0])).toBe(original);
+    const catalog = s.agent.getTaskHistory()[1];
+    expect(catalog.forks![0].collapsed_operator_ids).toEqual(["earlier_report__source"]);
+    const firstTaskFrames = () => {
+      const messages = assembleContext(
+        s.agent.getVisibleReActSteps(),
+        s.agent.getWorkflowState(),
+        s.agent.getSnapshotStorage(),
+        ContextMode.DELTA,
+        { ...s.agent.getSettings(), messageLayout: "native" }
+      );
+      const end = messages.findIndex(
+        message => typeof message.content === "string" && message.content.startsWith("## Task 1")
+      );
+      expect(end).toBeGreaterThan(0);
+      return JSON.stringify(messages.slice(0, end + 1));
+    };
+    const cachedFrames = firstTaskFrames();
+    batches.splice(
+      0,
+      batches.length,
+      [
+        {
+          type: "inspect",
+          target: "task",
+          task_id: 2,
+          operator_id: "earlier_report",
+          include_implementation: false,
+          view: null,
+        },
+      ],
+      [{ type: "answer", content: "Read the exact fork mapping." }]
+    );
+    await s.agent.sendMessage("Inspect the collapsed fork.");
+    const text = renderDataflowActionsResult(s.outcomes.at(-2)!);
+    expect(text).toContain("**earlier_report__source**");
+    expect(text).toContain("origin: fork of source (version at end of task 1)");
+    expect(text).toContain("origin: fork of report (version at end of task 1)");
+    expect(firstTaskFrames()).toBe(cachedFrames);
+    const restored = session([]);
+    await restored.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
+    expect(restored.agent.getSettings().stateHistory).toBe(false);
+    expect(JSON.stringify(restored.agent.getTaskHistory()[0])).toBe(original);
+    expect(JSON.stringify(restored.agent.getTaskHistory()[1])).toBe(JSON.stringify(catalog));
+    expect(restored.executions()).toBe(0);
+  });
+
   test("reference lookups preserve the graph and do not become answer source reads", async () => {
     const s = session([
       [{ type: "inspect", target: "reference", topic: "operators", operator_names: ["join", "process"] }],
@@ -667,8 +791,9 @@ describe("dataflow action integration", () => {
   test("history tools expose scoped graph inspection and reject whole-session discovery", () => {
     const schema = asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema as any;
     const graphs = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.target?.const === "graph");
-    expect(graphs).toHaveLength(1);
-    expect(graphs[0].required).toContain("operator_ids");
+    expect(graphs).toHaveLength(0);
+    const read = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "read");
+    expect(read.required).toContain("operator_ids");
     expect(
       prepareDataflowActions(
         { reasoning: "Inspect.", actions: [{ type: "inspect", target: "graph" }] },
@@ -736,6 +861,10 @@ describe("dataflow action integration", () => {
     const simple = s.outcomes[4].actions[1].output as any;
     expect(simple.dataflows[0].operators.every((op: any) => !op.implementation)).toBe(true);
     expect(simple.dataflows[0].observations).toEqual([]);
+    const simpleText = renderDataflowActionsResult({ ...s.outcomes[4], actions: [s.outcomes[4].actions[1]] });
+    expect(simpleText).not.toContain("def load");
+    expect(simpleText.match(/\*\*source\*\*/g)).toHaveLength(1);
+    expect(simpleText).not.toContain("**probe**");
     expect(s.agent.getWorkflowState().getWorkflowContent()).toEqual(current);
     expect(s.executions()).toBe(1);
     expect(s.agent.getTaskHistory()[2].consulted_tasks).toContain(1);
@@ -778,7 +907,7 @@ describe("dataflow action integration", () => {
     expect(request({ type: "answer", content: "Done.", operator_ids: ["a"] }, ["sample"], false).status).toBe("error");
     const schema = (await asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema) as any;
     const taskSchema = schema.properties.actions.items.anyOf.find(
-      (s: any) => s.properties.target?.const === "task" && s.properties.view
+      (s: any) => s.properties.type.const === "read"
     );
     expect(taskSchema.properties.view.anyOf[0].enum).toEqual(["sample"]);
   });
@@ -1671,10 +1800,10 @@ test("native multi-task requests preserve every earlier request as a prefix", as
                 type: "edit",
                 changes: `${n === 1 ? "create" : "update"} operator source: scan("data/task-${n}.csv")`,
               },
-              { type: "execute" },
-              { type: "retrieve", operator_id: "source", view: "full" },
+              { type: "execute", operator_ids: ["source"] },
+              { type: "read", operator_ids: ["source"], view: "full", columns:null, include_implementation:false },
             ]
-          : [{ type: "answer", content: `Answer ${n / 2}` }];
+          : [{ type: "answer", content: `Answer ${n / 2}`, operator_ids:["source"] }];
       return {
         content: [
           {

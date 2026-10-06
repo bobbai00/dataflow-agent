@@ -28,6 +28,9 @@ export interface ObservationFormatSettings {
   definitionChars: number;
   cellChars: number;
   topValues: number;
+  /** Include version-matched statistics in newly completed task catalogs. */
+  catalogStatistics: boolean;
+  /** Maximum already-observed rows per catalog operator; zero disables rows. */
   catalogRecords: number;
   answerEcho: boolean;
 }
@@ -39,6 +42,7 @@ export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
   definitionChars: 200,
   cellChars: 160,
   topValues: 4,
+  catalogStatistics: false,
   catalogRecords: 0,
   answerEcho: false,
 };
@@ -483,8 +487,10 @@ export interface OperatorBlock {
   kind: string;
   state: string;
   definition?: string;
+  signature?: string;
+  answerSource?: boolean;
   functions?: string;
-  inputs?: Array<{ port?: string; id: string }>;
+  inputs?: Array<{ port?: string; id: string; taskId?: number }>;
   origin?: string;
   result?: string;
   columns?: readonly string[];
@@ -495,8 +501,9 @@ export interface OperatorBlock {
 }
 export function operatorBlock(block: OperatorBlock): string {
   return [
-    `- **${block.id}** (${block.kind}, ${block.state})`,
+    `- **${block.id}** (${block.kind}, ${block.state})${block.answerSource ? " — answer source" : ""}`,
     ...(block.definition ? [`  - definition: ${inlineCode(block.definition)}`] : []),
+    ...(block.signature ? [`  - signature: ${inlineCode(block.signature)}`] : []),
     ...(block.functions
       ? (() => {
           const fence = "`".repeat(Math.max(3, ...(block.functions.match(/`+/g) ?? []).map(run => run.length + 1)));
@@ -510,7 +517,7 @@ export function operatorBlock(block: OperatorBlock): string {
       : []),
     ...(block.inputs?.length
       ? [
-          `  - inputs: ${block.inputs.map(input => `${input.port ? `${input.port} ` : ""}${input.id === "unconnected" ? "unconnected" : inlineCode(input.id)}`).join(", ")}`,
+          `  - inputs: ${block.inputs.map(input => `${input.port ? `${input.port} ` : ""}${input.id === "unconnected" ? "unconnected" : inlineCode(input.id)}${input.taskId !== undefined ? ` (version at end of task ${input.taskId})` : ""}`).join(", ")}`,
         ]
       : []),
     ...(block.origin ? [`  - origin: ${block.origin}`] : []),
@@ -610,8 +617,28 @@ export function describeOperator(
     columns: columnEntries(schema, config.columnsShown),
     ...(options.usedBy ? { usedBy: options.usedBy } : {}),
     ...(options.scope?.length ? { scope: [...options.scope] } : {}),
-    ...(options.issues ? { issues: options.issues } : {}),
+    issues: [...boundResultNotes(info), ...(options.issues ?? [])],
   };
+}
+
+/** Concrete execution metadata, independently of statistics exposure. A profile
+ * from another materialization must never describe this result. */
+export function boundResultNotes(info: OperatorInfo | undefined): string[] {
+  const profile = info?.tableProfile;
+  if (!info || info.error || !["Completed", "CompletedFromCache"].includes(info.state) ||
+      !info.resultVersion?.id || profile?.resultVersion !== info.resultVersion.id) return [];
+  const native = profile.native;
+  if (native?.operatorType === "Process" && native.inputRows?.length &&
+      typeof native.outputRows === "number" && native.outputRows === info.totalRowCount && native.outputRows < native.inputRows[0]) {
+    return [native.inputRows.length === 1
+      ? `note: returned ${native.outputRows.toLocaleString("en-US")} of ${native.inputRows[0].toLocaleString("en-US")} input rows.`
+      : `note: returned ${native.outputRows} rows; input row counts: ${native.inputRows.join(", ")}.`];
+  }
+  const diff = native?.operatorType === "Diff" ? native.operations?.diff as Record<string, unknown> | undefined : undefined;
+  if (diff && ["keys", "added", "removed", "changed", "same"].every(k => Number.isSafeInteger(diff[k]) && Number(diff[k]) >= 0) &&
+      Number(diff.keys) === ["added", "removed", "changed", "same"].reduce((n,k) => n + Number(diff[k]),0))
+    return [`diff: ${diff.keys} keys; ${diff.added} added, ${diff.removed} removed, ${diff.changed} changed, ${diff.same} same.`];
+  return [];
 }
 
 /** Stable Kahn traversal; cycles are displayed once rather than hanging. */

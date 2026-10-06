@@ -19,77 +19,70 @@
 
 #### Saved versions
 
-Earlier tasks may appear under `# Prior Tasks` instead of their full action
-history. Each entry preserves its question, earlier agent answer and the task
-numbers it depends on. A dependency records a table read, computation input or
-reused definition from an earlier task. These
-links establish provenance, not correctness, and do not cover conventions or
-numbers carried only in prose. An entry marked incomplete has no completed
-answer. Clipped answers are labelled; inspect the task to read the original.
+Answering saves the graph's definitions, connections and matching completed
+results at that task boundary. `scores` means the current operator;
+`scores@2` means the definition and exact result saved at the end of task 2.
+A saved result is immutable and cannot be edited. A local definition unchanged
+since task 2 may have a different result if an input changed.
 
-Use `inspect` with `target: "task"` and `task_id` to retrieve the original
-question and answer together with the local answer computation. Operators
-created or changed for that computation, and their affected downstream steps,
-are shown. Unchanged computations from earlier tasks appear as saved input
-references with their operator IDs, owning task numbers and versions. For
-example, if task 1 prepared records with ten operators and task 2 added five
-operators on those records, task 2 shows its five operators and a reference to
-task 1's prepared table. The earlier ten operators remain saved.
+Earlier tasks may appear as sealed entries under # Prior Tasks, or in their
+ordinary ReAct history. Entries show each task's created or modified operators
+in first-edit order with final definitions, direct inputs, output shape and
+columns; deletions are separate. An answer source marker records the table
+declared by the agent, not a correctness guarantee. All working tables are
+included, even when outside that task's answer computation. Process bodies
+are available on demand. Statistics and catalog records are off by default;
+when enabled they describe the saved output with their stated coverage.
 
-Expand only an input you need to examine: inspect its owning `task_id` and
-`operator_id` to reveal that task's computation, or use `target: "state"` for
-the definition and immediate inputs. Set `include_implementation: true` when
-local Python is needed, and a `view` when selected root results are needed;
-use `operator_id: null` for declared answer roots. Earlier-input references
-contain metadata and scope, not Python or table records. The simple task
-inspection returns local definitions without Python or tables.
-Named `operator_id` values select a different intermediate branch at that
-task, useful when its final report is the wrong starting point. `target:
-"state"` still reads specific saved operators or lists their version changes.
-Any earlier task can be inspected, including one with no recorded dependency.
-These reads do not execute or change the graph.
+Use `read` with `operator_ids: ["scores@2"]`. With `view: null` it returns
+definitions and direct inputs without data, including failed or unexecuted
+operators. Set `include_implementation: true` to inspect local Python.
+A non-null view (full, sample, or sample_stats when available) reads matching
+completed records. Use columns to request needed fields; null keeps all.
+Reads never execute. Several addresses may be read together.
 
-For tabular answers prefer `answer` with `from`; it serializes the computed
-values and records source tables automatically. If an explanation or unsupported
-shape needs free-text `content`, set `operator_ids` to its completed source
-tables. These IDs become the roots of later task retrieval;
-exploratory reads are excluded when explicit answer roots exist. Without an
-explicit declaration, retrieval lists prior result reads as unconfirmed
-candidates without expanding their graphs or returning their tables. Select
-an `operator_id` explicitly to inspect a candidate branch. Unknown roots are
-reported instead of guessed. Graph inspection in multi-task sessions requires
-named `operator_ids`; discover relevant work through the task index rather
-than requesting the entire session graph.
+A saved table can directly feed a new computation:
+`create edge scores@2.out -> comparison.in[0]`.
+The engine binds its original materialization, with no ancestor copies or
+upstream execution. If that materialization is unavailable, the action fails
+with HISTORICAL_RESULT_UNAVAILABLE. It never substitutes a newer table or
+reruns the old definition on today's files. Definitions remain inspectable.
+Historical addresses are sources, not editable targets or execution targets.
 
-When a task is answered, the dataflow as it stands is saved under that task's
-number: the definition of every operator and its result. Any later task can
-read a saved version or bring it back, including the version saved by a task
-that itself brought back an earlier one, so going back never removes a
-version. Edits change only the current dataflow.
+Choose the operation that fits the request:
+- **An earlier table.** Read scores@2, answer from it, or use it as an input.
+  The default graph's rules do not change.
+- **An old rule on current inputs for following tasks.**
+  `update operator scores from scores@2` restores only the definition.
+  Existing input connections remain current; the receipt names drift.
+  Execute the affected operators to compute the revised default.
+- **An editable alternative from earlier work.**
+  `create operator variant from scores@2` copies that operator's definition
+  with saved direct inputs. It creates one editable operator; ancestors are
+  referenced as old results. Adjust the variant or explicitly rewire its
+  inputs to current tables, execute it and answer from it. Default operators
+  stay untouched. No new names for copied ancestors are needed.
 
-A saved version records what was computed, not whether its answer was right.
-Before reusing a retrieved branch, compare its filters, joins, units, grouping
-and input coverage with the new question. Dependency links help locate useful
-work; they do not prove that its rule or answer was right. A wrong
-answer can still leave useful intermediate tables; inspect those tables
-separately from the final report. If a report was limited or based on the wrong
-rows, reuse the appropriate earlier working table, adjust the faulty step and
-recompute the affected downstream operators. Retrieve their results before
-answering. Preserve the earlier version when the question compares versions.
+Before using earlier work, inspect the rule and table coverage. A saved answer's
+top-five selection is different from the full table it was selected from.
+Use the earlier report when its membership is requested, and the complete
+working table when all qualifying entities are needed. Saved states may contain
+earlier mistakes; identify and correct the relevant rule on a separate branch
+rather than trusting the old answer.
 
-| Capability | Effect |
-|---|---|
-| `inspect` with `target: "task"` and `task_id` | Read the local answer computation and versioned earlier-input references. Optional `operator_id` selects intermediate roots; `include_implementation` requests local Python, and `view` requests selected root results. Expand an input through its owning task and operator ID. |
-| `answer` with `content` and optional `operator_ids` | Answer and identify the completed source tables for later sub-DAG retrieval. The runtime checks availability, not semantic correctness. An answer with `from` records its roots automatically. |
-| `inspect` with `target: "state"`, `operator_id` and `task_id` | Read the operator and its immediate inputs as task N saved them. `include_implementation` controls attached Python, and a `view` adds the saved result. `task_id: null` lists its versions and the tasks in which each held. Leaves the current dataflow unchanged. |
-| `fork operator <id> from task <N> as <new_id>` inside an edit | Copy the operator and the inputs it had at task N into the current dataflow under new identifiers, with their saved results, so later operators can compute with that version. The operator itself is unchanged. |
-| `update operator <id> from task <N>` inside an edit | Restore the definition task N saved, in place, on today's inputs: an update whose definition comes from task N. The receipt names inputs that changed since then. Execute to compute. |
+`diff(key=["entity"], columns=["score"])` compares two tables, earlier on
+in[0] and comparison on in[1]. Entity keys must be explicit, unique and non-null.
+Output contains status (added, removed, changed; same with include_same=True)
+and each column's _left, _right, _delta and _abs_delta. Numeric deltas are
+right minus left; missing values and non-numeric differences have null deltas.
 
-Blocks name these versions in their state: `saved by task N` when inspected,
-`forked from task N` or `restored from task N` in an edit. A fork shows its
-result as `(saved by task N)` until it is executed again.
+Answer from the full working table with an optional cut:
+`scores[entity, score:3] top 5 by score desc, entity asc`.
+Ordering uses unrounded values. Specify the tie-breaking columns explicitly;
+an ambiguous tie at the selection boundary is refused. A complete table is
+required; above the pagination ceiling, sort and limit in the graph.
+The answer records the full source and its selection separately.
 
-Read an earlier result with `inspect`. Fork it when you need to compute with
-it next to the current version, and update from it when the request returns
-to that rule for what follows. Use a saved definition or result rather than
-reconstructing it from memory.
+Free-text content answers require operator_ids naming their completed source
+tables, current or historical. Pass [] only when no table was used. Missing
+sources are rejected, and exploratory reads do not become answer roots.

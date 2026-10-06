@@ -160,6 +160,14 @@ returns its parsed table. Use predefined operators for subsequent transformation
 Filter and map receive one row; process receives one DataFrame per input and
 returns one DataFrame. All three require a `doc` describing the output's meaning.
 
+Keep a process at one independently reusable or revisable custom transformation.
+Its `doc` should accurately name the output grain, calculation and important
+assumptions, units or exclusions, and stay synchronized with the code. Return
+complete working tables before downstream report sorting and limits. The
+shared system prompt includes an executable sensor example; the
+[task catalog design](observation-format/prior-task-operator-catalog-design.md)
+specifies its presentation and cross-task reuse.
+
 Process inputs use NumPy float columns with `NaN` for missing floats. This
 avoids pandas 2.2 nullable-float ranking errors after `to_numeric`. Integer,
 boolean, text and datetime columns retain their types; large integer IDs stay
@@ -264,15 +272,23 @@ applying an earlier formula to current data, and changing a temporary branch
 while preserving its baseline. Each example separates calls that depend on a
 new observation. These examples are included only when `stateHistory` is
 enabled; the default prompt stays unchanged. Saved tasks address the existing
-snapshot tree; this feature adds no separate catalog or task store.
+snapshot tree. Completed task catalogs are frozen on their existing endpoint
+snapshots and retained in exported action traces; there is no separate task
+store. Prior-task context shows chronological operator blocks with final saved
+definitions, answer-source markers, separate deletions and compact fork
+references. Python bodies and result records remain on demand. See the
+[implemented catalog design](observation-format/prior-task-operator-catalog-design.md).
 
 ### Graph implementation
 
 `native/catalog.ts` defines operator parameters, meanings and input arity.
-`native/python/graph_parser.py` parses the five graph commands and extracts
+`native/python/graph_parser.py` parses ordinary and saved-version graph commands and extracts
 operator-local functions without executing them. `tools/graph-edits.ts` stages
 and validates a private graph, then returns a complete plan for the runtime to
-commit after checking cancellation and ownership.
+commit after checking cancellation and ownership. Saved-version commands share
+that ordered draft with ordinary commands, so interleaved restores and forks do
+not jump ahead of preceding edits. New receipts record this ordering policy;
+older saved-version traces retain their previous replay semantics.
 
 Logical port connections become ordered native inputs and physical engine
 ports. The native compiler and Python validator check definitions and callback

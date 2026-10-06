@@ -162,6 +162,8 @@ An agent created with no `settings` uses
 | `maxSteps` | `100` | per-turn step budget |
 | `stateHistory` | `false` | native actions can inspect named operators at completed tasks, read saved views in the same inspection, and fork historical operator branches; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
 | `taskContext` | `"trajectory"` | opt-in `"dependencies"` keeps current-task ReAct and replaces earlier trajectories with questions, answers and parent task IDs; inspect a task to retrieve its saved answer sub-DAG; requires native DELTA context and `stateHistory`; see [task context](docs/observation-format/task-dependency-context.md) |
+| `catalogStatistics` | `false` | includes saved, version-matched statistics in newly completed task catalog entries when enabled; independent of statistical retrieval |
+| `catalogRecords` | `0` | maximum previously retrieved rows per operator in newly completed task catalog entries; zero disables rows; never executes or samples data |
 | `nativePromptDetail` | `"full"` | opt-in `"on_demand"` keeps signatures and shorter generic examples initially; reference inspections retrieve selected operator contracts or feature-matched examples; see [prompt reference](docs/native-expression-mode.md#optional-prompt-reference) |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
@@ -169,6 +171,9 @@ An agent created with no `settings` uses
 | layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
 
 Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
+Completed task catalog entries keep their original settings and representation;
+changing catalog controls applies to subsequent entries. Definitions, input IDs,
+output shape and columns remain visible when both catalog controls are off.
 Increasing a retrieval budget does not recover records absent from an earlier
 execution. See [Retrieval views](docs/retrieval-views.md) for the tool contract,
 prompt behavior, result caching and experiment driver.

@@ -26,6 +26,8 @@ import tokenize
 from program_parser import parse_program
 
 ID = r"[A-Za-z_][A-Za-z0-9_]*"
+REFERENCE = rf"{ID}(?:@[1-9]\d*)?"
+SOURCE_ENDPOINT = rf"({REFERENCE})\.({ID}(?:\[\d+\])?)"
 ENDPOINT = rf"({ID})\.({ID}(?:\[\d+\])?)"
 
 
@@ -42,7 +44,7 @@ def parse_graph_changes(source):
                 indent -= 1
             elif token.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.ENDMARKER):
                 if (not depth and indent and token.type == tokenize.NAME
-                        and re.match(r"^(create|update|modify|delete) (operator|edge)\b", lines[token.start[0] - 1].lstrip())):
+                        and re.match(r"^(create|update|modify|delete|fork) (operator|edge)\b", lines[token.start[0] - 1].lstrip())):
                     raise ValueError(
                         f"Line {token.start[0]}: start graph commands without indentation; indent only attached Python functions."
                     )
@@ -100,8 +102,19 @@ def parse_graph_changes(source):
             # Comments may follow a one-line command, but no extra statements.
             text = re.sub(r"(?m)#.*$", "", text).strip()
             deletion = re.fullmatch(rf"delete operator ({ID})", text)
-            edge = re.fullmatch(rf"(create|delete) edge {ENDPOINT}\s*->\s*{ENDPOINT}", text)
-            if deletion:
+            restoration = re.fullmatch(rf"update operator ({ID}) from task (\d+)", text)
+            definition_copy = re.fullmatch(rf"(create|update) operator ({ID}) from ({ID})@([1-9]\d*)", text)
+            fork = re.fullmatch(rf"fork operator ({ID}) from task (\d+) as ({ID})", text)
+            edge = re.fullmatch(rf"(create|delete) edge {SOURCE_ENDPOINT}\s*->\s*{ENDPOINT}", text)
+            if definition_copy:
+                commands.append(dict(operation="copy_definition", id=definition_copy[2],
+                                     sourceId=definition_copy[3], task=int(definition_copy[4]),
+                                     create=definition_copy[1] == "create", line=start))
+            elif restoration:
+                commands.append(dict(operation="restore_operator", id=restoration[1], task=int(restoration[2]), line=start))
+            elif fork:
+                commands.append(dict(operation="fork_operator", id=fork[1], task=int(fork[2]), **{"as": fork[3]}, line=start))
+            elif deletion:
                 commands.append(dict(operation="delete_operator", id=deletion[1], line=start))
             elif edge:
                 verb, source_id, source_port, target_id, target_port = edge.groups()
@@ -110,7 +123,7 @@ def parse_graph_changes(source):
             else:
                 raise ValueError(
                     f"Line {start}: use create/update/delete operator, create/delete edge, "
-                    "update operator <id> from task <N>, or fork operator <id> from task <N> as <new_id>. "
+                    "create/update operator <id> from <saved_id>@<N>. "
                     "Edges cannot be updated."
                 )
         return dict(ok=True, commands=commands)

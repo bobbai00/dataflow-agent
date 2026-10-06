@@ -129,6 +129,124 @@ test("dependency context indexes previous tasks while preserving current native 
   expect(messages.some(m => m.role === "tool")).toBe(true);
 });
 
+test("catalog statistics default off independently of retrieval-view availability", () => {
+  const { steps, state, storage, options } = fixture();
+  const workflow = {
+    ...state.getWorkflowContent(),
+    operators: [
+      {
+        operatorID: "source",
+        operatorType: "PythonUDFV2",
+        operatorVersion: "1",
+        operatorProperties: {},
+        inputPorts: [],
+        outputPorts: [],
+        showAdvanced: false,
+        nativeOp: { type: "Scan", revision: "r1", properties: { files: "data/input.csv" }, inputs: [] },
+      },
+    ],
+  };
+  state.setWorkflowContent(workflow);
+  storage.clear();
+  for (const id of ["s1", "s2", "s3"]) storage.createSnapshot(id, workflow);
+  storage.setOperatorResult("s1", "source", {
+    state: "Completed",
+    inputTuples: 0,
+    outputTuples: 2,
+    totalRowCount: 2,
+    resultMode: "table",
+    result: [{ label: "PRIVATE_SAMPLE" }],
+    resultSchema: [{ name: "label", type: "str", encoding: "" }],
+  });
+  (steps[1].toolResults![0].output as any).actions[0].action = { type: "execute", operator_ids: ["source"] };
+  const render = (views: Array<"sample" | "sample_stats">, catalogStatistics = false) =>
+    JSON.stringify(
+      assembleContext(steps.slice(0, 4), state, storage, ContextMode.DELTA, {
+        ...options,
+        taskContext: "dependencies",
+        dataEvidence: true,
+        retrievalViews: views,
+        catalogStatistics,
+      })
+    );
+  expect(render(["sample_stats"])).not.toContain("Referenced results:");
+  expect(render(["sample"], true)).toContain("- result: 2 rows × 1 column");
+  expect(render(["sample_stats"])).not.toContain("PRIVATE_SAMPLE");
+  expect(render(["sample"])).not.toContain("Referenced results:");
+});
+
+test("new tasks receive saved declarations with Python on demand and no sample rows", () => {
+  const { steps, state, storage, options } = fixture();
+  const op = {
+    operatorID: "scores",
+    operatorType: "PythonUDFV2",
+    operatorVersion: "1",
+    operatorProperties: { code: "GENERATED_ENGINE_CODE" },
+    inputPorts: [],
+    outputPorts: [],
+    showAdvanced: false,
+    nativeOp: {
+      type: "Process",
+      revision: "r1",
+      properties: {},
+      inputs: ["working_rows"],
+      source: 'process(fn=score_rows, doc="Score the full table")',
+      functions: { score_rows: "def score_rows(df):\n    return df.assign(score=df.amount * 2)" },
+    },
+  };
+  const saved = { ...state.getWorkflowContent(), operators: [op] };
+  const live = {
+    ...saved,
+    operators: [{ ...op, nativeOp: { ...op.nativeOp, revision: "r2", source: "LIVE_DEFINITION" } }],
+  };
+  storage.clear();
+  storage.createSnapshot("s1", saved);
+  storage.createSnapshot("s2", live);
+  storage.createSnapshot("s3", live);
+  state.setWorkflowContent(live);
+  storage.setOperatorResult("s1", "scores", {
+    state: "Completed",
+    inputTuples: 0,
+    outputTuples: 2,
+    totalRowCount: 2,
+    resultMode: "table",
+    result: [{ score: "PRIVATE_SAMPLE" }],
+    resultSchema: [{ name: "score", type: "int64", encoding: "" }],
+  });
+  const receipt = steps[1].toolResults![0].output as any;
+  receipt.actions = [
+    {
+      index: 1,
+      action: { type: "edit", changes: "recorded edit" },
+      status: "ok",
+      output: { operator_blocks: [{ id: "scores", state: "created" }] },
+    },
+  ];
+  const messages = assembleContext(steps.slice(0, 3), state, storage, ContextMode.DELTA, {
+    ...options,
+    taskContext: "dependencies",
+    dataEvidence: true,
+  });
+  const outcome = messages.find(
+    message => typeof message.content === "string" && message.content.startsWith("## Task 1")
+  )!.content as string;
+  expect(outcome).toContain("**scores** (process, created)");
+  expect(outcome).toContain(op.nativeOp.source);
+  expect(outcome).not.toContain("return df.assign(score=df.amount * 2)");
+  expect(outcome).toContain("inputs: `working_rows`");
+  expect(outcome).toContain("- result: 2 rows × 1 column");
+  expect(outcome).not.toContain("PRIVATE_SAMPLE");
+  expect(outcome).not.toContain("LIVE_DEFINITION");
+  expect(outcome).not.toContain("GENERATED_ENGINE_CODE");
+  expect(outcome.indexOf("Operators:")).toBeLessThan(outcome.indexOf("Answer:"));
+  const later = assembleContext(steps, state, storage, ContextMode.DELTA, {
+    ...options,
+    taskContext: "dependencies",
+    dataEvidence: true,
+  });
+  expect(later.slice(0, messages.length)).toEqual(messages);
+});
+
 test("the checkpoint and all earned current frames are a stable prefix within a task", () => {
   const { steps, render } = fixture();
   const first = render(steps.slice(0, 4), "dependencies");

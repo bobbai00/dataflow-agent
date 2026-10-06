@@ -361,6 +361,29 @@ describe("Agent control routes", () => {
 });
 
 describe(`PATCH ${API}/agents/:id/settings`, () => {
+  test("catalog statistics and records default off and have independent validated controls", async () => {
+    const created = await readJson<any>(await createAgent());
+    expect(created.settings).toMatchObject({ catalogStatistics: false, catalogRecords: 0 });
+    const url = `${API}/agents/${created.id}/settings`;
+    for (const patch of [
+      { catalogStatistics: true, catalogRecords: 0 },
+      { catalogStatistics: false, catalogRecords: 2 },
+      { catalogStatistics: true, catalogRecords: 2 },
+      { catalogStatistics: false, catalogRecords: 0 },
+    ]) {
+      expect(await readJson<any>(await patchJson(url, patch))).toMatchObject(patch);
+      expect(await readJson<any>(await getJson(url))).toMatchObject(patch);
+    }
+    for (const bad of [{ catalogStatistics: "true" }, { catalogRecords: -1 }, { catalogRecords: 1.5 }]) {
+      expect((await patchJson(url, bad)).status).toBeGreaterThanOrEqual(400);
+      expect(await readJson<any>(await getJson(url))).toMatchObject({ catalogStatistics: false, catalogRecords: 0 });
+    }
+    const enabled = await readJson<any>(
+      await createAgent({ settings: { catalogStatistics: true, catalogRecords: 3 } })
+    );
+    expect(enabled.settings).toMatchObject({ catalogStatistics: true, catalogRecords: 3 });
+  });
+
   test("updates settings and returns the new values", async () => {
     const created = await readJson<{ id: string }>(await createAgent());
 

@@ -210,10 +210,11 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
       return SourceExecutionInvalidationResult(0, Set.empty)
     }
     val resultUris = cacheEntries.map(_.resultUri).distinct
-    deleteOperatorPortResultsByUris(resultUris)
     val deleted = dao.deleteBySourceExecutionIds(sourceExecutionIds)
-    clearCachedResultDocuments(resultUris)
-    SourceExecutionInvalidationResult(deleted, resultUris.toSet)
+    val released = HistoricalResultService.unreferenced(resultUris, lookupResultUrisInCache(resultUris))
+    deleteOperatorPortResultsByUris(released)
+    clearCachedResultDocuments(released)
+    SourceExecutionInvalidationResult(deleted, released.toSet)
   }
 
   /**
@@ -258,11 +259,13 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
   ): Int = {
     val cacheEntries = dao.listByWorkflow(workflowId.id, Int.MaxValue, 0)
     val entriesToDelete = cacheEntries.filter { entry =>
+      val retained = Try(GlobalPortIdentitySerde.deserializeFromString(entry.globalPortId))
+        .toOption.exists(_.opId.layerName == HistoricalResultService.savedLayer)
       val fingerprintHashOpt = Try {
         val portId = GlobalPortIdentitySerde.deserializeFromString(entry.globalPortId)
         FingerprintUtil.computeSubdagFingerprint(physicalPlan, portId).subdagHash
       }.toOption
-      fingerprintHashOpt.forall(_ != entry.subdagHash)
+      !retained && fingerprintHashOpt.forall(_ != entry.subdagHash)
     }
     deleteCacheEntriesByKeys(workflowId, entriesToDelete)
     entriesToDelete.size
@@ -327,9 +330,10 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
       return
     }
     val resultUris = entries.map(_.resultUri).distinct
-    deleteOperatorPortResultsByUris(resultUris)
     dao.deleteByGlobalPortIds(workflowId.id, entries.map(_.globalPortId).distinct)
-    clearCachedResultDocuments(resultUris)
+    val released = HistoricalResultService.unreferenced(resultUris, lookupResultUrisInCache(resultUris))
+    deleteOperatorPortResultsByUris(released)
+    clearCachedResultDocuments(released)
   }
 
   /**
@@ -343,12 +347,13 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
       return
     }
     val resultUris = entries.map(_.resultUri).distinct
-    deleteOperatorPortResultsByUris(resultUris)
     dao.deleteByGlobalPortAndHashes(
       workflowId.id,
       entries.map(entry => (entry.globalPortId, entry.subdagHash))
     )
-    clearCachedResultDocuments(resultUris)
+    val released = HistoricalResultService.unreferenced(resultUris, lookupResultUrisInCache(resultUris))
+    deleteOperatorPortResultsByUris(released)
+    clearCachedResultDocuments(released)
   }
 
   /**

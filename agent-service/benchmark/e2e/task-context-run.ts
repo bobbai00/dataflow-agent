@@ -108,6 +108,17 @@ async function history() {
   assert(response.ok);
   return ((await response.json()) as { tasks: import("../../src/agent/task-history").TaskRecord[] }).tasks;
 }
+async function catalogSettings(catalogStatistics: boolean, catalogRecords: number) {
+  const response = await fetch(`${base}/api/agents/${agentId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ catalogStatistics, catalogRecords }),
+  });
+  assert(response.ok);
+  const settings = (await response.json()) as { catalogStatistics: boolean; catalogRecords: number };
+  assert.equal(settings.catalogStatistics, catalogStatistics);
+  assert.equal(settings.catalogRecords, catalogRecords);
+}
 try {
   token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
   cuid = (
@@ -162,13 +173,18 @@ create operator total: aggregate(sum_score=sum("score"))
 create edge source.out -> total.in`,
     },
     { type: "execute", operator_ids: ["total"] },
-    { type: "retrieve", operator_id: "total", view: "full" },
+    { type: "read", operator_ids: ["total"], view: "full", columns: null, include_implementation: false },
   ]);
   await run([{ type: "answer", content: "The sum is 6.", operator_ids: ["total"] }]);
+  const initialCatalog = (await history())[0];
+  assert(!initialCatalog.operator_records);
+  assert(initialCatalog.operator_changes?.every(block => !block.result?.includes("stats full")));
+  const firstFrame = JSON.stringify(initialCatalog);
+  await catalogSettings(true, 1);
   await debug("Task 2: reuse the sum and add a calculation on the same prepared scores.");
   const cached = await run([
     { type: "execute", operator_ids: ["total"] },
-    { type: "retrieve", operator_id: "total", view: "full" },
+    { type: "read", operator_ids: ["total"], view: "full", columns: null, include_implementation: false },
   ]);
   assert(cached.result.actions[0].output.operators.some((o: any) => o.state === "cached"));
   await run([
@@ -186,7 +202,7 @@ create edge task2_selected.out -> task2_ranked.in
 create edge task2_ranked.out -> task2_answer.in`,
     },
     { type: "execute", operator_ids: ["task2_answer"] },
-    { type: "retrieve", operator_id: "task2_answer", view: "full" },
+    { type: "read", operator_ids: ["task2_answer"], view: "full", columns: null, include_implementation: false },
   ]);
   await run([
     {
@@ -196,6 +212,11 @@ create edge task2_ranked.out -> task2_answer.in`,
     },
   ]);
   let tasks = await history();
+  assert.equal(JSON.stringify(tasks[0]), firstFrame);
+  assert(tasks[1].operator_changes?.some(block => block.result?.includes("stats full")));
+  assert(tasks[1].operator_records?.task2_answer.includes("| 14 |"));
+  const secondFrame = JSON.stringify(tasks[1]);
+  await catalogSettings(false, 0);
   assert(
     tasks[1].dependencies.some((d: any) => d.task_id === 1 && d.references.some((r: any) => r.kind === "compute")),
     JSON.stringify(tasks)
@@ -205,138 +226,84 @@ create edge task2_ranked.out -> task2_answer.in`,
   await run([
     { type: "edit", changes: `update operator source: ${source(10)}` },
     { type: "execute", operator_ids: ["total"] },
-    { type: "retrieve", operator_id: "total", view: "full" },
+    { type: "read", operator_ids: ["total"], view: "full", columns: null, include_implementation: false },
   ]);
-  await run([{ type: "answer", content: "The revised sum is 60." }]);
+  await run([{ type: "answer", content: "The revised sum is 60.", operator_ids: ["total"] }]);
   tasks = await history();
+  assert.equal(JSON.stringify(tasks[1]), secondFrame);
+  assert(!tasks[2].operator_records);
+  assert(tasks[2].operator_changes?.every(block => !block.result?.includes("stats full")));
+  checks.push("catalog statistics and retrieved rows default off, can be toggled, and preserve completed frames");
   assert(
     tasks[2].dependencies.some((d: any) => d.task_id === 1 && d.references.some((r: any) => r.kind === "definition")),
     JSON.stringify(tasks)
   );
   checks.push("an unchanged definition and recomputed data have separate provenance");
-  await debug("Task 4: inspect task 2 and compare its original sum with today's sum.");
-  const inspection = await run([{ type: "inspect", target: "task", task_id: 2 }]);
-  assert(inspection.text.includes("The cached sum is 6."));
-  assert(!inspection.text.includes("def load"));
-  const local = await run([
-    {
-      type: "inspect",
-      target: "task",
-      task_id: 2,
-      operator_id: "task2_answer",
-      include_implementation: true,
-      view: "full",
-    },
+  await debug("Task 4: read task 2's saved calculation and compare the original sum with today's sum.");
+  const inspection = await run([
+    { type: "read", operator_ids: ["task2_answer@2", "source@1"], view: "full", columns: null, include_implementation: true },
   ]);
-  const localGraph = local.result.actions[0].output.dataflows[0];
-  assert.equal(localGraph.operators.length, 5);
-  assert.deepEqual(
-    localGraph.boundary_inputs.map((input: any) => [input.operator_id, input.task_id]),
-    [["source", 1]]
-  );
-  assert.equal(localGraph.observations.length, 1);
-  assert.equal(localGraph.upstream_operator_count, 6);
-  assert(local.text.includes("| 14 |"), local.text);
-  assert(!local.text.includes("def load"), local.text);
-  const expanded = await run([
-    { type: "inspect", target: "task", task_id: 1, operator_id: "source", include_implementation: true, view: "full" },
-  ]);
-  assert(expanded.text.includes("def load"), expanded.text);
-  assert.equal(expanded.result.actions[0].output.dataflows[0].operators.length, 1);
-  const expandedInput = expanded.result.actions[0].output.dataflows[0].operators[0];
-  assert.equal(localGraph.boundary_inputs[0].result.result_version, expandedInput.result.result_version);
-  assert.equal(localGraph.boundary_inputs[0].result.producing_step, expandedInput.result.producing_step);
-  checks.push(
-    "five local operators reuse one pinned input; selective expansion returns the original definition and result"
-  );
+  assert(inspection.text.includes("| 14 |") && inspection.text.includes("def load"), inspection.text);
+  assert.equal(inspection.result.actions[0].output.operator_blocks.length, 2);
+  assert(inspection.text.includes("task2_ranked@2"), inspection.text);
+  checks.push("named reads show direct historical inputs without an expanded ancestor graph");
   const unscoped = await debug([{ type: "inspect", target: "graph" }]);
   assert.equal(unscoped.result.status, "error");
-  const scoped = await run([{ type: "inspect", target: "graph", operator_ids: ["task2_answer"] }]);
-  assert.deepEqual(
-    scoped.result.actions[0].output.operators.map((op: any) => op.id),
-    ["task2_answer"]
-  );
-  checks.push("whole-session graph inspection is rejected; named current operators remain inspectable");
   const branch = await run([
-    { type: "inspect", target: "task", task_id: 1, operator_id: null, include_implementation: true, view: "full" },
+    { type: "edit", changes: "create operator old_total from total@1" },
+    { type: "execute", operator_ids: ["old_total"] },
+    { type: "read", operator_ids: ["old_total", "total@1"], view: "full", columns: null, include_implementation: false },
   ]);
-  const graph = branch.result.actions[0].output.dataflows[0];
-  assert.equal(branch.result.actions[0].output.selection_basis, "answer");
-  assert.deepEqual(graph.roots, ["total"]);
-  assert.deepEqual(
-    graph.operators.map((op: any) => op.operator_id),
-    ["source", "total"]
-  );
-  assert.equal(graph.edges.length, 1);
-  assert(branch.text.includes("def load"), branch.text);
   assert(branch.text.includes("| 6 |"), branch.text);
-  assert(!branch.text.includes("[10, 20, 30]"), branch.text);
-  checks.push("declared answer roots retrieve their complete original branch and result in one read");
-  const old = await run([
-    { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: false, view: "full" },
-  ]);
-  assert(old.text.includes("| 6 |"), old.text);
-  const fork = await run([
-    { type: "edit", changes: "fork operator total from task 1 as old_total" },
-    { type: "retrieve", operator_id: "old_total", view: "full" },
-  ]);
-  assert(fork.text.includes("| 6 |"), fork.text);
-  assert.deepEqual(
-    fork.result.references
-      ?.filter((ref: any) => ref.actionIndex === 2 && ref.kind === "read")
-      .map((ref: any) => ({ operatorId: ref.operatorId, savedTaskId: ref.savedTaskId })),
-    [{ operatorId: "total", savedTaskId: 1 }]
-  );
+  const executed = branch.result.actions[1].output.operators;
+  assert.deepEqual(executed.map((op: any) => [op.id, op.state]), [["old_total", "executed"], ["source@1", "cached"]]);
   const restored = await run([
-    { type: "edit", changes: "update operator total from task 1" },
+    { type: "edit", changes: "update operator total from total@1" },
     { type: "execute", operator_ids: ["total"] },
-    { type: "retrieve", operator_id: "total", view: "full" },
+    { type: "read", operator_ids: ["total"], view: "full", columns: null, include_implementation: false },
   ]);
   assert(restored.text.includes("| 60 |"), restored.text);
-  await run([
-    {
-      type: "answer",
-      content: "The saved sum is 6 and the current sum is 60.",
-      operator_ids: ["old_total", "total"],
-    },
-  ]);
+  await run([{ type: "answer", content: "Saved sum 6; current sum 60.", operator_ids: ["old_total", "total"] }]);
   tasks = await history();
-  assert(tasks[3].consulted_tasks.includes(2));
-  assert(
-    !tasks[3].dependencies.some((d: any) => d.task_id === 2 && d.references.some((r: any) => r.kind === "compute"))
-  );
   assert(tasks[3].dependencies.some((d: any) => d.task_id === 1));
-  checks.push("task inspection is consultation; saved reads, forks and restores address task 1");
-  await debug("Task 5: inspect both task-4 answer versions, remove the current source, then inspect task 1.");
-  const versions = await run([
-    { type: "inspect", target: "task", task_id: 4, operator_id: null, include_implementation: true, view: "full" },
-  ]);
-  const savedGraphs = versions.result.actions[0].output.dataflows;
-  assert.equal(savedGraphs.length, 2);
-  assert(savedGraphs.every((graph: any) => graph.task_id === 4 && graph.operators.length === 0));
-  assert.deepEqual(
-    savedGraphs.flatMap((graph: any) => graph.boundary_inputs.map((input: any) => [input.operator_id, input.task_id])),
-    [
-      ["total", 1],
-      ["total", 3],
-    ]
-  );
-  assert(versions.text.includes("| 6 |") && versions.text.includes("| 60 |"), versions.text);
-  assert(!versions.text.includes("def load"), versions.text);
-  checks.push("answer roots from distinct saved versions stay separate and reuse only pinned input references");
+  checks.push("editable branch uses saved direct inputs; a definition update preserves current inputs");
+  await debug("Task 5: delete current operators and inspect both earlier answer sources.");
   await run([
     { type: "edit", changes: "delete operator source\ndelete operator total" },
-    { type: "inspect", target: "task", task_id: 1 },
-    { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: true, view: "full" },
+    { type: "read", operator_ids: ["total@1", "total@3"], view: "full", columns: null, include_implementation: false },
   ]);
-  await run([{ type: "answer", content: "Saved task-1 operators remain inspectable after deletion." }]);
+  await run([{ type: "answer", content: "Both saved versions remain available.", operator_ids: ["total@1", "total@3"] }]);
   tasks = await history();
   assert.equal(tasks.length, 5);
   assert(tasks.every(t => t.status === "answered"));
-  const unknown = await debug([{ type: "inspect", target: "task", task_id: 999 }]);
+  const unknown = await debug([{ type: "read", operator_ids: ["total@999"], view: null, columns: null, include_implementation: false }]);
   assert.equal(unknown.result.status, "error");
-  assert(unknown.text.includes("UNKNOWN_TASK"));
-  checks.push("deleted operators remain saved; unknown tasks fail explicitly");
+  assert(/task 999/i.test(unknown.text), unknown.text);
+  checks.push("deleted operators remain saved; an unknown task fails explicitly");
+  await debug("Task 6: create an old branch within an ordered edit and adjust its saved input.");
+  const ordered = await run([
+    { type: "edit", changes: `create operator staged_total: limit(1)
+delete operator staged_total
+create operator staged_total from total@1
+create operator staged_shift: map(lambda row: {"score": row["score"] + 5}, doc="Add five to each original score")
+create edge source@1.out -> staged_shift.in
+delete edge source@1.out -> staged_total.in
+create edge staged_shift.out -> staged_total.in` },
+    { type: "execute", operator_ids: ["staged_total"] },
+    { type: "read", operator_ids: ["staged_total"], view: "full", columns: null, include_implementation: false },
+  ]);
+  assert(ordered.text.includes("| 21 |"), ordered.text);
+  const rejected = await debug([{ type: "edit", changes: "create operator must_not_land: limit(1)\ncreate operator impossible from absent@1" }]);
+  assert.equal(rejected.result.status, "error");
+  const workflowResponse = await fetch(`${base}/api/agents/${agentId}/workflow`);
+  assert(workflowResponse.ok);
+  const current = (await workflowResponse.json()) as { workflow: { operators: Array<{ operatorID: string }> } };
+  assert(!current.workflow.operators.some(op => ["must_not_land", "impossible"].includes(op.operatorID)));
+  await run([{ type: "answer", content: "Shifted original scores sum to 21.", operator_ids: ["staged_total"] }]);
+  tasks = await history();
+  assert.equal(tasks.length, 6);
+  assert(tasks.every(t => t.status === "answered"));
+  checks.push("ordered edits are atomic across historical references and current graph changes");
   const steps = (await getReActSteps(agentId, base)).steps;
   assert(!steps.some((s: any) => s.usage?.inputTokens), "Debug verification must make no model calls");
   save("task-history.json", tasks);

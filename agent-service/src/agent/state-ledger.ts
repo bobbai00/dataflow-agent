@@ -525,6 +525,9 @@ export interface VersionCommand {
   line: number;
   id: string;
   task: number;
+  /** Copy a saved definition into a new or current operator. */
+  sourceId?: string;
+  create?: boolean;
   /** Set for a fork: the copy's identifier. */
   as?: string;
 }

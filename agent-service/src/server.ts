@@ -250,6 +250,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
         checks: settings.nativeChecks,
       },
       dataEvidence: settings.dataEvidence,
+      retrievalViews: settings.retrievalViews,
       flowEvidence: settings.flowEvidence,
       nativeChecks: settings.nativeChecks,
       resultSelection: settings.resultSelection,
@@ -647,6 +648,7 @@ const OBSERVATION_SETTINGS_SCHEMA = {
     ])
   ),
   answerEcho: t.Optional(t.Boolean()),
+  catalogStatistics: t.Optional(t.Boolean()),
   multiTask: t.Optional(t.Boolean()),
   taskContext: t.Optional(t.Union([t.Literal("trajectory"), t.Literal("dependencies")])),
 };

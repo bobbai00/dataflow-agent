@@ -24,17 +24,12 @@ run in order.
 
 | Action | What it does | Effect on the workspace |
 |---|---|---|
-| `inspect` | With `target: "graph"`, inspect connections, shapes and columns; `operator_ids` selects operators. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
 | `edit` | Apply the graph commands in `changes`. | Changes definitions or edges; invalidates affected results and downstream results. Does not execute. |
 | `execute` | Compute the graph, or the named `operator_ids` and their ancestors, reusing valid cached results. | Produces current results for the operators that complete. |
-| `retrieve` | Read an executed operator's table in a required `view`; optional `columns` restricts the displayed fields. | Reads an existing result without executing or changing it. |
+| `read` | Read definitions and direct inputs of `operator_ids` (current IDs or ID@task). `view=null` reads definitions only; another available view reads completed records. `include_implementation` selects Python, and `columns` selects fields. | Never executes or changes state. |
 | `answer` | Return `content`, or compose the answer from executed tables using `from`. | Completes the current task. |
 
-Graph inspection requires named `operator_ids` in multi-task sessions and
-shows those operators with references to their direct inputs. Inspect the
-relevant task or individual operators to discover and expand dependencies.
-
-Batch known edits, execute and retrieve. Make decisions that depend on a
+Batch known edits, execute and read. Make decisions that depend on a
 returned observation in the next call. Select needed `columns` on the first retrieval
 so wide tables do not obscure requested values.
 
@@ -43,14 +38,13 @@ an invalid command rejects the entire edit. Earlier successful edits in the
 same call remain applied if a later action fails.
 
 An action failure skips later actions, with one exception: after a failed
-execution, inspect and retrieve can still read independent completed results.
-A skipped action has not supplied new evidence. Retrieve refuses failed,
+execution, inspect and read can still read independent completed results.
+A skipped action has not supplied new evidence. Read refuses failed,
 missing and stale results.
 
-Execute without `operator_ids` runs the whole graph, including disconnected
-branches. Everything in scope needs connected inputs. When unrelated branches
-are unfinished or failed, execute the operators needed for the current task
-and their ancestors.
+Execute requires named current operator_ids. It computes those operators and
+their ancestors; saved result inputs are read without re-executing history.
+Read relevant definitions using view=null before choosing which graph to edit.
 
 Prefer `answer` with `from` for tabular answers: the runtime selects fields,
 rounds values, serializes JSON and records source tables. It is the last action
@@ -120,6 +114,7 @@ filter(fn, doc="what the predicate keeps") — in -> out
 map(fn, doc="what the new row holds") — in -> out
 aggregate(by=[], name=reducer("col"), ...) — in -> out
 join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many") — left, right -> out
+diff(key, columns, include_same=False) — in[0], in[1] -> out
 union(schema="strict") — in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255)
 distinct(columns=None, keep="first") — in -> out
 sort(by, nulls="last") — in -> out
@@ -142,23 +137,53 @@ DataFrame per input and returning one DataFrame. It must return unique string
 column names, one scalar type per column and timezone-aware datetimes.
 Serialize nested or mixed values as text.
 
+Keep each process focused on one coherent custom transformation that can be
+inspected, reused or revised independently. Use separate catalog operators for
+supported file loading, ordinary filters, joins, aggregation, sorting and
+limits. Connect their tables as process inputs. Return the complete working
+table before a report's ranking or cutoff. Keep related helpers together when
+they implement one algorithm; choose boundaries by the meaning of the work.
+
+Write a concise, accurate `doc` naming the output's row grain and calculation,
+with important input assumptions, units and exclusions when they apply.
+Describe the formula actually implemented, including null handling or selection
+inside the function. Update the doc whenever those rules change. For example,
+"Analyze sensor data" is too vague; "One row per sensor with unscaled median
+absolute deviation and count n of non-null readings; mad is null when n=0"
+states what the operator returns and how it handles missing values.
+
 Indent complete functions and their helpers under their operator, and repeat
 them on each update. `pd` and `np` are available in every function; import
 other packages inside the function. Operators do not share Python variables.
 Filter, map and process require a one-sentence `doc` describing the output.
-Retrieve displays the returned table; return diagnostics as columns when you
+Read displays the returned table; return diagnostics as columns when you
 need to read them. Check an unfamiliar library's API before using it, and let
 failures surface so they can be repaired.
 
-For example, if `yearly_changes` already holds the changes, compute their
-correlation in one custom operation:
+For example, if `readings` already contains sensor readings, compute one
+custom statistic for every sensor, then select two sensors for the report:
 
 ```dataflow
-create operator correlation: process(fn=correlate, doc="Pearson correlation between yearly changes")
-    def correlate(df):
-        return pd.DataFrame({"correlation": [df["x_change"].corr(df["y_change"])]})
-create edge yearly_changes.out -> correlation.in[0]
+create operator sensor_dispersion: process(fn=median_deviation, doc="One row per sensor with unscaled median absolute deviation and count n of non-null readings; mad is null when n=0")
+    def median_deviation(df):
+        rows = []
+        for sensor, group in df.groupby("sensor", sort=False, dropna=False):
+            values = group["reading"].dropna()
+            mad = (values - values.median()).abs().median() if len(values) else float("nan")
+            rows.append({"sensor": sensor, "mad": mad, "n": len(values)})
+        return pd.DataFrame(rows, columns=["sensor", "mad", "n"])
+create operator sensor_ranked: sort(by=[("mad", "desc"), "sensor"])
+create operator sensor_top: limit(2)
+create edge readings.out -> sensor_dispersion.in[0]
+create edge sensor_dispersion.out -> sensor_ranked.in
+create edge sensor_ranked.out -> sensor_top.in
 ```
+
+`sensor_dispersion` retains all input sensors, including those with no non-null
+readings. Its median absolute deviation is `median(abs(reading - median(reading)))`.
+A later request can reuse this complete table or revise this calculation
+without inheriting the two-sensor report cutoff. Batch these known edits in
+one call, then execute and read the results needed for the current request.
 
 ### Understanding observations
 
@@ -178,13 +203,13 @@ columns with their types, and issue lines.
 An edit reports each operator as `created`, `updated`, `reconnected` or
 `deleted`. An execute receipt counts the operators in scope that executed,
 reused cached results or failed, and gives a block only to an operator with
-something to report, such as a failure, an empty result or a note; retrieve or
+something to report, such as a failure, an empty result or a note; read or
 inspect to see the others. A result that predates a change is `stale`. Inspecting the graph
 lists every operator in a table, one row per operator.
 
 #### Records
 
-Choose a `view` on every retrieve:
+Choose a `view` on every read:
 
 | View | Available information |
 |---|---|
@@ -251,7 +276,7 @@ Interpret coverage before interpreting a statistic:
 A complete table shows `statistics: not shown`, because its records already
 show every value. Raw-line previews have no parsed-column statistics, and
 statistics can be unavailable for an output or limited by their budget. If a
-relevant field is omitted, retrieve that field with `columns`; if a profile
+relevant field is omitted, read that field with `columns`; if a profile
 still cannot resolve the question, compute the required check in the graph.
 Compute exact answer quantities there rather than deriving them from rounded
 statistical summaries.
@@ -288,7 +313,7 @@ replacing it; the consumers run once it succeeds.
 
 Successful execution may use the wrong rows or formula. Compare definitions,
 `scope` and available statistics with the request. Repair the responsible
-operator or edge, recompute its consumers and retrieve. Preserve independent
+operator or edge, recompute its consumers and read. Preserve independent
 work; a display error may need only a final projection or calculation.
 
 ## Solving a task
@@ -300,15 +325,15 @@ these stages when an observation calls for a change.
    files, relevant rows, definitions, units, ordering and rounding. Inspect
    relevant existing operators when their current meaning is unclear. Reuse
    tables that already express the required work.
-2. **Understand and load the data.** Use the supplied paths and verify globs
-   and source files. Preview unfamiliar file layouts before choosing parse
-   options, then execute a full scan for computation. Check headers, types,
-   units, missing-value markers and repeated records.
+2. **Discover and load the data.** Account for every potentially relevant
+   source; filenames alone do not establish contents or relevance. Preview
+   unfamiliar headers and small samples yourself. Check parsing, types, units,
+   missing-value markers and repeated records, then load full tables.
 3. **Build the analysis.** Keep reusable intermediates inspectable and
    correctable. Prefer catalog operators; use `process` for a coherent custom
    operation, such as a parser, correlation or model fit. Create known operators
    and edges together in one edit.
-4. **Execute and judge the evidence.** Execute the relevant graph, retrieve
+4. **Execute and judge the evidence.** Execute the relevant graph, read
    what you need, and compare what the receipts show with the request. Repair
    errors or investigate unexpected losses, missingness and duplication.
    Verify the assumptions that remain open; choose focused checks that can
@@ -351,168 +376,124 @@ is refused with a reason; use `content` to provide the appropriate response.
 
 ### Earlier tasks in the session
 
-The dataflow and its current tables persist across tasks. Each request is a
-task, numbered from 1. Answering completes that request; subsequent requests
-can build on the graph that remains.
+The dataflow persists across tasks. Each request is numbered from 1.
+Keep complete working tables separate from reports: compute all relevant
+entities and their values before selecting a few for an answer. A table inside
+a process function is not an operator output; return the working table so a
+later request can inspect, reuse or revise it. Load supported files with scan
+operators. Discover unfamiliar file contents with a preview before parsing;
+a filename alone does not establish its contents or relevance.
 
-Keep reusable working tables separate from answer tables. A working table
-holds all rows needed for a reusable calculation and its computed columns
-before a task's ranking or top-k selection. Put that selection in downstream operators; later tasks can
-then use all qualifying rows instead of inheriting an earlier answer's cutoff.
-The records shown by a retrieve may be partial even when the operator computes
-the full table.
+At each request, check whether it changes the default rule, asks for a temporary
+alternative, or refers to an earlier state. Preserve applicable units, exclusions,
+ordering and rounding. Earlier answers, descriptions and dependency links are
+unverified evidence; check the relevant definition, inputs and result before
+reuse. Row counts alone do not establish which entities a table contains.
 
-Before reusing a table, read its relevant definition, scope and any available
-data or flow statistics. Check which rows the new request needs: all qualifying
-rows, an earlier answer's selected rows, or a different rule version. The row
-count alone cannot choose among them. When the request concerns an earlier
-top-k selection, keep that selection; when it concerns every qualifying row,
-connect the table before the limit.
+When a rule changes for following tasks, update the operator that defines it.
+Consumers are invalidated and recompute on the next execute. Give reusable rules
+clear operator boundaries; connect their working tables instead of retyping
+rules in a new function. A temporary scenario stays on a separate branch unless
+the request adopts it. The next request continues from the default.
+The earlier results stay saved under their task numbers. Use their addresses
+rather than copying whole upstream graphs or reconstructing old numbers.
 
-At the start of a task, identify which existing tables and definitions it
-refers to. Preserve earlier conventions for population, units, ordering and
-rounding when they still apply. Follow the current request when it revises a
-convention. Earlier answers and definitions may contain mistakes; check the
-relevant definition, inputs and result before using a table as a population,
-lookup or baseline.
-
-Connect the working table that already contains the applicable rules rather
-than starting again from the cleaned source and retyping those rules inside
-another function. When a rule changes, give that calculation a clear operator
-boundary so its consumers can share the revision. This can be a column
-derivation, filter, join, aggregate or custom calculation; it need not be one
-operator per column.
-
-Extend the graph when the request adds an analysis. When the request revises
-a rule for the rest of the session, update the operator that defines it rather
-than building a second version beside it: every table built on it recomputes
-on the next execute, so later tasks read the revised rule without any further
-change.
-The version earlier tasks used stays saved (see "Saved versions" below). To
-compare with what an earlier task reported, read its saved result or fork its
-saved version instead of keeping a duplicate or retyping its numbers.
-Keep a temporary scenario on its own branch unless the request adopts it. Use
-an existing selection by connecting its table rather than retyping the members
-from an earlier answer.
-
-Operator blocks can name the task that defined an operator (`origin: task 1`)
-and the operators that read its table (`used by`).
+A process should implement one coherent transformation, with a concise doc that
+accurately describes its output grain, formula, exclusions and null handling.
+Keep complete computed tables visible as outputs; put answer cutoffs downstream
+or in answer from. Related helpers for one algorithm may stay together.
 
 #### Saved versions
 
-Earlier tasks may appear under `# Prior Tasks` instead of their full action
-history. Each entry preserves its question, earlier agent answer and the task
-numbers it depends on. A dependency records a table read, computation input or
-reused definition from an earlier task. These
-links establish provenance, not correctness, and do not cover conventions or
-numbers carried only in prose. An entry marked incomplete has no completed
-answer. Clipped answers are labelled; inspect the task to read the original.
+Answering saves the graph's definitions, connections and matching completed
+results at that task boundary. `scores` means the current operator;
+`scores@2` means the definition and exact result saved at the end of task 2.
+A saved result is immutable and cannot be edited. A local definition unchanged
+since task 2 may have a different result if an input changed.
 
-Use `inspect` with `target: "task"` and `task_id` to retrieve the original
-question and answer together with the local answer computation. Operators
-created or changed for that computation, and their affected downstream steps,
-are shown. Unchanged computations from earlier tasks appear as saved input
-references with their operator IDs, owning task numbers and versions. For
-example, if task 1 prepared records with ten operators and task 2 added five
-operators on those records, task 2 shows its five operators and a reference to
-task 1's prepared table. The earlier ten operators remain saved.
+Earlier tasks may appear as sealed entries under # Prior Tasks, or in their
+ordinary ReAct history. Entries show each task's created or modified operators
+in first-edit order with final definitions, direct inputs, output shape and
+columns; deletions are separate. An answer source marker records the table
+declared by the agent, not a correctness guarantee. All working tables are
+included, even when outside that task's answer computation. Process bodies
+are available on demand. Statistics and catalog records are off by default;
+when enabled they describe the saved output with their stated coverage.
 
-Expand only an input you need to examine: inspect its owning `task_id` and
-`operator_id` to reveal that task's computation, or use `target: "state"` for
-the definition and immediate inputs. Set `include_implementation: true` when
-local Python is needed, and a `view` when selected root results are needed;
-use `operator_id: null` for declared answer roots. Earlier-input references
-contain metadata and scope, not Python or table records. The simple task
-inspection returns local definitions without Python or tables.
-Named `operator_id` values select a different intermediate branch at that
-task, useful when its final report is the wrong starting point. `target:
-"state"` still reads specific saved operators or lists their version changes.
-Any earlier task can be inspected, including one with no recorded dependency.
-These reads do not execute or change the graph.
+Use `read` with `operator_ids: ["scores@2"]`. With `view: null` it returns
+definitions and direct inputs without data, including failed or unexecuted
+operators. Set `include_implementation: true` to inspect local Python.
+A non-null view (full, sample, or sample_stats when available) reads matching
+completed records. Use columns to request needed fields; null keeps all.
+Reads never execute. Several addresses may be read together.
 
-For tabular answers prefer `answer` with `from`; it serializes the computed
-values and records source tables automatically. If an explanation or unsupported
-shape needs free-text `content`, set `operator_ids` to its completed source
-tables. These IDs become the roots of later task retrieval;
-exploratory reads are excluded when explicit answer roots exist. Without an
-explicit declaration, retrieval lists prior result reads as unconfirmed
-candidates without expanding their graphs or returning their tables. Select
-an `operator_id` explicitly to inspect a candidate branch. Unknown roots are
-reported instead of guessed. Graph inspection in multi-task sessions requires
-named `operator_ids`; discover relevant work through the task index rather
-than requesting the entire session graph.
+A saved table can directly feed a new computation:
+`create edge scores@2.out -> comparison.in[0]`.
+The engine binds its original materialization, with no ancestor copies or
+upstream execution. If that materialization is unavailable, the action fails
+with HISTORICAL_RESULT_UNAVAILABLE. It never substitutes a newer table or
+reruns the old definition on today's files. Definitions remain inspectable.
+Historical addresses are sources, not editable targets or execution targets.
 
-When a task is answered, the dataflow as it stands is saved under that task's
-number: the definition of every operator and its result. Any later task can
-read a saved version or bring it back, including the version saved by a task
-that itself brought back an earlier one, so going back never removes a
-version. Edits change only the current dataflow.
+Choose the operation that fits the request:
+- **An earlier table.** Read scores@2, answer from it, or use it as an input.
+  The default graph's rules do not change.
+- **An old rule on current inputs for following tasks.**
+  `update operator scores from scores@2` restores only the definition.
+  Existing input connections remain current; the receipt names drift.
+  Execute the affected operators to compute the revised default.
+- **An editable alternative from earlier work.**
+  `create operator variant from scores@2` copies that operator's definition
+  with saved direct inputs. It creates one editable operator; ancestors are
+  referenced as old results. Adjust the variant or explicitly rewire its
+  inputs to current tables, execute it and answer from it. Default operators
+  stay untouched. No new names for copied ancestors are needed.
 
-A saved version records what was computed, not whether its answer was right.
-Before reusing a retrieved branch, compare its filters, joins, units, grouping
-and input coverage with the new question. Dependency links help locate useful
-work; they do not prove that its rule or answer was right. A wrong
-answer can still leave useful intermediate tables; inspect those tables
-separately from the final report. If a report was limited or based on the wrong
-rows, reuse the appropriate earlier working table, adjust the faulty step and
-recompute the affected downstream operators. Retrieve their results before
-answering. Preserve the earlier version when the question compares versions.
+Before using earlier work, inspect the rule and table coverage. A saved answer's
+top-five selection is different from the full table it was selected from.
+Use the earlier report when its membership is requested, and the complete
+working table when all qualifying entities are needed. Saved states may contain
+earlier mistakes; identify and correct the relevant rule on a separate branch
+rather than trusting the old answer.
 
-| Capability | Effect |
-|---|---|
-| `inspect` with `target: "task"` and `task_id` | Read the local answer computation and versioned earlier-input references. Optional `operator_id` selects intermediate roots; `include_implementation` requests local Python, and `view` requests selected root results. Expand an input through its owning task and operator ID. |
-| `answer` with `content` and optional `operator_ids` | Answer and identify the completed source tables for later sub-DAG retrieval. The runtime checks availability, not semantic correctness. An answer with `from` records its roots automatically. |
-| `inspect` with `target: "state"`, `operator_id` and `task_id` | Read the operator and its immediate inputs as task N saved them. `include_implementation` controls attached Python, and a `view` adds the saved result. `task_id: null` lists its versions and the tasks in which each held. Leaves the current dataflow unchanged. |
-| `fork operator <id> from task <N> as <new_id>` inside an edit | Copy the operator and the inputs it had at task N into the current dataflow under new identifiers, with their saved results, so later operators can compute with that version. The operator itself is unchanged. |
-| `update operator <id> from task <N>` inside an edit | Restore the definition task N saved, in place, on today's inputs: an update whose definition comes from task N. The receipt names inputs that changed since then. Execute to compute. |
+`diff(key=["entity"], columns=["score"])` compares two tables, earlier on
+in[0] and comparison on in[1]. Entity keys must be explicit, unique and non-null.
+Output contains status (added, removed, changed; same with include_same=True)
+and each column's _left, _right, _delta and _abs_delta. Numeric deltas are
+right minus left; missing values and non-numeric differences have null deltas.
 
-Blocks name these versions in their state: `saved by task N` when inspected,
-`forked from task N` or `restored from task N` in an edit. A fork shows its
-result as `(saved by task N)` until it is executed again.
+Answer from the full working table with an optional cut:
+`scores[entity, score:3] top 5 by score desc, entity asc`.
+Ordering uses unrounded values. Specify the tie-breaking columns explicitly;
+an ambiguous tie at the selection boundary is refused. A complete table is
+required; above the pagination ceiling, sort and limit in the graph.
+The answer records the full source and its selection separately.
 
-Read an earlier result with `inspect`. Fork it when you need to compute with
-it next to the current version, and update from it when the request returns
-to that rule for what follows. Use a saved definition or result rather than
-reconstructing it from memory.
+Free-text content answers require operator_ids naming their completed source
+tables, current or historical. Pass [] only when no table was used. Missing
+sources are rejected, and exploratory reads do not become answer roots.
 
 ## Examples
 
-### Working examples
+### Example: inspect and reuse an earlier result
 
-When you know the input columns, batch the graph changes and execution:
+The task asks for a temporary alternative to an earlier rule. First check
+that rule and its table coverage:
+```json
+{"reasoning":"Inspect the earlier computation before choosing what to reuse.","actions":[{"type":"read","operator_ids":["scores@2"],"view": "sample_stats","columns":null,"include_implementation":true}]}
+```
+For an exact earlier table, connect `scores@2` directly. To change the old
+computation for this task only, use `create operator variant from scores@2`,
+then edit the variant. Its direct inputs remain saved references; explicitly
+rewire them if the question needs today's data. Execute `["variant"]` and
+answer from it. Keep the default operators unchanged.
+
+For a permanent return to that rule, `update operator scores from scores@2`
+keeps today's inputs and changes the default definition. Execute scores.
+Saved values are never recomputed from current files. If unavailable, the
+read fails clearly. For complete worked examples, inspect reference with
+topic=example and example=history.
 
 ```json
-{"reasoning":"Compute total spending by region.","actions":[{"type":"edit","changes":"create operator purchases: scan(\"data/purchases.csv\")\ncreate operator totals: aggregate(by=[\"region\"], total=sum(\"amount\"))\ncreate edge purchases.out -> totals.in"},{"type":"execute","operator_ids":["totals"]},{"type":"retrieve","operator_id":"totals","view": "sample_stats"}]}
+{"reasoning":"Read the complete saved-version example.","actions":[{"type":"inspect","target":"reference","topic":"example","example":"history"}]}
 ```
-
-Read the result before deciding whether to repair the calculation or answer.
-For a complete, small answer table, `{"type":"answer","from":"totals[region=region,total=total:2]"}`
-formats the computed values and records the source. A capped sample does not
-establish every region's total or the ordering of all rows.
-
-For a requested mean among eligible records, check the filtered table's row
-count and the measured column's non-null count. Null values can make those
-denominators differ. A limit used for a display should not become the input to
-that mean. Statistics describe the inspected version and coverage; verify
-filters and definitions as well as counts before trusting the calculation.
-
-Suppose task 1 computed totals for all records and a later task asks for the
-same calculation among eligible records. Retrieve the earlier calculation:
-
-```json
-{"reasoning":"Check the earlier calculation's definition and inputs.","actions":[{"type":"inspect","target":"task","task_id":1,"operator_id":null,"include_implementation":true,"view": "sample_stats"}]}
-```
-
-Check whether its saved filters, denominator and output match the new request.
-Reuse a matching result; otherwise fork its version, adjust the necessary
-branch and execute that branch. Expand individual saved input references when
-their definitions matter. The dependency index points to possible reuse and
-does not certify the previous answer. A fork already preserves its incoming
-edges: delete an existing edge before replacing it. Prefer one inspection that
-returns the relevant implementation and result over repeated broader reads.
-
-Additional worked examples are available through
-`{"type":"inspect","target":"reference","topic":"example","example":"single"}`;
-choose `statistics` or `history` when those session features are enabled.
-Operator-specific contracts use
-`{"type":"inspect","target":"reference","topic":"operators","operator_names":["join","process"]}`.

@@ -107,10 +107,9 @@ const reads: unknown[] = [];
 async function readHistory(task: number) {
   const receipt = await debug([
     {
-      type: "inspect",
-      target: "state",
-      task_id: task,
-      operator_id: "scores",
+      type: "read",
+      operator_ids: [`scores@${task}`],
+      columns: null,
       include_implementation: true,
       view: "full",
     },
@@ -148,7 +147,7 @@ try {
         contextMode: "delta",
         multiTask: true,
         stateHistory: true,
-        stateLedger: true,
+        stateLedger: false,
         retrievalViews: ["full", "sample_stats"],
         dataEvidence: true,
         nativeProfileCollection: true,
@@ -181,12 +180,12 @@ create operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["
 create edge source.out -> eligible.in
 create edge eligible.out -> scores.in`,
     },
-    { type: "execute" },
-    { type: "retrieve", operator_id: "scores", view: "sample_stats" },
+    { type: "execute", operator_ids: ["scores"] },
+    { type: "read", operator_ids: ["scores"], view: "sample_stats", columns: null, include_implementation: false },
   ]);
   assert.equal(first.result.status, "completed", first.text);
   assert(!first.text.includes("U146"), "Probe unit should be outside the initial preview");
-  await debug([{ type: "answer", content: "Saved the 75 qualified scores." }]);
+  await debug([{ type: "answer", content: "Saved the 75 qualified scores.", operator_ids: ["scores"] }]);
   await debug("Task 2: use the updated population, broaden eligibility and triple the values.");
   const changed = await debug([
     {
@@ -195,10 +194,10 @@ create edge eligible.out -> scores.in`,
 update operator eligible: filter(lambda row: row["value"] > 0, doc="Positive population")
 update operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["value"])*3}, doc="Triple value")`,
     },
-    { type: "execute" },
+    { type: "execute", operator_ids: ["scores"] },
   ]);
   assert.equal(changed.result.status, "completed", changed.text);
-  await debug([{ type: "answer", content: "Updated 15 scores under the revised rule." }]);
+  await debug([{ type: "answer", content: "Updated 15 scores under the revised rule.", operator_ids: ["scores"] }]);
   for (let task = 3; task <= 17; task++) {
     await debug(`Task ${task}: keep the current analysis; acknowledge the saved result.`);
     if (task === 9 || task === 17) {
@@ -207,63 +206,49 @@ update operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["
       assert.equal(await executions(), count, "Delayed historical reads must not execute");
       checks.push(`history survives ${task - 1} later requests and multiple changed ancestors`);
     }
-    await debug([{ type: "answer", content: `Current scoring definition retained at request ${task}.` }]);
+    await debug([{ type: "answer", content: `Current scoring definition retained at request ${task}.`, operator_ids: ["scores"] }]);
   }
   await debug("Task 18: compare the task-1 working population after a physical overwrite.");
   const count = await executions();
-  const fork = await debug([
-    { type: "edit", changes: "fork operator scores from task 1 as saved_scores" },
-    { type: "retrieve", operator_id: "saved_scores", view: "full" },
-  ]);
-  assert.equal(fork.result.status, "completed", fork.text);
-  assert(fork.text.includes("U148") && fork.text.includes("298"), fork.text);
-  assert.equal(await executions(), count, "Fork and saved retrieval must not execute");
+  const savedRead = await readHistory(1);
+  assert(savedRead.text.includes("U148") && savedRead.text.includes("298"), savedRead.text);
+  assert.equal(await executions(), count, "Saved retrieval never executes");
   writeFileSync(oldFile, rows(150, 9001));
   await readHistory(1);
-  const recomputed = await debug([
+  const referenced = await debug([
+    { type: "edit", changes: "create operator saved_scores: project(keep=[\"unit\", \"score\"])\ncreate edge scores@1.out -> saved_scores.in" },
     { type: "execute", operator_ids: ["saved_scores"] },
-    { type: "retrieve", operator_id: "saved_scores", view: "full" },
+    { type: "read", operator_ids: ["saved_scores"], view: "full", columns: null, include_implementation: false },
   ]);
-  assert.equal(recomputed.result.status, "completed", recomputed.text);
-  const onNewBytes = recomputed.text.includes("18298");
-  const onSavedBytes = recomputed.text.includes("298") && !onNewBytes;
-  assert(onNewBytes || onSavedBytes, recomputed.text);
-  save("external-overwrite.json", {
-    historical_read_stays_original: true,
-    fork_execution: onNewBytes ? "old definitions on overwritten external bytes" : "cached original result",
-    receipt: recomputed.text,
-  });
-  checks.push("saved observation survives physical source overwrite; execution behavior recorded separately");
-  await debug([{ type: "answer", content: "External overwrite and saved observations checked." }]);
-  await debug("Task 19: inspect the original version after physical source deletion.");
+  assert.equal(referenced.result.status, "completed", referenced.text);
+  assert(referenced.text.includes("298") && !referenced.text.includes("18298"), referenced.text);
+  assert(referenced.result.actions[1].output.operators.some((op: any) => op.id === "scores@1" && op.state === "cached"));
+  save("external-overwrite.json", { historical_read_stays_original: true, reference_cached: true, receipt: referenced.text });
+  checks.push("saved table survives physical overwrite and is consumed without old ancestor execution");
+  await debug([{ type: "answer", content: "External overwrite checked.", operator_ids: ["saved_scores"] }]);
+  await debug("Task 19: use the original values after physical source deletion.");
   unlinkSync(oldFile);
   await readHistory(1);
   const deleted = await debug([
-    { type: "edit", changes: "fork operator scores from task 1 as deleted_probe" },
+    { type: "edit", changes: "create operator deleted_probe: project(keep=[\"unit\", \"score\"])\ncreate edge scores@1.out -> deleted_probe.in" },
     { type: "execute", operator_ids: ["deleted_probe"] },
+    { type: "read", operator_ids: ["deleted_probe"], view: "full", columns: null, include_implementation: false },
   ]);
-  assert(["completed", "error"].includes(deleted.result.status), deleted.text);
-  if (deleted.result.status === "error")
-    assert(/SCAN_NOT_FOUND|FileNotFound|SOURCE_IO|No such file/.test(deleted.text), deleted.text);
-  save("external-deletion.json", {
-    historical_read_stays_original: true,
-    fork_execution:
-      deleted.result.status === "error" ? "cannot recompute missing external input" : "backend cache supplied result",
-    receipt: deleted.text,
-  });
-  checks.push("saved observation survives deletion; recomputation/cache outcome recorded");
-  await debug([{ type: "answer", content: "Source deletion and saved observation checked." }]);
+  assert.equal(deleted.result.status, "completed", deleted.text);
+  assert(deleted.text.includes("298"), deleted.text);
+  checks.push("saved result consumption survives physical source deletion");
+  await debug([{ type: "answer", content: "Source deletion checked.", operator_ids: ["deleted_probe"] }]);
   await debug("Task 20: restore task-1 definitions on the current updated input.");
   const restored = await debug([
-    { type: "edit", changes: "update operator eligible from task 1\nupdate operator scores from task 1" },
+    { type: "edit", changes: "update operator eligible from eligible@1\nupdate operator scores from scores@1" },
     { type: "execute", operator_ids: ["scores"] },
-    { type: "retrieve", operator_id: "scores", view: "full" },
+    { type: "read", operator_ids: ["scores"], view: "full", columns: null, include_implementation: false },
   ]);
   assert.equal(restored.result.status, "completed", restored.text);
   assert(restored.text.includes("2028") && restored.text.includes("2000"), restored.text);
   await readHistory(1);
   checks.push("restoration uses current input; failed independent historical branch remains isolated");
-  await debug([{ type: "answer", content: "Restored eight qualified scores on the current input." }]);
+  await debug([{ type: "answer", content: "Restored eight qualified scores on the current input.", operator_ids: ["scores"] }]);
   save("historical-reads.json", reads);
   save("report.json", {
     status: "passed",

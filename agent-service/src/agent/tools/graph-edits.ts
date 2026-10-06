@@ -20,7 +20,7 @@
 import { WorkflowState } from "../workflow-state";
 import { WorkflowUtilService } from "../util/workflow-utils";
 import { autoLayoutWorkflow } from "../util/auto-layout";
-import type { WorkflowContent } from "../../types/workflow";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ToolContext } from "./workflow-crud-tools";
 import type { NativeBatchOutcome } from "./native-batch-tools";
 import {
@@ -35,6 +35,7 @@ import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
+import type { VersionCommand } from "../state-ledger";
 
 type Edge = { source: string; sourcePort: string; target: string; targetPort: string };
 type Command = Edge & {
@@ -57,6 +58,28 @@ export interface GraphEditPlan {
   changes: GraphChangeReceipt[];
   unconnected_inputs: string[];
   invalidated_results: string[];
+  forks?: GraphForkReceipt[];
+  versions?: Array<{ command: VersionCommand; state: string; note: string }>;
+  /** Distinguishes command-order execution from older version-first traces. */
+  ordered_versions?: true;
+  applied?: number;
+}
+
+export interface GraphForkReceipt {
+  task_id: number;
+  step_id: string;
+  operator_id: string;
+  new_operator_id: string;
+  mapping: Record<string, string>;
+}
+
+export interface VersionEditResolution {
+  fork?: GraphEditPlan & { mapping: Record<string, string>; task_id: number };
+  restore?: string;
+  definition?: OperatorPredicate;
+  inputs?: string[];
+  state: string;
+  note: string;
 }
 
 const edgeText = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;
@@ -118,6 +141,7 @@ function definition(command: Command, profileCollection?: boolean): NativeOpView
   const def = NATIVE_BY_NAME.get(command.statement.op);
   if (!def) throw new Error(`Unknown operator ${command.statement.op}. Use an operator from the catalog.`);
   let names = def.inputs === 0 ? [] : def.inputs === 1 ? ["in"] : def.inputs === 2 ? ["left", "right"] : indexed(2);
+  if (def.name === "diff") names = indexed(2);
   if (def.name === "process") {
     const fn = command.statement.kwargs.fn ?? command.statement.args[0];
     const params =
@@ -137,12 +161,15 @@ function definition(command: Command, profileCollection?: boolean): NativeOpView
 export async function planGraphEdit(
   original: WorkflowContent,
   changes: string,
-  context: ToolContext
+  context: ToolContext,
+  resolveVersion?: (command: VersionCommand, current: WorkflowContent) => VersionEditResolution,
+  resolveInput?: (address: string) => OperatorPredicate
 ): Promise<GraphEditPlan> {
   const parsed = (await runNativePython({ changes })) as { ok: boolean; commands?: Command[]; error?: string };
   if (!parsed.ok) throw new Error(`${parsed.error} No changes were applied.`);
   if (!context.metadataStore) throw new Error("Metadata store not available for graph editing.");
   const nodes = new Map<string, NativeOpView>();
+  const templates = new Map<string, OperatorPredicate>(original.operators.map(op => [op.operatorID, op]));
   for (const op of original.operators) {
     if (!op.nativeOp) throw new Error(`Operator ${op.operatorID} is not a native operator.`);
     nodes.set(op.operatorID, { ...structuredClone(op.nativeOp), graph: { inputPorts: ports(op.nativeOp) } });
@@ -151,6 +178,8 @@ export async function planGraphEdit(
   const receipts: GraphChangeReceipt[] = [];
   const outcomes: NativeBatchOutcome[] = [];
   const changed = new Set<string>();
+  const forks: NonNullable<GraphEditPlan["forks"]> = [];
+  const versions: NonNullable<GraphEditPlan["versions"]> = [];
   let location = "";
   const required = (id: string) => {
     const node = nodes.get(id);
@@ -171,11 +200,108 @@ export async function planGraphEdit(
         `Unknown input port ${edge.target}.${edge.targetPort}; expected ${ports(target).join(", ") || "no inputs"}.`
       );
   };
+  const inputId = (address: string): string => {
+    if (!address.includes("@")) return address;
+    if (!resolveInput) throw new Error("Saved input references require stateHistory.");
+    const source = resolveInput(address);
+    if (!nodes.has(source.operatorID)) {
+      nodes.set(source.operatorID, structuredClone(source.nativeOp!));
+      templates.set(source.operatorID, source);
+    }
+    return source.operatorID;
+  };
+  // Version resolution needs the current private draft's IDs and bindings,
+  // including preceding edits. Compilation/validation still happen once,
+  // after every command, so temporary draft states never commit or execute.
+  const stagedWorkflow = (): WorkflowContent => ({
+    ...original,
+    operators: [...nodes].map(([id, view]) => ({
+      ...templates.get(id)!,
+      operatorID: id,
+      inputPorts: ports(view).map((name, i) => ({
+        portID: `input-${i}`,
+        displayName: name,
+        disallowMultiInputs: true,
+      })),
+      outputPorts: [{ portID: "output-0", displayName: "out" }],
+      nativeOp: {
+        ...view,
+        inputs: ports(view).map(
+          port => [...edges.values()].find(edge => edge.target === id && edge.targetPort === port)?.source ?? ""
+        ),
+      },
+    })),
+    links: [...edges].map(([id, edge]) => ({
+      linkID: id,
+      source: { operatorID: edge.source, portID: "output-0" },
+      target: { operatorID: edge.target, portID: `input-${ports(required(edge.target)).indexOf(edge.targetPort)}` },
+    })),
+  });
   try {
-    for (const [index, command] of parsed.commands!.entries()) {
+    const commands = [...parsed.commands!];
+    for (const [index, command] of commands.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
       const { operation, id } = command;
+      if (operation === "fork_operator" || operation === "restore_operator" || operation === "copy_definition") {
+        if (!resolveVersion) throw new Error("Saved-version commands require stateHistory.");
+        const versionCommand = command as unknown as VersionCommand;
+        const resolved = resolveVersion(versionCommand, stagedWorkflow());
+        versions.push({
+          command: {
+            line: versionCommand.line,
+            id,
+            task: versionCommand.task,
+            ...(versionCommand.sourceId ? { sourceId: versionCommand.sourceId, create: versionCommand.create } : {}),
+            ...(versionCommand.as ? { as: versionCommand.as } : {}),
+          },
+          state: resolved.state,
+          note: resolved.note,
+        });
+        if (resolved.definition) {
+          if (versionCommand.create && nodes.has(id)) throw new Error(`Operator ${id} already exists.`);
+          if (!versionCommand.create) required(id);
+          if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
+          const view = structuredClone(resolved.definition.nativeOp!);
+          view.graph = { inputPorts: ports(view) };
+          nodes.set(id, view);
+          if (versionCommand.create) templates.set(id, { ...resolved.definition, operatorID: id, savedResult: undefined, stateOrigin: undefined });
+          changed.add(id);
+          receipts.push({ operation: versionCommand.create ? "create_operator" : "update_operator", operator_id: id });
+          outcomes.push({ id, op: nativeOperatorName(view.type), status: versionCommand.create ? "added" : "modified", message: resolved.note });
+          if (resolved.inputs) {
+            for (const [i, address] of resolved.inputs.entries()) {
+              const edge: Edge = { source: inputId(address), sourcePort: "out", target: id, targetPort: ports(view)[i] };
+              edges.set(edgeText(edge), edge);
+            }
+          }
+        } else if (resolved.fork) {
+          const fork = resolved.fork;
+          const copied = new Set(Object.values(fork.mapping));
+          for (const op of fork.workflow.operators.filter(op => copied.has(op.operatorID))) {
+            nodes.set(op.operatorID, structuredClone(op.nativeOp!));
+            templates.set(op.operatorID, op);
+            changed.add(op.operatorID);
+          }
+          for (const edge of edgesOf(fork.workflow).filter(edge => copied.has(edge.target)))
+            edges.set(edgeText(edge), edge);
+          outcomes.push(...fork.operators);
+          receipts.push(...fork.changes);
+          forks.push({
+            task_id: fork.task_id,
+            step_id: fork.workflow.operators.find(op => op.operatorID === versionCommand.as)!.stateOrigin!.stepId,
+            operator_id: id,
+            new_operator_id: versionCommand.as!,
+            mapping: { ...fork.mapping },
+          });
+        } else if (resolved.restore) {
+          const expanded = (await runNativePython({ changes: resolved.restore })) as typeof parsed;
+          if (!expanded.ok) throw new Error(expanded.error);
+          commands.splice(index + 1, 0, ...expanded.commands!.map(part => ({ ...part, line: command.line })));
+        } else throw new Error("Saved-version resolver returned no changes.");
+        continue;
+      }
       if (operation === "create_operator" || operation === "update_operator") {
+        if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
         const existing = nodes.get(id);
         if (operation === "create_operator" && existing)
           throw new Error(`Operator ${id} already exists; use update operator.`);
@@ -198,6 +324,7 @@ export async function planGraphEdit(
           if (edge.target !== id) changed.add(edge.target);
         }
         nodes.delete(id);
+        templates.delete(id);
         changed.add(id);
         receipts.push({ operation, operator_id: id, deleted_edges: removed.map(edgeText) });
         outcomes.push({
@@ -213,6 +340,7 @@ export async function planGraphEdit(
           target: command.target,
           targetPort: command.targetPort,
         };
+        edge.source = inputId(command.source);
         // A one-parameter process has one unambiguous input. Store its
         // canonical name so aliases cannot bypass occupancy or deletion.
         const target = required(edge.target);
@@ -231,7 +359,7 @@ export async function planGraphEdit(
           edges.set(key, edge);
         }
         changed.add(edge.target);
-        receipts.push({ operation, edge: key });
+        receipts.push({ operation, edge: edgeText({ ...edge, source: command.source }) });
       }
     }
     location = "Resulting graph: ";
@@ -287,7 +415,7 @@ export async function planGraphEdit(
         validationViews.get(id)!.lineage = view.lineage;
       }
       const compiled = compileNativeOp(validationViews.get(id)!, id);
-      const old = draft.getOperator(id);
+      const old = templates.get(id);
       const template =
         old?.operatorType === compiled.operatorType ? old : util.getNewOperatorPredicate(compiled.operatorType, id);
       draft.addOperator(
@@ -333,6 +461,9 @@ export async function planGraphEdit(
       invalidated_results: [...computeStaleResultOps(original, workflow)].filter(id =>
         original.operators.some(o => o.operatorID === id)
       ),
+      ...(versions.length
+        ? { versions, forks, ordered_versions: true as const, applied: parsed.commands!.length }
+        : {}),
     };
   } catch (error) {
     throw new Error(

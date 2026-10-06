@@ -24,7 +24,7 @@ import type { RetrievalView } from "../../types/agent";
 import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
 import { renderActionObservations } from "../native/action-observations";
 import type { ObservationFormatSettings } from "../native/observation-format";
-import type { TaskReference } from "../task-history";
+import type { TaskReference, TaskRecord } from "../task-history";
 import { NATIVE_OPERATOR_NAMES } from "../native/catalog";
 
 export type DataflowAction =
@@ -54,6 +54,7 @@ export type DataflowAction =
   | { type: "edit"; changes: string }
   | { type: "execute"; operator_ids?: string[] }
   | { type: "retrieve"; operator_id: string; view: RetrievalView; columns?: string[] }
+  | { type: "read"; operator_ids: string[]; view: RetrievalView | null; include_implementation: boolean; columns: string[] | null }
   | { type: "answer"; content: string; operator_ids?: string[] }
   | { type: "answer"; from: string };
 
@@ -86,6 +87,11 @@ export interface DataflowActionsResult {
   format?: ObservationFormatSettings;
   /** Action-time provenance; not expanded into ordinary result observations. */
   references?: TaskReference[];
+  /** Sealed at answer time for faithful history export/import. It is not
+   * echoed in the model's ordinary Answer observation. */
+  task_catalog?: Readonly<TaskRecord>;
+  /** Versioned receipt protocol; absent on imported legacy action traces. */
+  saved_versions?: true;
 }
 
 const text = { type: "string", minLength: 1, pattern: "\\S" };
@@ -252,16 +258,36 @@ STATE_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
     }
   )
 );
-export const dataflowActionsSchema = (stateHistory = false) =>
-  stateHistory ? STATE_ACTIONS_SCHEMA : DATAFLOW_ACTIONS_SCHEMA;
+const SAVED_ACTIONS_SCHEMA = structuredClone(DATAFLOW_ACTIONS_SCHEMA);
+SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf = SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.filter(
+  a => a.properties.type.const === "edit" ||
+    (a.properties.type.const === "execute" && "operator_ids" in a.properties) ||
+    (a.properties.type.const === "answer" && "from" in a.properties) ||
+    ("target" in a.properties && (a.properties.target as { const: string }).const === "reference")
+);
+SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
+  action("read", "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns.", {
+    operator_ids: { type: "array", items: text, minItems: 1, maxItems: 8, uniqueItems: true },
+    view: { anyOf: [{ type: "string", enum: [...RETRIEVAL_VIEWS] }, { type: "null" }] },
+    include_implementation: { type: "boolean" },
+    columns: { anyOf: [{ type: "array", items: text, minItems: 1, uniqueItems: true }, { type: "null" }] },
+  }),
+  action("answer", "Give the final response and declare its completed source tables (current IDs or ID@task). Pass [] only when no table was used. Must be the sole action. Sources record provenance, not correctness.", {
+    content: text, operator_ids: { type: "array", items: text, maxItems: 8, uniqueItems: true },
+  })
+);
+export const dataflowActionsSchema = (stateHistory = false, savedVersions = false) =>
+  savedVersions ? SAVED_ACTIONS_SCHEMA : stateHistory ? STATE_ACTIONS_SCHEMA : DATAFLOW_ACTIONS_SCHEMA;
 const ajv = new Ajv({ allErrors: true });
-const validators = [DATAFLOW_ACTIONS_SCHEMA, STATE_ACTIONS_SCHEMA].map(schema => ({
+const validators = [DATAFLOW_ACTIONS_SCHEMA, STATE_ACTIONS_SCHEMA, SAVED_ACTIONS_SCHEMA].map(schema => ({
   validate: ajv.compile<DataflowActionsInput>(schema),
   actions: schema.properties.actions.items.anyOf.map(schema => ({ schema, validate: ajv.compile(schema) })),
 }));
 
-function validationMessage(input: any, stateHistory: boolean): string {
-  const { validate, actions: actionValidators } = validators[stateHistory ? 1 : 0];
+function validationMessage(input: any, stateHistory: boolean, savedVersions = false): string {
+  const { validate, actions: actionValidators } = validators[savedVersions ? 2 : stateHistory ? 1 : 0];
+  if (savedVersions && input?.actions?.some?.((a: any) => a?.type === "answer" && "content" in a && !("operator_ids" in a)))
+    return "Answer requires operator_ids: name the completed tables used, or pass [] when no table was used. No actions ran.";
   if (typeof input?.actions === "string")
     return 'Invalid dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Run the graph.","actions":[{"type":"execute"}]}. Only edit.changes contains graph text. No actions ran.';
   if (Array.isArray(input?.actions)) {
@@ -273,7 +299,7 @@ function validationMessage(input: any, stateHistory: boolean): string {
           const changes = `${verb} operator <id>${verb === "delete" ? "" : ": <expression>"}`;
           return `Action ${index + 1}: ${JSON.stringify(item.type)} is a graph command. Put it inside an edit action: ${JSON.stringify({ type: "edit", changes })}. No actions ran.`;
         }
-        return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;
+        return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use ${savedVersions ? "edit, execute, read, or answer" : "inspect, edit, execute, retrieve, or answer"}. Operators such as scan, process and aggregate belong inside an edit.`;
       }
       const selected =
         candidates.find(v => v.validate(item)) ??
@@ -307,7 +333,8 @@ export const DATAFLOW_ACTIONS_DESCRIPTION =
 export function prepareDataflowActions(
   input: unknown,
   views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
-  stateHistory = false
+  stateHistory = false,
+  savedVersions = false
 ): DataflowActionsResult {
   const result: DataflowActionsResult = {
     kind: "dataflow-actions",
@@ -316,10 +343,11 @@ export function prepareDataflowActions(
     operators: [],
     observe: [],
     observationErrors: [],
+    ...(savedVersions ? { saved_versions: true as const } : {}),
   };
-  if (!validators[stateHistory ? 1 : 0].validate(input)) {
+  if (!validators[savedVersions ? 2 : stateHistory ? 1 : 0].validate(input)) {
     result.status = "error";
-    result.error = validationMessage(input, stateHistory);
+    result.error = validationMessage(input, stateHistory, savedVersions);
     return result;
   }
   const request = input as DataflowActionsInput;
@@ -351,7 +379,7 @@ export function prepareDataflowActions(
   }
   const duplicateSelection = request.actions.findIndex(
     a =>
-      ((a.type === "execute" || a.type === "answer") &&
+      ((a.type === "execute" || a.type === "answer" || a.type === "read") &&
         "operator_ids" in a &&
         a.operator_ids &&
         new Set(a.operator_ids).size !== a.operator_ids.length) ||
@@ -372,7 +400,7 @@ export function prepareDataflowActions(
   }
   const unavailable = request.actions.find(
     a =>
-      (a.type === "retrieve" || (a.type === "inspect" && "view" in a && a.view !== null)) &&
+      (a.type === "retrieve" || ((a.type === "inspect" || a.type === "read") && "view" in a && a.view !== null)) &&
       !views.includes(a.view as RetrievalView)
   );
   if (unavailable && "view" in unavailable) {
@@ -404,7 +432,7 @@ export function createDataflowTool(
   stateHistory = false,
   multiTask = stateHistory
 ) {
-  const schema = structuredClone(dataflowActionsSchema(stateHistory));
+  const schema = structuredClone(dataflowActionsSchema(stateHistory, stateHistory));
   if (multiTask)
     schema.properties.actions.items.anyOf = schema.properties.actions.items.anyOf.filter(
       a =>
@@ -428,18 +456,17 @@ export function createDataflowTool(
       : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
   }
   for (const inspect of schema.properties.actions.items.anyOf.filter(
-    a => "target" in a.properties && "view" in a.properties
+    a => "view" in a.properties && ("target" in a.properties || a.properties.type.const === "read")
   ))
     (inspect.properties as any).view.anyOf[0].enum = [...views];
   return tool({
     description:
-      DATAFLOW_ACTIONS_DESCRIPTION +
-      (stateHistory
-        ? " Saved tasks: inspect target=task returns the local computation and versioned earlier-input references. Expand selected inputs through their owning task or target=state. Python and selected root results are optional. Declare Answer operator_ids or use answer from; missing roots remain candidates without automatic expansion. Graph inspection requires named operator_ids. In an Edit, `update operator <id> from task <N>` restores that definition on current inputs and `fork operator <id> from task <N> as <new_id>` copies its saved upstream branch."
-        : ""),
+      stateHistory
+        ? "Use ordered edit, execute, read, and answer actions. Each answered task saves immutable versions addressed as ID@task. Read a saved definition or result, connect a saved result as an edge source, or answer from it. Historical reads never execute or fall back to current data. `update operator X from X@N` applies the old definition to current inputs; `create operator variant from X@N` creates an editable definition with saved direct inputs. Sources are required for content answers; [] declares that no table was used. Edits are atomic; a failed action skips later actions while earlier edits remain."
+        : DATAFLOW_ACTIONS_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),
-    execute: async input => prepareDataflowActions(input, views, stateHistory),
+    execute: async input => prepareDataflowActions(input, views, stateHistory, stateHistory),
   });
 }
 

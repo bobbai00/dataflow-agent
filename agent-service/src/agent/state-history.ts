@@ -22,7 +22,7 @@ import type { WorkflowContent } from "../types/workflow";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { compileNativeOp, nativeRevision } from "./native/codegen";
 import { NATIVE_BY_TYPE, nativeOperatorName, type NativeOpView } from "./native/catalog";
-import { executionFingerprints, workflowExecutionPlan } from "./native/result-versions";
+import { workflowFingerprints } from "./native/result-versions";
 import { inspectGraph, missingGraphInputs, type GraphEditPlan } from "./tools/graph-edits";
 
 /** Addresses the existing snapshot tree; no separate task catalog is stored. */
@@ -104,7 +104,7 @@ function describeStateOperator(
   };
 }
 
-const fingerprints = (workflow: WorkflowContent) => executionFingerprints(workflowExecutionPlan(workflow));
+const fingerprints = workflowFingerprints;
 const completed = (info: OperatorInfo | undefined) =>
   !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state) && Array.isArray(info.result);
 

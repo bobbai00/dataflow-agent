@@ -45,19 +45,35 @@ export interface AnswerShape {
   /** Round a number to this many decimals; "full" keeps it as computed. */
   digits?: number | "full";
 }
+export interface AnswerSelection { n: number; by: Array<{ column: string; desc: boolean }> }
 
 /** `table[key=column:2, other, :4]` → the table id and its projection, or the
  * reason the text is not a valid answer_from. A bare `:digits` (or `:full`)
  * entry states the precision of every column that has none of its own; with
  * no column entries the answer takes every column. */
-export function parseAnswerFrom(text: string): { id: string; shape?: AnswerShape[] } | { error: string } {
-  const match = /^\s*([A-Za-z_]\w*)\s*(?:\[(.*)\])?\s*$/s.exec(text);
+export function parseAnswerFrom(text: string): { id: string; shape?: AnswerShape[]; selection?: AnswerSelection } | { error: string } {
+  const match = /^\s*([A-Za-z_]\w*(?:@[1-9]\d*)?)\s*(?:\[(.*?)\])?\s*(?:top\s+([1-9]\d*)\s+by\s+(.+?))?\s*$/s.exec(text);
   if (!match)
     return {
       error: `answer_from must be a table id, optionally with a projection [key=column:digits, ..., :digits]; got ${JSON.stringify(text)}.`,
     };
-  const [, id, inner] = match;
-  if (inner === undefined) return { id };
+  const [, id, inner, count, order] = match;
+  if (id.includes("@") && !Number.isSafeInteger(Number(id.split("@")[1]))) return { error: "Historical task number is too large." };
+  let selection: AnswerSelection | undefined;
+  if (count !== undefined) {
+    const n = Number(count);
+    if (!Number.isSafeInteger(n) || n > ANSWER_ROW_LIMIT) return { error: `An answer cut selects at most ${ANSWER_ROW_LIMIT} rows.` };
+    const by: AnswerSelection["by"] = [];
+    for (const raw of order.split(",")) {
+      const key = /^\s*([A-Za-z_]\w*|"(?:[^"\\]|\\.)*")\s*(asc|desc)?\s*$/i.exec(raw);
+      if (!key) return { error: 'Answer sort keys are column asc/desc, separated by commas; quote column names containing spaces.' };
+      const column = key[1].startsWith('"') ? JSON.parse(key[1]) as string : key[1];
+      if (by.some(item => item.column === column)) return { error: "Answer sort keys repeat a column." };
+      by.push({ column, desc: key[2] ? key[2].toLowerCase() === "desc" : by.length === 0 });
+    }
+    selection = { n, by };
+  }
+  if (inner === undefined) return { id, ...(selection ? { selection } : {}) };
   const shape: AnswerShape[] = [];
   for (const raw of inner.split(",")) {
     const item = raw.trim();
@@ -79,7 +95,7 @@ export function parseAnswerFrom(text: string): { id: string; shape?: AnswerShape
     shape.push({ name, column, ...(digits !== undefined ? { digits } : {}) });
   }
   if (!shape.length) return { error: "answer_from projection is empty; drop the brackets to take every column." };
-  return { id, shape };
+  return { id, shape, ...(selection ? { selection } : {}) };
 }
 
 /** One part of an `answer_from` with several tables: `key=table[...]`. */
@@ -87,6 +103,7 @@ export interface AnswerPart {
   key: string;
   id: string;
   shape?: AnswerShape[];
+  selection?: AnswerSelection;
 }
 
 /** `a[x:2]; totals=b[y]` → the parts of a multi-table answer, each a table
@@ -97,10 +114,10 @@ export function parseAnswerFromParts(text: string): { parts: AnswerPart[] } | { 
   for (const raw of text.split(";")) {
     const item = raw.trim();
     if (!item) continue;
-    const keyed = /^([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*\s*(?:\[.*\])?)$/s.exec(item);
+    const keyed = /^([A-Za-z_]\w*)\s*=\s*(.+)$/s.exec(item);
     const parsed = parseAnswerFrom(keyed ? keyed[2] : item);
     if ("error" in parsed) return parsed;
-    parts.push({ key: keyed ? keyed[1] : parsed.id, id: parsed.id, ...(parsed.shape ? { shape: parsed.shape } : {}) });
+    parts.push({ key: keyed ? keyed[1] : parsed.id, id: parsed.id, ...(parsed.shape ? { shape: parsed.shape } : {}), ...(parsed.selection ? { selection: parsed.selection } : {}) });
   }
   if (!parts.length) return { error: "answer_from names no table." };
   const keys = parts.map(part => part.key);
@@ -116,10 +133,15 @@ export function composeAnswerParts(
   lookup: (id: string) => OperatorInfo | undefined,
   options: { decimalRules?: number[] } = {}
 ): ComposedAnswer {
-  if (parts.length === 1) return composeAnswer(parts[0].id, lookup(parts[0].id), parts[0].shape, options);
+  const compose = (part: AnswerPart) => {
+    const info = lookup(part.id);
+    const selected = part.selection ? selectAnswerRows(part.id, info, part.selection) : info;
+    return selected && "reason" in selected ? selected : composeAnswer(part.id, selected, part.shape, options);
+  };
+  if (parts.length === 1) return compose(parts[0]);
   const value: Record<string, unknown> = {};
   for (const part of parts) {
-    const composed = composeAnswer(part.id, lookup(part.id), part.shape, options);
+    const composed = compose(part);
     if ("reason" in composed) return composed;
     const parsed = JSON.parse(composed.json) as Record<string, unknown>;
     // A single-table composition wraps several rows under the table id and a
@@ -132,6 +154,40 @@ export function composeAnswerParts(
   if (json.length > ANSWER_CHAR_LIMIT)
     return { reason: `the answer composed from ${parts.map(p => `\`${p.id}\``).join(", ")} is ${json.length} characters; keep it under ${ANSWER_CHAR_LIMIT}` };
   return { json, text: `**${ANSWER_MARKER} ${json}**` };
+}
+
+/** Selection uses unrounded values and explicit ordering, independently of the
+ * displayed projection. Ambiguous boundary ties require another sort key. */
+export function selectAnswerRows(id: string, info: OperatorInfo | undefined, selection: AnswerSelection): OperatorInfo | { reason: string } {
+  if (!info || info.error || !Array.isArray(info.result)) return { reason: `${id} has no completed table` };
+  const total = info.totalRowCount ?? info.result.length;
+  if (info.result.length < total) return { reason: `only ${info.result.length} of ${total} rows of ${id} are held; selection requires the complete table` };
+  const rows = info.result as Record<string, unknown>[];
+  const available = new Set(info.resultSchema?.map(c => c.name) ?? Object.keys(rows[0] ?? {}));
+  const missing = selection.by.filter(key => !available.has(key.column));
+  if (missing.length) return { reason: `Unknown answer sort column ${missing.map(key => key.column).join(", ")}` };
+  const compare = (left: Record<string, unknown>, right: Record<string, unknown>): number => {
+    for (const key of selection.by) {
+      const type = info.resultSchema?.find(c => c.name === key.column)?.type.toLowerCase();
+      const scalar = (raw: unknown) => typeof raw === "string" && type && /^(long|int64)$/.test(type) && /^-?\d+$/.test(raw) ? BigInt(raw) : raw;
+      const a = scalar(left[key.column]), b = scalar(right[key.column]);
+      const absent = (x: unknown) => x === null || x === undefined || (typeof x === "number" && !Number.isFinite(x));
+      if (absent(a) || absent(b)) { if (absent(a) !== absent(b)) return absent(a) ? 1 : -1; continue; }
+      if (a === b) continue;
+      if (!(["string", "number", "bigint", "boolean"].includes(typeof a) && ["string", "number", "bigint", "boolean"].includes(typeof b)))
+        throw new Error("Answer sort keys must be scalar columns; sort and limit complex values in the graph.");
+      const direction = (a as string | number | bigint | boolean) < (b as string | number | bigint | boolean) ? -1 : 1;
+      return key.desc ? -direction : direction;
+    }
+    return 0;
+  };
+  let sorted: Record<string, unknown>[];
+  try { sorted = [...rows].sort(compare); }
+  catch (error) { return { reason: error instanceof Error ? error.message : String(error) }; }
+  if (sorted.length > selection.n && compare(sorted[selection.n - 1], sorted[selection.n]) === 0)
+    return { reason: `Boundary tie at row ${selection.n}; specify another sort column, such as market asc, to choose the requested rows.` };
+  const selected = sorted.slice(0, selection.n);
+  return { ...info, result: selected, totalRowCount: selected.length, displayedRows: selected.length, truncated: false };
 }
 
 /** A number as a person writes it: binary noise such as 93.05000000000001

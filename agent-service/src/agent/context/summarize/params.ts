@@ -306,6 +306,7 @@ export const SummarizeParamsSchema = z.object({
         ].map(key => [key, z.number().int().min(0).optional()])
       ),
       answerEcho: z.boolean().optional(),
+      catalogStatistics: z.boolean().optional(),
     })
     .passthrough()
     .optional(),

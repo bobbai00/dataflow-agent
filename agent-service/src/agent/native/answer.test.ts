@@ -136,3 +136,21 @@ test("several tables compose one answer with a key per part", () => {
   expect("error" in parseAnswerFromParts("a; a")).toBe(true);
   expect("error" in parseAnswerFromParts(" ; ")).toBe(true);
 });
+
+test("answer cuts select from the full working table before projection and rounding", () => {
+  const info = table([{ market: "b", score: 1.004 }, { market: "a", score: 1.003 }, { market: "c", score: 0.9 }]);
+  const parsed = parseAnswerFromParts("leaders=scores@2[market, score:2] top 1 by score desc, market asc");
+  expect("error" in parsed).toBe(false);
+  expect(composeAnswerParts((parsed as any).parts, () => info)).toMatchObject({ json: '{"market":"b","score":1}' });
+  const names = parseAnswerFromParts("scores@2[market] top 1 by score desc, market asc");
+  expect(composeAnswerParts((names as any).parts, () => info)).toMatchObject({ json: '{"market":"b"}' });
+  expect(info.result).toEqual([{ market: "b", score: 1.004 }, { market: "a", score: 1.003 }, { market: "c", score: 0.9 }]);
+});
+
+test("a boundary tie requires an explicit tie breaker and cannot depend on projected columns", () => {
+  const info = table([{ market: "b", score: 2 }, { market: "a", score: 2 }, { market: "c", score: 1 }]);
+  const ambiguous = parseAnswerFromParts("scores[market] top 1 by score");
+  expect(composeAnswerParts((ambiguous as any).parts, () => info)).toMatchObject({ reason: expect.stringContaining("tie") });
+  const resolved = parseAnswerFromParts("scores[market] top 1 by score desc, market asc");
+  expect(composeAnswerParts((resolved as any).parts, () => info)).toMatchObject({ json: '{"market":"a"}' });
+});

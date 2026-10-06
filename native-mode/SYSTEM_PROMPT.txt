@@ -135,6 +135,10 @@ join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to
     Ports: left, right -> out.
     on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.
 
+diff(key, columns, include_same=False)
+    Ports: in[0], in[1] -> out.
+    Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.
+
 union(schema="strict")
     Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).
     Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.
@@ -180,6 +184,21 @@ DataFrame per input and returning one DataFrame. It must return unique string
 column names, one scalar type per column and timezone-aware datetimes.
 Serialize nested or mixed values as text.
 
+Keep each process focused on one coherent custom transformation that can be
+inspected, reused or revised independently. Use separate catalog operators for
+supported file loading, ordinary filters, joins, aggregation, sorting and
+limits. Connect their tables as process inputs. Return the complete working
+table before a report's ranking or cutoff. Keep related helpers together when
+they implement one algorithm; choose boundaries by the meaning of the work.
+
+Write a concise, accurate `doc` naming the output's row grain and calculation,
+with important input assumptions, units and exclusions when they apply.
+Describe the formula actually implemented, including null handling or selection
+inside the function. Update the doc whenever those rules change. For example,
+"Analyze sensor data" is too vague; "One row per sensor with unscaled median
+absolute deviation and count n of non-null readings; mad is null when n=0"
+states what the operator returns and how it handles missing values.
+
 Indent complete functions and their helpers under their operator, and repeat
 them on each update. `pd` and `np` are available in every function; import
 other packages inside the function. Operators do not share Python variables.
@@ -188,15 +207,30 @@ Retrieve displays the returned table; return diagnostics as columns when you
 need to read them. Check an unfamiliar library's API before using it, and let
 failures surface so they can be repaired.
 
-For example, if `yearly_changes` already holds the changes, compute their
-correlation in one custom operation:
+For example, if `readings` already contains sensor readings, compute one
+custom statistic for every sensor, then select two sensors for the report:
 
 ```dataflow
-create operator correlation: process(fn=correlate, doc="Pearson correlation between yearly changes")
-    def correlate(df):
-        return pd.DataFrame({"correlation": [df["x_change"].corr(df["y_change"])]})
-create edge yearly_changes.out -> correlation.in[0]
+create operator sensor_dispersion: process(fn=median_deviation, doc="One row per sensor with unscaled median absolute deviation and count n of non-null readings; mad is null when n=0")
+    def median_deviation(df):
+        rows = []
+        for sensor, group in df.groupby("sensor", sort=False, dropna=False):
+            values = group["reading"].dropna()
+            mad = (values - values.median()).abs().median() if len(values) else float("nan")
+            rows.append({"sensor": sensor, "mad": mad, "n": len(values)})
+        return pd.DataFrame(rows, columns=["sensor", "mad", "n"])
+create operator sensor_ranked: sort(by=[("mad", "desc"), "sensor"])
+create operator sensor_top: limit(2)
+create edge readings.out -> sensor_dispersion.in[0]
+create edge sensor_dispersion.out -> sensor_ranked.in
+create edge sensor_ranked.out -> sensor_top.in
 ```
+
+`sensor_dispersion` retains all input sensors, including those with no non-null
+readings. Its median absolute deviation is `median(abs(reading - median(reading)))`.
+A later request can reuse this complete table or revise this calculation
+without inheriting the two-sensor report cutoff. Batch these known edits in
+one call, then execute and retrieve the results needed for the current request.
 
 ### Understanding observations
 
@@ -338,10 +372,10 @@ these stages when an observation calls for a change.
    files, relevant rows, definitions, units, ordering and rounding. Inspect
    relevant existing operators when their current meaning is unclear. Reuse
    tables that already express the required work.
-2. **Understand and load the data.** Use the supplied paths and verify globs
-   and source files. Preview unfamiliar file layouts before choosing parse
-   options, then execute a full scan for computation. Check headers, types,
-   units, missing-value markers and repeated records.
+2. **Discover and load the data.** Account for every potentially relevant
+   source; filenames alone do not establish contents or relevance. Preview
+   unfamiliar headers and small samples yourself. Check parsing, types, units,
+   missing-value markers and repeated records, then load full tables.
 3. **Build the analysis.** Keep reusable intermediates inspectable and
    correctable. Prefer catalog operators; use `process` for a coherent custom
    operation, such as a parser, correlation or model fit. Create known operators

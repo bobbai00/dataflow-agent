@@ -255,6 +255,7 @@ const NATIVE_FRAGMENTS = {
   reviseExample: nativeFragment("native-example-revise.md"),
   historyExamples: nativeFragment("native-example-history.md"),
   leanExamples: nativeFragment("native-example-lean.md"),
+  leanHistoryExamples: nativeFragment("native-example-history-lean.md"),
 };
 
 /** What a session offers, as the prompt fragments name it. */
@@ -273,6 +274,7 @@ function nativeFlags(options: NativePromptLayoutOptions): Record<string, boolean
     data: availableRetrievalViews(options).includes("sample_stats"),
     flow: !!options.flowEvidence,
     multi,
+    scopedGraph: multi && !options.stateHistory,
     history: !!options.stateHistory,
     ledger: !!options.stateLedger,
     checks: !!options.checks,
@@ -395,6 +397,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
  * reading statistics, several tasks and earlier versions when available. */
 export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {}): string {
   const flags = nativeFlags(options);
+  if (flags.history) return NATIVE_FRAGMENTS.historyExamples;
   return [
     NATIVE_FRAGMENTS.singleExample,
     flags.data ? NATIVE_FRAGMENTS.dataExamples : "",
@@ -459,7 +462,9 @@ export function buildNativeModeSystemPrompt(
       : "",
     EARLIER_TASKS: flags.multi ? nativeStateText(options) : "",
     EXAMPLES:
-      options.nativePromptDetail === "on_demand" ? NATIVE_FRAGMENTS.leanExamples : nativeRetrievalExamples(options),
+      options.nativePromptDetail === "on_demand"
+        ? flags.history ? NATIVE_FRAGMENTS.leanHistoryExamples : NATIVE_FRAGMENTS.leanExamples
+        : nativeRetrievalExamples(options),
   };
   let prompt = NATIVE_MODE_TEMPLATE.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
     if (!(key in fields)) throw new Error(`unknown prompt field {{${key}}}`);
@@ -469,6 +474,7 @@ export function buildNativeModeSystemPrompt(
   // Example calls use only the views this session's tool schema offers.
   prompt = prompt.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
   if (!views.includes("full")) prompt = prompt.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
+  if (flags.history) prompt = prompt.replace(/\bretrieve\b/g, "read").replace(/\bRetrieve\b/g, "Read");
   return prompt.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -482,8 +488,12 @@ export function nativeReferenceText(
   if (request.topic === "operators") return graphCatalogText(request.operator_names);
   const flags = nativeFlags(options);
   if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");
+  if (request.example === "statistics" && !flags.data && !flags.flow)
+    throw new Error("Data and flow statistics are disabled for this session.");
   const text =
-    request.example === "single"
+    flags.history
+      ? NATIVE_FRAGMENTS.historyExamples
+      : request.example === "single"
       ? NATIVE_FRAGMENTS.singleExample
       : request.example === "history"
         ? NATIVE_FRAGMENTS.historyExamples

@@ -269,6 +269,10 @@ function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string
     operators: operatorsList,
     links: linksList,
     opsToViewResult: allOpsToView,
+    savedOutputs: Object.fromEntries(operatorsList.flatMap(op => {
+      const saved = workflowState.getOperator(op.operatorID)?.savedResult;
+      return saved ? [[op.operatorID, { executionId: saved.executionId, operatorId: saved.operatorId, outputPort: saved.outputPort }]] : [];
+    })),
   };
 }
 
@@ -315,6 +319,10 @@ function buildLogicalPlanFromSubDAG(
     operators: operatorsList,
     links: linksList,
     opsToViewResult: opsToView.filter(id => opIds.has(id)),
+    savedOutputs: Object.fromEntries(subDAG.operators.flatMap(op => {
+      const saved = op.savedResult;
+      return saved ? [[op.operatorID, { executionId: saved.executionId, operatorId: saved.operatorId, outputPort: saved.outputPort }]] : [];
+    })),
   };
 }
 
@@ -362,6 +370,7 @@ async function executeWorkflowHttp(
   const request = {
     executionName: "agent-execution",
     ...(config.structuredResults ? { structuredResults: true } : {}),
+    ...(Object.keys(logicalPlan.savedOutputs ?? {}).length ? { workflowSettings: { savedOutputs: logicalPlan.savedOutputs } } : {}),
     logicalPlan: {
       operators: logicalPlan.operators,
       links: logicalPlan.links,

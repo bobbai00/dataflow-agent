@@ -717,6 +717,25 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     },
   },
   {
+    name: "diff",
+    brief: "Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.",
+    type: "Diff",
+    inputs: 2,
+    rowEffect: "unknown",
+    signature: "diff(L, R, key, columns, include_same=False)",
+    doc: 'Compares the earlier table on input 0 with the comparison table on input 1. Provide key=["entity_id"] (unique and non-null in both tables) and columns=["score"]. Output has the keys, status (added, removed, changed; same only with include_same=True), and each column with _left, _right, _delta and _abs_delta suffixes. Deltas are right minus left for numeric values present on both sides; otherwise null. Two nulls compare equal. Neither input is modified. Output order is unspecified; rank explicitly in the answer or a sort operator.',
+    schema: object({ key: NONEMPTY_NAMES, columns: NONEMPTY_NAMES, includeSame: { type: "boolean" } }, ["key", "columns"]),
+    normalize(rest, kwargs) {
+      noPositional("diff", rest, "two input tables followed by key= and columns=");
+      keywords("diff", kwargs, ["key", "columns", "include_same"]);
+      if (!kwargs.key || !kwargs.columns) fail("diff requires explicit key= and columns= lists.");
+      return {
+        key: strList(kwargs.key, "key", 1), columns: strList(kwargs.columns, "columns", 1),
+        ...(kwargs.include_same ? { includeSame: bool(kwargs.include_same, "include_same") } : {}),
+      };
+    },
+  },
+  {
     name: "union",
     brief:
       "Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.",
@@ -957,7 +976,7 @@ export function graphOperatorSignature(def: NativeOperatorDef): string {
 export function graphOperatorPorts(def: NativeOperatorDef): string {
   if (def.inputs === 0) return "no inputs -> out";
   if (def.inputs === 1) return "in -> out";
-  if (def.inputs === 2) return "left, right -> out";
+  if (def.inputs === 2) return def.name === "diff" ? "in[0], in[1] -> out" : "left, right -> out";
   return def.name === "union"
     ? "in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255)"
     : "in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader";

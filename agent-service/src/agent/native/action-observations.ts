@@ -19,7 +19,7 @@
 
 import type { DataflowActionsResult, DataflowAction } from "../tools/dataflow-actions";
 import { parseNativeDiagnostic, nativeDiagnosticIssue } from "./diagnostics";
-import { renderTaskIndex, type TaskRecord } from "../task-history";
+import { renderTaskBoundary, renderTaskIndex, type TaskRecord } from "../task-history";
 import {
   countOf,
   observationFormat,
@@ -103,6 +103,7 @@ function target(action: DataflowAction): string {
     return ` ${action.operator_id}`;
   }
   if (action.type === "retrieve") return ` ${action.operator_id}`;
+  if (action.type === "read") return ` ${action.operator_ids.join(", ")}`;
   if (action.type === "execute" && action.operator_ids) return ` ${action.operator_ids.join(", ")}`;
   return "";
 }
@@ -121,6 +122,10 @@ export function renderActionObservations(result: DataflowActionsResult): string 
         return `${title} (${failed ? `action ${failed.index} failed` : "an earlier action failed"})`;
       }
       const output = item.output as any;
+      if (item.status === "ok" && item.action.type === "answer" && result.saved_versions && result.task_catalog) {
+        const boundary = renderTaskBoundary(result.task_catalog);
+        return `${title}\n${boundary.split("\n").map(line => `> ${line}`).join("\n")}`;
+      }
       if (item.status === "ok" && item.action.type === "inspect" && item.action.target === "reference")
         return `${title}\n${output.text}`;
       if (item.status === "error" && !(output && typeof output === "object" && Array.isArray(output.operators)))
@@ -162,10 +167,19 @@ export function renderActionObservations(result: DataflowActionsResult): string 
             }))
           : []);
       let lines: string[] = [];
+      if (item.action.type === "read") {
+        const observations = new Map((output.observations ?? []).map((entry: any) => [entry.operator_id,entry.text]));
+        return [title,...blocks.flatMap(block => {
+          const text = observations.get(block.id) as string | undefined;
+          return [operatorBlock(block), ...(text ? [text.replace(/(^|\n\n)columns: [^\n]*\n/g,"$1")] : [])];
+        }), ...(output.superseded_in_call ? ["- note: this result was superseded later in the call."] : [])].join("\n");
+      }
       if (item.action.type === "inspect" && item.action.target === "task") {
         const task = output as TaskRecord;
         const body = [
-          renderTaskIndex([task], Infinity),
+          // This is a selected saved computation, not a second copy of the
+          // task's catalog. Bodies and records are attached only by the read.
+          renderTaskIndex([task], Infinity, false),
           `Answer roots: ${output.selection_basis ?? "unknown"}. Recorded dependencies and sources establish provenance, not correctness.`,
           ...(output.note ? [output.note] : []),
           ...(output.selection_basis === "observed_reads"

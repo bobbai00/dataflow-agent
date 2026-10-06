@@ -20,8 +20,19 @@
 import type { ModelMessage } from "ai";
 import type { ReActStep } from "../types/agent";
 import type { HistoricalTask } from "./state-history";
+import { readForkResult } from "./state-history";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import type { DataflowActionsResult } from "./tools/dataflow-actions";
+import { catalogResultSummary } from "./native/catalog-summary";
+import {
+  inlineCode,
+  operatorBlock,
+  shapeText,
+  type OperatorBlock,
+  type ObservationFormatOptions,
+} from "./native/observation-format";
+import { nativeOperatorName } from "./native/catalog";
+import { collectTaskEdits, taskCatalogRecords, taskOperatorCatalog, type TaskFork } from "./task-catalog";
 
 /** Immutable action-time access evidence, never inferred from model prose. */
 export interface TaskReference {
@@ -51,14 +62,25 @@ export interface TaskOperator {
   rows?: number;
   available: boolean;
   change: string;
+  result_summary?: string;
+  /** Evaluator-visible provenance for a hidden exact-result input. */
+  saved_result?: import("../types/workflow").OperatorPredicate["savedResult"];
 }
 
 export interface TaskRecord {
   task_id: number;
   request: string;
   answer: string;
+  /** Exact answer selection, separate from the full working-table sources. */
+  answer_from?: string;
   status: "answered" | "incomplete";
   operators: TaskOperator[];
+  /** First-edit order, with one final saved definition per changed operator. */
+  operator_changes?: OperatorBlock[];
+  operator_deletions?: OperatorBlock[];
+  /** Bounded, frozen display text from records actually observed in this task. */
+  operator_records?: Record<string, string>;
+  forks?: TaskFork[];
   dependencies: Array<{
     task_id: number;
     references: Array<{
@@ -96,6 +118,9 @@ function batches(step: ReActStep): DataflowActionsResult[] {
 function outputRoots(storage: WorkflowSnapshotStorage, task: TaskHistory, tasks: readonly TaskHistory[]) {
   const answered: NonNullable<TaskRecord["output_roots"]>["roots"] = [];
   const observed: typeof answered = [];
+  const declared = task.steps.some(step => batches(step).some(receipt => receipt.actions.some(item =>
+    item.status === "ok" && item.action.type === "answer" && ("operator_ids" in item.action || "from" in item.action)
+  )));
   for (const step of task.steps)
     for (const receipt of batches(step))
       for (const ref of receipt.references ?? []) {
@@ -136,8 +161,8 @@ function outputRoots(storage: WorkflowSnapshotStorage, task: TaskHistory, tasks:
         if (!roots.some(r => r.operator_id === root.operator_id && r.step_id === root.step_id)) roots.push(root);
       }
   return {
-    basis: answered.length ? ("answer" as const) : observed.length ? ("observed_reads" as const) : ("unknown" as const),
-    roots: answered.length ? answered : observed,
+    basis: declared || answered.length ? ("answer" as const) : observed.length ? ("observed_reads" as const) : ("unknown" as const),
+    roots: declared || answered.length ? answered : observed,
   };
 }
 
@@ -174,13 +199,35 @@ export function taskHistoryFromSteps(
 
 /** Computational provenance includes reads and execution inputs; consultations
  * are separate. It establishes where state came from, not semantic correctness. */
-export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly TaskHistory[]): TaskRecord[] {
+export function buildTaskGraph(
+  storage: WorkflowSnapshotStorage,
+  tasks: readonly TaskHistory[],
+  options: Pick<ObservationFormatOptions, "catalogStatistics" | "catalogRecords"> = {}
+): TaskRecord[] {
+  const includeResultStatistics = options.catalogStatistics === true;
+  const recordLimit = options.catalogRecords ?? 0;
   const ordered = [...tasks].sort((a, b) => a.taskId - b.taskId);
   const stepTasks = new Map(ordered.flatMap(t => t.steps.map(s => [s.id, t.taskId] as const)));
   const resultOwners = new Map<string, number>();
   const definitionOwners = new Map<string, number>();
   const records: TaskRecord[] = [];
+  const indexResults = (task: TaskHistory) => {
+    // Index every snapshot earned in this task, not just its final answer.
+    // A cached/inherited result keeps its earliest known producer.
+    for (const step of task.steps) {
+      if (!storage.hasSnapshotFor(step.id)) continue;
+      const snap = storage.getAssociatedSnapshot(step.id);
+      for (const op of snap.workflow.operators) {
+        const info = storage.getResolvedOperatorResult(step.id, op.operatorID);
+        const version = info?.value.resultVersion?.id;
+        const producer = info?.sourceStepId ? stepTasks.get(info.sourceStepId) : undefined;
+        if (version && producer !== undefined && producer <= task.taskId && !resultOwners.has(version))
+          resultOwners.set(version, producer);
+      }
+    }
+  };
   for (const task of ordered) {
+    const cached = storage.getAssociatedSnapshot(task.stepId).nativeTaskCatalog;
     // Definitions created in this task belong to it, even when an execution
     // references them before the task has a completed answer. Index snapshots
     // before resolving access receipts so self-references are not unknown.
@@ -195,17 +242,22 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
           definitionOwners.set(`${op.operatorID}:${rev}`, task.taskId);
       }
     }
+    if (cached?.task_id === task.taskId && task.status === "answered") {
+      records.push(cached);
+      indexResults(task);
+      continue;
+    }
     const previous = new Set(records.map(t => t.task_id));
     const edges = new Map<number, TaskRecord["dependencies"][number]["references"]>();
     const consulted = new Set<number>();
     const touched = new Map<string, string>();
+    const delta = collectTaskEdits(storage, task);
+    for (const [id, edit] of delta.edits) touched.set(id, edit.state);
     let unresolved = 0;
     for (const step of task.steps)
       for (const receipt of batches(step)) {
         for (const item of receipt.actions) {
           if (item.status !== "ok") continue;
-          if (item.action.type === "edit")
-            for (const block of (item.output as any)?.operator_blocks ?? []) touched.set(block.id, block.state);
           if (item.action.type === "retrieve")
             touched.set(item.action.operator_id, touched.get(item.action.operator_id) ?? "read");
           if (item.action.type === "execute")
@@ -257,44 +309,52 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
         }
       }
     const workflow = storage.getWorkflow(task.stepId);
+    const operatorRecords = taskCatalogRecords(storage, task, touched.keys(), recordLimit);
     const operators = [...touched].map(([id, change]): TaskOperator => {
       const op = workflow.operators.find(o => o.operatorID === id);
-      const info = op ? storage.getOperatorResult(task.stepId, id) : undefined;
+      const current = op ? storage.getOperatorResult(task.stepId, id) : undefined;
+      const saved = op && !current ? readForkResult(workflow, storage, id, task.stepId) : undefined;
+      const info = current ?? saved?.info;
+      const original = saved?.workflow.operators.find(item => item.operatorID === saved.operatorId);
       return {
         operator_id: id,
         kind: op?.nativeOp?.type ?? op?.operatorType ?? "deleted",
         revision: op?.nativeOp?.revision,
         inputs: [...(op?.nativeOp?.inputs ?? [])],
         change,
+        ...(op?.savedResult ? { saved_result: { ...op.savedResult } } : {}),
         result_version: info?.resultVersion?.id,
         rows: info?.totalRowCount,
         available: !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state),
+        ...(info && (includeResultStatistics || operatorRecords[id])
+          ? {
+              result_summary: includeResultStatistics
+                ? catalogResultSummary(original?.nativeOp ?? op?.nativeOp, info)
+                : shapeText(info.totalRowCount, info.resultSchema?.length),
+            }
+          : {}),
       };
     });
+    const roots = outputRoots(storage, task, ordered);
     records.push({
       task_id: task.taskId,
       request: task.request,
       answer: task.answer,
+      ...(() => {
+        const action = task.steps.flatMap(step => batches(step).flatMap(batch => batch.actions))
+          .filter(item => item.status === "ok" && item.action.type === "answer" && "from" in item.action).at(-1)?.action;
+        return action?.type === "answer" && "from" in action ? { answer_from: action.from } : {};
+      })(),
       status: task.status,
       operators,
+      ...taskOperatorCatalog(storage, task, delta, roots, includeResultStatistics, ordered),
+      ...(Object.keys(operatorRecords).length ? { operator_records: operatorRecords } : {}),
       dependencies: [...edges].sort(([a], [b]) => a - b).map(([task_id, references]) => ({ task_id, references })),
       consulted_tasks: [...consulted].sort((a, b) => a - b),
       unresolved_references: unresolved,
-      output_roots: outputRoots(storage, task, ordered),
+      output_roots: roots,
     });
-    // Index every snapshot earned in this task, not just its final answer.
-    // A cached/inherited result keeps its earliest known producer.
-    for (const step of task.steps) {
-      if (!storage.hasSnapshotFor(step.id)) continue;
-      const snap = storage.getAssociatedSnapshot(step.id);
-      for (const op of snap.workflow.operators) {
-        const info = storage.getResolvedOperatorResult(step.id, op.operatorID);
-        const version = info?.value.resultVersion?.id;
-        const producer = info?.sourceStepId ? stepTasks.get(info.sourceStepId) : undefined;
-        if (version && producer !== undefined && producer <= task.taskId && !resultOwners.has(version))
-          resultOwners.set(version, producer);
-      }
-    }
+    indexResults(task);
   }
   return records;
 }
@@ -303,17 +363,55 @@ const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
 const TASK_HISTORY_INTRO =
-  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads, not correctness or every semantic dependency. Inspect a relevant task for its local answer computation and versioned earlier-input references. Expand selected inputs when needed; Python and selected result tables are available on request.";
+  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Operator blocks show added or modified operators in first-edit order, with their final saved definitions for that task. Dependencies record computation and reads, not correctness or every semantic dependency. Read relevant ID@task definitions (view=null) or completed results; include_implementation supplies process bodies on demand. Saved result addresses are immutable.";
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
 }
 
-function taskOutcome(task: TaskRecord, answerChars: number): string {
+function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChanges = true): string {
+  const recordText = (id: string) =>
+    task.operator_records && Object.hasOwn(task.operator_records, id) ? task.operator_records[id] : undefined;
+  const collapsed = new Set(
+    task.forks?.flatMap(fork => fork.collapsed_operator_ids.filter(id => !recordText(id))) ?? []
+  );
+  const blockWithRecords = (block: OperatorBlock) =>
+    [
+      operatorBlock(block),
+      ...(recordText(block.id)
+        ?.split("\n")
+        .map(line => `  ${line}`) ?? []),
+    ].join("\n");
+  const changes = (task.operator_changes ?? []).filter(
+    block => !collapsed.has(block.id) && !block.state.startsWith("deleted")
+  );
+  const deletions = task.operator_deletions?.length
+    ? task.operator_deletions
+    : (task.operator_changes ?? []).filter(block => block.state.startsWith("deleted"));
+  const changedIds = new Set((task.operator_changes ?? []).map(block => block.id));
+  const referenced = task.operators.filter(op => op.result_summary && !changedIds.has(op.operator_id));
   return [
+    ...(includeOperatorChanges && changes.length ? ["Operators:", ...changes.map(blockWithRecords)] : []),
+    ...(includeOperatorChanges && deletions.length
+      ? ["Deleted operators:", ...deletions.map(block => operatorBlock({ ...block, state: "deleted" }))]
+      : []),
     `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
+    ...(task.answer_from ? [`Selection: ${task.answer_from}`] : []),
     `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
-    `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => root.operator_id).join(", ") : "not declared; inspect the task to select a candidate branch"}`,
+    `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => inlineCode(`${root.operator_id}@${root.task_id}`)).join(", ") || "[] (explicitly no table)" : "not declared"}`,
+    ...(includeOperatorChanges && referenced.length
+      ? [
+          "Referenced results:",
+          ...referenced.map(op =>
+            blockWithRecords({
+              id: op.operator_id,
+              kind: nativeOperatorName(op.kind),
+              state: "referenced",
+              result: op.result_summary,
+            })
+          ),
+        ]
+      : []),
     ...(task.unresolved_references
       ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
       : []),
@@ -322,12 +420,23 @@ function taskOutcome(task: TaskRecord, answerChars: number): string {
     .trimEnd();
 }
 
-export function renderTaskIndex(tasks: readonly TaskRecord[], answerChars = 1200): string {
+export function renderTaskIndex(
+  tasks: readonly TaskRecord[],
+  answerChars = Infinity,
+  includeOperatorChanges = true
+): string {
   return tasks.length
-    ? [TASK_HISTORY_INTRO, ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars)}`)].join(
-        "\n\n"
-      )
+    ? [
+        TASK_HISTORY_INTRO,
+        ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars, includeOperatorChanges)}`),
+      ].join("\n\n")
     : "";
+}
+
+/** Written once at answer time and reused verbatim by catalog context. The
+ * original request is already a preserved user frame in either policy. */
+export function renderTaskBoundary(task: TaskRecord): string {
+  return `## Task ${task.task_id} (${task.status})\n${taskOutcome(task, Infinity)}`;
 }
 
 /** Preserve initial request frames and append immutable outcomes. Provider
@@ -346,7 +455,7 @@ export function renderTaskMessages(
             ...request,
             {
               role: "assistant" as const,
-              content: `## Task ${task.task_id} (${task.status})\n${taskOutcome(task, 1200)}`,
+              content: renderTaskBoundary(task),
             },
           ];
         }),
@@ -362,5 +471,7 @@ export function inspectTask(
   const record = buildTaskGraph(storage, tasks).find(t => t.task_id === taskId);
   if (!record)
     throw new Error(`UNKNOWN_TASK: no saved task ${taskId}. Inspect only an earlier task listed in Prior Tasks.`);
-  return record;
+  // Inspection attaches selected sub-DAGs to its response; never mutate the
+  // sealed catalog that supplies cacheable earlier frames.
+  return structuredClone(record);
 }

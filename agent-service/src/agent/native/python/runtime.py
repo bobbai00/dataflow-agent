@@ -176,6 +176,7 @@ ROW_EFFECTS = {
     "Filter": "drop",
     "Aggregate": "collapse",
     "Join": "multiply",
+    "Diff": "unknown",
     "Union": "add",
     "Distinct": "drop",
     "Sort": "none",
@@ -197,9 +198,9 @@ def validate_native(spec):
     for name in [spec.get("id", "operator"), *inputs]:
         if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
-    if len(set(inputs)) != len(inputs) and kind != "Join" and not spec.get("graph"):
-        raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
-    expected = 0 if kind == "Scan" else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
+    if len(set(inputs)) != len(inputs) and kind not in ("Join", "Diff") and not spec.get("graph"):
+        raise _error(spec, "INPUT_PORTS", "Only Join or Diff may reference the same input twice.", stage="validate")
+    expected = 0 if kind == "Scan" else 2 if kind in ("Join", "Diff") else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
         raise _error(spec, "INPUT_PORTS", f"{kind} requires {expected} input ports.", stage="validate")
     if kind == "Union" and len(inputs) < 2:
@@ -238,6 +239,11 @@ def validate_native(spec):
                 stage="validate",
                 field="rename",
             )
+    elif kind == "Diff":
+        names_list(props.get("key"), "DIFF_KEYS", "key")
+        names_list(props.get("columns"), "DIFF_COLUMNS", "columns")
+        if not isinstance(props.get("includeSame", props.get("include_same", False)), bool):
+            raise _error(spec, "DIFF_ARGUMENT", "include_same must be boolean.", stage="validate")
     elif kind == "Cast":
         choice(props.get("errors", "raise"), ("raise", "null"), "CAST_OPTIONS", "errors")
     elif kind == "Distinct":
@@ -812,6 +818,72 @@ def _join_keys(spec):
     if len(set(left)) != len(left) or len(set(right)) != len(right):
         raise _error(spec, "JOIN_KEYS", "Join keys on each port must be distinct.", stage="validate", field="on")
     return left, right
+
+
+def _diff(spec, left, right, operations):
+    props = spec["properties"]
+    keys, columns = props["key"], props["columns"]
+    output_columns = [*keys, "status"]
+    for column in columns:
+        output_columns.extend(f"{column}_{suffix}" for suffix in ("left", "right", "delta", "abs_delta"))
+    if len(set(output_columns)) != len(output_columns):
+        raise _error(spec, "COLUMN_COLLISION", "Diff keys and generated column names collide.")
+    for frame in (left, right):
+        _columns(spec, frame, [*keys, *columns], "key/columns")
+        if frame[keys].isna().any().any() or frame.duplicated(keys).any():
+            raise _error(spec, "DIFF_KEYS", "Diff entity keys must be unique and non-null on both inputs.")
+    for key in keys:
+        types = {_logical_dtype(left[key]), _logical_dtype(right[key])} - {None}
+        if len(types) > 1:
+            raise _error(spec, "DIFF_KEYS", f"Key {key!r} has incompatible types; cast explicitly.")
+    marker = "_diff_side"
+    while marker in output_columns:
+        marker += "_"
+    left_values = left[list(dict.fromkeys([*keys, *columns]))].copy()
+    right_values = right[list(dict.fromkeys([*keys, *columns]))].copy()
+    # Outer alignment introduces nulls. Nullable integers avoid converting
+    # exact int64 values to float64 before comparison or subtraction.
+    for frame in (left_values, right_values):
+        for column in columns:
+            if pd.api.types.is_integer_dtype(frame[column]):
+                frame[column] = frame[column].astype("Int64")
+            elif pd.api.types.is_bool_dtype(frame[column]):
+                frame[column] = frame[column].astype("boolean")
+    # Key values already appear in the output; comparing a key to itself adds
+    # no information, so require compared columns to be distinct from keys.
+    if set(keys) & set(columns):
+        raise _error(spec, "DIFF_COLUMNS", "Compare value columns separately from entity keys.")
+    left_values = left_values.rename(columns={c: f"{c}_left" for c in columns})
+    right_values = right_values.rename(columns={c: f"{c}_right" for c in columns})
+    output = left_values.merge(right_values, on=keys, how="outer", sort=False, validate="one_to_one", indicator=marker)
+    both = output[marker].eq("both")
+    changed = pd.Series(False, index=output.index)
+    for column in columns:
+        a, b = output[f"{column}_left"], output[f"{column}_right"]
+        equal = a.eq(b).fillna(False) | (a.isna() & b.isna())
+        changed |= both & ~equal
+        numeric = all(pd.api.types.is_numeric_dtype(frame[column]) and not pd.api.types.is_bool_dtype(frame[column]) for frame in (left, right))
+        integral = numeric and all(pd.api.types.is_integer_dtype(frame[column]) for frame in (left, right))
+        if integral:
+            values = [int(y) - int(x) if present and not pd.isna(x) and not pd.isna(y) else None
+                      for present, x, y in zip(both, a, b)]
+            if any(value is not None and not -(2**63) < value < 2**63 for value in values):
+                raise _error(spec, "DIFF_ARGUMENT", "Integer delta or absolute delta exceeds int64; cast the value columns to float64 explicitly.")
+            delta = pd.Series(values, index=output.index, dtype="Int64")
+        else:
+            delta = (b - a).where(both & a.notna() & b.notna()) if numeric else pd.Series(float("nan"), index=output.index)
+            if numeric:
+                delta = delta.where(np.isfinite(delta.astype(float)))
+        output[f"{column}_delta"] = delta
+        output[f"{column}_abs_delta"] = delta.abs()
+    output["status"] = "same"
+    output.loc[output[marker].eq("left_only"), "status"] = "removed"
+    output.loc[output[marker].eq("right_only"), "status"] = "added"
+    output.loc[changed, "status"] = "changed"
+    operations["diff"] = {"keys": len(output), **{status: int(output["status"].eq(status).sum()) for status in ("added", "removed", "changed", "same")}}
+    if not props.get("includeSame", props.get("include_same", False)):
+        output = output.loc[output["status"].ne("same")]
+    return output[output_columns].reset_index(drop=True)
 
 
 def _join(spec, left, right, operations):
@@ -2371,6 +2443,8 @@ def execute_native(spec, inputs):
             operations["keyDependencies"] = dependencies
     elif kind == "Join":
         output = _join(spec, inputs[0], inputs[1], operations)
+    elif kind == "Diff":
+        output = _diff(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
         output = _union(spec, inputs, operations)
     elif kind == "Window":

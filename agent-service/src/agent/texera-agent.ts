@@ -148,7 +148,9 @@ import {
   type DriverRunTurnResult,
 } from "./llm-drivers/types";
 import { forkState, historicalTask } from "./state-history";
+import { readMaterializedResult, retainSnapshotResults } from "../api/saved-results";
 import { restoreCommands, splitVersionCommands } from "./state-ledger";
+import { planVersionedGraphEdit } from "./tools/versioned-graph-edits";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -2655,6 +2657,19 @@ export class TexeraAgent {
                   this.workflowState.setWorkflowContent(plan.workflow);
                 } else if (item.action.type === "edit" && "changes" in item.action) {
                   if (item.status === "ok") {
+                    if ((item.output as { ordered_versions?: boolean } | undefined)?.ordered_versions) {
+                      const plan = await planVersionedGraphEdit(
+                        this.workflowState.getWorkflowContent(),
+                        item.action.changes,
+                        // Replay earned capabilities even when the receiving
+                        // agent has not exposed historical tools yet.
+                        { metadataStore: this.metadataStore, settings: { ...this.settings, stateHistory: true } },
+                        this.snapshotStorage,
+                        this.completedStateTasks()
+                      );
+                      this.workflowState.setWorkflowContent(plan.workflow);
+                      continue;
+                    }
                     const { rest, versions } = splitVersionCommands(item.action.changes);
                     const tasks = this.completedStateTasks().filter(task =>
                       this.snapshotStorage.hasSnapshotFor(task.stepId)
@@ -2789,6 +2804,17 @@ export class TexeraAgent {
     // every checkout shows the operator state the model actually saw.
     this.snapshotStorage.propagateInheritedResults();
 
+    // Preserve the exact catalog earned by each completed task, including its
+    // original statistics policy. Import never executes to rebuild metadata.
+    for (const step of order) {
+      if (!step.isEnd || !this.snapshotStorage.hasSnapshotFor(step.id)) continue;
+      for (const tool of step.toolResults ?? []) {
+        const receipt = asDataflowActionsResult(tool.output);
+        if (receipt?.status === "completed" && receipt.answer !== undefined && receipt.task_catalog)
+          this.snapshotStorage.captureNativeTaskCatalog(step.id, receipt.task_catalog);
+      }
+    }
+
     // Pick HEAD: leaf with the latest timestamp on its branch.
     const leaves = order.filter(s => (childrenOf.get(s.id) ?? []).length === 0);
     if (leaves.length === 0) {
@@ -2890,9 +2916,14 @@ export class TexeraAgent {
       this.currentMessageId = messageId;
       const stepId = this.generateStepId();
       const toolCallId = `call-${stepId}-state`;
+      const planned = await planGraphEdit(this.workflowState.getWorkflowContent(), changes, {
+        metadataStore: this.metadataStore, settings: this.settings,
+      });
+      const targets = planned.workflow.operators.filter(op => !op.isDisabled && !op.savedResult).map(op => op.operatorID);
+      if (!targets.length) throw new Error("seedState requires at least one current operator to execute");
       const input = {
         reasoning: "Load the tables in force from the completed tasks.",
-        actions: [{ type: "edit", changes }, { type: "execute" }],
+        actions: [{ type: "edit", changes }, { type: "execute", operator_ids: targets }],
       };
       const output = (await tool.execute(input, { toolCallId, messages: [] })) as DataflowActionsResult;
       const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
@@ -2917,6 +2948,7 @@ export class TexeraAgent {
       this.head = stepId;
       this.maybeCreateSnapshotForHead(this.workflowState.getWorkflowContent());
       await this.runPostStepExecution(toolCalls, toolResults);
+      if (output.status === "error") throw new Error(output.error ?? "Loaded state failed");
       this.taskNumberOffset = completedTasks;
       this.log.info(
         { messageId, status: output.status, operators: output.operators?.length ?? 0, completedTasks },
@@ -2959,8 +2991,10 @@ export class TexeraAgent {
       reasoning: "Load the supplied source files.",
       actions: [
         { type: "edit", changes: plan.program.replace(/^(\w+) = /gm, "create operator $1: ") },
-        { type: "execute" },
-        ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id, view })),
+        { type: "execute", operator_ids: plan.observe },
+        ...plan.observe.map(operator_id => this.settings.stateHistory
+          ? { type: "read", operator_ids:[operator_id], view, columns:null, include_implementation:false }
+          : { type: "retrieve", operator_id, view }),
       ],
     };
     let output: unknown;
@@ -3025,6 +3059,9 @@ export class TexeraAgent {
       );
       for (const result of actions) {
         if (actions.length > 1) continue;
+        const executionConfig = this.buildExecutionConfig();
+        const savedResultClient = executionConfig ? { token: executionConfig.userToken, workflowId: executionConfig.workflowId,
+          computingUnitId: executionConfig.computingUnitId, signal: this.abortController?.signal } : undefined;
         await executeDataflowActionBatch(result, {
           state: this.workflowState,
           storage: this.snapshotStorage,
@@ -3039,6 +3076,11 @@ export class TexeraAgent {
             settings: this.settings,
           },
           execute: operatorIds => this.executePostStepChanges([], [], true, operatorIds),
+          ...(savedResultClient ? {
+            retainResults: () => retainSnapshotResults(savedResultClient, this.workflowState.getWorkflowContent(), id => this.snapshotStorage.getOperatorResult(stepId, id)),
+            readResult: (op: import("../types/workflow").OperatorPredicate, info: OperatorInfo, columns?: string[], requireComplete?: boolean) => readMaterializedResult(savedResultClient, op, info, { columns, requireComplete,
+              ...(requireComplete ? {} : { maxBytes: this.settings.fullResultCharLimit }) }),
+          } : {}),
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
@@ -3082,6 +3124,17 @@ export class TexeraAgent {
         if (this.nativeActionAnswer !== undefined) {
           step.content = this.nativeActionAnswer;
           step.isEnd = true;
+          // Seal once at answer time. Future settings and current graph
+          // changes cannot alter any earlier catalog frame.
+          const record = buildTaskGraph(this.snapshotStorage, this.archivedTaskHistory(), this.settings).find(
+            task => task.task_id === this.currentTaskNumber(stepId)
+          );
+          if (record) {
+            this.snapshotStorage.captureNativeTaskCatalog(stepId, record);
+            const saved = this.snapshotStorage.getAssociatedSnapshot(stepId).nativeTaskCatalog;
+            for (const receipt of actions)
+              if (receipt.status === "completed" && receipt.answer !== undefined) receipt.task_catalog = saved;
+          }
         }
         this.stepCallback?.(step);
       }

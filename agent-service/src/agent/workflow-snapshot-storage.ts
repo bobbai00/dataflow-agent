@@ -20,6 +20,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
+import type { TaskRecord } from "./task-history";
 import { bindResultVersion, freezeSnapshotValue, producingExecution } from "./native/result-versions";
 import { selectNativeObservation, type NativeObservation, type NativeObservationOptions } from "./native/evidence";
 import {
@@ -85,6 +86,9 @@ export interface SnapshotData {
   /** Unrepaired rejected definitions are control state, not result evidence.
    * Upstream result invalidation must not silently forgive a syntax rejection. */
   nativeRejectedEdits?: Readonly<Record<string, NativeErrorSummary>>;
+  /** Task-end catalog, captured once and never inherited. Its storage and
+   * lifetime are the same as the saved graph; checkout/clear need no registry. */
+  nativeTaskCatalog?: Readonly<TaskRecord>;
 }
 
 function createEmptyWorkflow(): WorkflowContent {
@@ -159,6 +163,15 @@ export class WorkflowSnapshotStorage {
    *  step. Reads that find no action-bearing ancestor resolve here. */
   getRootSnapshot(): SnapshotData {
     return this.snapshots.get(this.rootSnapshotId)!;
+  }
+
+  captureNativeTaskCatalog(reactStepId: string, record: TaskRecord): void {
+    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
+    if (!snapshotId) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
+    const snapshot = this.snapshots.get(snapshotId)!;
+    if (record.status !== "answered") throw new Error("Only completed task catalogs can be sealed");
+    if (snapshot.nativeTaskCatalog !== undefined) return;
+    snapshot.nativeTaskCatalog = freezeSnapshotValue(structuredClone(record));
   }
 
   getRootSnapshotId(): string {
@@ -284,7 +297,11 @@ export class WorkflowSnapshotStorage {
     const id = this.snapshotByReactStepId.get(reactStepId);
     if (!id) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
     const snapshot = this.snapshots.get(id)!;
-    if (snapshot.nativeObservations !== undefined || [...this.snapshots.values()].some(s => s.parentId === id))
+    if (
+      snapshot.nativeObservations !== undefined ||
+      snapshot.nativeTaskCatalog !== undefined ||
+      [...this.snapshots.values()].some(s => s.parentId === id)
+    )
       throw new Error("Cannot change a completed snapshot");
     const stale = computeStaleResultOps(snapshot.workflow, workflow);
     const present = new Set(workflow.operators.map(op => op.operatorID));

@@ -23,9 +23,22 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { persistOperatorResults } from "../tools/workflow-execution-tools";
 import { prepareStructuredExecutionResult } from "./execution-transport";
-import { workflowExecutionPlan } from "./result-versions";
+import { workflowExecutionPlan, workflowFingerprints } from "./result-versions";
 
 const revision = "0123456789abcdef";
+
+test("history fingerprints reuse frozen snapshots and refresh mutable drafts", () => {
+  const draft = workflow();
+  const first = workflowFingerprints(draft).get("answer")!.subgraphHash;
+  draft.operators[0].operatorProperties.code = "CHANGED SOURCE CODE";
+  expect(workflowFingerprints(draft).get("answer")!.subgraphHash).not.toBe(first);
+  const saved = storage(draft).getWorkflow("A");
+  const savedProof = workflowFingerprints(saved);
+  expect(workflowFingerprints(saved)).toBe(savedProof);
+  draft.operators[0].operatorProperties.code = "LATER CHANGE";
+  expect(workflowFingerprints(saved)).toBe(savedProof);
+  expect(workflowFingerprints(draft).get("answer")!.subgraphHash).not.toBe(savedProof.get("answer")!.subgraphHash);
+});
 function op(id: string, inputs: string[] = [], type = inputs.length ? "project" : "scan"): OperatorPredicate {
   return {
     operatorID: id,

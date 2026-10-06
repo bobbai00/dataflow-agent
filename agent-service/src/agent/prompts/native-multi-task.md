@@ -19,55 +19,35 @@
 
 ### Earlier tasks in the session
 
-The dataflow and its current tables persist across tasks. Each request is a
-task, numbered from 1. Answering completes that request; subsequent requests
-can build on the graph that remains.
+The dataflow persists across tasks. Each request is numbered from 1.
+Keep complete working tables separate from reports: compute all relevant
+entities and their values before selecting a few for an answer. A table inside
+a process function is not an operator output; return the working table so a
+later request can inspect, reuse or revise it. Load supported files with scan
+operators. Discover unfamiliar file contents with a preview before parsing;
+a filename alone does not establish its contents or relevance.
 
-Keep reusable working tables separate from answer tables. A working table
-holds all rows needed for a reusable calculation and its computed columns
-before a task's ranking or top-k selection. Put that selection in downstream operators; later tasks can
-then use all qualifying rows instead of inheriting an earlier answer's cutoff.
-The records shown by a retrieve may be partial even when the operator computes
-the full table.
+At each request, check whether it changes the default rule, asks for a temporary
+alternative, or refers to an earlier state. Preserve applicable units, exclusions,
+ordering and rounding. Earlier answers, descriptions and dependency links are
+unverified evidence; check the relevant definition, inputs and result before
+reuse. Row counts alone do not establish which entities a table contains.
 
-Before reusing a table, read its relevant definition, scope and any available
-data or flow statistics. Check which rows the new request needs: all qualifying
-rows, an earlier answer's selected rows, or a different rule version. The row
-count alone cannot choose among them. When the request concerns an earlier
-top-k selection, keep that selection; when it concerns every qualifying row,
-connect the table before the limit.
-
-At the start of a task, identify which existing tables and definitions it
-refers to. Preserve earlier conventions for population, units, ordering and
-rounding when they still apply. Follow the current request when it revises a
-convention. Earlier answers and definitions may contain mistakes; check the
-relevant definition, inputs and result before using a table as a population,
-lookup or baseline.
-
-Connect the working table that already contains the applicable rules rather
-than starting again from the cleaned source and retyping those rules inside
-another function. When a rule changes, give that calculation a clear operator
-boundary so its consumers can share the revision. This can be a column
-derivation, filter, join, aggregate or custom calculation; it need not be one
-operator per column.
-
-Extend the graph when the request adds an analysis. When the request revises
-a rule for the rest of the session, update the operator that defines it rather
-than building a second version beside it: every table built on it recomputes
-on the next execute, so later tasks read the revised rule without any further
-change.
+When a rule changes for following tasks, update the operator that defines it.
+Consumers are invalidated and recompute on the next execute. Give reusable rules
+clear operator boundaries; connect their working tables instead of retyping
+rules in a new function. A temporary scenario stays on a separate branch unless
+the request adopts it. The next request continues from the default.
 {{#history}}
-The version earlier tasks used stays saved (see "Saved versions" below). To
-compare with what an earlier task reported, read its saved result or fork its
-saved version instead of keeping a duplicate or retyping its numbers.
+The earlier results stay saved under their task numbers. Use their addresses
+rather than copying whole upstream graphs or reconstructing old numbers.
 {{/history}}
 {{^history}}
-Earlier versions are not kept, so build a second operator only when the
-request needs the old and the new rule at the same time.
+Earlier versions are not retained. Preserve an independent branch when both
+the old and new computations will be needed.
 {{/history}}
-Keep a temporary scenario on its own branch unless the request adopts it. Use
-an existing selection by connecting its table rather than retyping the members
-from an earlier answer.
 
-Operator blocks can name the task that defined an operator (`origin: task 1`)
-and the operators that read its table (`used by`).
+A process should implement one coherent transformation, with a concise doc that
+accurately describes its output grain, formula, exclusions and null handling.
+Keep complete computed tables visible as outputs; put answer cutoffs downstream
+or in answer from. Related helpers for one algorithm may stay together.

@@ -20,7 +20,7 @@
 import type { AgentSettings } from "../../types/agent";
 import { nativeReferenceText } from "../prompts";
 import type { OperatorInfo } from "../../types/execution";
-import type { WorkflowContent } from "../../types/workflow";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { selectNativeObservation, type NativeObservation } from "../native/evidence";
@@ -37,7 +37,8 @@ import {
 import { loadedRevision, originTask } from "../state-ledger";
 import { nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { composeAnswerParts, parseAnswerFromParts, statedDecimals } from "../native/answer";
-import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import { inspectGraph, missingGraphInputs } from "./graph-edits";
+import { planVersionedGraphEdit } from "./versioned-graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
@@ -49,14 +50,8 @@ import {
   readForkResult,
   type HistoricalTask,
 } from "../state-history";
-import {
-  executionNotes,
-  provenanceLines,
-  restoreCommands,
-  splitVersionCommands,
-  taskLedger,
-  upstreamDrift,
-} from "../state-ledger";
+import { executionNotes, provenanceLines, taskLedger } from "../state-ledger";
+import { displayedOperatorId, parseOperatorReference, resolveSavedOperator } from "../saved-versions";
 
 export interface DataflowActionRuntime {
   state: WorkflowState;
@@ -81,6 +76,8 @@ export interface DataflowActionRuntime {
   taskNumber?: number;
   /** HEAD when the first request arrived: the loaded state, if any. */
   loadedStepId?: string;
+  retainResults?: () => Promise<void>;
+  readResult?: (op: OperatorPredicate, info: OperatorInfo, columns?: string[], requireComplete?: boolean) => Promise<OperatorInfo>;
 }
 
 /** Every operator upstream of `id` in this workflow. */
@@ -105,6 +102,10 @@ function resultSummary(info: OperatorInfo | undefined) {
     ...(info.resultSchema ? { columns: info.resultSchema.map(c => `${c.name}:${c.type}`) } : {}),
   };
 }
+
+/** Exact source-to-copy mapping, including a fork that was later changed. */
+const forkOrigin = (op: OperatorPredicate) =>
+  op.stateOrigin ? `fork of ${op.stateOrigin.operatorId} (version at end of task ${op.stateOrigin.taskId})` : undefined;
 
 /** A saved graph uses original IDs; a fork's observation uses the IDs of
  * the copies the model can inspect. Follow only this fork's input branch. */
@@ -141,6 +142,7 @@ export async function executeDataflowActionBatch(
     if (!runtime.isCurrent()) throw new DOMException("The active workflow changed during this action.", "AbortError");
   };
   const retrieved = new Map<number, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
+  const currentReads = new Map<string, { operatorId: string; info: OperatorInfo; observation: NativeObservation; actionIndex: number }>();
   const savedReads = new Set<number>();
   const forkReads = new Map<number, { operatorId: string; info: OperatorInfo }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
@@ -156,6 +158,13 @@ export async function executeDataflowActionBatch(
     let workflow = savedStepId ? storage.getWorkflow(savedStepId) : state.getWorkflowContent();
     let readStep = savedStepId ?? stepId;
     let id = operatorId;
+    const retained = workflow.operators.find(op => op.operatorID === id)?.savedResult;
+    if (retained && !savedStepId) {
+      workflow = storage.getWorkflow(retained.stepId);
+      readStep = retained.stepId;
+      id = retained.operatorId;
+      savedTaskId = retained.taskId;
+    }
     const fork = !savedStepId && !current(id) ? readForkResult(workflow, storage, id, stepId) : undefined;
     if (fork) {
       workflow = fork.workflow;
@@ -183,10 +192,10 @@ export async function executeDataflowActionBatch(
       ...(savedTaskId ? { savedTaskId } : {}),
     });
   };
-  const recordVersions = (versions: Array<{ task: number; id: string }>, index: number) => {
+  const recordVersions = (versions: Array<{ task: number; id: string; sourceId?: string }>, index: number) => {
     for (const version of versions) {
       const task = historicalTask(runtime.historicalTasks ?? [], version.task);
-      recordReference(version.id, "definition", index, task.taskId, task.stepId);
+      recordReference(version.sourceId ?? version.id, "definition", index, task.taskId, task.stepId);
     }
   };
   const ledgerContext = {
@@ -218,7 +227,8 @@ export async function executeDataflowActionBatch(
         scopeOp,
         scopeWorkflow,
         saved ? id => storage.getOperatorResult(saved.stepId, id) : current,
-        id => names?.get(id) ?? id
+        id => names?.get(id) ?? displayedOperatorId(scopeWorkflow, id),
+        !result.saved_versions
       );
     let stale = false;
     if (!info) {
@@ -238,7 +248,7 @@ export async function executeDataflowActionBatch(
       !origin &&
       op.nativeOp?.revision !== undefined &&
       loadedRevision(ledgerContext, op.operatorID) === op.nativeOp.revision;
-    return describeOperator(op, info, {
+    const described = describeOperator(op, info, {
       ...result.format,
       stale,
       scope,
@@ -246,6 +256,14 @@ export async function executeDataflowActionBatch(
       ...(origin ? { origin: `task ${origin.taskId}` } : loaded ? { origin: "loaded" } : {}),
       ...extra,
     });
+    return {
+      ...described,
+      id: displayedOperatorId(state.getWorkflowContent(), described.id),
+      inputs: described.inputs?.map(input => ({
+        ...input,
+        id: displayedOperatorId(scopeWorkflow, input.id),
+      })),
+    };
   };
   const errorText = (id: string, info: OperatorInfo) =>
     formatOperatorResult(id, info, state, {
@@ -342,6 +360,7 @@ export async function executeDataflowActionBatch(
                 ...result.format,
                 scope: resultScope(op, workflow, id => storage.getOperatorResult(savedStep, id)),
                 state: `saved by task ${savedTask.taskId}`,
+                origin: forkOrigin(op),
                 implementation,
                 usedBy: workflow.operators
                   .filter(item => selectedIds.has(item.operatorID) && item.nativeOp?.inputs.includes(op.operatorID))
@@ -443,6 +462,7 @@ export async function executeDataflowActionBatch(
                 ...result.format,
                 scope: resultScope(op, workflow, id => storage.getOperatorResult(task.stepId, id)),
                 state: `saved by task ${task.taskId}`,
+                origin: forkOrigin(op),
                 implementation: action.include_implementation,
                 usedBy: workflow.operators
                   .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
@@ -471,6 +491,7 @@ export async function executeDataflowActionBatch(
           operator_blocks: [
             block(op, {
               implementation: action.include_implementation,
+              ...(op.stateOrigin ? { origin: forkOrigin(op) } : {}),
               usedBy: state
                 .getAllOperators()
                 .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
@@ -500,6 +521,55 @@ export async function executeDataflowActionBatch(
         },
       };
     }
+    if (action.type === "read") {
+      const selections = action.operator_ids.map(address => {
+        const ref = parseOperatorReference(address);
+        if (ref.taskId !== undefined) {
+          if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
+          return resolveSavedOperator(storage, runtime.historicalTasks ?? [], address, action.view !== null);
+        }
+        const op = state.getOperator(ref.operatorId);
+        if (!op) throw new Error(`UNKNOWN_OPERATOR: no operator ${address}.`);
+        const info = current(op.operatorID);
+        if (action.view !== null && (!info || info.error || !["Completed", "CompletedFromCache"].includes(info.state)))
+          throw new Error(`RESULT_NOT_RUN: ${address} has no current completed result. Execute it, or use view=null for its definition.`);
+        return { address, op, info, workflow: state.getWorkflowContent(), task: undefined };
+      });
+      const operatorBlocks: OperatorBlock[] = [];
+      const observations: Array<{ operator_id: string; text: string }> = [];
+      for (const selected of selections) {
+        const { address, op, workflow, task } = selected;
+        let info = selected.info;
+        if (action.view === "full" && info && Array.isArray(info.result) && info.result.length < (info.totalRowCount ?? info.outputTuples) && runtime.readResult)
+          info = await runtime.readResult(op, info, action.columns ?? undefined, false);
+        const names = (id: string) => {
+          const displayed = displayedOperatorId(workflow, id);
+          return task && displayed === id ? `${id}@${task.taskId}` : displayed;
+        };
+        const selectedBlock = describeOperator({ ...op, operatorID: address }, info, {
+          ...result.format, implementation: action.include_implementation,
+          definition: true, definitionLimit: false,
+          ...(task ? { state: "saved", savedBy: task.taskId } : {}),
+        });
+        selectedBlock.inputs = selectedBlock.inputs?.map(input => ({ ...input, id: names(input.id), taskId: undefined }));
+        operatorBlocks.push(selectedBlock);
+        recordReference(op.operatorID, action.view === null ? "definition" : "read", index, task?.taskId, task?.stepId);
+        if (action.view !== null && info) {
+          const schema = new Set(info.resultSchema?.map(c => c.name) ?? []);
+          const unknown = (action.columns ?? []).filter(name => schema.size && !schema.has(name));
+          if (unknown.length) throw new Error(`UNKNOWN_COLUMN: ${address} has no columns ${unknown.join(", ")}.`);
+          const observation = selectNativeObservation({
+            ...retrievalOptions(settings, action.view), op, info, workflow,
+            ...(action.columns ? { columns: action.columns } : {}), displayName: names,
+            resolveInput: id => task ? storage.getOperatorResult(task.stepId, id) : current(id),
+          });
+          observations.push({operator_id:address,text:observation.text});
+          if (!task && selected.info)
+            currentReads.set(`${index}:${op.operatorID}`, {operatorId:op.operatorID,info:selected.info,observation,actionIndex:index});
+        }
+      }
+      return { status: "ok", output: { operator_blocks: operatorBlocks, observations } };
+    }
     if (action.type === "fork") {
       if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
       const plan = forkState(
@@ -520,81 +590,33 @@ export async function executeDataflowActionBatch(
       return { status: "ok", output };
     }
     if (action.type === "edit") {
-      // `update operator <id> from task <N>` expands into the saved
-      // definition as an ordinary update (today's inputs stay); `fork operator
-      // <id> from task <N> as <new_id>` adds a copied branch under the new ID.
-      // The rest is the ordinary program.
       const before = state.getWorkflowContent();
-      const { rest, versions } = splitVersionCommands(action.changes);
+      const plan = await planVersionedGraphEdit(
+        before,
+        action.changes,
+        { ...context, settings },
+        storage,
+        runtime.historicalTasks ?? []
+      );
+      const versions = plan.versions?.map(version => version.command) ?? [];
+      const versionNotes = plan.versions?.map(version => version.note) ?? [];
       const restoredIds = new Map<string, string>();
-      const versionNotes: string[] = [];
-      let program = rest;
-      let working = state.getWorkflowContent();
-      if (versions.length) {
-        if (!settings.stateHistory)
-          throw new Error("update operator … from task and fork operator need saved task versions (stateHistory).");
-        const tasks = runtime.historicalTasks ?? [];
-        const expanded: string[] = [];
-        for (const command of versions) {
-          const task = historicalTask(tasks, command.task);
-          if (command.as) {
-            const plan = forkState(working, storage, tasks, task.taskId, command.id, command.as);
-            working = plan.workflow;
-            for (const copied of plan.operators) restoredIds.set(copied.id, `forked from task ${task.taskId}`);
-            result.operators.push(...plan.operators);
-            const copiedInputs = Object.entries(plan.mapping)
-              .filter(([from]) => from !== command.id)
-              .map(([from, to]) => `${from} → ${to}`);
-            versionNotes.push(
-              `Forked ${command.id} from task ${task.taskId} as ${command.as}${copiedInputs.length ? ` with its task-${task.taskId} inputs (${copiedInputs.join(", ")})` : ""}; retrieve ${command.as} for the saved result, or execute it after changing it.`
-            );
-          } else {
-            restoredIds.set(command.id, `restored from task ${task.taskId}`);
-            const restored = restoreCommands(storage, task, working, command.id);
-            expanded.push(restored.commands);
-            const drift = restored.existed ? upstreamDrift(storage, task, working, command.id) : [];
-            versionNotes.push(
-              restored.existed
-                ? `Restored ${command.id}'s task-${task.taskId} definition in place; its inputs are today's${drift.length ? ` (changed since task ${task.taskId}: ${drift.join(", ")})` : " (unchanged since then)"}. Dependents are invalidated; execute to recompute.`
-                : `Re-created ${command.id} from its task-${task.taskId} definition${restored.restoredInputs.length ? ` with edges from ${restored.restoredInputs.join(", ")}` : ""}.`
-            );
-          }
-        }
-        program = [...expanded, rest].filter(text => text.trim()).join("\n");
-        if (!program.trim()) {
-          assertCurrent();
-          state.setWorkflowContent(working);
-          storage.updatePendingWorkflow(stepId, working);
-          runtime.edited(result.operators.map(op => op.id).filter(id => !!state.getOperator(id)));
-          recordVersions(versions, index);
-          return {
-            status: "ok",
-            output: {
-              changes: [],
-              applied: versions.length,
-              unconnected_inputs: [],
-              invalidated_results: [],
-              version_notes: versionNotes,
-              operator_blocks: topologicalOperators(working.operators)
-                .filter(op => restoredIds.has(op.operatorID))
-                .map(op => block(op, { state: restoredIds.get(op.operatorID), definitionLimit: true })),
-            },
-          };
-        }
-      }
-      const plan = await planGraphEdit(working, program, context);
+      for (const fork of plan.forks ?? [])
+        for (const id of Object.values(fork.mapping)) restoredIds.set(id, `forked from task ${fork.task_id}`);
+      for (const version of plan.versions ?? [])
+        if (!version.command.as) restoredIds.set(version.command.id, version.state);
       assertCurrent();
       state.setWorkflowContent(plan.workflow);
       storage.updatePendingWorkflow(stepId, plan.workflow);
       const accepted = plan.operators.map(op => op.id);
       storage.clearNativeRejectedEdits(stepId, accepted);
       runtime.edited(accepted.filter(id => !!state.getOperator(id)));
-      recordVersions(versions, index);
+      recordVersions(versions.map(v => ({ task: v.task, id: v.sourceId ?? v.id })), index);
       result.operators.push(...plan.operators);
       const { workflow: _workflow, ...output } = plan;
       const touched = new Set([...accepted, ...restoredIds.keys()]);
       const operatorBlocks: OperatorBlock[] = topologicalOperators(plan.workflow.operators)
-        .filter(op => touched.has(op.operatorID))
+        .filter(op => touched.has(op.operatorID) && !op.savedResult)
         .map(op => {
           const created = plan.changes.some(
             change => change.operator_id === op.operatorID && change.operation === "create_operator"
@@ -633,13 +655,7 @@ export async function executeDataflowActionBatch(
             current
           )
         : [];
-      // A restore expands into an update (or a re-creation with its edges);
-      // the receipt counts it once, as the restore.
-      const restoredHere = (id?: string) => !!id && !!restoredIds.get(id)?.startsWith("restored from");
-      const applied =
-        plan.changes.filter(
-          change => !restoredHere(change.operator_id) && !restoredHere(change.edge?.match(/-> ([^.]+)\./)?.[1])
-        ).length + versions.length;
+      const applied = plan.applied ?? plan.changes.length;
       return {
         status: "ok",
         output: {
@@ -730,7 +746,10 @@ export async function executeDataflowActionBatch(
       return {
         status: failure || outcomes.some(o => o.status === "error") ? "error" : "ok",
         output: {
-          operators: outcomes,
+          operators: outcomes.map(outcome => ({
+            ...outcome,
+            id: displayedOperatorId(workflow, outcome.id),
+          })),
           // Blocks only for operators this call ran or failed: a cached
           // operator's notes and flow lines were shown when it ran, and
           // repeating them on every later execute only grows the context.
@@ -883,6 +902,11 @@ export async function executeDataflowActionBatch(
     if ("operator_ids" in action && action.operator_ids) {
       // Validate the entire declaration before recording any provenance.
       for (const id of action.operator_ids) {
+        const ref = parseOperatorReference(id);
+        if (ref.taskId !== undefined) {
+          resolveSavedOperator(storage, runtime.historicalTasks ?? [], id, true);
+          continue;
+        }
         const op = state.getOperator(id);
         const info = current(id) ?? readForkResult(state.getWorkflowContent(), storage, id, stepId)?.info;
         if (
@@ -896,24 +920,44 @@ export async function executeDataflowActionBatch(
             `Answer operator ${id} has no completed result. Name an existing answer table and execute it if needed, or answer without operator_ids.`
           );
       }
-      for (const id of action.operator_ids) recordReference(id, "read", index);
+      for (const id of action.operator_ids) {
+        const ref = parseOperatorReference(id);
+        const saved = ref.taskId === undefined ? undefined : resolveSavedOperator(storage, runtime.historicalTasks ?? [], id, true);
+        recordReference(ref.operatorId, "read", index, saved?.task.taskId, saved?.task.stepId);
+      }
     }
     if ("from" in action) {
       const parsed = parseAnswerFromParts(action.from);
       if ("error" in parsed) throw new Error(parsed.error);
-      for (const part of parsed.parts)
-        if (!current(part.id) && !state.getOperator(part.id))
-          throw new Error(`answer_from: no table \`${part.id}\`; write the final answer yourself.`);
-      const outcome = composeAnswerParts(parsed.parts, current, {
+      const tables = new Map<string, OperatorInfo>();
+      for (const part of parsed.parts) {
+        const ref = parseOperatorReference(part.id);
+        const saved = ref.taskId === undefined ? undefined : resolveSavedOperator(storage, runtime.historicalTasks ?? [], part.id, true);
+        const op = saved?.op ?? state.getOperator(ref.operatorId);
+        let info = saved?.info ?? current(ref.operatorId);
+        if (!op || !info) throw new Error(`answer_from: no table \`${part.id}\` with a matching completed result.`);
+        if (part.selection && Array.isArray(info.result) && info.result.length < (info.totalRowCount ?? info.outputTuples) && runtime.readResult) {
+          const projected = part.shape?.filter(item => item.column !== "*").map(item => item.column);
+          const columns = projected?.length ? [...new Set([...projected, ...part.selection.by.map(key => key.column)])] : undefined;
+          info = await runtime.readResult(op, info, columns, true);
+        }
+        tables.set(part.id, info);
+      }
+      const outcome = composeAnswerParts(parsed.parts, id => tables.get(id), {
         decimalRules: statedDecimals([...(runtime.requestTexts ?? [])]),
       });
       if ("reason" in outcome)
         throw new Error(
           `answer not composed: ${outcome.reason}. ${outcome.hint ?? "Write the final answer yourself."}`
         );
-      for (const part of parsed.parts) recordReference(part.id, "read", index);
+      for (const part of parsed.parts) {
+        const ref = parseOperatorReference(part.id);
+        const saved = ref.taskId === undefined ? undefined : resolveSavedOperator(storage, runtime.historicalTasks ?? [], part.id, true);
+        recordReference(ref.operatorId, "read", index, saved?.task.taskId, saved?.task.stepId);
+      }
       composed = { answer_from: parsed.parts.map(part => part.id).join(", "), answer: outcome.json };
     }
+    if (settings.stateHistory && runtime.retainResults) await runtime.retainResults();
     if (settings.stateLedger) {
       // The answer is recorded in the step; the receipt carries the task's
       // ledger instead of echoing the answer a second time.
@@ -947,10 +991,16 @@ export async function executeDataflowActionBatch(
       (item.output as Record<string, unknown>).superseded_in_call = true;
     }
   }
+  for (const read of currentReads.values()) {
+    if (current(read.operatorId) !== read.info) {
+      const item = result.actions.find(item => item.index === read.actionIndex);
+      if (item?.output) (item.output as Record<string,unknown>).superseded_in_call = true;
+    }
+  }
+  const captures = [...retrieved.values(), ...currentReads.values()].filter(({operatorId,info}) => current(operatorId) === info);
   result.observe = [
     ...new Set(
-      [...retrieved.values()]
-        .filter(({ operatorId, info }) => current(operatorId) === info)
+      captures
         .map(({ operatorId }) => operatorId)
     ),
   ];
@@ -959,8 +1009,7 @@ export async function executeDataflowActionBatch(
     result.observe,
     options,
     new Map(
-      [...retrieved.values()]
-        .filter(({ operatorId, info }) => current(operatorId) === info)
+      captures
         .map(({ operatorId, observation }) => [operatorId, observation])
     )
   );

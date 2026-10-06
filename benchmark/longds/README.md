@@ -132,6 +132,15 @@ the focused historical inspection changes.
 
 ## Matched state comparison
 
+The [catalog-only state-management plan](reports/state-management-comparison-plan-20261005.md)
+and [24-probe pilot report](reports/state-management-pilot-20261005.md) cover a
+small LongDS v1.1 Lite run with persistent execution state, fresh task context,
+historical retrieval and no added input token budget. The report includes
+state/lineage diagnostics and the fork/materialization limitation. Prefixes
+failed the verified-fixture gate, so this is a recovery diagnostic rather than
+a controlled versioning comparison. The recorded arms below retain their
+original configurations.
+
 `state_comparison.py` freezes questions, input fingerprints, source copies,
 runtime versions, settings, repetitions and accounting before model calls.
 It keeps reference answers outside solver prompts and kernel mounts. The

@@ -110,6 +110,14 @@ function workflowProof(workflow: WorkflowContent) {
   return proof;
 }
 
+/** Share the immutable snapshot proof across history, fork and catalog reads.
+ * Mutable drafts deliberately bypass the memo so edits cannot leave stale hashes. */
+export function workflowFingerprints(
+  workflow: WorkflowContent
+): ReadonlyMap<string, { definitionHash: string; subgraphHash: string }> {
+  return workflowProof(workflow).fingerprints;
+}
+
 function sourceFingerprints(profile: TableProfile | undefined): ResultVersion["sourceFingerprints"] {
   const scan = profile?.native?.operations?.scan as { sources?: unknown } | undefined;
   if (!scan || !Array.isArray(scan.sources) || scan.sources.length > 256) return null;

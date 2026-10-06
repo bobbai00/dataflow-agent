@@ -153,7 +153,8 @@ class WorkflowExecutionService(
   private def computeCachedOutputs(
       physicalPlan: org.apache.texera.amber.core.workflow.PhysicalPlan
   ): Map[GlobalPortIdentity, CachedOutput] = {
-    cacheService.lookupCachedOutputs(workflowContext.workflowId, physicalPlan)
+    cacheService.lookupCachedOutputs(workflowContext.workflowId, physicalPlan) ++
+      HistoricalResultService.bindings(workflowContext.workflowId, physicalPlan, request.workflowSettings.savedOutputs)
   }
 
   /**

@@ -94,6 +94,7 @@ export function validateEvidenceSettings(settings: object): void {
   for (const key of [
     "multiTask",
     "answerEcho",
+    "catalogStatistics",
     "dataEvidence",
     "flowEvidence",
     "nativeProfileCollection",

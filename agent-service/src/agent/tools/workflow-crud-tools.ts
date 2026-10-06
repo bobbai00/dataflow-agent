@@ -42,6 +42,7 @@ export interface ToolContext {
     dataflowReasoning?: boolean;
     /** Native operators carry the lineage their engine-side checks need. */
     nativeChecks?: boolean;
+    stateHistory?: boolean;
   };
 }
 

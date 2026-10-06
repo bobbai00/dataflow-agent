@@ -18,6 +18,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
+
+test("mechanical row and diff notes require matching saved result provenance", () => {
+  const result = {state:"Completed",totalRowCount:8,resultVersion:{id:"v1"},
+    tableProfile:{resultVersion:"v1",native:{operatorType:"Process",inputRows:[1898],outputRows:8}}} as any;
+  expect(boundResultNotes(result)).toEqual(["note: returned 8 of 1,898 input rows."]);
+  expect(boundResultNotes({...result,tableProfile:{...result.tableProfile,resultVersion:"v2"}})).toEqual([]);
+  expect(boundResultNotes({...result,state:"Running"})).toEqual([]);
+  const diff = {...result,tableProfile:{resultVersion:"v1",native:{operatorType:"Diff",operations:{diff:{keys:4,added:1,removed:1,changed:1,same:1}}}}};
+  expect(boundResultNotes(diff)).toEqual(["diff: 4 keys; 1 added, 1 removed, 1 changed, 1 same."]);
+});
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import { issueText, renderActionObservations } from "./action-observations";
@@ -30,6 +40,7 @@ import {
   operatorBlock,
   topologicalOperators,
   observationFormat,
+  boundResultNotes,
 } from "./observation-format";
 
 const info = (rows: Record<string, unknown>[], overrides: Partial<OperatorInfo> = {}): OperatorInfo => ({

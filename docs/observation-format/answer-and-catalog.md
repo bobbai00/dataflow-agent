@@ -21,6 +21,11 @@
 
 An answer ends the task. Building blocks and settings: [README.md](README.md).
 
+This page describes answer receipts and the optional `stateLedger` receipt
+catalog. The multi-task prior-task index also works with `stateLedger: false`.
+Its operator-block layout, inspection policy and process-authoring guidance
+are specified in [Prior-task operator catalog design](prior-task-operator-catalog-design.md).
+
 ## `answer` with `content`
 
 The call holds the answer, so the receipt confirms it without repeating it

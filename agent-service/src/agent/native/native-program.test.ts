@@ -606,9 +606,9 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
-  test("multi-task examples preserve full scores, count the source population and branch historical inputs", async () => {
+  test("ordinary multi-task examples preserve full scores and repair selections", async () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
-      stateHistory: true,
+      multiTask: true,
       retrievalViews: ["full"],
     });
     const calls = (heading: string) => {
@@ -685,10 +685,9 @@ describe("native prompt", () => {
       expect(revised.score.map(row => row.score)).toEqual([54, 57, 60, 63, 66, 69, 72, 75]);
       expect(revised.covered_scores).toHaveLength(8);
       state.setWorkflowContent(forkState(state.getWorkflowContent(), storage, tasks, 2, "score", "score_t2").workflow);
-      const comparison = calls("### Example: compare with an earlier task and go back")[0];
-      await edit(splitVersionCommands(comparison.actions.find((action: any) => action.type === "edit").changes).rest);
+      await edit('create operator score_change: diff(key=["unit"], columns=["score"], include_same=True)\ncreate edge score_t2.out -> score_change.in[0]\ncreate edge score.out -> score_change.in[1]');
       const compared = execute(state, ["score_change", "score_t2"]);
-      expect(compared.score_change.map(row => row.change)).toEqual([10, 0, 20, 0, 30, 15, 0, 25]);
+      expect(compared.score_change.map(row => row.score_delta)).toEqual([10, 0, 20, 0, 30, 15, 0, 25]);
       expect(compared.score_t2).toEqual(oldScores);
       await edit(restoreCommands(storage, tasks[0], state.getWorkflowContent(), "eligible").commands);
       const restored = execute(state, ["score", "score_t2"]);
@@ -716,13 +715,13 @@ describe("native prompt", () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const view of ["full", "sample", "sample_stats"] as const) {
       const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-      const section = prompt.split("### Example: compare with an earlier task and go back")[1]!;
+      const section = prompt.split("### Example: default rules, a temporary branch and an earlier result")[1]!;
       const calls = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
-      const inspect = calls.flatMap(call => call.actions).find((a: any) => a.type === "inspect");
-      expect(inspect).toMatchObject({ target: "state", view: null });
+      const read = calls.flatMap(call => call.actions).find((a: any) => a.type === "read" && a.view === null);
+      expect(read).toMatchObject({ operator_ids: ["scores@1", "eligible@1"], view: null });
       for (const call of calls) {
-        expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
-        for (const item of call.actions) if (item.type === "retrieve") expect(item.view).toBe(view);
+        expect(prepareDataflowActions(call, [view], true, true).status).toBe("pending");
+        for (const item of call.actions) if (item.type === "read" && item.view !== null) expect(item.view).toBe(view);
       }
       expect(prompt).not.toContain("{{");
     }
@@ -918,6 +917,48 @@ create edge typed.out -> total.in
     }
   });
 
+  test("the custom process example preserves the working table before report selection in every prompt", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "native-process-prompt-"));
+    try {
+      const readings = join(directory, "readings.csv");
+      writeFileSync(readings, "sensor,reading\nA,1\nA,3\nA,5\nB,10\nB,10\nC,\nD,20\nD,40\n");
+      for (const nativePromptDetail of ["full", "on_demand"] as const) {
+        for (const multiTask of [false, true]) {
+          const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+            nativePromptDetail,
+            multiTask,
+            stateHistory: multiTask,
+          });
+          const example = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].find(([, changes]) =>
+            changes.includes("create operator sensor_dispersion:")
+          )?.[1];
+          expect(example).toBeDefined();
+          const { state } = nativeTestTools();
+          const metadataStore = new WorkflowSystemMetadata();
+          metadataStore.seedCodeModeDefaults();
+          const changes = `create operator readings: scan(${JSON.stringify(readings)})\n${example!}`;
+          const plan = await planGraphEdit(state.getWorkflowContent(), changes, { metadataStore });
+          state.setWorkflowContent(plan.workflow);
+          expect(missingGraphInputs(plan.workflow)).toEqual([]);
+          expect(state.getOperator("sensor_dispersion")!.nativeOp!.inputs).toEqual(["readings"]);
+          const results = execute(state, ["sensor_dispersion", "sensor_top"]);
+          expect(results.sensor_dispersion).toEqual([
+            { sensor: "A", mad: 2, n: 3 },
+            { sensor: "B", mad: 0, n: 2 },
+            { sensor: "C", mad: null, n: 0 },
+            { sensor: "D", mad: 10, n: 2 },
+          ]);
+          expect(results.sensor_top).toEqual([
+            { sensor: "D", mad: 10, n: 2 },
+            { sensor: "A", mad: 2, n: 3 },
+          ]);
+        }
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("only enabled evidence kinds are described", () => {
     const data = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample_stats"] });
     const flow = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"], flowEvidence: true });
@@ -942,7 +983,9 @@ create edge typed.out -> total.in
     // table, column-scoped retrieve and two worked examples added ~2.5k chars.
     // 2026-10-03: a complete single-task example (preview, parse, answer)
     // built from real receipts added ~3.7k chars.
-    expect(prompt.length).toBeLessThan(28500);
+    // 2026-10-05: process boundaries, accurate descriptions and a tested
+    // complete-working-table example add ~2k chars to the shared prompt.
+    expect(prompt.length).toBeLessThan(31000);
     expect(prompt).toContain("stale");
     expect(prompt).toContain("preview");
     expect(prompt).toContain("None");

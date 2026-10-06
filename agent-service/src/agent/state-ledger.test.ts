@@ -21,7 +21,7 @@ import { TexeraAgent } from "./texera-agent";
 import { AgentMode, ContextMode } from "../types/agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { assembleContext } from "./util/context-utils";
-import { renderDataflowActionsResult } from "./tools/dataflow-actions";
+import { prepareDataflowActions, renderDataflowActionsResult } from "./tools/dataflow-actions";
 import type { DataflowAction, DataflowActionsResult } from "./tools/dataflow-actions";
 import { splitVersionCommands } from "./state-ledger";
 
@@ -53,7 +53,9 @@ function agentWith(turns: DataflowAction[][][]) {
         turn++;
         for (const [i, actions] of turns[turn].entries()) {
           const args = { reasoning: "Next step.", actions };
-          const output = await input.tools.dataflow.execute(args);
+          // These fixtures replay the archived ledger protocol. New public
+          // tool validation is covered by saved-version-actions.test.ts.
+          const output = prepareDataflowActions(args, ["full", "sample", "sample_stats"], true);
           await input.onStepFinish({
             text: "",
             toolCalls: [{ toolName: "dataflow", toolCallId: `t${turn}-${i}`, input: args }],

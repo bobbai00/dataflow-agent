@@ -29,28 +29,23 @@ import { planGraphEdit } from "./tools/graph-edits";
 
 function examples(view: "full" | "sample" | "sample_stats" = "sample") {
   const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-  const section = prompt.split("### Example: compare with an earlier task and go back")[1] ?? "";
+  const section = prompt.split("### Example: default rules, a temporary branch and an earlier result")[1] ?? "";
   const calls = Array.from(section.matchAll(/```json\n([\s\S]*?)\n```/g), m => JSON.parse(m[1]));
   return { prompt, section, calls };
 }
 
-test("task retrieval examples check reusable branches and declare answer roots without benchmark hints", () => {
+test("saved-version examples inspect reusable rules and declare sources without benchmark hints", () => {
   for (const view of ["full", "sample", "sample_stats"] as const) {
-    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-    const section =
-      prompt.split("### Example: retrieve a relevant task before reusing its work")[1]?.split("### Example:")[0] ?? "";
-    const calls = Array.from(section.matchAll(/```json\n([\s\S]*?)\n```/g), m => JSON.parse(m[1]));
-    expect(calls).toHaveLength(3);
-    for (const call of calls) expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
-    expect(calls[0].actions[0]).toMatchObject({ target: "task", operator_id: null, view });
-    expect(calls[0].reasoning).toContain("task 2");
-    expect(calls[2].actions[0]).toEqual({ type: "answer", from: "by_region[region,count]" });
+    const { prompt, section, calls } = examples(view);
+    expect(calls.length).toBeGreaterThan(2);
+    for (const call of calls) expect(prepareDataflowActions(call, [view], true, true).status).toBe("pending");
+    expect(calls.some(call => call.actions.some((a: any) => a.type === "read" && a.view === null))).toBe(true);
+    expect(calls.some(call => call.actions.some((a: any) => a.type === "read" && a.operator_ids.includes("scores@1")))).toBe(true);
+    expect(calls.some(call => call.actions.some((a: any) => a.type === "answer" && a.from))).toBe(true);
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
-    expect(prompt).toContain("local answer computation");
-    expect(prompt).toContain("saved input\nreferences");
-    expect(prompt).toContain("without expanding their graphs");
-    expect(prompt).toContain("Graph inspection requires named `operator_ids`");
-    expect(prompt).toContain("Dependency links help locate useful");
+    expect(prompt).toContain("Saved states may contain");
+    expect(prompt).toContain("view: null");
+    expect(prompt).toContain("without data");
     expect(prompt).not.toContain("{{");
   }
 });
@@ -60,6 +55,17 @@ test("computed answers prefer runtime composition and narrow the first retrieval
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory });
     expect(prompt).toContain("Prefer `answer` with `from` for tabular answers");
     expect(prompt).toContain("Select needed `columns` on the first retrieval");
+  }
+});
+
+test("history guidance explains complete delta blocks and exact references without correctness or cache guarantees", () => {
+  for (const nativePromptDetail of ["full", "on_demand"] as const) {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, nativePromptDetail });
+    for (const text of ["first-edit order", "Process bodies", "Statistics and catalog records are off by default",
+      "not a correctness guarantee", "All working tables", "HISTORICAL_RESULT_UNAVAILABLE",
+      "never substitutes a newer table", "saved direct inputs", "exploratory reads do not become answer roots"])
+      expect(prompt).toContain(text);
+    expect(prompt).not.toMatch(/LongDS|Kiva|Netflix|Kaggle|cache hits guaranteed/i);
   }
 });
 
@@ -81,59 +87,24 @@ test("scope and repair guidance is general and works in ordinary ReAct without a
   }
 });
 
-test("multi-task history and catalog are separate extensions using the edit vocabulary", () => {
-  for (const view of ["full", "sample", "sample_stats"] as const) {
-    const { prompt, section, calls } = examples(view);
-    expect(calls).toHaveLength(3);
-    for (const call of calls) {
-      expect(prepareDataflowActions(call, [view], true).status).toBe("pending");
-      for (const action of call.actions as DataflowAction[])
-        if (action.type === "retrieve") expect(action.view).toBe(view);
-    }
-    const restoreEdits = calls.flatMap(call =>
-      (call.actions as DataflowAction[]).filter(a => a.type === "edit")
-    ) as Array<{ changes: string }>;
-    expect(restoreEdits).toHaveLength(2);
-    for (const edit of restoreEdits) expect(splitVersionCommands(edit.changes).versions.length).toBe(1);
-    expect(calls.flatMap(call => call.actions).find((a: any) => a.type === "inspect")).toMatchObject({
-      type: "inspect",
-      target: "state",
-      task_id: null,
-      view: null,
-    });
-    expect(prompt).not.toContain("{{");
-    expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
-    expect(prompt).toContain("update operator <id> from task <N>");
-    expect(prompt).toContain("fork operator <id> from task <N> as <new_id>");
-    expect(prompt).not.toMatch(/rollback/i);
-  }
+test("multi-task saved versions use references while ordinary sessions keep their public vocabulary", () => {
   const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
-  expect(history).toContain("### Earlier tasks in the session");
-  expect(history).toContain("Restore the definition task N saved");
-  expect(history).toContain("When a task is answered, the dataflow as it stands is saved under that task's");
-  expect(history).toContain("going back never removes a\nversion");
-  expect(history).not.toMatch(/seal/i);
+  for (const text of ["scores@2", "update operator scores from scores@2", "create operator variant from scores@2",
+    "matching completed", "current inputs", "historical", "top 5 by score"])
+    expect(history.toLowerCase()).toContain(text.toLowerCase());
   expect(history).not.toContain('"type": "fork"');
-  expect(history).not.toContain("Task catalog and provenance");
-  expect(history).not.toContain("inputs from earlier tasks:\n- **");
-  const ledger = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, stateLedger: true });
-  expect(ledger).toContain("An answer's receipt is the task's catalog entry");
-  expect(ledger).toContain("provenance");
-  expect(ledger).toMatch(/top-k report represents\s+the selected rows/);
-  expect(ledger).toContain("covered_scores");
+  expect(history).not.toContain('"target": "state"');
+  expect(history).not.toContain('"target": "task"');
   const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
   expect(single).not.toContain("### Earlier tasks in the session");
-  expect(single).not.toContain("### Example: build on an earlier task");
+  expect(single).not.toContain("#### Saved versions");
   const control = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true, retrievalViews: ["sample"] });
   expect(control).toContain("### Earlier tasks in the session");
-  expect(control).toContain("Earlier versions are not kept, so build a second operator only when the");
   expect(control).toContain("### Example: revise a rule for the rest of the session");
-  expect(control).not.toContain("remains saved under tasks 1 and 2");
-  expect(control).not.toContain("fork operator");
+  expect(control).not.toContain("#### Saved versions");
   expect(control).not.toContain('"target": "state"');
   expect(control).not.toContain("{{");
-  const section = control.split("### Example: build on an earlier task")[1];
-  for (const [, json] of section.matchAll(/```json\n([\s\S]*?)\n```/g))
+  for (const [, json] of control.matchAll(/```json\n([\s\S]*?)\n```/g))
     expect(prepareDataflowActions(JSON.parse(json), ["sample"]).status).toBe("pending");
 });
 

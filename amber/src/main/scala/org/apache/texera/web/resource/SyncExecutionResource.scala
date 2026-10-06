@@ -62,6 +62,8 @@ import org.apache.texera.web.service.{
   WorkflowService,
   WorkflowExecutionService
 }
+import org.apache.texera.web.service.{HistoricalResultService, RetainResultsRequest, SavedResultReadRequest, SavedResultPage}
+import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowAccessResource
 import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
 
 import java.net.URI
@@ -141,6 +143,29 @@ case class TargetResultsReady(statsState: ExecutionStatsStore) extends Terminati
 @Consumes(Array(MediaType.APPLICATION_JSON))
 @Produces(Array(MediaType.APPLICATION_JSON))
 class SyncExecutionResource extends LazyLogging {
+
+  @POST
+  @Path("/{wid}/results/read")
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
+  def readSavedResult(@PathParam("wid") workflowId: Int, request: SavedResultReadRequest,
+      @Auth user: SessionUser): SavedResultPage = {
+    if (!WorkflowAccessResource.hasReadAccess(workflowId, user.getUser.getUid))
+      throw new ForbiddenException("Workflow access required")
+    try HistoricalResultService.read(WorkflowIdentity(workflowId.toLong), request)
+    catch { case err: IllegalArgumentException => throw new BadRequestException(err.getMessage) }
+  }
+
+  @POST
+  @Path("/{wid}/results/retain")
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
+  def retainSavedResults(@PathParam("wid") workflowId: Int, request: RetainResultsRequest,
+      @Auth user: SessionUser): Map[String, Int] = {
+    if (!WorkflowAccessResource.hasWriteAccess(workflowId, user.getUser.getUid))
+      throw new ForbiddenException("Workflow write access required")
+    if (request.references.size > 1000) throw new BadRequestException("Retain at most 1000 results per call")
+    try Map("retained" -> HistoricalResultService.retain(WorkflowIdentity(workflowId.toLong), request.references))
+    catch { case err: IllegalArgumentException => throw new BadRequestException(err.getMessage) }
+  }
 
   // Hard caps applied regardless of request — guard against runaway payloads.
   private val MAX_OPERATOR_RESULT_CHARS = 100000

@@ -49,6 +49,16 @@ export interface PortDescription {
 }
 
 export interface OperatorPredicate {
+  /** Internal immutable input handle. The engine resolves its exact producer;
+   * this is not an executable copy of the historical definition. */
+  readonly savedResult?: {
+    taskId: number;
+    stepId: string;
+    operatorId: string;
+    executionId: string;
+    outputPort: number;
+    resultVersion?: string;
+  };
   /** Provenance of a copied historical definition. Saved observations keep
    * their original identity; they are not a materialization of this new ID. */
   readonly stateOrigin?: { taskId: number; stepId: string; operatorId: string; subgraphHash: string };

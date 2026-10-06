@@ -61,6 +61,8 @@ the test suite checks that they stay in sync.
 | [operator-definitions.md](operator-definitions.md) | complete prompt catalog and authored/inspected operator definitions |
 | [validation.md](validation.md) | fixes, test coverage and Luna runs, including the fork-and-restore run against DSGym |
 | [findings-and-plan-2026-10-03.md](findings-and-plan-2026-10-03.md) | why the dataflow agent lost to DSGym on later turns, and the change plan (working table, compacted history) |
+| [prototype-adjustments-2026-10-05.md](prototype-adjustments-2026-10-05.md) | LongDS Lite study: the four state checks, cohorts, decision rules and the fast verification path (state mechanics superseded by the next row) |
+| [state-versions-design-2026-10-06.md](state-versions-design-2026-10-06.md) | the simplified state model: `operator@N` references, no fork, one `read`, `diff`, the boundary receipt, the two context policies, the prompt text and the work list |
 
 Before this change the model read five styles: JSON from `inspect`, tab-separated
 `Sample record:` lines from `retrieve`, pipe tables mixed with prose lines for

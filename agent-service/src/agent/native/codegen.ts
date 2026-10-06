@@ -120,7 +120,7 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   for (const id of inputs) {
     if (!NATIVE_ID_RE.test(id)) throw new Error(`input operator id "${id}" is not a valid identifier`);
   }
-  if (new Set(inputs).size !== inputs.length && view.type !== "Join" && !view.graph) {
+  if (new Set(inputs).size !== inputs.length && !["Join", "Diff"].includes(view.type) && !view.graph) {
     throw new Error(`inputs must be distinct operators (got ${inputs.join(", ")})`);
   }
   if (def.inputs === 0 && inputs.length !== 0) throw new Error(`${def.name} takes no input tables`);

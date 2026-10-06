@@ -543,17 +543,18 @@ object WorkflowExecutionsResource {
       }
     }
 
-    val urisOfEid: List[URI] =
+    val registered: List[(String, URI)] =
       context
-        .select(OPERATOR_PORT_EXECUTIONS.RESULT_URI)
+        .select(OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID, OPERATOR_PORT_EXECUTIONS.RESULT_URI)
         .from(OPERATOR_PORT_EXECUTIONS)
         .where(OPERATOR_PORT_EXECUTIONS.WORKFLOW_EXECUTION_ID.eq(eid.id.toInt))
-        .fetchInto(classOf[String])
+        .fetch()
         .asScala
         .toList
-        .map(URI.create)
+        .map(row => row.get(OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID) ->
+          URI.create(row.get(OPERATOR_PORT_EXECUTIONS.RESULT_URI)))
 
-    urisOfEid.find(isMatchingExternalPortURI).orElse {
+    org.apache.texera.web.service.HistoricalResultService.registeredResult(registered, opId, portId).orElse {
       // Cleanup removes execution registry rows but preserves cached documents.
       // Recover only this exact producer; the latest result for an operator may
       // belong to a different execution and must not satisfy a historical read.

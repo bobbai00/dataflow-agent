@@ -25,7 +25,7 @@ import type { ModelMessage } from "ai";
 import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
-import type { CompactionStrategy, ReActStep } from "../../types/agent";
+import type { CompactionStrategy, ReActStep, RetrievalView } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
@@ -137,6 +137,7 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   taskContext?: "trajectory" | "dependencies";
   taskHistory?: readonly import("../task-history").TaskHistory[];
   dataEvidence?: boolean;
+  retrievalViews?: RetrievalView[];
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
   nativeChecks?: boolean;
@@ -529,7 +530,7 @@ export function assembleContext(
           }),
         ])
       );
-      return [...renderTaskMessages(buildTaskGraph(snapshotStorage, prior), requestMessages), ...messages];
+      return [...renderTaskMessages(buildTaskGraph(snapshotStorage, prior, options), requestMessages), ...messages];
     }
   }
   // The legacy entry point is now a thin preset shim over summarize(): the
