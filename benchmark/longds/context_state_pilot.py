@@ -257,7 +257,10 @@ def run_job(job, protocol, folder, guard, spend_file=None):
     return {**job, 'path': str(output), 'error': error, 'attempted_questions': len(records)}
 
 
-RESUMABLE = ('benchmark/longds/context_state_pilot.py', 'benchmark/longds/catalog_pilot.py')
+# Harness files that may change between a freeze and a resume: the runner, the Python
+# baseline's kernel wiring and the scorer. Solver code and prompts are never exempt.
+RESUMABLE = ('benchmark/longds/context_state_pilot.py', 'benchmark/longds/catalog_pilot.py',
+             'benchmark/longds/context_state_score.py')
 
 
 def run(root, resume=False, only_agent=None):
