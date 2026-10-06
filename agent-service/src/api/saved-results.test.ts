@@ -66,8 +66,15 @@ test("empty results still verify that the historical materialization exists", as
   expect((await readMaterializedResult(client,op,empty)).result).toEqual([]);
   expect(mock).toHaveBeenCalledTimes(1);
   mock.mockRestore();
-  mockPages([new Response("evicted", {status:400})]);
+  mockPages([Response.json({message:"HISTORICAL_RESULT_UNAVAILABLE: exact materialization was not retained"}, {status:400})]);
   await expect(readMaterializedResult(client,op,empty)).rejects.toThrow("HISTORICAL_RESULT_UNAVAILABLE");
+});
+test("invalid projections and service failures do not claim the historical result was lost", async () => {
+  mockPages([Response.json({message:"requirement failed: Result projection contains an unknown or duplicate column"}, {status:400})]);
+  await expect(readMaterializedResult(client,op,info,{columns:["unknown"]})).rejects.toThrow("INVALID_RESULT_REQUEST");
+  fetchMock!.mockRestore();
+  mockPages([new Response("storage temporarily unavailable", {status:503})]);
+  await expect(readMaterializedResult(client,op,info)).rejects.toThrow("RESULT_SERVICE_ERROR");
 });
 test("answer paging refuses row and byte ceilings; bounded reads remain labelled partial", async () => {
   const mock = mockPages([page([{id:"a"},{id:"b"},{id:"c"}],0)]);

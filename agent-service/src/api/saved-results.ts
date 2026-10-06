@@ -44,7 +44,14 @@ async function request<T>(client: SavedResultClientOptions, action: "read" | "re
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${client.token}` },
     body: JSON.stringify(body), signal: client.signal ? AbortSignal.any([client.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
   });
-  if (!response.ok) throw new Error(`HISTORICAL_RESULT_UNAVAILABLE: result ${action} failed (${response.status}): ${(await response.text()).slice(0, 500)}`);
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    // The engine returns 400 both for unavailable saved tables and invalid
+    // projections. Only its explicit unavailable marker denotes lost state.
+    const code = detail.includes("HISTORICAL_RESULT_UNAVAILABLE") ? "HISTORICAL_RESULT_UNAVAILABLE"
+      : response.status === 400 ? "INVALID_RESULT_REQUEST" : "RESULT_SERVICE_ERROR";
+    throw new Error(`${code}: result ${action} failed (${response.status}): ${detail}`);
+  }
   return response.json() as Promise<T>;
 }
 
