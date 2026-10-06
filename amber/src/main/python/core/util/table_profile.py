@@ -139,60 +139,73 @@ class ProfileAccumulator:
         self.omissions = set()
         self.rows = Counter()
         self.null_rows = 0
+        # "full": exact statistics over every row, computed column by column
+        # (see _add_full). Otherwise the bounded prefix walk below.
+        self.full = self.metadata.get("profileScope") == "full"
+        self.duplicates = None
 
-    def _schema(self, frame):
-        probe_rows = min(128, max(0, self.limits.max_rows - self.rows_processed))
+    def _schema(self, frame, probe_rows=None):
+        if probe_rows is None:
+            probe_rows = min(128, max(0, self.limits.max_rows - self.rows_processed))
         return [
             {"name": str(name), "type": _type(frame.iloc[:, i], probe_rows), "dtype": str(frame.iloc[:, i].dtype)}
             for i, name in enumerate(frame.columns[: self.limits.max_columns])
         ]
 
+    def _accept(self, frame, schema):
+        """Record the first yield's schema or check a later one against it.
+        Returns the schema to profile with, or None once the profile is unavailable."""
+        if self.schema is None:
+            self.schema = schema
+            self.column_count = len(frame.columns)
+            for column in schema[: self.limits.max_columns]:
+                self.columns[column["name"]] = {
+                    "type": column["type"],
+                    "null": 0,
+                    "nonnull": 0,
+                    "values": {},
+                    "min": None,
+                    "max": None,
+                    "range_valid": True,
+                    "omissions": set(),
+                }
+        else:
+            if self.column_count != len(frame.columns) or [c["name"] for c in schema] != [
+                c["name"] for c in self.schema
+            ]:
+                self.fail("schema_changed")
+            else:
+                for current, incoming in zip(self.schema, schema):
+                    # An all-null object yield has no inferred domain yet.
+                    # A later yield may supply it without discarding nulls.
+                    if incoming["type"] == "unknown" and incoming["dtype"] == current["dtype"]:
+                        continue
+                    if current["type"] == "unknown" and current["dtype"] == incoming["dtype"]:
+                        current["type"] = incoming["type"]
+                        self.columns[current["name"]]["type"] = incoming["type"]
+                    elif current != incoming:
+                        self.fail("schema_changed")
+                        break
+        if self.unavailable:
+            return None
+        if self.column_count > self.limits.max_columns:
+            self.omissions.add("column_budget")
+            self.rows = None
+            self.null_rows = None
+        return self.schema
+
     def add(self, frame):
         if self.finished:
             raise RuntimeError("Profile is already finished")
+        if self.full:
+            return self._add_full(frame)
         started = self.clock()
         self.row_count += len(frame)
         self.yields += 1
         try:
-            schema = self._schema(frame)
-            if self.schema is None:
-                self.schema = schema
-                self.column_count = len(frame.columns)
-                for column in schema[: self.limits.max_columns]:
-                    self.columns[column["name"]] = {
-                        "type": column["type"],
-                        "null": 0,
-                        "nonnull": 0,
-                        "values": {},
-                        "min": None,
-                        "max": None,
-                        "range_valid": True,
-                        "omissions": set(),
-                    }
-            else:
-                if self.column_count != len(frame.columns) or [c["name"] for c in schema] != [
-                    c["name"] for c in self.schema
-                ]:
-                    self.fail("schema_changed")
-                else:
-                    for current, incoming in zip(self.schema, schema):
-                        # An all-null object yield has no inferred domain yet.
-                        # A later yield may supply it without discarding nulls.
-                        if incoming["type"] == "unknown" and incoming["dtype"] == current["dtype"]:
-                            continue
-                        if current["type"] == "unknown" and current["dtype"] == incoming["dtype"]:
-                            current["type"] = incoming["type"]
-                            self.columns[current["name"]]["type"] = incoming["type"]
-                        elif current != incoming:
-                            self.fail("schema_changed")
-                            break
-                schema = self.schema
-            if self.unavailable:
+            schema = self._accept(frame, self._schema(frame))
+            if schema is None:
                 return
-            if self.column_count > self.limits.max_columns:
-                self.omissions.add("column_budget")
-                self.rows = None
-                self.null_rows = None
             width = min(len(schema), self.limits.max_columns)
             left_rows = max(0, self.limits.max_rows - self.rows_processed)
             left_cells = max(0, self.limits.max_cells - self.cells_processed) // max(1, width)
@@ -270,6 +283,121 @@ class ProfileAccumulator:
         finally:
             self.elapsed += max(0.0, self.clock() - started)
 
+    def _add_full(self, frame):
+        """Exact statistics over every row, one vectorized pass per column.
+
+        Counts, ranges, distinct counts and duplicate rows cover the whole
+        table; value lists are still kept only for columns with at most
+        distinct_limit values. There is no row, cell or time budget."""
+        started = self.clock()
+        self.row_count += len(frame)
+        self.yields += 1
+        try:
+            # Types come from every value, not from the first rows.
+            schema = self._accept(frame, self._schema(frame, probe_rows=len(frame)))
+            if schema is None:
+                return
+            width = min(len(schema), self.limits.max_columns)
+            selected = frame.iloc[:, :width]
+            unique = False
+            for i, column in enumerate(schema[:width]):
+                state = self.columns[column["name"]]
+                self._exact_column(state, column["type"], selected.iloc[:, i])
+                unique = unique or (len(frame) > 0 and state["null"] == 0 and state.get("distinct") == len(frame))
+            if self.yields > 1:
+                # Rows of different yields are never compared.
+                self.duplicates = None
+                self.omissions.add("duplicate_rows_multi_yield")
+            elif self.null_rows is not None:
+                # A column unique on every row rules out duplicate rows.
+                if unique:
+                    self.duplicates = 0
+                else:
+                    try:
+                        self.duplicates = int(selected.duplicated().sum())
+                    except TypeError:
+                        self.omissions.add("row_values_unavailable")
+            if self.null_rows is not None:
+                self.null_rows += int(selected.isna().all(axis=1).sum()) if width else 0
+            self.rows_processed += len(frame)
+            self.cells_processed += width * len(frame)
+        except Exception:
+            self.fail("profiler_error")
+        finally:
+            self.elapsed += max(0.0, self.clock() - started)
+
+    def _exact_column(self, state, kind, column):
+        """One yield of one column. A later yield keeps the counts exact and the
+        value list while it stays within distinct_limit."""
+        missing = column.isna()
+        nulls = int(missing.sum())
+        state["null"] += nulls
+        state["nonnull"] += len(column) - nulls
+        if self.yields > 1:
+            # The exact distinct count of a single yield no longer applies.
+            state.pop("distinct", None)
+        values = column[~missing]
+        if values.empty:
+            if self.yields == 1:
+                state["distinct"] = 0
+            return
+        reason = None
+        if kind in ("unknown", "unsupported"):
+            reason = "unsupported_type"
+        elif kind == "float64" and not np.isfinite(values.to_numpy(dtype=float)).all():
+            reason = "nonfinite_value"
+        elif kind == "str" and int(values.str.len().max()) > self.limits.max_value_chars:
+            reason = "value_budget"
+        try:
+            counts = values.value_counts(sort=False)
+        except TypeError:
+            counts, reason = None, reason or "unsupported_type"
+        # Values outside the supported types have no equality the profile
+        # vouches for; their distinct count stays unknown, as in bounded scope.
+        if counts is not None and self.yields == 1 and reason != "unsupported_type":
+            state["distinct"] = len(counts)
+        if reason is not None:
+            state["omissions"].add(reason)
+            state["values"] = None
+            state["range_valid"] = False
+            state["min"] = state["max"] = None
+            return
+        try:
+            if state["values"] is not None and len(counts) > self.limits.distinct_limit:
+                state["values"] = None
+                state["omissions"].add("distinct_limit")
+            elif state["values"] is not None:
+                for value, count in counts.items():
+                    encoded = _scalar(value, kind, self.limits.max_value_chars)
+                    if encoded["type"] == "float64" and encoded["value"] == 0:
+                        # -0.0 and 0.0 are one value, as pandas counts them.
+                        encoded = {**encoded, "value": 0.0}
+                    key = _json(encoded)
+                    entry = state["values"].get(key)
+                    if entry is not None:
+                        entry["count"] += int(count)
+                    elif len(state["values"]) < self.limits.distinct_limit:
+                        state["values"][key] = {"value": encoded, "count": int(count)}
+                    else:
+                        state["values"] = None
+                        state["omissions"].add("distinct_limit")
+                        break
+            if state["range_valid"] and kind in ("int64", "float64", "datetime"):
+                for value in (values.min(), values.max()):
+                    encoded = _scalar(value, kind, self.limits.max_value_chars)
+                    if encoded["type"] == "float64" and encoded["value"] == 0:
+                        encoded = {**encoded, "value": 0.0}
+                    if state["min"] is None or _order(encoded) < _order(state["min"]):
+                        state["min"] = encoded
+                    if state["max"] is None or _order(encoded) > _order(state["max"]):
+                        state["max"] = encoded
+        except (ValueError, TypeError, OverflowError):
+            # A value outside the column's inferred type: keep the counts.
+            state["omissions"].add("unsupported_type")
+            state["values"] = None
+            state["range_valid"] = False
+            state["min"] = state["max"] = None
+
     def fail(self, reason):
         self.unavailable = True
         self.omissions.add(reason)
@@ -284,7 +412,8 @@ class ProfileAccumulator:
         columns = {}
         for name, state in self.columns.items():
             values = state["values"]
-            distinct = len(values) if values is not None else None
+            # Full scope keeps an exact count for one yield even without a value list.
+            distinct = state["distinct"] if "distinct" in state else (len(values) if values is not None else None)
             frequencies = None
             if values is not None:
                 ordered = sorted(values.items(), key=lambda item: (-item[1]["count"], item[0]))
@@ -347,7 +476,11 @@ class ProfileAccumulator:
                     else None
                 ),
                 "structure": {
-                    "duplicateRows": self.rows_processed - len(self.rows) if self.rows is not None else None,
+                    "duplicateRows": (
+                        self.duplicates
+                        if self.full
+                        else self.rows_processed - len(self.rows) if self.rows is not None else None
+                    ),
                     "allNullRows": self.null_rows,
                     "allNullColumns": [
                         name for name, col in columns.items() if col["rowsProcessed"] and col["nonnullCount"] == 0
@@ -356,6 +489,7 @@ class ProfileAccumulator:
                 "algorithm": {
                     "name": "bounded-exact-v1",
                     "rowSelection": "prefix",
+                    "scope": "full" if self.full else "bounded",
                     "distinctLimit": self.limits.distinct_limit,
                     "rowDistinctLimit": self.limits.row_distinct_limit,
                     "topK": self.limits.top_k,

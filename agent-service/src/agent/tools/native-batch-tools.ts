@@ -188,6 +188,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         }
         const compiled = await compileProgram(args.edits, {
           profileCollection: context?.settings?.nativeProfileCollection === true,
+          profileScope: context?.settings?.nativeProfileScope === "full" ? "full" : undefined,
         });
         const statements: ProgramStatement[] = compiled.statements;
         // Deletes apply first. A delete is refused while a consumer survives the

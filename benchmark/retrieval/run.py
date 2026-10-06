@@ -105,6 +105,11 @@ def main():
     arms = {f"{view}_flow{flow}": {"retrievalViews": ["full", "sample", "sample_stats"] if view == "adaptive" else [view],
                                   "flowEvidence": bool(flow), "dataEvidence": view in ["sample_stats", "adaptive"]}
             for view in ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]}
+    # Each arm's twin profiles every row exactly instead of a bounded prefix.
+    arms.update({f"{name}_fullstats": {**arm, "nativeProfileScope": "full"} for name, arm in list(arms.items())})
+    unknown = sorted(set(args.arms) - set(arms))
+    if unknown:
+        parser.error(f"Unknown arms: {', '.join(unknown)}")
     manifest = {
         "agent_revision": args.agent_revision or subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "engine_revision": args.engine_revision,

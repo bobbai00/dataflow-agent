@@ -123,6 +123,7 @@ export async function applyNativeOperator(
     );
   }
   if (context?.settings?.nativeProfileCollection === true) view.profileCollection = true;
+  if (view.profileCollection && context?.settings?.nativeProfileScope === "full") view.profileScope = "full";
   if (context?.settings?.nativeChecks === true) view.lineage = nativeLineage(workflowState, view);
   for (const up of view.inputs) {
     if (up === id) return createErrorResult(`\`${id}\`: an operator cannot read its own output`);

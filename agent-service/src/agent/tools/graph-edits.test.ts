@@ -23,6 +23,7 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { compileNativeOp } from "../native/codegen";
+import { validateNativeSettings } from "../native/settings";
 
 const context = () => {
   const metadataStore = WorkflowSystemMetadata.getInstance();
@@ -282,4 +283,24 @@ create operator compared: process(fn=compare, doc="Compare tables")
     await expect(edit(state, `create edge source.out -> ${id}.in`)).rejects.toThrow("Unknown input port");
     expect(state.getWorkflowContent()).toEqual(before);
   }
+});
+
+test("full profile scope is compiled into new operators, and existing operators keep theirs", async () => {
+  const plan = (workflow: ReturnType<WorkflowState["getWorkflowContent"]>, changes: string, scope: "prefix" | "full") =>
+    planGraphEdit(workflow, changes, {
+      ...context(),
+      settings: { nativeProfileCollection: true, nativeProfileScope: scope },
+    });
+  const full = await plan(new WorkflowState().getWorkflowContent(), chain, "full");
+  for (const op of full.workflow.operators) {
+    expect(op.nativeOp?.profileCollection).toBe(true);
+    expect(op.nativeOp?.profileScope).toBe("full");
+  }
+  const code = JSON.parse(String(full.workflow.operators[0].operatorProperties.code).match(/json\.loads\((".*")\)/)![1]);
+  expect(JSON.parse(code).profileScope).toBe("full");
+  const prefix = await plan(new WorkflowState().getWorkflowContent(), chain, "prefix");
+  expect(prefix.workflow.operators.some(op => "profileScope" in op.nativeOp!)).toBe(false);
+  const updated = await plan(full.workflow, 'update operator source: scan("data/b.csv")', "prefix");
+  expect(updated.workflow.operators.find(op => op.operatorID === "source")!.nativeOp?.profileScope).toBe("full");
+  expect(() => validateNativeSettings({ nativeProfileScope: "everything" } as any)).toThrow(/prefix" or "full/);
 });

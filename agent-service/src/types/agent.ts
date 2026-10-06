@@ -192,6 +192,10 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
    *  each operator, so it cannot change on an existing workflow. */
   nativeProfileCollection?: boolean;
+  /** With collection on: "prefix" profiles a bounded prefix of each result
+   *  (row, cell and time budgets); "full" profiles every row exactly with
+   *  vectorized passes. Compiled into each operator like collection. */
+  nativeProfileScope?: "prefix" | "full";
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -558,6 +562,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // Collected by default so evidence can be switched on without rebuilding
   // the workflow; exposure stays opt-in below.
   nativeProfileCollection: true,
+  nativeProfileScope: "prefix",
   dataEvidence: false,
   flowEvidence: false,
   dataflowReasoning: true,
@@ -680,6 +685,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
@@ -786,6 +792,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;

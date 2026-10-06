@@ -667,6 +667,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     maxOperatorEdits: agentSettings.maxOperatorEdits,
     agentMode: agentSettings.agentMode,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
+    nativeProfileScope: agentSettings.nativeProfileScope,
     dataEvidence: agentSettings.dataEvidence,
     retrievalViews: agentSettings.retrievalViews,
     fullResultCharLimit: agentSettings.fullResultCharLimit,
@@ -921,6 +922,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             maxOperatorEdits: settings.maxOperatorEdits,
             agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
             nativeProfileCollection: settings.nativeProfileCollection,
+            nativeProfileScope: settings.nativeProfileScope,
             dataEvidence: settings.dataEvidence,
             retrievalViews: settings.retrievalViews,
             fullResultCharLimit: settings.fullResultCharLimit,
@@ -1016,6 +1018,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
             ...OBSERVATION_SETTINGS_SCHEMA,
             nativeProfileCollection: t.Optional(t.Boolean()),
+            nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
             dataEvidence: t.Optional(t.Boolean()),
             retrievalViews: t.Optional(
               t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
@@ -1455,6 +1458,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         maxOperatorEdits: settings.maxOperatorEdits,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         nativeProfileCollection: settings.nativeProfileCollection,
+        nativeProfileScope: settings.nativeProfileScope,
         dataEvidence: settings.dataEvidence,
         retrievalViews: settings.retrievalViews,
         fullResultCharLimit: settings.fullResultCharLimit,
@@ -1521,6 +1525,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
         ...OBSERVATION_SETTINGS_SCHEMA,
         nativeProfileCollection: t.Optional(t.Boolean()),
+        nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
         dataEvidence: t.Optional(t.Boolean()),
         retrievalViews: t.Optional(
           t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {

@@ -79,6 +79,7 @@ export interface OperatorPredicate {
     graph?: { inputPorts: string[] };
     revision?: string;
     profileCollection?: boolean;
+    profileScope?: "full";
     /** The assignment as the model wrote it (`x = filter(...)`). */
     source?: string;
     /** Top-level `def` sources the statement refers to, by name. */

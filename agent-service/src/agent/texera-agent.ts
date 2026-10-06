@@ -691,6 +691,7 @@ export class TexeraAgent {
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
+        nativeProfileScope: this.settings.nativeProfileScope,
         dataflowReasoning: this.settings.dataflowReasoning === true,
         nativeChecks: this.settings.nativeChecks === true,
       },
@@ -788,6 +789,7 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         dataflowReasoning: this.settings.dataflowReasoning === true,
         nativeProfileCollection: this.settings.nativeProfileCollection,
+        nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
       },
     };
@@ -1498,6 +1500,7 @@ export class TexeraAgent {
       maxOperatorEdits?: number;
       agentMode?: AgentMode;
       nativeProfileCollection?: boolean;
+      nativeProfileScope?: "prefix" | "full";
       dataEvidence?: boolean;
       flowEvidence?: boolean;
       dataflowReasoning?: boolean;
@@ -1561,12 +1564,14 @@ export class TexeraAgent {
     validateNativeSettings(updates);
     validateTaskContextSettings({ ...this.settings, ...updates });
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
+    const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
     if (
-      collection !== (this.settings.nativeProfileCollection ?? false) &&
+      (collection !== (this.settings.nativeProfileCollection ?? false) ||
+        scope !== (this.settings.nativeProfileScope ?? "prefix")) &&
       (this.state !== AgentStateEnum.AVAILABLE || this.workflowState.getAllOperators().length > 0)
     ) {
       throw new NativeCatalogSettingsError(
-        "Changing profile collection requires a fresh agent and workflow; existing operators retain their compiled setting"
+        "Changing profile collection or scope requires a fresh agent and workflow; existing operators retain their compiled setting"
       );
     }
     let promptNeedsRebuild = false;
@@ -1596,6 +1601,7 @@ export class TexeraAgent {
       }
     }
     this.settings.nativeProfileCollection = collection;
+    this.settings.nativeProfileScope = scope;
     // The native prompt documents exactly the evidence kinds that are on.
     if (updates.dataEvidence !== undefined && updates.dataEvidence !== this.settings.dataEvidence) {
       this.settings.dataEvidence = updates.dataEvidence;

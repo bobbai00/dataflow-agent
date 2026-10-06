@@ -106,6 +106,9 @@ export function validateEvidenceSettings(settings: object): void {
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);
   }
+  const scope = (settings as Record<string, unknown>).nativeProfileScope;
+  if (scope !== undefined && scope !== "prefix" && scope !== "full")
+    throw new NativeCatalogSettingsError('nativeProfileScope must be "prefix" or "full"');
 }
 
 /** A distinct context policy must not silently override another experiment. */

@@ -38,6 +38,7 @@ export interface ToolContext {
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
+    nativeProfileScope?: "prefix" | "full";
     /** Native `dataflow` tool: require the `reasoning` argument. */
     dataflowReasoning?: boolean;
     /** Native operators carry the lineage their engine-side checks need. */

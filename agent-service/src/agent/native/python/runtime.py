@@ -2420,6 +2420,7 @@ def execute_native(spec, inputs):
         "operatorId": spec.get("id", "operator"),
         "operatorRevision": spec.get("revision", "unversioned"),
         **({"profileCollection": True} if spec.get("profileCollection") is True else {}),
+        **({"profileScope": "full"} if spec.get("profileScope") == "full" else {}),
         "operatorType": kind,
         "inputOperators": spec.get("inputs", []),
         "rowEffect": ROW_EFFECTS[kind],

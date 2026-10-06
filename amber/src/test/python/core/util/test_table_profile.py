@@ -361,3 +361,125 @@ def test_scan_findings_outlast_value_dictionaries():
     scan = result["native"]["operations"]["scan"]
     assert scan["sources"] == sources and "sourcesOmitted" not in scan
     assert "payload_budget" in result["omissions"] and "scan_sources_payload_budget" not in result["omissions"]
+
+
+def collect_full(*frames, limits=None):
+    profile = ProfileAccumulator(
+        "worker-0",
+        {"operatorId": "source", "operatorRevision": "0123456789abcdef", "profileScope": "full"},
+        limits=limits,
+    )
+    for frame in frames:
+        profile.add(frame)
+    profile.finish()
+    return profile, json.loads(profile.encode())
+
+
+EQUIVALENCE_FRAMES = [
+    pd.DataFrame({
+        "id": pd.Series([9007199254740993, None, 9007199254740993], dtype="Int64"),
+        "name": pd.Series(["a", "b", None], dtype="string"),
+        "nothing": pd.Series([None] * 3, dtype="Float64"),
+    }),
+    pd.DataFrame({
+        "when": pd.to_datetime(["2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z", None]),
+        "local": pd.to_datetime(["2026-01-02 08:00", None, "2025-12-31 23:00"]),
+        "flag": pd.Series([True, None, False], dtype="boolean"),
+        "text": ["NULL", "NA", ""],
+    }),
+    pd.DataFrame({"x": pd.Series([-0.0, 0.0, 1.5, None], dtype="float64")}),
+    pd.DataFrame({"a": [1, 1, 2, None, None, 3], "b": ["x", "x", "y", None, None, "x"],
+                  "tie": ["q", "p", "q", "p", "r", "s"]}),
+]
+
+
+@pytest.mark.parametrize("index", range(len(EQUIVALENCE_FRAMES)))
+def test_full_scope_matches_the_bounded_profile_where_that_covers_every_row(index):
+    frame = EQUIVALENCE_FRAMES[index]
+    _, bounded = collect(frame, limits=ProfileLimits(max_seconds=10))
+    _, full = collect_full(frame)
+    assert bounded["coverage"]["complete"] and full["coverage"] == bounded["coverage"]
+    assert full["schema"] == bounded["schema"]
+    for name, b in bounded["columns"].items():
+        f = full["columns"][name]
+        for field in ("type", "rowsProcessed", "nullCount", "nonnullCount", "min", "max", "frequencies", "mergeValues"):
+            assert f[field] == b[field], (name, field)
+        assert f["distinctCount"] == b["distinctCount"], name
+    assert full["structure"] == bounded["structure"]
+    assert full["algorithm"]["scope"] == "full" and bounded["algorithm"]["scope"] == "bounded"
+
+
+def test_full_scope_ignores_row_cell_and_time_budgets():
+    frame = pd.DataFrame({"k": [f"g{i % 7}" for i in range(5000)], "v": [float(i % 11) for i in range(5000)]})
+    frame.loc[::10, "v"] = None
+    _, result = collect_full(frame, limits=ProfileLimits(max_rows=10, max_cells=10, max_seconds=0.0))
+    assert result["coverage"] == {"scope": "worker", "complete": True, "rowsProcessed": 5000, "yields": 1}
+    v = result["columns"]["v"]
+    assert v["nullCount"] == int(frame["v"].isna().sum()) and v["distinctCount"] == frame["v"].nunique()
+    assert v["min"] == scalar("float64", 0.0) and v["max"] == scalar("float64", 10.0)
+    k = result["columns"]["k"]
+    assert {e["value"]["value"]: e["count"] for e in k["mergeValues"]} == frame["k"].value_counts().to_dict()
+    assert not [o for o in result["omissions"] if o.endswith("_budget")]
+
+
+def test_full_scope_counts_distinct_values_beyond_the_value_list_limit():
+    frame = pd.DataFrame({"id": range(1000), "group": [i % 3 for i in range(1000)]})
+    _, result = collect_full(frame)
+    ids = result["columns"]["id"]
+    assert ids["distinctCount"] == 1000 and ids["uniquenessRatio"] == 1.0
+    assert ids["frequencies"] is None and ids["mergeValues"] is None
+    assert "distinct_limit" in ids["omissions"]
+    assert ids["min"] == scalar("int64", "0") and ids["max"] == scalar("int64", "999")
+    assert result["columns"]["group"]["distinctCount"] == 3
+    assert result["columns"]["group"]["frequencies"]["truncated"] is False
+
+
+def test_full_scope_duplicate_rows_are_exact_and_skip_hashing_with_a_unique_column(monkeypatch):
+    rows = pd.DataFrame({"a": [1.0, 1.0, -0.0, 0.0, None, None, 2.0], "b": ["x", "x", "y", "y", None, None, "z"]})
+    _, result = collect_full(rows)
+    assert result["structure"]["duplicateRows"] == int(rows.duplicated().sum()) == 3
+    assert result["structure"]["allNullRows"] == 2
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("row hashing should be skipped")
+
+    monkeypatch.setattr(pd.DataFrame, "duplicated", refuse)
+    keyed = rows.assign(key=range(len(rows)))
+    _, result = collect_full(keyed)
+    assert result["structure"]["duplicateRows"] == 0
+
+
+def test_full_scope_infers_types_from_every_value():
+    frame = pd.DataFrame({"late": pd.Series([None] * 200 + ["a", "b", "a"], dtype=object),
+                          "mixed": pd.Series([1] * 128 + [1.5], dtype=object).reindex(range(203))})
+    _, bounded = collect(frame, limits=ProfileLimits(max_seconds=10))
+    _, full = collect_full(frame)
+    assert bounded["columns"]["late"]["type"] == "unknown"
+    assert full["columns"]["late"]["type"] == "str" and full["columns"]["late"]["distinctCount"] == 2
+    assert full["columns"]["mixed"]["type"] == "unsupported"
+    assert full["columns"]["mixed"]["min"] is None and "unsupported_type" in full["columns"]["mixed"]["omissions"]
+
+
+def test_full_scope_keeps_counts_for_values_it_cannot_list():
+    frame = pd.DataFrame({"long": ["prefix-a", "prefix-b", "prefix-a"], "inf": [1.0, float("inf"), 2.0]})
+    _, result = collect_full(frame, limits=ProfileLimits(max_value_chars=6))
+    assert result["columns"]["long"]["distinctCount"] == 2 and result["columns"]["long"]["frequencies"] is None
+    assert "value_budget" in result["columns"]["long"]["omissions"]
+    assert result["columns"]["inf"]["distinctCount"] == 3 and result["columns"]["inf"]["min"] is None
+    assert "nonfinite_value" in result["columns"]["inf"]["omissions"]
+    _, nested = collect_full(pd.DataFrame({"nested": [[1], [2]]}))
+    assert nested["columns"]["nested"]["distinctCount"] is None
+    assert "unsupported_type" in nested["columns"]["nested"]["omissions"]
+
+
+def test_full_scope_across_yields_stays_exact_where_it_can():
+    first = pd.DataFrame({"g": ["a", "b", None], "id": range(0, 3)})
+    second = pd.DataFrame({"g": ["a", "c", "a"], "id": range(3, 6)})
+    _, result = collect_full(first, second)
+    g = result["columns"]["g"]
+    assert g["nullCount"] == 1 and g["distinctCount"] == 3
+    assert {e["value"]["value"]: e["count"] for e in g["mergeValues"]} == {"a": 3, "b": 1, "c": 1}
+    assert result["columns"]["id"]["max"] == scalar("int64", "5")
+    assert result["structure"]["duplicateRows"] is None
+    assert "duplicate_rows_multi_yield" in result["omissions"]
+    assert result["coverage"]["complete"] and result["coverage"]["rowsProcessed"] == 6

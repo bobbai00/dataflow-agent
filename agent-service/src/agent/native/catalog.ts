@@ -60,6 +60,8 @@ export interface NativeOpView {
   revision?: string;
   /** Internal execution setting, never a model-authored operator argument. */
   profileCollection?: boolean;
+  /** Internal, with profileCollection: "full" profiles every row exactly instead of a bounded prefix. */
+  profileScope?: "full";
   /** Internal, set with `nativeChecks`: what the operator's checks need to know
    * about its ancestry (whether its rows come from several sources, and which
    * columns are a scan's file-name provenance). Not part of the revision. */

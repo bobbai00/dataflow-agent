@@ -114,7 +114,7 @@ export function missingGraphInputs(workflow: WorkflowContent): string[] {
   return inspectGraph(workflow).unconnected_inputs;
 }
 
-function definition(command: Command, profileCollection?: boolean): NativeOpView {
+function definition(command: Command, profileCollection?: boolean, profileScope?: "full"): NativeOpView {
   const def = NATIVE_BY_NAME.get(command.statement.op);
   if (!def) throw new Error(`Unknown operator ${command.statement.op}. Use an operator from the catalog.`);
   let names = def.inputs === 0 ? [] : def.inputs === 1 ? ["in"] : def.inputs === 2 ? ["left", "right"] : indexed(2);
@@ -126,6 +126,7 @@ function definition(command: Command, profileCollection?: boolean): NativeOpView
   }
   const normalized = normalizeStatement(command.statement, command.functions, {
     profileCollection,
+    profileScope,
     explicitInputs: names.map((_, i) => `_unconnected_${i}`),
   });
   if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator expression.");
@@ -180,7 +181,12 @@ export async function planGraphEdit(
         if (operation === "create_operator" && existing)
           throw new Error(`Operator ${id} already exists; use update operator.`);
         if (operation === "update_operator") required(id);
-        const view = definition(command, existing?.profileCollection ?? context.settings?.nativeProfileCollection);
+        // An existing operator keeps the profile setting it was compiled with.
+        const view = definition(
+          command,
+          existing?.profileCollection ?? context.settings?.nativeProfileCollection,
+          existing ? existing.profileScope : context.settings?.nativeProfileScope === "full" ? "full" : undefined
+        );
         nodes.set(id, view);
         changed.add(id);
         outcomes.push({

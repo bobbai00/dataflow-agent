@@ -27,7 +27,8 @@ import { collectNativeEvidence, selectNativeObservation } from "./evidence";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
-test("actual Python operators and collector feed version-bound data/flow evidence", () => {
+for (const scope of ["prefix", "full"] as const)
+  test(`actual Python operators and collector feed version-bound data/flow evidence (${scope} profiles)`, () => {
   const python = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
   const amber = fileURLToPath(new URL("../../../../amber/src/main/python", import.meta.url));
   const runtime = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
@@ -48,7 +49,10 @@ def transport(value):
     return str(value) if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 9007199254740991 else value
 def execute(id, kind, inputs, **properties):
     spec = dict(version='v2', id=id, revision='0123456789abcdef', type=kind, inputs=inputs, properties=properties, profileCollection=True)
+    if sys.argv[2] == 'full':
+        spec['profileScope'] = 'full'
     frame = r.execute_native(spec, [frames[name] for name in inputs])
+    assert frame.attrs['native_v2'].get('profileScope') == ('full' if sys.argv[2] == 'full' else None)
     frames[id] = frame
     accumulator = ProfileAccumulator('w', frame.attrs['native_v2'])
     accumulator.add(frame)
@@ -102,6 +106,7 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('monthly_lags', 'Window', ['monthly'], orderBy=[dict(col='month')], columns=[dict(fn='lag',col='acres',**{'as':'prev1'}),dict(fn='lag',col='acres',offset=2,**{'as':'prev2'})])
     execute('monthly_projected', 'Project', ['monthly_lags'], keep=['month','prev1','prev2'])
     execute('monthly_result', 'Aggregate', ['monthly_projected'], aggregations=[dict(fn='count',**{'as':'n'})])
+    execute('many_ids', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id': list(range(1000)), 'group': [i % 3 for i in range(1000)]})")
     disabled = dict(version='v2', id='disabled', revision='0123456789abcdef', type='Cast', inputs=['formatted'], properties=dict(columns=[dict(column='x',dtype='int64')],errors='null'))
     assert 'conversionFailureExamples' not in r.execute_native(disabled,[frames['formatted']]).attrs['native_v2']['operations']
     disabled.update(type='Join', inputs=['left_keys','right_keys'],properties=dict(on='key',type='full'))
@@ -122,6 +127,7 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
 print(json.dumps(records, default=str))
 `,
       runtime,
+      scope,
     ],
     { env: { ...process.env, PYTHONPATH: amber } }
   );
@@ -142,6 +148,7 @@ print(json.dumps(records, default=str))
       inputs: s.inputs,
       properties: s.properties,
       profileCollection: true,
+      ...(scope === "full" ? { profileScope: "full" as const } : {}),
     },
   }));
   const workflow: WorkflowContent = {
@@ -215,7 +222,10 @@ print(json.dumps(records, default=str))
     expect({
       id: op.operatorID,
       omissions: collected.omissions.filter(x => x.startsWith("invalid_") || x.endsWith("_unavailable")),
-    }).toMatchObject({ omissions: op.operatorID === "long_values" ? ["row_values_unavailable"] : [] });
+    }).toMatchObject({
+      // Full scope finds duplicate rows by value even where a value is too long to list.
+      omissions: op.operatorID === "long_values" && scope === "prefix" ? ["row_values_unavailable"] : [],
+    });
     facts.set(op.operatorID, collected.facts.map(f => f.text).join("\n"));
     for (const data of [true, false])
       for (const flow of [true, false]) {
@@ -266,4 +276,20 @@ print(json.dumps(records, default=str))
   expect(facts.get("empty_unpivot")).toContain("output=0*2=0");
   expect(facts.get("empty_window")).toContain("partitions=0");
   expect(facts.get("empty_pivot")).toContain("unique pairs=0, index groups=0, generated columns=0");
+  // 1,000 ids: both scopes profile every row; only full scope counts more than 256 distinct values.
+  const many = operators.find(op => op.operatorID === "many_ids")!;
+  const manyInfo = storage.getOperatorResult("A", "many_ids")!;
+  const stats = selectNativeObservation({
+    op: many,
+    info: manyInfo,
+    workflow,
+    resolveInput: (id: string) => storage.getOperatorResult("A", id),
+    data: true,
+    flow: false,
+    maxChars: 2000,
+    view: "sample_stats",
+    maxRows: 5,
+  }).text;
+  expect(stats).toContain("statistics: full table, 1,000 of 1,000 rows, 2 of 2 columns");
+  expect(stats).toContain(scope === "full" ? "| id | int64 | 0 | 1,000 | 0 to 999 |" : "| id | int64 | 0 | unknown | 0 to 999 |");
 });
