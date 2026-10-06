@@ -238,8 +238,10 @@ def evaluate(root, adapters=None, judge=True):
             definitions = dependency_agreement(definition_refs, annotated_closure(gold['turns'], number))
             definitions['granularity'] = 'declared graph closure, definition-introducing tasks; checkpoint reads reported separately'
         specs = audit.get(run.name, {}).get(str(number), [])
-        oracle = json.loads((root / 'private-oracle' / job['task'].replace('/', '__') / 'manifest.json').read_text())
-        anchors = [state_anchor(oracle, tables, spec) for spec in specs]
+        # The private oracle is optional: without it (or without adapters) no state anchor is scored.
+        oracle_path = root / 'private-oracle' / job['task'].replace('/', '__') / 'manifest.json'
+        oracle = json.loads(oracle_path.read_text()) if oracle_path.exists() and specs else None
+        anchors = [state_anchor(oracle, tables, spec) for spec in specs] if oracle else []
         verdict = json.loads((directory / 'judge.json').read_text()) if (directory / 'judge.json').exists() else {}
         rows.append({**job, 'run': run.name, 'turn_id': number, 'completed': record['completed'],
                      'stats': record['stats'], 'judge': verdict,
