@@ -63,7 +63,7 @@ def label_counts(task):
     for entry in meta:
         for label in entry.get('state_type', []):
             counts[label] = counts.get(label, 0) + 1
-    return {'turns': len(meta), 'labels': counts}
+    return {'session_turns': len(meta), 'labels': counts}
 
 
 def prepare_cases(root, items):
@@ -74,8 +74,9 @@ def prepare_cases(root, items):
         entry = next((e for e in entries if '/'.join(e[f] for f in ('task_domain', 'dataset_name', 'task_id')) == task), None)
         if entry is None:
             raise ValueError(f'Task is outside the Lite split: {task}')
+        # Inventory paths stay `data/longds/...`, valid from the repo root and the KramaBench root alike.
         manifest = prepare_one(entry, int(turns) if turns else None, task_root=DATAMIND / 'task/longds_v1.1',
-                               output_root=root / 'prepared', data_root=ROOT / 'data/longds', version='v1.1', split='lite')
+                               output_root=root / 'prepared', version='v1.1', split='lite')
         if manifest is None:
             raise RuntimeError(f'Could not prepare {task}')
         save(root / 'prepared' / task.replace('/', '__') / 'prompts.json', build_prompts(manifest))
@@ -306,8 +307,8 @@ if __name__ == '__main__':
             selected = {}
             for item in arguments.cases:
                 task, _, turns = item.partition(':')
-                selected[task] = {'turns': int(turns) if turns else 0, **label_counts(task),
-                                  'rationale': 'Predeclared whole-session run' if not turns else 'Predeclared prefix'}
+                selected[task] = {**label_counts(task), 'turns': int(turns) if turns else 0,
+                                  'rationale': 'Predeclared prefix' if turns else 'Predeclared whole-session run'}
         freeze(arguments.root.resolve(), arguments.spend_limit, selected, tuple(arguments.models),
                tuple(arguments.contexts), tuple(arguments.agents), arguments.judge_model,
                arguments.concurrency, arguments.endpoint)
