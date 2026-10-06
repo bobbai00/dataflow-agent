@@ -175,11 +175,9 @@ try {
   const first = await debug([
     {
       type: "edit",
-      changes: `create operator source: scan(${JSON.stringify(oldFile)})
-create operator eligible: filter(lambda row: row["quality"] == 1, doc="Quality-qualified population")
-create operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["value"])*2}, doc="Double value")
-create edge source.out -> eligible.in
-create edge eligible.out -> scores.in`,
+      changes: `source = scan(${JSON.stringify(oldFile)})
+eligible = filter(source, lambda row: row["quality"] == 1, doc="Quality-qualified population")
+scores = map(eligible, lambda row: {"unit": row["unit"], "score": int(row["value"])*2}, doc="Double value")`,
     },
     { type: "execute" },
     { type: "retrieve", operator_id: "scores", view: "sample_stats" },
@@ -191,9 +189,9 @@ create edge eligible.out -> scores.in`,
   const changed = await debug([
     {
       type: "edit",
-      changes: `update operator source: scan(${JSON.stringify(updatedFile)})
-update operator eligible: filter(lambda row: row["value"] > 0, doc="Positive population")
-update operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["value"])*3}, doc="Triple value")`,
+      changes: `source = scan(${JSON.stringify(updatedFile)})
+eligible = filter(source, lambda row: row["value"] > 0, doc="Positive population")
+scores = map(eligible, lambda row: {"unit": row["unit"], "score": int(row["value"])*3}, doc="Triple value")`,
     },
     { type: "execute" },
   ]);
@@ -212,7 +210,7 @@ update operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["
   await debug("Task 18: compare the task-1 working population after a physical overwrite.");
   const count = await executions();
   const fork = await debug([
-    { type: "edit", changes: "fork operator scores from task 1 as saved_scores" },
+    { type: "edit", changes: "saved_scores = at(scores, task=1)" },
     { type: "retrieve", operator_id: "saved_scores", view: "full" },
   ]);
   assert.equal(fork.result.status, "completed", fork.text);
@@ -239,7 +237,7 @@ update operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["
   unlinkSync(oldFile);
   await readHistory(1);
   const deleted = await debug([
-    { type: "edit", changes: "fork operator scores from task 1 as deleted_probe" },
+    { type: "edit", changes: "deleted_probe = at(scores, task=1)" },
     { type: "execute", operator_ids: ["deleted_probe"] },
   ]);
   assert(["completed", "error"].includes(deleted.result.status), deleted.text);
@@ -255,7 +253,7 @@ update operator scores: map(lambda row: {"unit": row["unit"], "score": int(row["
   await debug([{ type: "answer", content: "Source deletion and saved observation checked." }]);
   await debug("Task 20: restore task-1 definitions on the current updated input.");
   const restored = await debug([
-    { type: "edit", changes: "update operator eligible from task 1\nupdate operator scores from task 1" },
+    { type: "edit", changes: "eligible = at(eligible, task=1)\nscores = at(scores, task=1)" },
     { type: "execute", operator_ids: ["scores"] },
     { type: "retrieve", operator_id: "scores", view: "full" },
   ]);

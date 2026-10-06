@@ -54,6 +54,7 @@ def test_metrics_count_successful_history_receipts_and_append_only_prefixes(tmp_
             {'status': 'error', 'action': {'type': 'edit', 'changes': 'fork operator a from task 1 as old'}},
             {'status': 'ok', 'action': {'type': 'edit', 'changes': 'fork operator a from task 1 as old'}},
             {'status': 'ok', 'action': {'type': 'edit', 'changes': 'update operator eligible from task 1'}},
+            {'status': 'ok', 'action': {'type': 'edit', 'changes': 'old_b = at(b, task=1)\neligible = at(eligible, task=2)\nx = limit(old_b, 1)\ndel x'}},
             {'status': 'ok', 'action': {'type': 'inspect', 'target': 'state', 'task_id': 1}},
             {'status': 'ok', 'action': {'type': 'inspect', 'target': 'state', 'task_id': None}},
             {'status': 'ok', 'action': {'type': 'retrieve', 'view': 'sample_stats'},
@@ -63,8 +64,9 @@ def test_metrics_count_successful_history_receipts_and_append_only_prefixes(tmp_
     folder.mkdir()
     (folder / 'react_steps.json.gz').write_bytes(gzip.compress(json.dumps({'steps': steps}).encode()))
     metrics = native_metrics(tmp_path)
-    assert metrics['fork_operator'] == 1
-    assert metrics['restore_operator'] == 1
+    assert metrics['fork_operator'] == 2
+    assert metrics['restore_operator'] == 2
+    assert metrics['assign_operator'] == 1 and metrics['delete_operator'] == 1
     assert metrics['historical_inspect'] == 1
     assert metrics['version_listing'] == 1
     assert metrics['statistics_displayed'] == 1

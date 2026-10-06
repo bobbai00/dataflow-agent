@@ -25,6 +25,7 @@ import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { FLOW_OMITTED_NOTICE, selectNativeObservation, type NativeObservation } from "../native/evidence";
 import { resultScope } from "../native/result-scope";
+import { nativeAssignmentText } from "../native/catalog";
 import { inspectTask, type TaskHistory, type TaskReference } from "../task-history";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import {
@@ -37,7 +38,7 @@ import {
 import { loadedRevision, originTask } from "../state-ledger";
 import { nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { composeAnswerParts, parseAnswerFromParts, statedDecimals } from "../native/answer";
-import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import { edgeEnds, planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
@@ -52,7 +53,7 @@ import {
 import {
   executionNotes,
   provenanceLines,
-  restoreCommands,
+  restoreAssignment,
   splitVersionCommands,
   taskLedger,
   upstreamDrift,
@@ -377,9 +378,7 @@ export async function executeDataflowActionBatch(
           status: "ok",
           output: {
             ...graph,
-            edges: selected
-              ? graph.edges.filter(edge => [...selected].some(id => edge.includes(` -> ${id}.`)))
-              : graph.edges,
+            edges: selected ? graph.edges.filter(edge => selected.has(edgeEnds(edge).target)) : graph.edges,
             unconnected_inputs: selected
               ? graph.unconnected_inputs.filter(port => [...selected].some(id => port.startsWith(`${id}.`)))
               : graph.unconnected_inputs,
@@ -480,10 +479,10 @@ export async function executeDataflowActionBatch(
           id: op.operatorID,
           type: view?.type ?? op.operatorType,
           revision: view?.revision,
-          expression: view?.source,
+          expression: view ? nativeAssignmentText(op.operatorID, view) : undefined,
           ports: inspectGraph(state.getWorkflowContent()).operators.find(item => item.id === op.operatorID)?.ports,
-          connections: inspectGraph(state.getWorkflowContent()).edges.filter(
-            edge => edge.startsWith(`${op.operatorID}.`) || edge.includes(` -> ${op.operatorID}.`)
+          connections: inspectGraph(state.getWorkflowContent()).edges.filter(edge =>
+            Object.values(edgeEnds(edge)).includes(op.operatorID)
           ),
           description: view?.properties.doc,
           ...resultSummary(current(op.operatorID)),
@@ -520,11 +519,9 @@ export async function executeDataflowActionBatch(
       return { status: "ok", output };
     }
     if (action.type === "edit") {
-      // `update operator <id> from task <N>` expands into the saved
-      // definition as an ordinary update (today's inputs stay); `fork operator
-      // <id> from task <N> as <new_id>` adds a copied branch under the new ID.
-      // The rest is the ordinary program.
-      const before = state.getWorkflowContent();
+      // `x = at(x, task=N)` expands into x's saved definition as an ordinary
+      // assignment with today's inputs; `y = at(x, task=N)` adds a copied
+      // branch under the new name. The rest is the ordinary edit.
       const { rest, versions } = splitVersionCommands(action.changes);
       const restoredIds = new Map<string, string>();
       const versionNotes: string[] = [];
@@ -532,7 +529,7 @@ export async function executeDataflowActionBatch(
       let working = state.getWorkflowContent();
       if (versions.length) {
         if (!settings.stateHistory)
-          throw new Error("update operator … from task and fork operator need saved task versions (stateHistory).");
+          throw new Error("`name = at(name, task=N)` needs saved task versions (stateHistory).");
         const tasks = runtime.historicalTasks ?? [];
         const expanded: string[] = [];
         for (const command of versions) {
@@ -550,13 +547,13 @@ export async function executeDataflowActionBatch(
             );
           } else {
             restoredIds.set(command.id, `restored from task ${task.taskId}`);
-            const restored = restoreCommands(storage, task, working, command.id);
-            expanded.push(restored.commands);
+            const restored = restoreAssignment(storage, task, working, command.id);
+            expanded.push(restored.assignment);
             const drift = restored.existed ? upstreamDrift(storage, task, working, command.id) : [];
             versionNotes.push(
               restored.existed
                 ? `Restored ${command.id}'s task-${task.taskId} definition in place; its inputs are today's${drift.length ? ` (changed since task ${task.taskId}: ${drift.join(", ")})` : " (unchanged since then)"}. Dependents are invalidated; execute to recompute.`
-                : `Re-created ${command.id} from its task-${task.taskId} definition${restored.restoredInputs.length ? ` with edges from ${restored.restoredInputs.join(", ")}` : ""}.`
+                : `Re-created ${command.id} from its task-${task.taskId} definition${restored.restoredInputs.length ? ` with inputs ${restored.restoredInputs.join(", ")}` : ""}.`
             );
           }
         }
@@ -571,7 +568,6 @@ export async function executeDataflowActionBatch(
             status: "ok",
             output: {
               changes: [],
-              applied: versions.length,
               unconnected_inputs: [],
               invalidated_results: [],
               version_notes: versionNotes,
@@ -592,32 +588,18 @@ export async function executeDataflowActionBatch(
       recordVersions(versions, index);
       result.operators.push(...plan.operators);
       const { workflow: _workflow, ...output } = plan;
-      const touched = new Set([...accepted, ...restoredIds.keys()]);
+      // Restored and forked operators show their saved definitions; the rest
+      // of the receipt is one line per change.
       const operatorBlocks: OperatorBlock[] = topologicalOperators(plan.workflow.operators)
-        .filter(op => touched.has(op.operatorID))
-        .map(op => {
-          const created = plan.changes.some(
-            change => change.operator_id === op.operatorID && change.operation === "create_operator"
-          );
-          const updated = plan.changes.some(
-            change => change.operator_id === op.operatorID && change.operation === "update_operator"
-          );
-          return block(op, {
-            state: restoredIds.get(op.operatorID) ?? (created ? "created" : updated ? "updated" : "reconnected"),
-            definition: restoredIds.has(op.operatorID),
+        .filter(op => restoredIds.has(op.operatorID))
+        .map(op =>
+          block(op, {
+            state: restoredIds.get(op.operatorID),
+            definition: true,
             definitionLimit: true,
             stale: plan.invalidated_results.includes(op.operatorID),
-          });
-        });
-      for (const deleted of plan.operators.filter(op => op.status === "deleted")) {
-        const old = before.operators.find(op => op.operatorID === deleted.id);
-        if (old)
-          operatorBlocks.push({
-            ...describeOperator(old, undefined, { state: "deleted", definition: false }),
-            inputs: [],
-            result: undefined,
-          });
-      }
+          })
+        );
       const provenance = settings.stateLedger
         ? provenanceLines(
             {
@@ -633,18 +615,14 @@ export async function executeDataflowActionBatch(
             current
           )
         : [];
-      // A restore expands into an update (or a re-creation with its edges);
-      // the receipt counts it once, as the restore.
-      const restoredHere = (id?: string) => !!id && !!restoredIds.get(id)?.startsWith("restored from");
-      const applied =
-        plan.changes.filter(
-          change => !restoredHere(change.operator_id) && !restoredHere(change.edge?.match(/-> ([^.]+)\./)?.[1])
-        ).length + versions.length;
+      // A restore expands into an ordinary assignment; its block and note
+      // report it, so its operator line would repeat them.
+      const restoredHere = (id: string) => !!restoredIds.get(id)?.startsWith("restored from");
       return {
         status: "ok",
         output: {
           ...output,
-          applied,
+          changes: output.changes.filter(change => change.change !== "operator" || !restoredHere(change.operator_id)),
           operator_blocks: operatorBlocks,
           ...(versionNotes.length ? { version_notes: versionNotes } : {}),
           ...(provenance.length ? { provenance } : {}),
@@ -664,7 +642,7 @@ export async function executeDataflowActionBatch(
       const missing = missingGraphInputs(scope);
       if (missing.length)
         throw new Error(
-          `Unconnected required inputs: ${missing.join(", ")}. Create edges or delete unused operators before execute.`
+          `Unconnected required inputs: ${missing.join(", ")}. Restate those operators with every input, or delete them, before execute.`
         );
       let failure: string | undefined;
       try {

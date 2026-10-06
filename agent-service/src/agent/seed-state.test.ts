@@ -81,7 +81,7 @@ test("loaded state is materialized, inherited by the first request, and never re
     [{ type: "answer", content: "1" }],
   ]);
   const receipt = await s.agent.seedState(
-    'create operator eligible: scan("state/eligible.parquet", format="parquet")\ncreate operator scores: scan("state/scores.parquet", format="parquet")'
+    'eligible = scan("state/eligible.parquet", format="parquet")\nscores = scan("state/scores.parquet", format="parquet")'
   );
   expect(receipt.status).toBe("completed");
   expect(receipt.actions.map(a => a.status)).toEqual(["ok", "ok"]);
@@ -113,8 +113,8 @@ test("loaded state is materialized, inherited by the first request, and never re
 test("seedState refuses a busy or non-native agent", async () => {
   const s = agentWith([]);
   (s.agent as any).state = "GENERATING";
-  await expect(s.agent.seedState('create operator a: scan("a.csv")')).rejects.toThrow(/idle/);
+  await expect(s.agent.seedState('a = scan("a.csv")')).rejects.toThrow(/idle/);
   (s.agent as any).state = "AVAILABLE";
   s.agent.updateSettings({ agentMode: AgentMode.CODE });
-  await expect(s.agent.seedState('create operator a: scan("a.csv")')).rejects.toThrow(/native/);
+  await expect(s.agent.seedState('a = scan("a.csv")')).rejects.toThrow(/native/);
 });

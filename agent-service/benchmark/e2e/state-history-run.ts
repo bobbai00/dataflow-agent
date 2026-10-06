@@ -138,11 +138,9 @@ try {
   await actions([
     {
       type: "edit",
-      changes: `create operator source: scan(${JSON.stringify(oldFile)})
-create operator eligible: filter(lambda row: row["net"] > 0 and row["quality"] == 1, doc="Positive net and quality")
-create operator total: aggregate(n=count(), amount=sum("net"))
-create edge source.out -> eligible.in
-create edge eligible.out -> total.in`,
+      changes: `source = scan(${JSON.stringify(oldFile)})
+eligible = filter(source, lambda row: row["net"] > 0 and row["quality"] == 1, doc="Positive net and quality")
+total = aggregate(eligible, n=count(), amount=sum("net"))`,
     },
     { type: "execute" },
     { type: "retrieve", operator_id: "total", view: "full" },
@@ -152,8 +150,8 @@ create edge eligible.out -> total.in`,
   await actions([
     {
       type: "edit",
-      changes: `update operator source: scan(${JSON.stringify(newFile)})
-update operator eligible: filter(lambda row: row["net"] > 0, doc="Positive net")`,
+      changes: `source = scan(${JSON.stringify(newFile)})
+eligible = filter(source, lambda row: row["net"] > 0, doc="Positive net")`,
     },
     { type: "execute" },
   ]);
@@ -177,8 +175,8 @@ update operator eligible: filter(lambda row: row["net"] > 0, doc="Positive net")
   await actions([
     {
       type: "edit",
-      changes: `delete edge old_total__source.out -> old_total__eligible.in
-create edge source.out -> old_total__eligible.in`,
+      changes:
+        'old_total__eligible = filter(source, lambda row: row["net"] > 0 and row["quality"] == 1, doc="Positive net and quality")',
     },
     { type: "execute" },
     { type: "retrieve", operator_id: "old_total", view: "full" },
@@ -199,13 +197,19 @@ create edge source.out -> old_total__eligible.in`,
       {
         type: "edit",
         changes:
-          'create operator failed_probe: process(fn=fail, doc="Deliberately failed exploration")\n    def fail(df):\n        raise ValueError("intentional sibling failure")\ncreate edge source.out -> failed_probe.in',
+          'failed_probe = process(source, fn=fail, doc="Deliberately failed exploration")\n    def fail(df):\n        raise ValueError("intentional sibling failure")',
       },
       { type: "execute", operator_ids: ["failed_probe"] },
     ],
     "error"
   );
-  await actions([{ type: "edit", changes: "create operator unfinished_probe: limit(1)" }]);
+  await actions([
+    {
+      type: "edit",
+      changes: `probe_source = scan(${JSON.stringify(oldFile)})\nunfinished_probe = limit(probe_source, 1)`,
+    },
+    { type: "edit", changes: "del probe_source" },
+  ]);
   const isolated = await actions([
     { type: "execute", operator_ids: ["total", "old_total"] },
     { type: "retrieve", operator_id: "total", view: "full" },

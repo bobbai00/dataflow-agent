@@ -35,7 +35,7 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { assembleContext } from "../util/context-utils";
 import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 
-const edit = { type: "edit", changes: 'create operator source: scan("data/orders.csv")' };
+const edit = { type: "edit", changes: 'source = scan("data/orders.csv")' };
 
 describe("compact action observations", () => {
   async function receipt(action: DataflowAction, output: unknown, status: "ok" | "error" = "ok") {
@@ -86,23 +86,30 @@ describe("compact action observations", () => {
     expect(text).not.toContain("ordinary:");
   });
 
-  test("edit observations acknowledge atomic changes and retain implicit deletions and stale-input warnings", async () => {
+  test("edit observations report one line per change, then invalidations and unconnected inputs", async () => {
     const result = await receipt(edit as DataflowAction, {
       changes: [
-        { operation: "create_operator", operator_id: "source" },
-        { operation: "create_edge", edge: "source.out -> total.in" },
-        { operation: "delete_operator", operator_id: "probe", deleted_edges: ["source.out -> probe.in"] },
+        { change: "operator", operator_id: "source", operator: "scan", action: "updated" },
+        { change: "operator", operator_id: "joined", operator: "join", action: "created" },
+        { change: "operator", operator_id: "kept", operator: "filter", action: "unchanged" },
+        { change: "operator", operator_id: "probe", operator: "limit", action: "deleted" },
+        { change: "edge", edge: "source -> probe", action: "removed" },
+        { change: "edge", edge: "source -> joined.left", action: "created" },
       ],
-      unconnected_inputs: ["total.in"],
-      invalidated_results: ["total"],
+      unconnected_inputs: ["total.in", "pair.left", "pair.right"],
+      invalidated_results: ["source", "total"],
     });
-    const text = renderDataflowActionsResult(result);
-    expect(text).toContain("3 changes applied");
-    expect(text).not.toContain("create operator: source");
-    expect(text).not.toContain("create edge: source.out -> total.in");
-    expect(text).toContain("deleted edge: source.out -> probe.in");
-    expect(text).toContain("unconnected inputs: total.in");
-    expect(text).toContain("results invalidated: total");
+    expect(renderDataflowActionsResult(result).split("\n").slice(1)).toEqual([
+      "operator source updated (scan)",
+      "operator joined created (join)",
+      "operator kept unchanged",
+      "operator probe deleted",
+      "edge source -> probe removed",
+      "edge source -> joined.left created",
+      "results invalidated: source, total",
+      "total.in is unconnected; restate total with its inputs or delete it before executing.",
+      "pair.left, pair.right are unconnected; restate pair with its inputs or delete it before executing.",
+    ]);
   });
 
   test("rejected edits and skipped actions stay explicit, with no success acknowledgment", async () => {
@@ -206,29 +213,28 @@ describe("receipt details found in live runs", () => {
     expect(text).toContain("| 6 | recomputed | `map(a)` |");
   });
 
-  test("a restore counts as one applied change", async () => {
+  test("a restore is reported by its note", async () => {
     const text = await receipt(
-      { type: "edit", changes: "update operator eligible from task 2" },
+      { type: "edit", changes: "eligible = at(eligible, task=2)" },
       {
-        changes: [{ operation: "update_operator", operator_id: "eligible" }],
-        applied: 1,
+        changes: [],
         version_notes: ["Restored eligible's task-2 definition in place."],
         invalidated_results: ["eligible"],
         unconnected_inputs: [],
         operator_blocks: [],
       }
     );
-    expect(text).toContain("1 change applied; results invalidated: eligible.");
+    expect(text).toContain("results invalidated: eligible\nnote: Restored eligible's task-2 definition in place.");
   });
 
   test("a rejected edit says once that nothing was applied", async () => {
     const text = await receipt(
-      { type: "edit", changes: "create edge a.out -> b.in" },
-      "Change 1 (line 1): Input b.in is occupied. Delete its existing edge before creating a new one. No changes were applied.",
+      { type: "edit", changes: "b = limit(b, 1)" },
+      "Line 1: b cannot be its own input. Give the new table its own name, for example `b_2 = limit(b, ...)`. No changes were applied.",
       "error"
     );
     expect(text.split("No changes were applied.").length - 1).toBe(1);
-    expect(text).toContain("- error EDIT_REJECTED: Change 1 (line 1): Input b.in is occupied.");
+    expect(text).toContain("- error EDIT_REJECTED: Line 1: b cannot be its own input.");
   });
 });
 
@@ -310,7 +316,7 @@ describe("ordered dataflow actions", () => {
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
       asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("fork operator <id> from task <N> as <new_id>");
+    expect(s.agent.getSettings().systemPrompt).toContain("`new_name = at(name, task=N)`");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
@@ -397,11 +403,11 @@ describe("ordered dataflow actions", () => {
   test("partial execution preserves independent retrievals while skipping later mutations", async () => {
     const s = session([
       [
-        { type: "edit", changes: 'create operator good: scan("ok.csv")\ncreate operator bad: scan("missing.csv")' },
+        { type: "edit", changes: 'good = scan("ok.csv")\nbad = scan("missing.csv")' },
         { type: "execute" },
         { type: "retrieve", view: "sample", operator_id: "bad" },
         { type: "retrieve", view: "sample", operator_id: "good" },
-        { type: "edit", changes: 'create operator never: scan("never.csv")' },
+        { type: "edit", changes: 'never = scan("never.csv")' },
       ],
     ]);
     (s.agent as any).executePostStepChanges = async () => {
@@ -437,7 +443,9 @@ describe("ordered dataflow actions", () => {
     for (const type of ["create", "update", "modify", "delete"]) {
       const result = prepareDataflowActions({ reasoning: "Change the graph.", actions: [{ type }] });
       expect(result.error).toContain('"type":"edit"');
-      expect(result.error).toContain(`"changes":"${type === "modify" ? "update" : type} operator`);
+      expect(result.error).toContain(
+        type === "delete" ? '"changes":"del <name>"' : '"changes":"<name> = <operator>(<inputs>, ...)"'
+      );
       expect(result.actions).toEqual([]);
     }
   });
@@ -460,11 +468,7 @@ describe("answers composed from a table and column-scoped retrieval", () => {
   test("an answer with from closes a batch after execute; with content it stands alone", () => {
     const composed = prepareDataflowActions({
       reasoning: "Build and report.",
-      actions: [
-        { type: "edit", changes: 'create operator t: scan("a.csv")' },
-        { type: "execute" },
-        { type: "answer", from: "t[:2]" },
-      ],
+      actions: [{ type: "edit", changes: 't = scan("a.csv")' }, { type: "execute" }, { type: "answer", from: "t[:2]" }],
     });
     expect(composed.status).toBe("pending");
     const notLast = prepareDataflowActions({
@@ -502,11 +506,7 @@ describe("answers composed from a table and column-scoped retrieval", () => {
 
   test("the runtime composes the answer from the executed table and refuses what it cannot answer from", async () => {
     const s = session([
-      [
-        { type: "edit", changes: 'create operator t: scan("data/t.csv")' },
-        { type: "execute" },
-        { type: "answer", from: "t" },
-      ],
+      [{ type: "edit", changes: 't = scan("data/t.csv")' }, { type: "execute" }, { type: "answer", from: "t" }],
     ]);
     const response = await s.agent.sendMessage("Report the value.");
     expect(s.outcomes[0].status).toBe("completed");
@@ -517,7 +517,7 @@ describe("answers composed from a table and column-scoped retrieval", () => {
     );
     const two = session([
       [
-        { type: "edit", changes: 'create operator a: scan("data/a.csv")\ncreate operator b: scan("data/b.csv")' },
+        { type: "edit", changes: 'a = scan("data/a.csv")\nb = scan("data/b.csv")' },
         { type: "execute" },
         { type: "answer", from: "first=a; second=b[value]" },
       ],
@@ -533,7 +533,7 @@ describe("answers composed from a table and column-scoped retrieval", () => {
     expect(missing.outcomes[0].answer).toBeUndefined();
     const unknownColumn = session([
       [
-        { type: "edit", changes: 'create operator t: scan("data/t.csv")' },
+        { type: "edit", changes: 't = scan("data/t.csv")' },
         { type: "execute" },
         { type: "retrieve", operator_id: "t", view: "full", columns: ["nope"] },
       ],
@@ -618,7 +618,7 @@ describe("dataflow action integration", () => {
 
   test("unconfirmed answer sources remain candidates until a branch is explicitly selected", async () => {
     const batches: DataflowAction[][] = [
-      [{ type: "edit", changes: 'create operator source: scan("data.csv")\ncreate operator probe: scan("probe.csv")' }],
+      [{ type: "edit", changes: 'source = scan("data.csv")\nprobe = scan("probe.csv")' }],
       [
         { type: "execute", operator_ids: ["source", "probe"] },
         { type: "retrieve", operator_id: "source", view: "sample" },
@@ -691,7 +691,7 @@ describe("dataflow action integration", () => {
         {
           type: "edit",
           changes:
-            'create operator source: process(fn=load, doc="Original working rows")\n    def load():\n        return pd.DataFrame({"value": [1]})\ncreate operator eligible: limit(5)\ncreate operator total: project(keep=["value"])\ncreate operator probe: scan("unrelated.csv")\ncreate edge source.out -> eligible.in\ncreate edge eligible.out -> total.in',
+            'source = process(fn=load, doc="Original working rows")\n    def load():\n        return pd.DataFrame({"value": [1]})\neligible = limit(source, 5)\ntotal = project(eligible, keep=["value"])\nprobe = scan("unrelated.csv")',
         },
         { type: "execute" },
         { type: "retrieve", operator_id: "probe", view: "sample" },
@@ -707,7 +707,7 @@ describe("dataflow action integration", () => {
     batches.splice(
       0,
       batches.length,
-      [{ type: "edit", changes: 'update operator source: scan("changed.csv")\ndelete operator total' }],
+      [{ type: "edit", changes: 'source = scan("changed.csv")\ndel total' }],
       [{ type: "answer", content: "Changed the current graph." }]
     );
     await s.agent.sendMessage("Change the source and remove the old report.");
@@ -745,7 +745,7 @@ describe("dataflow action integration", () => {
   test("answer provenance rejects unknown or unavailable sources atomically, then allows correction", async () => {
     for (const operator_ids of [["source"], ["source", "missing"]]) {
       const s = session([
-        [{ type: "edit", changes: 'create operator source: scan("data.csv")' }],
+        [{ type: "edit", changes: 'source = scan("data.csv")' }],
         [{ type: "answer", content: "Unverified.", operator_ids }],
         [{ type: "execute", operator_ids: ["source"] }],
         [{ type: "answer", content: "Checked.", operator_ids: ["source"] }],
@@ -789,7 +789,7 @@ describe("dataflow action integration", () => {
         {
           type: "edit",
           changes:
-            'create operator source: scan("data/toy.csv")\ncreate operator limited: limit(5)\ncreate operator displayed: project(keep=["value"])\ncreate edge source.out -> limited.in\ncreate edge limited.out -> displayed.in',
+            'source = scan("data/toy.csv")\nlimited = limit(source, 5)\ndisplayed = project(limited, keep=["value"])',
         },
         { type: "inspect", target: "operator", operator_id: "displayed", include_implementation: false },
       ],
@@ -829,8 +829,7 @@ describe("dataflow action integration", () => {
       [
         {
           type: "edit",
-          changes:
-            'create operator source: scan("data/toy.csv")\ncreate operator selected: limit(5)\ncreate edge source.out -> selected.in',
+          changes: 'source = scan("data/toy.csv")\nselected = limit(source, 5)',
         },
         { type: "execute" },
         { type: "retrieve", operator_id: "selected", view: "full" },
@@ -845,7 +844,7 @@ describe("dataflow action integration", () => {
       0,
       batches.length,
       [
-        { type: "edit", changes: "update operator selected: limit(2)" },
+        { type: "edit", changes: "selected = limit(source, 2)" },
         { type: "execute" },
         { type: "retrieve", operator_id: "selected", view: "full" },
       ],
@@ -865,7 +864,7 @@ describe("dataflow action integration", () => {
           include_implementation: false,
           view: "full",
         },
-        { type: "edit", changes: "fork operator selected from task 1 as selected_old" },
+        { type: "edit", changes: "selected_old = at(selected, task=1)" },
         { type: "retrieve", operator_id: "selected_old", view: "full" },
       ],
       [{ type: "answer", content: "Compared saved state." }]
@@ -893,8 +892,9 @@ describe("dataflow action integration", () => {
         {
           type: "edit",
           changes:
-            'create operator source: scan("data/input.csv")\ncreate operator good: limit(1)\ncreate operator bad: process(fn=fail, doc="Old failed exploration")\n    def fail(df):\n        raise ValueError("old branch")\ncreate operator unfinished: limit(1)\ncreate edge source.out -> good.in\ncreate edge source.out -> bad.in',
+            'source = scan("data/input.csv")\ngood = limit(source, 1)\nbad = process(source, fn=fail, doc="Old failed exploration")\n    def fail(df):\n        raise ValueError("old branch")\nscratch = scan("data/scratch.csv")\nunfinished = limit(scratch, 1)',
         },
+        { type: "edit", changes: "del scratch" },
       ],
       [
         { type: "execute", operator_ids: ["good"] },
@@ -939,7 +939,10 @@ describe("dataflow action integration", () => {
   test("selected execution validates required upstream inputs and rejects unknown targets", async () => {
     for (const operator_ids of [["unfinished"], ["unknown"]]) {
       const s = session([
-        [{ type: "edit", changes: 'create operator source: scan("x.csv")\ncreate operator unfinished: limit(1)' }],
+        [
+          { type: "edit", changes: 'source = scan("x.csv")\nscratch = scan("y.csv")\nunfinished = limit(scratch, 1)' },
+          { type: "edit", changes: "del scratch" },
+        ],
         [{ type: "execute", operator_ids }],
       ]);
       await s.agent.sendMessage("Validate the selected branch.");
@@ -976,7 +979,7 @@ describe("dataflow action integration", () => {
   test("changing retrieval views reads the same result and freezes each observation", async () => {
     const s = session([
       [
-        { type: "edit", changes: 'create operator source: scan("x.csv")' },
+        { type: "edit", changes: 'source = scan("x.csv")' },
         { type: "execute" },
         { type: "retrieve", operator_id: "source", view: "sample" },
       ],
@@ -997,7 +1000,7 @@ describe("dataflow action integration", () => {
   });
   test("later tasks inspect, copy and retrieve the earlier result without executing or changing the baseline", async () => {
     const batches: DataflowAction[][] = [
-      [{ type: "edit", changes: 'create operator source: scan("old.csv")' }, { type: "execute" }],
+      [{ type: "edit", changes: 'source = scan("old.csv")' }, { type: "execute" }],
       [{ type: "answer", content: "First result saved." }],
     ];
     const s = session(batches);
@@ -1006,7 +1009,7 @@ describe("dataflow action integration", () => {
     batches.splice(
       0,
       batches.length,
-      [{ type: "edit", changes: 'update operator source: scan("new.csv")' }, { type: "execute" }],
+      [{ type: "edit", changes: 'source = scan("new.csv")' }, { type: "execute" }],
       [{ type: "answer", content: "Second result saved." }]
     );
     await s.agent.sendMessage("Use a new input.");
@@ -1024,7 +1027,7 @@ describe("dataflow action integration", () => {
         },
       ],
       [
-        { type: "edit", changes: "fork operator source from task 1 as earlier" },
+        { type: "edit", changes: "earlier = at(source, task=1)" },
         { type: "retrieve", operator_id: "earlier", view: "full" },
         {
           type: "inspect",
@@ -1061,8 +1064,7 @@ describe("dataflow action integration", () => {
   });
   const source: DataflowAction = {
     type: "edit",
-    changes:
-      'create operator source: scan("data/orders.csv")\ncreate operator last: limit(1)\ncreate edge source.out -> last.in',
+    changes: 'source = scan("data/orders.csv")\nlast = limit(source, 1)',
   };
   const read: DataflowAction = { type: "retrieve", view: "sample", operator_id: "last" };
 
@@ -1086,7 +1088,7 @@ describe("dataflow action integration", () => {
   test("editing an ancestor invalidates downstream retrieval and preserves old observations", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [{ type: "edit", changes: 'update operator source: scan("data/new.csv")' }, read, { type: "execute" }],
+      [{ type: "edit", changes: 'source = scan("data/new.csv")' }, read, { type: "execute" }],
     ]);
     await s.agent.sendMessage("Revise the source.");
     expect(s.executions()).toBe(1);
@@ -1110,8 +1112,7 @@ describe("dataflow action integration", () => {
       [
         {
           type: "edit",
-          changes:
-            'create operator kept: filter(fn=keep, doc="Keeps every row")\n    def keep(row):\n        return True\ncreate edge source.out -> kept.in',
+          changes: 'kept = filter(source, fn=keep, doc="Keeps every row")\n    def keep(row):\n        return True',
         },
         { type: "inspect", target: "operator", operator_id: "kept", include_implementation: true },
       ],
@@ -1130,8 +1131,7 @@ describe("dataflow action integration", () => {
         { type: "inspect", target: "graph" },
         {
           type: "edit",
-          changes:
-            "create operator good: limit(1)\ncreate operator bad: limit(1)\ncreate operator blocked: limit(1)\ncreate edge source.out -> good.in\ncreate edge missing.out -> bad.in\ncreate edge bad.out -> blocked.in",
+          changes: "good = limit(source, 1)\nbad = limit(missing, 1)\nblocked = limit(bad, 1)",
         },
         { type: "execute" },
         { type: "retrieve", view: "sample", operator_id: "good" },
@@ -1158,7 +1158,7 @@ describe("dataflow action integration", () => {
     const s = session([
       [source, { type: "execute" }, read],
       [read, { type: "inspect", target: "graph" }],
-      [{ type: "edit", changes: 'update operator source: scan("data/new.csv")' }, { type: "execute" }, read],
+      [{ type: "edit", changes: 'source = scan("data/new.csv")' }, { type: "execute" }, read],
       [read],
     ]);
     await s.agent.sendMessage("Read, revise, and read again.");
@@ -1176,7 +1176,7 @@ describe("dataflow action integration", () => {
   test("a rejected atomic edit stops the batch and preserves the unchanged graph result", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [{ type: "edit", changes: "update operator source: scan()" }, { type: "execute" }, read],
+      [{ type: "edit", changes: "source = scan()" }, { type: "execute" }, read],
       [read],
     ]);
     await s.agent.sendMessage("Try a bad revision.");
@@ -1187,7 +1187,7 @@ describe("dataflow action integration", () => {
 });
 
 describe("action history and model loop", () => {
-  const source: DataflowAction = { type: "edit", changes: 'create operator source: scan("data/old.csv")' };
+  const source: DataflowAction = { type: "edit", changes: 'source = scan("data/old.csv")' };
   const read: DataflowAction = { type: "retrieve", view: "sample", operator_id: "source" };
 
   test("budget reminders preserve prior context, reserve Answer, and reset for each user turn", async () => {
@@ -1250,7 +1250,7 @@ describe("action history and model loop", () => {
   test("two executions in one call keep each retrieved version and preserve prior snapshots", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [read, { type: "edit", changes: 'update operator source: scan("data/new.csv")' }, { type: "execute" }, read],
+      [read, { type: "edit", changes: 'source = scan("data/new.csv")' }, { type: "execute" }, read],
     ]);
     await s.agent.sendMessage("Compare the old and new file.");
     expect(s.executions()).toBe(2);
@@ -1294,7 +1294,7 @@ describe("action history and model loop", () => {
   });
 
   test("import replays completed edits, skips unrun edits, and never executes", async () => {
-    const s = session([[source, read, { type: "edit", changes: 'create operator skipped: scan("data/skipped.csv")' }]]);
+    const s = session([[source, read, { type: "edit", changes: 'skipped = scan("data/skipped.csv")' }]]);
     await s.agent.sendMessage("Prepare the source.");
     const imported = session([]);
     await imported.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
@@ -1311,7 +1311,7 @@ describe("action history and model loop", () => {
     const legacy = structuredClone(s.agent.getReActSteps());
     const oldField = (action: any) => {
       if (action.type === "edit") {
-        action.program = action.changes.replace(/^create operator (\w+): /gm, "$1 = ");
+        action.program = action.changes;
         action.delete = [];
         delete action.changes;
       }
@@ -1389,9 +1389,9 @@ describe("action history and model loop", () => {
 test("an aborted execution cannot attach late results or run the next action", async () => {
   const s = session([
     [
-      { type: "edit", changes: 'create operator source: scan("data/orders.csv")' },
+      { type: "edit", changes: 'source = scan("data/orders.csv")' },
       { type: "execute" },
-      { type: "edit", changes: "create operator never: limit(1)\ncreate edge source.out -> never.in" },
+      { type: "edit", changes: "never = limit(source, 1)" },
     ],
   ]);
   (s.agent as any).delegateConfig = { workflowId: 1, computingUnitId: 1, userToken: "test" };
@@ -1422,7 +1422,7 @@ test("an aborted execution cannot attach late results or run the next action", a
 test("an execution failure permits retrieval but rejects the failed result", async () => {
   const s = session([
     [
-      { type: "edit", changes: 'create operator source: scan("data/missing.csv")' },
+      { type: "edit", changes: 'source = scan("data/missing.csv")' },
       { type: "execute" },
       { type: "retrieve", view: "sample", operator_id: "source" },
     ],
@@ -1446,10 +1446,10 @@ test("an execution failure permits retrieval but rejects the failed result", asy
 test("LATEST preserves a retrieved table that a later action supersedes", async () => {
   const s = session([
     [
-      { type: "edit", changes: 'create operator source: scan("data/old.csv")' },
+      { type: "edit", changes: 'source = scan("data/old.csv")' },
       { type: "execute" },
       { type: "retrieve", view: "sample", operator_id: "source" },
-      { type: "edit", changes: 'update operator source: scan("data/new.csv")' },
+      { type: "edit", changes: 'source = scan("data/new.csv")' },
     ],
   ]);
   await s.agent.sendMessage("Read the old source, then revise it.");
@@ -1641,7 +1641,7 @@ test("plain-text protocol correction is bounded and never extends maxSteps", asy
 });
 
 test("import does not apply an edit that failed before committing any statements", async () => {
-  const s = session([[{ type: "edit", changes: 'create operator source: scan("data/orders.csv")' }]]);
+  const s = session([[{ type: "edit", changes: 'source = scan("data/orders.csv")' }]]);
   await s.agent.sendMessage("Prepare the graph.");
   const trace = structuredClone(s.agent.getReActSteps());
   const result = trace.find(step => step.toolResults?.length)!.toolResults![0]!.output as DataflowActionsResult;
@@ -1669,7 +1669,7 @@ test("native multi-task requests preserve every earlier request as a prefix", as
           ? [
               {
                 type: "edit",
-                changes: `${n === 1 ? "create" : "update"} operator source: scan("data/task-${n}.csv")`,
+                changes: `source = scan("data/task-${n}.csv")`,
               },
               { type: "execute" },
               { type: "retrieve", operator_id: "source", view: "full" },

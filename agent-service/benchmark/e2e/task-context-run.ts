@@ -157,9 +157,8 @@ try {
   await run([
     {
       type: "edit",
-      changes: `create operator source: ${source(1)}
-create operator total: aggregate(sum_score=sum("score"))
-create edge source.out -> total.in`,
+      changes: `source = ${source(1)}
+total = aggregate(source, sum_score=sum("score"))`,
     },
     { type: "execute", operator_ids: ["total"] },
     { type: "retrieve", operator_id: "total", view: "full" },
@@ -174,16 +173,11 @@ create edge source.out -> total.in`,
   await run([
     {
       type: "edit",
-      changes: `create operator task2_shift: map(lambda row: {"score": row["score"] + 1}, doc="Add one to each score")
-create operator task2_doubled: map(lambda row: {"score": row["score"] * 2}, doc="Double each shifted score")
-create operator task2_selected: filter(lambda row: row["score"] >= 6, doc="Keep doubled scores at least six")
-create operator task2_ranked: sort(by=("score", "desc"))
-create operator task2_answer: aggregate(sum_score=sum("score"))
-create edge source.out -> task2_shift.in
-create edge task2_shift.out -> task2_doubled.in
-create edge task2_doubled.out -> task2_selected.in
-create edge task2_selected.out -> task2_ranked.in
-create edge task2_ranked.out -> task2_answer.in`,
+      changes: `task2_shift = map(source, lambda row: {"score": row["score"] + 1}, doc="Add one to each score")
+task2_doubled = map(task2_shift, lambda row: {"score": row["score"] * 2}, doc="Double each shifted score")
+task2_selected = filter(task2_doubled, lambda row: row["score"] >= 6, doc="Keep doubled scores at least six")
+task2_ranked = sort(task2_selected, by=("score", "desc"))
+task2_answer = aggregate(task2_ranked, sum_score=sum("score"))`,
     },
     { type: "execute", operator_ids: ["task2_answer"] },
     { type: "retrieve", operator_id: "task2_answer", view: "full" },
@@ -203,7 +197,7 @@ create edge task2_ranked.out -> task2_answer.in`,
   checks.push("cached data keeps its original task dependency");
   await debug("Task 3: multiply each input score by ten using the same summation rule.");
   await run([
-    { type: "edit", changes: `update operator source: ${source(10)}` },
+    { type: "edit", changes: `source = ${source(10)}` },
     { type: "execute", operator_ids: ["total"] },
     { type: "retrieve", operator_id: "total", view: "full" },
   ]);
@@ -277,7 +271,7 @@ create edge task2_ranked.out -> task2_answer.in`,
   ]);
   assert(old.text.includes("| 6 |"), old.text);
   const fork = await run([
-    { type: "edit", changes: "fork operator total from task 1 as old_total" },
+    { type: "edit", changes: "old_total = at(total, task=1)" },
     { type: "retrieve", operator_id: "old_total", view: "full" },
   ]);
   assert(fork.text.includes("| 6 |"), fork.text);
@@ -288,7 +282,7 @@ create edge task2_ranked.out -> task2_answer.in`,
     [{ operatorId: "total", savedTaskId: 1 }]
   );
   const restored = await run([
-    { type: "edit", changes: "update operator total from task 1" },
+    { type: "edit", changes: "total = at(total, task=1)" },
     { type: "execute", operator_ids: ["total"] },
     { type: "retrieve", operator_id: "total", view: "full" },
   ]);
@@ -325,7 +319,7 @@ create edge task2_ranked.out -> task2_answer.in`,
   assert(!versions.text.includes("def load"), versions.text);
   checks.push("answer roots from distinct saved versions stay separate and reuse only pinned input references");
   await run([
-    { type: "edit", changes: "delete operator source\ndelete operator total" },
+    { type: "edit", changes: "del source\ndel total" },
     { type: "inspect", target: "task", task_id: 1 },
     { type: "inspect", target: "state", task_id: 1, operator_id: "total", include_implementation: true, view: "full" },
   ]);

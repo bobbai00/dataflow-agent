@@ -20,7 +20,7 @@ import { expect, test } from "bun:test";
 import { ContextMode } from "../types/agent";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import { type HistoricalTask } from "./state-history";
-import { restoreCommands, splitVersionCommands, upstreamDrift } from "./state-ledger";
+import { restoreAssignment, splitVersionCommands, upstreamDrift } from "./state-ledger";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { WorkflowState } from "./workflow-state";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
@@ -103,8 +103,8 @@ test("multi-task history and catalog are separate extensions using the edit voca
     });
     expect(prompt).not.toContain("{{");
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
-    expect(prompt).toContain("update operator <id> from task <N>");
-    expect(prompt).toContain("fork operator <id> from task <N> as <new_id>");
+    expect(prompt).toContain("`name = at(name, task=N)`");
+    expect(prompt).toContain("`new_name = at(name, task=N)`");
     expect(prompt).not.toMatch(/rollback/i);
   }
   const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
@@ -129,7 +129,7 @@ test("multi-task history and catalog are separate extensions using the edit voca
   expect(control).toContain("Earlier versions are not kept, so build a second operator only when the");
   expect(control).toContain("### Example: revise a rule for the rest of the session");
   expect(control).not.toContain("remains saved under tasks 1 and 2");
-  expect(control).not.toContain("fork operator");
+  expect(control).not.toContain("= at(");
   expect(control).not.toContain('"target": "state"');
   expect(control).not.toContain("{{");
   const section = control.split("### Example: build on an earlier task")[1];
@@ -137,23 +137,21 @@ test("multi-task history and catalog are separate extensions using the edit voca
     expect(prepareDataflowActions(JSON.parse(json), ["sample"]).status).toBe("pending");
 });
 
-test("update from task restores a saved definition in place on today's inputs and reports upstream drift", async () => {
+test("a restore assignment brings back a saved definition in place on today's inputs and reports upstream drift", async () => {
   const metadataStore = WorkflowSystemMetadata.getInstance();
   metadataStore.seedCodeModeDefaults();
   const context = { metadataStore };
   const first = await planGraphEdit(
     new WorkflowState().getWorkflowContent(),
-    `create operator items: scan("items.csv")
-create operator eligible: filter(lambda row: row["active"], doc="Active items")
-create operator score: map(lambda row: {**row, "score": 2*row["units"]+row["margin"]}, doc="Original priority score")
-create edge items.out -> eligible.in
-create edge eligible.out -> score.in`,
+    `items = scan("items.csv")
+eligible = filter(items, lambda row: row["active"], doc="Active items")
+score = map(eligible, lambda row: {**row, "score": 2*row["units"]+row["margin"]}, doc="Original priority score")`,
     context
   );
   const second = await planGraphEdit(
     first.workflow,
-    `update operator eligible: filter(lambda row: row["active"] and row["premium"], doc="Premium active items")
-update operator score: map(lambda row: {**row, "score": 3*row["units"]+row["margin"]}, doc="Current priority score")`,
+    `eligible = filter(items, lambda row: row["active"] and row["premium"], doc="Premium active items")
+score = map(eligible, lambda row: {**row, "score": 3*row["units"]+row["margin"]}, doc="Current priority score")`,
     context
   );
   const storage = new WorkflowSnapshotStorage(id => (id === "s1" ? ["s1"] : ["s1", "s2"]));
@@ -163,27 +161,30 @@ update operator score: map(lambda row: {**row, "score": 3*row["units"]+row["marg
     { taskId: 1, stepId: "s1", request: "Use active items", answer: "Original report" },
     { taskId: 2, stepId: "s2", request: "Change the population and score", answer: "Current report" },
   ];
-  const restored = restoreCommands(storage, tasks[0], second.workflow, "score");
+  const restored = restoreAssignment(storage, tasks[0], second.workflow, "score");
   expect(restored.existed).toBe(true);
-  expect(restored.commands.startsWith("update operator score: map(")).toBe(true);
-  expect(restored.commands).toContain('2*row["units"]');
+  expect(restored.assignment.startsWith("score = map(eligible, lambda row:")).toBe(true);
+  expect(restored.assignment).toContain('2*row["units"]');
   // The population changed in task 2; the rolled-back rule runs on today's version of it.
   expect(upstreamDrift(storage, tasks[0], second.workflow, "score")).toEqual(["eligible"]);
-  const third = await planGraphEdit(second.workflow, restored.commands, context);
+  const third = await planGraphEdit(second.workflow, restored.assignment, context);
   const score = third.workflow.operators.find(o => o.operatorID === "score")!;
   expect(score.nativeOp!.source).toContain('2*row["units"]');
   expect(score.nativeOp!.inputs).toEqual(["eligible"]);
   expect(third.workflow.operators.find(o => o.operatorID === "eligible")).toEqual(
     second.workflow.operators.find(o => o.operatorID === "eligible")!
   );
-  // A deleted operator is re-created with the sealed edges that still resolve.
-  const without = await planGraphEdit(second.workflow, "delete operator score", context);
-  const recreated = restoreCommands(storage, tasks[0], without.workflow, "score");
+  // A deleted operator is re-created on its sealed inputs when they still exist.
+  const without = await planGraphEdit(second.workflow, "del score", context);
+  const recreated = restoreAssignment(storage, tasks[0], without.workflow, "score");
   expect(recreated.existed).toBe(false);
-  expect(recreated.commands).toContain("create operator score: map(");
-  expect(recreated.commands).toContain("create edge eligible.out -> score.in");
+  expect(recreated.assignment.startsWith("score = map(eligible, lambda row:")).toBe(true);
   expect(recreated.restoredInputs).toEqual(["eligible"]);
-  expect(() => restoreCommands(storage, tasks[0], second.workflow, "missing")).toThrow(/did not exist at task 1/);
+  const orphaned = await planGraphEdit(without.workflow, "del eligible", context);
+  expect(() => restoreAssignment(storage, tasks[0], orphaned.workflow, "score")).toThrow(
+    "score's task-1 inputs eligible do not exist now; copy it with its saved inputs instead: `score_1 = at(score, task=1)`."
+  );
+  expect(() => restoreAssignment(storage, tasks[0], second.workflow, "missing")).toThrow(/did not exist at task 1/);
   expect(storage.getWorkflow("s1")).toEqual(first.workflow);
   expect(storage.getWorkflow("s2")).toEqual(second.workflow);
 });

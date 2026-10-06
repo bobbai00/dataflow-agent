@@ -82,14 +82,14 @@ answering. Preserve the earlier version when the question compares versions.
 | `inspect` with `target: "task"` and `task_id` | Read the local answer computation and versioned earlier-input references. Optional `operator_id` selects intermediate roots; `include_implementation` requests local Python, and `view` requests selected root results. Expand an input through its owning task and operator ID. |
 | `answer` with `content` and optional `operator_ids` | Answer and identify the completed source tables for later sub-DAG retrieval. The runtime checks availability, not semantic correctness. An answer with `from` records its roots automatically. |
 | `inspect` with `target: "state"`, `operator_id` and `task_id` | Read the operator and its immediate inputs as task N saved them. `include_implementation` controls attached Python, and a `view` adds the saved result. `task_id: null` lists its versions and the tasks in which each held. Leaves the current dataflow unchanged. |
-| `fork operator <id> from task <N> as <new_id>` inside an edit | Copy the operator and the inputs it had at task N into the current dataflow under new identifiers, with their saved results, so later operators can compute with that version. The operator itself is unchanged. |
-| `update operator <id> from task <N>` inside an edit | Restore the definition task N saved, in place, on today's inputs: an update whose definition comes from task N. The receipt names inputs that changed since then. Execute to compute. |
+| `new_name = at(name, task=N)` inside an edit | Fork: copy the operator and the inputs it had at task N into the current dataflow under new names, with their saved results, so later operators can compute with that version. The operator itself is unchanged. |
+| `name = at(name, task=N)` inside an edit | Restore the definition task N saved, in place, on today's inputs: an update whose definition comes from task N. The receipt names inputs that changed since then. Execute to compute. |
 
 Blocks name these versions in their state: `saved by task N` when inspected,
 `forked from task N` or `restored from task N` in an edit. A fork shows its
 result as `(saved by task N)` until it is executed again.
 
 Read an earlier result with `inspect`. Fork it when you need to compute with
-it next to the current version, and update from it when the request returns
-to that rule for what follows. Use a saved definition or result rather than
+it next to the current version, and restore it when the request returns to
+that rule for what follows. Use a saved definition or result rather than
 reconstructing it from memory.

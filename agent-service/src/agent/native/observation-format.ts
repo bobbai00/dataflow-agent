@@ -19,7 +19,7 @@
 
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
-import { nativeOperatorName } from "./catalog";
+import { nativeAssignmentText, nativeOperatorName } from "./catalog";
 
 export interface ObservationFormatSettings {
   tableFormat: "markdown" | "tsv";
@@ -577,7 +577,7 @@ export function describeOperator(
     id: id || "unconnected",
     ...(names.length > 1 || !id ? { port: names[i] } : {}),
   }));
-  let definition = view?.source;
+  let definition = view ? nativeAssignmentText(op.operatorID, view) : undefined;
   if (definition && options.definitionLimit && config.definitionChars > 0 && definition.length > config.definitionChars)
     definition = definition.slice(0, config.definitionChars) + "… (definition clipped; inspect for full text)";
   const functions = options.implementation

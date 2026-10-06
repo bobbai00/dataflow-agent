@@ -101,10 +101,10 @@ async function debug(actions: DataflowAction[]) {
 }
 
 const processOperator = (id: string, code: string, source?: string) =>
-  `create operator ${id}: process(fn=process, doc="Live integer compatibility check")\n${code
+  `${id} = process(${source ? `${source}, ` : ""}fn=process, doc="Live integer compatibility check")\n${code
     .split("\n")
     .map(line => "    " + line)
-    .join("\n")}` + (source ? `\ncreate edge ${source}.out -> ${id}.in` : "");
+    .join("\n")}`;
 
 try {
   token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
@@ -134,7 +134,7 @@ try {
   save("resources.json", { agentId, wid, cuid, base, model_calls: 0, expectedFailure });
   const csv = join(directory, "ratings.csv");
   writeFileSync(csv, "book_id,user_id,rating\n1,1,5\n1,2,4\n2,2,3\n2,3,2\n");
-  const edits = [`create operator ratings: scan(${JSON.stringify(csv)})`];
+  const edits = [`ratings = scan(${JSON.stringify(csv)})`];
   for (const method of ["pivot", "unstack"]) {
     const reshape =
       method === "pivot"

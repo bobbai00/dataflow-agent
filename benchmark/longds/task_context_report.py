@@ -24,6 +24,7 @@ import argparse
 from collections import Counter, defaultdict
 import gzip
 import json
+import re
 from pathlib import Path
 import statistics
 
@@ -106,9 +107,10 @@ def trace_diagnostics(folder):
                     if status == 'ok' and action.get('type') == 'edit':
                         for line in action.get('changes', '').splitlines():
                             line = line.strip()
-                            if line.startswith('fork operator '):
+                            version = re.match(r'(\w+)\s*=\s*at\(\s*(\w+)\s*,\s*task\s*=', line)
+                            if line.startswith('fork operator ') or (version and version[1] != version[2]):
                                 counts['fork_commands'] += 1
-                            elif line.startswith('update operator ') and ' from task ' in line:
+                            elif (line.startswith('update operator ') and ' from task ' in line) or version:
                                 counts['restore_commands'] += 1
         graph = file.parent / 'task-history.json'
         if graph.exists():

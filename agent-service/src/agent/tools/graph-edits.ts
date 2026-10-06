@@ -37,20 +37,30 @@ import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
 
 type Edge = { source: string; sourcePort: string; target: string; targetPort: string };
-type Command = Edge & {
-  operation: string;
-  id: string;
-  expression: string;
-  statement: ParsedStatement;
-  functions: Record<string, ParsedFunction>;
-  line: number;
-};
-export interface GraphChangeReceipt {
-  operation: string;
-  operator_id?: string;
-  edge?: string;
-  deleted_edges?: string[];
-}
+
+/** One statement of an edit, as python/graph_parser.py returns it. */
+export type EditStatement =
+  | {
+      kind: "assign";
+      id: string;
+      line: number;
+      statement: ParsedStatement;
+      functions: Record<string, ParsedFunction>;
+      /** Source text of every positional and keyword argument, in call order. */
+      positional: string[];
+      keywords: string[];
+    }
+  | { kind: "delete"; ids: string[]; line: number };
+
+/** One line of an edit receipt: `operator x created (filter)`, `edge a -> x removed`. */
+export type GraphChangeReceipt =
+  | {
+      change: "operator";
+      operator_id: string;
+      operator: string;
+      action: "created" | "updated" | "unchanged" | "deleted";
+    }
+  | { change: "edge"; edge: string; action: "created" | "removed" };
 export interface GraphEditPlan {
   workflow: WorkflowContent;
   operators: NativeBatchOutcome[];
@@ -59,7 +69,15 @@ export interface GraphEditPlan {
   invalidated_results: string[];
 }
 
-const edgeText = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;
+const edgeKey = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;
+/** The receipt spelling: the port is named only when the target has several. */
+const edgeLabel = (e: Edge, portCount: number) =>
+  `${e.source} -> ${e.target}${portCount > 1 ? `.${e.targetPort}` : ""}`;
+/** The source and target operator of an edge label such as `a -> b.left`. */
+export function edgeEnds(label: string): { source: string; target: string } {
+  const [source, target] = label.split(" -> ");
+  return { source, target: target.split(".")[0] };
+}
 const indexed = (count: number) => Array.from({ length: count }, (_, i) => `in[${i}]`);
 function ports(view: NativeOpView): string[] {
   if (view.graph) return view.graph.inputPorts;
@@ -94,13 +112,14 @@ function edgesOf(workflow: WorkflowContent): Edge[] {
 }
 export function inspectGraph(workflow: WorkflowContent) {
   const edges = edgesOf(workflow);
+  const portsOf = new Map(workflow.operators.map(op => [op.operatorID, op.nativeOp ? ports(op.nativeOp) : []]));
   return {
     operators: workflow.operators.map(op => ({
       id: op.operatorID,
       type: op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType,
       ports: { inputs: op.nativeOp ? ports(op.nativeOp) : op.inputPorts.map(p => p.portID), outputs: ["out"] },
     })),
-    edges: edges.map(edgeText),
+    edges: edges.map(e => edgeLabel(e, portsOf.get(e.target)?.length ?? 1)),
     unconnected_inputs: workflow.operators.flatMap(op =>
       op.nativeOp
         ? ports(op.nativeOp)
@@ -114,147 +133,168 @@ export function missingGraphInputs(workflow: WorkflowContent): string[] {
   return inspectGraph(workflow).unconnected_inputs;
 }
 
-function definition(command: Command, profileCollection?: boolean, profileScope?: "full"): NativeOpView {
-  const def = NATIVE_BY_NAME.get(command.statement.op);
-  if (!def) throw new Error(`Unknown operator ${command.statement.op}. Use an operator from the catalog.`);
-  let names = def.inputs === 0 ? [] : def.inputs === 1 ? ["in"] : def.inputs === 2 ? ["left", "right"] : indexed(2);
-  if (def.name === "process") {
-    const fn = command.statement.kwargs.fn ?? command.statement.args[0];
-    const params =
-      fn?.kind === "lambda" ? fn.params : fn?.kind === "name" ? command.functions[fn.name]?.params : undefined;
-    names = indexed(params?.length ?? 0);
-  }
-  const normalized = normalizeStatement(command.statement, command.functions, {
-    profileCollection,
-    profileScope,
-    explicitInputs: names.map((_, i) => `_unconnected_${i}`),
-  });
-  if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator expression.");
-  return { ...normalized.view, inputs: names.map(() => ""), source: command.expression, graph: { inputPorts: names } };
+/** Parse an edit; a syntax error rejects all of it. */
+export async function parseGraphEdit(changes: string): Promise<EditStatement[]> {
+  const parsed = (await runNativePython({ changes })) as { ok: boolean; statements?: EditStatement[]; error?: string };
+  if (!parsed.ok) throw new Error(`${parsed.error} No changes were applied.`);
+  return parsed.statements!;
 }
 
+/** What identifies a definition apart from its inputs. */
+const definitionKey = (view: NativeOpView) =>
+  JSON.stringify([view.type, view.properties, view.functions ?? {}, ports(view)]);
+
 /** Validate and compile against a private draft. The caller commits the returned
- * workflow only after checking cancellation/HEAD ownership. No mutation occurs here. */
+ * workflow only after checking cancellation/HEAD ownership. No mutation occurs here.
+ *
+ * `name = operator(inputs, ...)` creates `name` or replaces its definition; its
+ * inputs, in port order, become its incoming edges and replace the old ones.
+ * `del name` deletes an operator and its edges. Names resolve against the
+ * graph as it stands after the whole edit. */
 export async function planGraphEdit(
   original: WorkflowContent,
   changes: string,
   context: ToolContext
 ): Promise<GraphEditPlan> {
-  const parsed = (await runNativePython({ changes })) as { ok: boolean; commands?: Command[]; error?: string };
-  if (!parsed.ok) throw new Error(`${parsed.error} No changes were applied.`);
+  const statements = await parseGraphEdit(changes);
   if (!context.metadataStore) throw new Error("Metadata store not available for graph editing.");
   const nodes = new Map<string, NativeOpView>();
   for (const op of original.operators) {
     if (!op.nativeOp) throw new Error(`Operator ${op.operatorID} is not a native operator.`);
     nodes.set(op.operatorID, { ...structuredClone(op.nativeOp), graph: { inputPorts: ports(op.nativeOp) } });
   }
-  const edges = new Map(edgesOf(original).map(e => [edgeText(e), e]));
-  const receipts: GraphChangeReceipt[] = [];
+  const edges = new Map(edgesOf(original).map(e => [edgeKey(e), e]));
+  const operatorChanges: GraphChangeReceipt[] = [];
+  const edgeChanges: GraphChangeReceipt[] = [];
   const outcomes: NativeBatchOutcome[] = [];
   const changed = new Set<string>();
+  const assigned = new Map<
+    string,
+    { inputs: string[]; line: number; definition: "created" | "updated" | "same"; previousPorts: number }
+  >();
+  const deleted = new Set<string>();
   let location = "";
-  const required = (id: string) => {
-    const node = nodes.get(id);
-    if (!node) throw new Error(`Operator ${id} does not exist.`);
-    return node;
-  };
-  const validateEdge = (edge: Edge, grow = false) => {
-    required(edge.source);
-    const target = required(edge.target);
-    if (edge.sourcePort !== "out") throw new Error(`Unknown output port ${edge.source}.${edge.sourcePort}; use out.`);
-    if (target.type === "Union" && /^in\[(0|[1-9]\d*)\]$/.test(edge.targetPort) && grow) {
-      const i = Number(edge.targetPort.slice(3, -1));
-      if (i >= 256) throw new Error("Union supports input indices 0 through 255.");
-      if (i >= ports(target).length) target.graph = { inputPorts: indexed(i + 1) };
-    }
-    if (!ports(target).includes(edge.targetPort))
-      throw new Error(
-        `Unknown input port ${edge.target}.${edge.targetPort}; expected ${ports(target).join(", ") || "no inputs"}.`
-      );
-  };
   try {
-    for (const [index, command] of parsed.commands!.entries()) {
-      location = `Change ${index + 1} (line ${command.line}): `;
-      const { operation, id } = command;
-      if (operation === "create_operator" || operation === "update_operator") {
-        const existing = nodes.get(id);
-        if (operation === "create_operator" && existing)
-          throw new Error(`Operator ${id} already exists; use update operator.`);
-        if (operation === "update_operator") required(id);
-        // An existing operator keeps the profile setting it was compiled with.
-        const view = definition(
-          command,
-          existing?.profileCollection ?? context.settings?.nativeProfileCollection,
-          existing ? existing.profileScope : context.settings?.nativeProfileScope === "full" ? "full" : undefined
+    for (const statement of statements) {
+      location = `Line ${statement.line}: `;
+      if (statement.kind === "delete") {
+        for (const id of statement.ids) {
+          if (assigned.has(id)) throw new Error(`${id} is both assigned and deleted in this edit.`);
+          const node = nodes.get(id);
+          if (!node) throw new Error(`Operator ${id} does not exist.`);
+          for (const [key, edge] of edges) {
+            if (edge.source !== id && edge.target !== id) continue;
+            edges.delete(key);
+            edgeChanges.push({
+              change: "edge",
+              edge: edgeLabel(edge, ports(nodes.get(edge.target)!).length),
+              action: "removed",
+            });
+            changed.add(edge.target);
+          }
+          nodes.delete(id);
+          deleted.add(id);
+          changed.add(id);
+          const op = nativeOperatorName(node.type);
+          operatorChanges.push({ change: "operator", operator_id: id, operator: op, action: "deleted" });
+          outcomes.push({ id, op, status: "deleted", message: `deleted operator \`${id}\`` });
+        }
+        continue;
+      }
+      const { id, statement: parsed } = statement;
+      if (assigned.has(id)) throw new Error(`${id} is assigned twice in this edit; write one definition.`);
+      const existing = nodes.get(id);
+      // An existing operator keeps the profile setting it was compiled with.
+      const normalized = normalizeStatement(parsed, statement.functions, {
+        profileCollection: existing?.profileCollection ?? context.settings?.nativeProfileCollection,
+        profileScope: existing
+          ? existing.profileScope
+          : context.settings?.nativeProfileScope === "full"
+            ? "full"
+            : undefined,
+      });
+      if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
+      const inputs = normalized.view.inputs;
+      if (inputs.includes(id))
+        throw new Error(
+          `${id} cannot be its own input. Give the new table its own name, for example \`${id}_2 = ${parsed.op}(${id}, ...)\`.`
         );
-        nodes.set(id, view);
-        changed.add(id);
-        outcomes.push({
-          id,
-          op: command.statement.op,
-          status: existing ? "modified" : "added",
-          message: `${existing ? "updated" : "added"} ${command.statement.op} operator \`${id}\``,
-        });
-        receipts.push({ operation, operator_id: id });
-      } else if (operation === "delete_operator") {
-        const node = required(id);
-        const removed = [...edges.values()].filter(e => e.source === id || e.target === id);
-        for (const edge of removed) {
-          edges.delete(edgeText(edge));
-          if (edge.target !== id) changed.add(edge.target);
-        }
-        nodes.delete(id);
-        changed.add(id);
-        receipts.push({ operation, operator_id: id, deleted_edges: removed.map(edgeText) });
-        outcomes.push({
-          id,
-          op: nativeOperatorName(node.type),
-          status: "deleted",
-          message: `deleted operator \`${id}\``,
-        });
-      } else {
-        const edge: Edge = {
-          source: command.source,
-          sourcePort: command.sourcePort,
-          target: command.target,
-          targetPort: command.targetPort,
-        };
-        // A one-parameter process has one unambiguous input. Store its
-        // canonical name so aliases cannot bypass occupancy or deletion.
-        const target = required(edge.target);
-        if (edge.targetPort === "in" && target.type === "Process" && ports(target).length === 1) {
-          edge.targetPort = ports(target)[0];
-        }
-        const key = edgeText(edge);
-        if (operation === "delete_edge") {
-          if (!edges.delete(key)) throw new Error(`Edge ${key} does not exist.`);
-        } else {
-          validateEdge(edge, true);
-          if ([...edges.values()].some(e => e.target === edge.target && e.targetPort === edge.targetPort))
-            throw new Error(
-              `Input ${edge.target}.${edge.targetPort} is occupied. Delete its existing edge before creating a new one.`
-            );
-          edges.set(key, edge);
-        }
-        changed.add(edge.target);
-        receipts.push({ operation, edge: key });
+      const arity = NATIVE_BY_NAME.get(parsed.op)!.inputs;
+      if (parsed.op === "union" && inputs.length < 2)
+        throw new Error(`union takes two or more input tables: \`${id} = union(first, second, ...)\`.`);
+      const inputPorts = arity === 1 ? ["in"] : arity === 2 ? ["left", "right"] : indexed(inputs.length);
+      // The stored source omits the inputs: edges own them, so a fork or a
+      // rewiring never leaves stale input names in a definition.
+      const view: NativeOpView = {
+        ...normalized.view,
+        inputs: inputPorts.map(() => ""),
+        source: `${parsed.op}(${[...statement.positional.slice(inputs.length), ...statement.keywords].join(", ")})`,
+        graph: { inputPorts },
+      };
+      const definition = !existing ? "created" : definitionKey(existing) === definitionKey(view) ? "same" : "updated";
+      assigned.set(id, {
+        inputs,
+        line: statement.line,
+        definition,
+        previousPorts: existing ? ports(existing).length : 0,
+      });
+      if (definition === "same") {
+        // Reported as unchanged unless its inputs turn out to differ.
+        operatorChanges.push({ change: "operator", operator_id: id, operator: parsed.op, action: "unchanged" });
+        continue;
+      }
+      nodes.set(id, view);
+      changed.add(id);
+      operatorChanges.push({ change: "operator", operator_id: id, operator: parsed.op, action: definition });
+      outcomes.push({
+        id,
+        op: parsed.op,
+        status: existing ? "modified" : "added",
+        message: `${existing ? "updated" : "added"} ${parsed.op} operator \`${id}\``,
+      });
+    }
+    // Inputs become edges once every definition and deletion is known.
+    for (const [id, { inputs, line, definition, previousPorts }] of assigned) {
+      location = `Line ${line}: `;
+      const missing = inputs.find(input => !nodes.has(input));
+      if (missing)
+        throw new Error(
+          `${id}'s input \`${missing}\` is not an operator${deleted.has(missing) ? " (deleted in this edit)" : ""}. Operators: ${[...nodes.keys()].join(", ")}.`
+        );
+      const inputPorts = ports(nodes.get(id)!);
+      const wanted: Edge[] = inputs.map((source, i) => ({
+        source,
+        sourcePort: "out",
+        target: id,
+        targetPort: inputPorts[i],
+      }));
+      const keys = new Set(wanted.map(edgeKey));
+      let rewired = false;
+      for (const [key, edge] of edges) {
+        if (edge.target !== id || keys.has(key)) continue;
+        edges.delete(key);
+        edgeChanges.push({ change: "edge", edge: edgeLabel(edge, previousPorts), action: "removed" });
+        rewired = true;
+      }
+      for (const edge of wanted) {
+        if (edges.has(edgeKey(edge))) continue;
+        edges.set(edgeKey(edge), edge);
+        edgeChanges.push({ change: "edge", edge: edgeLabel(edge, inputPorts.length), action: "created" });
+        rewired = true;
+      }
+      if (!rewired) continue;
+      changed.add(id);
+      if (definition === "same") {
+        const unchanged = operatorChanges.findIndex(c => c.change === "operator" && c.operator_id === id);
+        operatorChanges.splice(unchanged, 1);
       }
     }
     location = "Resulting graph: ";
-    for (const [id, view] of nodes) {
-      if (view.type === "Union") {
-        const indices = [...edges.values()]
-          .filter(e => e.target === id)
-          .map(e => Number(e.targetPort.match(/^in\[(\d+)\]$/)?.[1] ?? -1));
-        view.graph = { inputPorts: indexed(Math.max(2, ...indices.map(i => i + 1))) };
-      }
-    }
-    for (const edge of edges.values()) validateEdge(edge);
     const pending = new Set(nodes.keys());
     const ordered: string[] = [];
     while (pending.size) {
       const roots = [...pending].filter(id => ![...edges.values()].some(e => e.target === id && pending.has(e.source)));
-      if (!roots.length) throw new Error(`Edges create a cycle involving ${[...pending].join(", ")}.`);
+      if (!roots.length) throw new Error(`The inputs form a cycle among ${[...pending].join(", ")}.`);
       roots.forEach(id => {
         pending.delete(id);
         ordered.push(id);
@@ -314,9 +354,9 @@ export async function planGraphEdit(
         draft.getOperatorPosition(id)
       );
     }
-    for (const [id, edge] of edges)
+    for (const [key, edge] of edges)
       draft.addLink({
-        linkID: id,
+        linkID: key,
         source: { operatorID: edge.source, portID: "output-0" },
         target: { operatorID: edge.target, portID: `input-${ports(nodes.get(edge.target)!).indexOf(edge.targetPort)}` },
       });
@@ -334,15 +374,13 @@ export async function planGraphEdit(
     return {
       workflow,
       operators: outcomes,
-      changes: receipts,
+      changes: [...operatorChanges, ...edgeChanges],
       unconnected_inputs: missingGraphInputs(workflow),
       invalidated_results: [...computeStaleResultOps(original, workflow)].filter(id =>
         original.operators.some(o => o.operatorID === id)
       ),
     };
   } catch (error) {
-    throw new Error(
-      `${location}${(error instanceof Error ? error.message : String(error)).replace(/\bprogram\b/gi, "operator definition")} No changes were applied.`
-    );
+    throw new Error(`${location}${error instanceof Error ? error.message : String(error)} No changes were applied.`);
   }
 }

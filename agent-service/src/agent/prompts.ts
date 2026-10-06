@@ -37,7 +37,7 @@ import {
   type RetrievalView,
 } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
-import { graphCatalogText, graphCatalogIndexText } from "./native/catalog";
+import { catalogText, catalogIndexText } from "./native/catalog";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
@@ -435,15 +435,15 @@ export function buildNativeModeSystemPrompt(
     : options.session
       ? "Your context groups earlier calls and observations by task. Earlier tables remain available by name."
       : contextMode === ContextMode.LATEST
-        ? "Your context shows the current dataflow and its available results. The latest receipt records what just completed, and earlier execution events may be collapsed; inspect when an operator's details are needed."
-        : "Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it; inspect when you need a current definition, and execute when you need a current result.";
+        ? "Your context shows the current dataflow and its available results. The latest receipt records what just completed, and earlier execution events may be collapsed; inspect only when you are unsure of an operator's details."
+        : "Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it. Execute when you need a current result; inspect only when you are unsure of an operator's current definition.";
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
   const fields: Record<string, string> = {
     OPERATOR_CATALOG:
       options.nativePromptDetail === "on_demand"
-        ? "Signatures and ports are listed below. Read a needed contract with inspect target=reference, topic=operators, operator_names=[...]. This is documentation, not graph state; it never executes or changes an operator. Reuse reference material already in context.\n\n" +
-          graphCatalogIndexText()
-        : graphCatalogText(),
+        ? "Signatures are listed below. Read a needed contract with inspect target=reference, topic=operators, operator_names=[...]. This is documentation, not graph state; it never executes or changes an operator. Reuse reference material already in context.\n\n" +
+          catalogIndexText()
+        : catalogText(),
     CONTEXT_LAYOUT: context,
     RETRIEVAL: nativeRetrievalText(options),
     RECORD_LAYOUT:
@@ -479,7 +479,7 @@ export function nativeReferenceText(
     | { topic: "example"; example: "single" | "statistics" | "history" },
   options: NativePromptLayoutOptions
 ): string {
-  if (request.topic === "operators") return graphCatalogText(request.operator_names);
+  if (request.topic === "operators") return catalogText(request.operator_names);
   const flags = nativeFlags(options);
   if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");
   const text =

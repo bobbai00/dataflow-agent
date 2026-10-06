@@ -158,12 +158,12 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "edit",
-          'Apply operator create/update/delete commands and edge create/delete commands in changes, with type="edit". Atomic; does not execute.',
+          'Apply the operator assignments and deletions in changes, with type="edit". Atomic; does not execute.',
           {
             changes: {
               ...text,
               description:
-                "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes.",
+                "Statements, each starting at the margin: `name = operator(inputs, parameters)` creates name or replaces its whole definition; its inputs are the operator names written first in the call, and they become its incoming edges in port order. `del name` deletes an operator and its edges. Python functions are indented under the operator that uses them. Names resolve against the graph after the whole edit. A failed Edit applies no changes.",
             },
           }
         ),
@@ -263,15 +263,14 @@ const validators = [DATAFLOW_ACTIONS_SCHEMA, STATE_ACTIONS_SCHEMA].map(schema =>
 function validationMessage(input: any, stateHistory: boolean): string {
   const { validate, actions: actionValidators } = validators[stateHistory ? 1 : 0];
   if (typeof input?.actions === "string")
-    return 'Invalid dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Run the graph.","actions":[{"type":"execute"}]}. Only edit.changes contains graph text. No actions ran.';
+    return 'Invalid dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Run the graph.","actions":[{"type":"execute"}]}. Only edit.changes contains operator definitions. No actions ran.';
   if (Array.isArray(input?.actions)) {
     for (const [index, item] of input.actions.entries()) {
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
       if (!candidates.length) {
         if (["create", "update", "modify", "delete"].includes(item?.type)) {
-          const verb = item.type === "modify" ? "update" : item.type;
-          const changes = `${verb} operator <id>${verb === "delete" ? "" : ": <expression>"}`;
-          return `Action ${index + 1}: ${JSON.stringify(item.type)} is a graph command. Put it inside an edit action: ${JSON.stringify({ type: "edit", changes })}. No actions ran.`;
+          const changes = item.type === "delete" ? "del <name>" : "<name> = <operator>(<inputs>, ...)";
+          return `Action ${index + 1}: ${JSON.stringify(item.type)} is a graph change. Write it inside an edit action: ${JSON.stringify({ type: "edit", changes })}. No actions ran.`;
         }
         return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;
       }
@@ -295,7 +294,7 @@ function validationMessage(input: any, stateHistory: boolean): string {
 
 export const DATAFLOW_ACTIONS_DESCRIPTION =
   "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
-  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. " +
+  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of operator assignments. " +
   "Edits do not run the graph; retrieval reads existing results. " +
   "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
   "After an execution failure, inspect and retrieve may still read independent completed results. " +
@@ -435,7 +434,7 @@ export function createDataflowTool(
     description:
       DATAFLOW_ACTIONS_DESCRIPTION +
       (stateHistory
-        ? " Saved tasks: inspect target=task returns the local computation and versioned earlier-input references. Expand selected inputs through their owning task or target=state. Python and selected root results are optional. Declare Answer operator_ids or use answer from; missing roots remain candidates without automatic expansion. Graph inspection requires named operator_ids. In an Edit, `update operator <id> from task <N>` restores that definition on current inputs and `fork operator <id> from task <N> as <new_id>` copies its saved upstream branch."
+        ? " Saved tasks: inspect target=task returns the local computation and versioned earlier-input references. Expand selected inputs through their owning task or target=state. Python and selected root results are optional. Declare Answer operator_ids or use answer from; missing roots remain candidates without automatic expansion. Graph inspection requires named operator_ids. In an Edit, `name = at(name, task=N)` restores that definition on current inputs and `new_name = at(name, task=N)` copies its saved upstream branch."
         : ""),
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

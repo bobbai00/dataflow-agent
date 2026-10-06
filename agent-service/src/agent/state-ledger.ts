@@ -38,7 +38,7 @@
 import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import { nativeOperatorName, type NativeOpView } from "./native/catalog";
+import { nativeAssignmentText, nativeOperatorName, type NativeOpView } from "./native/catalog";
 import { readForkResult, type HistoricalTask } from "./state-history";
 import type { GraphEditPlan } from "./tools/graph-edits";
 import {
@@ -517,67 +517,60 @@ export function executionNotes(
 
 /* ---------------------------------------------------------------------------
  * Saved versions in an edit:
- *   `update operator <id> from task <N>`            restore that definition in place
- *   `fork operator <id> from task <N> as <new_id>`  copy it with its task-N inputs
+ *   `x = at(x, task=N)`   restore x's task-N definition in place, with today's inputs
+ *   `y = at(x, task=N)`   copy x's task-N version as y, with its task-N inputs
  * ------------------------------------------------------------------------- */
 
 export interface VersionCommand {
   line: number;
   id: string;
   task: number;
-  /** Set for a fork: the copy's identifier. */
+  /** Set for a copy: the new operator's name. */
   as?: string;
 }
 
-const RESTORE_RE = /^update operator ([A-Za-z_]\w*) from task (\d+)\s*$/;
-const FORK_RE = /^fork operator ([A-Za-z_]\w*) from task (\d+) as ([A-Za-z_]\w*)\s*$/;
+const VERSION_RE = /^([A-Za-z_]\w*)\s*=\s*at\(\s*([A-Za-z_]\w*)\s*,\s*task\s*=\s*(\d+)\s*\)\s*(?:#.*)?$/;
 
-/** Split the saved-version commands out of an edit program; the rest is the parser's. */
+/** Split the saved-version assignments out of an edit; the rest is the parser's. */
 export function splitVersionCommands(changes: string): { rest: string; versions: VersionCommand[] } {
   const rest: string[] = [];
   const versions: VersionCommand[] = [];
   changes.split("\n").forEach((line, index) => {
-    const restore = line.match(RESTORE_RE);
-    const fork = line.match(FORK_RE);
-    if (restore) versions.push({ line: index + 1, id: restore[1], task: Number(restore[2]) });
-    else if (fork) versions.push({ line: index + 1, id: fork[1], task: Number(fork[2]), as: fork[3] });
-    else rest.push(line);
+    const version = line.match(VERSION_RE);
+    if (!version) rest.push(line);
+    else if (version[1] === version[2]) versions.push({ line: index + 1, id: version[2], task: Number(version[3]) });
+    else versions.push({ line: index + 1, id: version[2], task: Number(version[3]), as: version[1] });
   });
   return { rest: rest.join("\n"), versions };
 }
 
-/** The sealed definition of an operator as edit commands that restore it in
- * place (`update operator`) or re-create it with its sealed incoming edges. */
-export function restoreCommands(
+/** The sealed definition of an operator as an assignment: in place with
+ * today's inputs, or re-created with its sealed inputs when it was deleted. */
+export function restoreAssignment(
   storage: WorkflowSnapshotStorage,
   task: HistoricalTask,
   current: WorkflowContent,
   operatorId: string
-): { commands: string; restoredInputs: string[]; existed: boolean } {
+): { assignment: string; restoredInputs: string[]; existed: boolean } {
   const sealed = storage.getWorkflow(task.stepId);
   const op = sealed.operators.find(o => o.operatorID === operatorId);
   if (!op?.nativeOp?.source)
     throw new Error(`Operator ${operatorId} did not exist at task ${task.taskId}; nothing to restore.`);
-  const view = op.nativeOp;
-  const functions = Object.values(view.functions ?? {}).map(source =>
+  const today = current.operators.find(o => o.operatorID === operatorId);
+  const inputs = today ? (today.nativeOp?.inputs ?? []) : op.nativeOp.inputs;
+  const absent = inputs.filter(input => !input || !current.operators.some(o => o.operatorID === input));
+  if (absent.length)
+    throw new Error(
+      `${operatorId}'s task-${task.taskId} inputs ${absent.filter(Boolean).join(", ") || "(unconnected)"} do not exist now; copy it with its saved inputs instead: \`${operatorId}_${task.taskId} = at(${operatorId}, task=${task.taskId})\`.`
+    );
+  const functions = Object.values(op.nativeOp.functions ?? {}).map(source =>
     source
       .split("\n")
       .map(line => (line.length ? `    ${line}` : line))
       .join("\n")
   );
-  const existed = current.operators.some(o => o.operatorID === operatorId);
-  const lines = [`${existed ? "update" : "create"} operator ${operatorId}: ${view.source}`, ...functions];
-  const restoredInputs: string[] = [];
-  if (!existed) {
-    const ports = view.graph?.inputPorts ?? [];
-    view.inputs.forEach((input, i) => {
-      if (!input || !current.operators.some(o => o.operatorID === input)) return;
-      const port = ports[i] ?? (view.inputs.length === 1 ? "in" : `in[${i}]`);
-      lines.push(`create edge ${input}.out -> ${operatorId}.${port}`);
-      restoredInputs.push(input);
-    });
-  }
-  return { commands: lines.join("\n"), restoredInputs, existed };
+  const assignment = nativeAssignmentText(operatorId, { ...op.nativeOp, inputs })!;
+  return { assignment: [assignment, ...functions].join("\n"), restoredInputs: today ? [] : inputs, existed: !!today };
 }
 
 /** Upstream operators whose current revision differs from the sealed task's. */

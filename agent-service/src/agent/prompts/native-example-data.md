@@ -68,7 +68,7 @@ the mean and counts in the graph rather than averaging the displayed records:
 {
   "reasoning": "Compute the recorded-value average and the number of missing values.",
   "actions": [
-    {"type": "edit", "changes": "create operator average_values: aggregate(by=[], average=mean(\"value\"), total_rows=count(), valid_values=count(\"value\"))\ncreate operator summary: map(lambda row: {**row, \"missing\": row[\"total_rows\"] - row[\"valid_values\"]}, doc=\"Average with valid and missing counts\")\ncreate edge eligible.out -> average_values.in\ncreate edge average_values.out -> summary.in"},
+    {"type": "edit", "changes": "average_values = aggregate(eligible, by=[], average=mean(\"value\"), total_rows=count(), valid_values=count(\"value\"))\nsummary = map(average_values, lambda row: {**row, \"missing\": row[\"total_rows\"] - row[\"valid_values\"]}, doc=\"Average with valid and missing counts\")"},
     {"type": "execute", "operator_ids": ["summary"]},
     {"type": "retrieve", "operator_id": "summary", "view": "full"}
   ]

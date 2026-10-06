@@ -78,7 +78,7 @@ working table and compare the two versions in the graph:
 {
   "reasoning": "Compare today's scores with the scores task 2 reported, using its saved version.",
   "actions": [
-    {"type": "edit", "changes": "fork operator score from task 2 as score_t2\ncreate operator score_vs_task2: join(on=\"unit\", how=\"left\", suffix=\"_task2\")\ncreate edge score.out -> score_vs_task2.left\ncreate edge score_t2.out -> score_vs_task2.right\ncreate operator score_change: map(lambda row: {**row, \"change\": None if row[\"score_task2\"] is None else row[\"score\"] - row[\"score_task2\"]}, doc=\"Score change per unit since task 2\")\ncreate edge score_vs_task2.out -> score_change.in"},
+    {"type": "edit", "changes": "score_t2 = at(score, task=2)\nscore_vs_task2 = join(score, score_t2, on=\"unit\", how=\"left\", suffix=\"_task2\")\nscore_change = map(score_vs_task2, lambda row: {**row, \"change\": None if row[\"score_task2\"] is None else row[\"score\"] - row[\"score_task2\"]}, doc=\"Score change per unit since task 2\")"},
     {"type": "execute", "operator_ids": ["score_change"]},
     {"type": "retrieve", "operator_id": "score_change", "view": "full"}
   ]
@@ -135,18 +135,18 @@ Observation:
 versions: eligible
 | tasks | change | definition |
 |---|---|---|
-| 1-2 | created | `filter(lambda row: row["status"] == "delivered", doc="Delivered orders")` |
-| 3-4 | updated | `filter(lambda row: row["amount"] is not None, doc="Orders with an amount")` |
+| 1-2 | created | `eligible = filter(orders, lambda row: row["status"] == "delivered", doc="Delivered orders")` |
+| 3-4 | updated | `eligible = filter(orders, lambda row: row["amount"] is not None, doc="Orders with an amount")` |
 ```
 
-Tasks 1 and 2 used the delivered-orders rule. Update `eligible` from task 2,
-which restores that definition in place, and execute the tables that read it:
+Tasks 1 and 2 used the delivered-orders rule. Restore `eligible` from task 2,
+which replaces its definition in place, and execute the tables that read it:
 
 ```json
 {
   "reasoning": "Restore the delivered-orders rule for the rest of the session.",
   "actions": [
-    {"type": "edit", "changes": "update operator eligible from task 2"},
+    {"type": "edit", "changes": "eligible = at(eligible, task=2)"},
     {"type": "execute", "operator_ids": ["report"]}
   ]
 }

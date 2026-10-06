@@ -29,21 +29,15 @@ async function fixture() {
   const context = { metadataStore };
   const first = await planGraphEdit(
     new WorkflowState().getWorkflowContent(),
-    `create operator source: scan("old.csv")
-create operator eligible: filter(lambda row: row["active"], doc="Keep active rows")
-create operator total: aggregate(n=count())
-create operator unrelated: scan("unrelated.csv")
-create edge source.out -> eligible.in
-create edge eligible.out -> total.in`,
+    `source = scan("old.csv")
+eligible = filter(source, lambda row: row["active"], doc="Keep active rows")
+total = aggregate(eligible, n=count())
+unrelated = scan("unrelated.csv")`,
     context
   );
   const storage = new WorkflowSnapshotStorage(id => (id === "s1" ? ["s1"] : ["s1", "s2"]));
   storage.createSnapshot("s1", first.workflow);
-  const second = await planGraphEdit(
-    first.workflow,
-    'update operator source: scan("new.csv")\ndelete operator total',
-    context
-  );
+  const second = await planGraphEdit(first.workflow, 'source = scan("new.csv")\ndel total', context);
   storage.createSnapshot("s2", second.workflow);
   return { storage, first, second, task: { taskId: 1, stepId: "s1", request: "Count active rows", answer: "2" } };
 }

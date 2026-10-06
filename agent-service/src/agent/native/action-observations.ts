@@ -18,6 +18,7 @@
  */
 
 import type { DataflowActionsResult, DataflowAction } from "../tools/dataflow-actions";
+import type { GraphChangeReceipt } from "../tools/graph-edits";
 import { parseNativeDiagnostic, nativeDiagnosticIssue } from "./diagnostics";
 import { renderTaskIndex, type TaskRecord } from "../task-history";
 import {
@@ -273,19 +274,26 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           );
         }
       } else if (item.action.type === "edit") {
-        const applied = output.applied ?? (output.changes?.length ?? 0) + (output.version_notes?.length ?? 0);
-        lines.push(
-          `${countOf(applied, "change")} applied${output.invalidated_results?.length ? `; results invalidated: ${output.invalidated_results.join(", ")}` : ""}.`
-        );
+        // One line per change: `operator x created (filter)`, `edge a -> x created`.
+        for (const change of (output.changes ?? []) as GraphChangeReceipt[])
+          lines.push(
+            change.change === "edge"
+              ? `edge ${change.edge} ${change.action}`
+              : `operator ${change.operator_id} ${change.action}${change.action === "created" || change.action === "updated" ? ` (${change.operator})` : ""}`
+          );
         lines.push(...blocks.map(operatorBlock));
-        for (const change of output.changes ?? []) {
-          if (change.edge)
-            lines.push(`- ${change.operation === "create_edge" ? "created" : "deleted"} edge: ${change.edge}`);
-          for (const edge of change.deleted_edges ?? []) lines.push(`- deleted edge: ${edge}`);
+        if (output.invalidated_results?.length)
+          lines.push(`results invalidated: ${output.invalidated_results.join(", ")}`);
+        const unconnected = new Map<string, string[]>();
+        for (const input of (output.unconnected_inputs ?? []) as string[]) {
+          const id = input.slice(0, input.lastIndexOf("."));
+          unconnected.set(id, [...(unconnected.get(id) ?? []), input]);
         }
-        if (output.version_notes?.length) lines.push(...output.version_notes.map((note: string) => `- note: ${note}`));
-        if (output.unconnected_inputs?.length)
-          lines.push(`- note: unconnected inputs: ${output.unconnected_inputs.join(", ")}.`);
+        for (const [id, inputs] of unconnected)
+          lines.push(
+            `${inputs.join(", ")} ${inputs.length > 1 ? "are" : "is"} unconnected; restate ${id} with its inputs or delete it before executing.`
+          );
+        if (output.version_notes?.length) lines.push(...output.version_notes.map((note: string) => `note: ${note}`));
         if (output.provenance?.length) lines.push(...output.provenance);
       } else if (item.action.type === "execute") {
         const all = output.operators ?? [];

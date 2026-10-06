@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
 import { ContextMode } from "../src/types/agent";
 import { buildNativeModeSystemPrompt, nativeEvidenceText, NATIVE_STATE_HISTORY } from "../src/agent/prompts";
-import { NATIVE_OPERATORS, graphCatalogText, graphOperatorPorts } from "../src/agent/native/catalog";
+import { NATIVE_OPERATORS, catalogText, type NativeOperatorDef } from "../src/agent/native/catalog";
 import { createDataflowTool } from "../src/agent/tools/dataflow-actions";
 
 const root = fileURLToPath(new URL("../../native-mode/", import.meta.url));
@@ -99,78 +99,95 @@ export function renderTools(): string {
     renderToolDefinitions()
       .map(
         t =>
-          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The SDK sends this flag outside the parameter schema. On configured Claude routes, \`bin/strict_tools.py\` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; graph commands inside \`changes\` are validated by the graph parser.\n`
+          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The SDK sends this flag outside the parameter schema. On configured Claude routes, \`bin/strict_tools.py\` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; the statements inside \`changes\` are validated by the edit parser.\n`
       )
       .join("\n") +
     "\n## Execution rules\n\n" +
-    "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.\n\n" +
+    "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid statement rejects all changes in that Edit.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
-    "Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.\n\n" +
+    "Inspection returns definitions, named ports, edges and optional Python implementations. An operator's inputs are its incoming edges: restating it with other inputs replaces them, and deleting an operator removes its incident edges. Each change is reported on its own receipt line.\n\n" +
     "Reference inspection returns canonical documentation for up to eight selected operators, or a single-task, statistics or history example. It reads no workflow data, executes nothing and adds no task dependency. Examples respect the session's available retrieval views and evidence/history features.\n\n" +
     "An answer ends the model loop. An answer with content must be the only action in its call; an answer with from must be the last action of its call. Actions that depend on a returned observation belong in the next call.\n" +
-    "\n## Optional historical state actions\n\nWith `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:\n\n```json\n" +
+    "\n## Optional historical state actions\n\nWith `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `new_name = at(name, task=N)` copies the historical operator and its historical inputs under new names. `name = at(name, task=N)` restores the saved definition on current inputs. The complete enabled schema is:\n\n```json\n" +
     JSON.stringify(schemaOf(createDataflowTool(undefined, true)), null, 2) +
     "\n```\n"
   );
 }
 
+/** Input ports in port order, as an edit receipt names them. */
+function portsText(def: NativeOperatorDef): string {
+  if (def.inputs === 0) return "none";
+  if (def.inputs === 1) return "in";
+  if (def.inputs === 2) return "left, right";
+  return def.name === "union"
+    ? "in[0], in[1], ...; two or more"
+    : "in[0], ..., in[n-1], one per fn parameter; none for a loader";
+}
+
 export function renderOperators(): string {
-  const rows = NATIVE_OPERATORS.map(def => `| \`${def.name}\` | ${graphOperatorPorts(def)} | ${def.brief} |`);
+  const rows = NATIVE_OPERATORS.map(def => `| \`${def.name}\` | ${portsText(def)} | ${def.brief} |`);
   return (
     HEADER(
-      "Native mode: operators and ports",
-      "Generated from the operator catalog. Every operator produces one output table on out; edges provide its input tables."
+      "Native mode: operators and edits",
+      "Generated from the operator catalog. Every operator produces one output table on out; its inputs are the tables named first in its definition."
     ) +
     `
-## Graph commands
+## Edit statements
 
-\`dataflow(reasoning, actions)\` exposes five actions: Inspect, Edit, Execute, Retrieve and Answer. An Edit's \`changes\` string contains these commands:
+\`dataflow(reasoning, actions)\` exposes five actions: Inspect, Edit, Execute, Retrieve and Answer. An Edit's \`changes\` string contains statements, each starting at the margin:
 
 \`\`\`text
-create operator <id>: <operator>(parameters)
-update operator <id>: <operator>(parameters)
-delete operator <id>
-create edge <source>.out -> <target>.<input_port>
-delete edge <source>.out -> <target>.<input_port>
+<name> = <operator>(<input>, ..., <parameter>=<value>, ...)
+del <name>, ...
 \`\`\`
 
-Create requires a new identifier. Update replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be updated; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction. Execute with operator_ids runs those operators and their upstream dependencies, materializing each result. Its scope requires complete inputs and an acyclic graph. Execute without operator_ids runs the whole graph.
+Assigning a new name creates an operator; assigning an existing name replaces its whole definition, inputs included. The input tables are the leading positional names of the call and become the operator's incoming edges in port order. Restating an operator with other inputs rewires it: each edge whose source changed is removed and the new one created; unchanged edges stay. \`del\` deletes operators and every incident edge, and a consumer left without an input must be restated or deleted before it executes. An operator cannot be its own input, and a name is assigned at most once per Edit. Names resolve against the graph as it stands after the whole Edit; inputs must not form a cycle. Each Edit is atomic. Execute with operator_ids runs those operators and their upstream dependencies, materializing each result. Execute without operator_ids runs the whole graph.
+
+An Edit reports one line per change, naming a port only when the operator has several:
+
+\`\`\`text
+operator totals created (aggregate)
+operator orders updated (scan)
+edge orders -> totals created
+edge budgets -> compared.right removed
+operator scratch deleted
+results invalidated: orders
+\`\`\`
 
 ## Catalog (${NATIVE_OPERATORS.length} operators)
 
-| Operator | Ports | Meaning |
+| Operator | Input ports | Meaning |
 |---|---|---|
 ${rows.join("\n")}
 
 ## Parameters and contracts
 
-Operator expressions contain parameters only. No upstream table identifiers appear inside the expression. Defaults are shown. Data types are bare names; reducers and window functions name columns.
+Signatures name input tables first (\`T\`, \`L\`, \`R\`, \`T1\`, ...), then parameters with their defaults. Data types are bare names; reducers and window functions name columns.
 
 \`\`\`text
-${graphCatalogText()}
+${catalogText()}
 \`\`\`
 
 ## Python implementations
 
-Keep loading, deriving columns, filtering, joining and aggregation in separate predefined operators. Use process for one operation the catalog cannot express. A custom calculation consumes connected tables; a source process loads an unsupported format and returns a parsed table for downstream operators. Build a known chain and its edges in one Edit.
+Keep loading, deriving columns, filtering, joining and aggregation in separate predefined operators. Use process for one operation the catalog cannot express. A custom calculation consumes its input tables; a source process loads an unsupported format and returns a parsed table for downstream operators. Build a known chain in one Edit.
 
-Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. For a process with exactly one parameter, in is an alias stored as in[0]. Every callback operator requires doc, describing the output's meaning.
+Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per input table and returns a DataFrame; its function takes one parameter per input, in order, and a zero-parameter function is a loader. Every callback operator requires doc, describing the output's meaning.
 
 Indent complete function definitions under the operator that uses them. Helpers belong in the same block, and imports belong inside functions. Definitions do not carry across operators or updates.
 
 \`\`\`dataflow
-create operator correlation: process(fn=correlate, doc="Pearson correlation between yearly changes")
+correlation = process(measurements, fn=correlate, doc="Pearson correlation between yearly changes")
     def correlate(df):
         import pandas as pd
         return pd.DataFrame({"correlation": [df["x"].corr(df["y"])]})
-create edge measurements.out -> correlation.in[0]
 \`\`\`
 
 ## Execution and caching
 
-The editor stages and validates commands before committing. The graph's ordered port connections become the native operator's inputs, its revision and generated engine code. Edge changes invalidate the receiver and its descendants. Valid results on independent branches remain available. Retrieve never executes and observations preserve the result version originally returned.
+The editor stages and validates every statement before committing. The graph's ordered input edges become the native operator's inputs, its revision and generated engine code. A changed definition or input invalidates the operator and its descendants; restating an operator unchanged invalidates nothing. Valid results on independent branches remain available. Retrieve never executes and observations preserve the result version originally returned.
 
-Historical assignment-based traces remain replayable through their original edit interpreter. Newly generated calls use graph commands.
+Edits recorded in the earlier graph-command syntax (\`create operator\`, \`create edge\`) are rejected with a rewrite hint. Expression-mode \`edits\` traces remain replayable through their original interpreter.
 `
   );
 }

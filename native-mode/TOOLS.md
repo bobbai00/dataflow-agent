@@ -6,7 +6,7 @@ Native mode exposes one dataflow tool with a brief rationale and an ordered acti
 
 ## `dataflow`
 
-Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.
+Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of operator assignments. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.
 
 ```json
 {
@@ -199,14 +199,14 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes."
+                "description": "Statements, each starting at the margin: `name = operator(inputs, parameters)` creates name or replaces its whole definition; its inputs are the operator names written first in the call, and they become its incoming edges in port order. `del name` deletes an operator and its edges. Python functions are indented under the operator that uses them. Names resolve against the graph after the whole edit. A failed Edit applies no changes."
               }
             },
             "required": [
               "type",
               "changes"
             ],
-            "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
+            "description": "Apply the operator assignments and deletions in changes, with type=\"edit\". Atomic; does not execute."
           },
           {
             "type": "object",
@@ -363,15 +363,15 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
 }
 ```
 
-Strict tool input: `true`. The SDK sends this flag outside the parameter schema. On configured Claude routes, `bin/strict_tools.py` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; graph commands inside `changes` are validated by the graph parser.
+Strict tool input: `true`. The SDK sends this flag outside the parameter schema. On configured Claude routes, `bin/strict_tools.py` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; the statements inside `changes` are validated by the edit parser.
 
 ## Execution rules
 
-The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.
+The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid statement rejects all changes in that Edit.
 
 Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.
 
-Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.
+Inspection returns definitions, named ports, edges and optional Python implementations. An operator's inputs are its incoming edges: restating it with other inputs replaces them, and deleting an operator removes its incident edges. Each change is reported on its own receipt line.
 
 Reference inspection returns canonical documentation for up to eight selected operators, or a single-task, statistics or history example. It reads no workflow data, executes nothing and adds no task dependency. Examples respect the session's available retrieval views and evidence/history features.
 
@@ -379,7 +379,7 @@ An answer ends the model loop. An answer with content must be the only action in
 
 ## Optional historical state actions
 
-With `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
+With `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `new_name = at(name, task=N)` copies the historical operator and its historical inputs under new names. `name = at(name, task=N)` restores the saved definition on current inputs. The complete enabled schema is:
 
 ```json
 {
@@ -553,14 +553,14 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes."
+                "description": "Statements, each starting at the margin: `name = operator(inputs, parameters)` creates name or replaces its whole definition; its inputs are the operator names written first in the call, and they become its incoming edges in port order. `del name` deletes an operator and its edges. Python functions are indented under the operator that uses them. Names resolve against the graph after the whole edit. A failed Edit applies no changes."
               }
             },
             "required": [
               "type",
               "changes"
             ],
-            "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
+            "description": "Apply the operator assignments and deletions in changes, with type=\"edit\". Atomic; does not execute."
           },
           {
             "type": "object",

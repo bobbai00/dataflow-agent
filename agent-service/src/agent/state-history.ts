@@ -21,9 +21,9 @@ import type { OperatorInfo } from "../types/execution";
 import type { WorkflowContent } from "../types/workflow";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { compileNativeOp, nativeRevision } from "./native/codegen";
-import { NATIVE_BY_TYPE, nativeOperatorName, type NativeOpView } from "./native/catalog";
+import { NATIVE_BY_TYPE, nativeAssignmentText, nativeOperatorName, type NativeOpView } from "./native/catalog";
 import { executionFingerprints, workflowExecutionPlan } from "./native/result-versions";
-import { inspectGraph, missingGraphInputs, type GraphEditPlan } from "./tools/graph-edits";
+import { edgeEnds, inspectGraph, missingGraphInputs, type GraphEditPlan } from "./tools/graph-edits";
 
 /** Addresses the existing snapshot tree; no separate task catalog is stored. */
 export interface HistoricalTask {
@@ -76,14 +76,12 @@ function describeStateOperator(
     operator_id: op.operatorID,
     type: node?.type,
     description: op.nativeOp?.properties.doc,
-    expression: op.nativeOp?.source,
+    expression: op.nativeOp ? nativeAssignmentText(op.operatorID, op.nativeOp) : undefined,
     revision: op.nativeOp?.revision,
     subgraph_hash: hashes?.get(op.operatorID)?.subgraphHash,
     inputs: op.nativeOp?.inputs,
     ports: node?.ports,
-    connections: graph.edges.filter(
-      edge => edge.startsWith(`${op.operatorID}.`) || edge.includes(` -> ${op.operatorID}.`)
-    ),
+    connections: graph.edges.filter(edge => Object.values(edgeEnds(edge)).includes(op.operatorID)),
     result: {
       available: completed(info?.value),
       state: info?.value.state ?? "unavailable",
@@ -265,7 +263,7 @@ export function inspectTaskSubgraph(
     ...full,
     representation: "task_local" as const,
     operators: full.operators.filter(op => local.has(op.operator_id)),
-    edges: full.edges.filter(edge => [...local].some(id => edge.includes(` -> ${id}.`))),
+    edges: full.edges.filter(edge => local.has(edgeEnds(edge).target)),
     boundary_inputs: [...boundary.values()],
     upstream_operator_count: full.operators.length,
   };
@@ -459,7 +457,12 @@ export function forkState(
       status: "added",
       message: `forked from task ${taskId}`,
     })),
-    changes: copies.map(op => ({ operation: "fork_operator", operator_id: op.operatorID })),
+    changes: copies.map(op => ({
+      change: "operator" as const,
+      operator_id: op.operatorID,
+      operator: nativeOperatorName(op.nativeOp.type),
+      action: "created" as const,
+    })),
     unconnected_inputs: missingGraphInputs(workflow),
     invalidated_results: [],
   };

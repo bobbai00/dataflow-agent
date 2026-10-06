@@ -282,7 +282,7 @@ function functionSlot(value: ParsedValue, field: string, context: NormalizeConte
     const fn = context.functions[value.name];
     if (!fn)
       return fail(
-        `${field} refers to ${value.name}, which is not a function defined in this program. Define it with \`def ${value.name}(...)\` above the operator, or pass a lambda.`,
+        `${field} refers to ${value.name}, which is not a function defined in this edit. Indent \`def ${value.name}(...)\` under the operator, or pass a lambda.`,
         field
       );
     // The slot's source must run on its own in the engine, so it carries every
@@ -297,10 +297,7 @@ function functionSlot(value: ParsedValue, field: string, context: NormalizeConte
     context.used(slot);
     return slot;
   }
-  return fail(
-    `${field} must be a lambda or the name of a function defined in this program, got ${show(value)}.`,
-    field
-  );
+  return fail(`${field} must be a lambda or the name of a function defined in this edit, got ${show(value)}.`, field);
 }
 
 /** The program functions a piece of source names, transitively, dependencies first. */
@@ -918,7 +915,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       keywords("process", kwargs, ["fn", "doc"]);
       if (rest.length > 1) fail("process takes its input tables, then fn= and doc=.");
       const fnValue = rest[0] ?? kwargs.fn;
-      if (!fnValue) fail("process needs fn=<function defined in this program>.", "fn");
+      if (!fnValue) fail("process needs fn=<function defined in this edit>.", "fn");
       const slot = functionSlot(fnValue!, "fn", context);
       if (slot.params.length !== context.inputs.length)
         fail(
@@ -949,23 +946,8 @@ export function nativeCatalogText(compact = false): string {
   ).join("\n\n");
 }
 
-/** Graph authoring keeps table connections out of the parameter expression. */
-export function graphOperatorSignature(def: NativeOperatorDef): string {
-  if (def.name === "process") return 'process(fn=function, doc="what it does")';
-  if (def.name === "union") return 'union(schema="strict")';
-  return def.signature.replace(/\(T, /, "(").replace(/\(L, R, /, "(");
-}
-
-export function graphOperatorPorts(def: NativeOperatorDef): string {
-  if (def.inputs === 0) return "no inputs -> out";
-  if (def.inputs === 1) return "in -> out";
-  if (def.inputs === 2) return "left, right -> out";
-  return def.name === "union"
-    ? "in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255)"
-    : "in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader";
-}
-
-export function graphCatalogText(names?: readonly string[]): string {
+/** The prompt's operator reference: each signature (input tables first) and its contract. */
+export function catalogText(names?: readonly string[]): string {
   const selected = names
     ? names.map(name => {
         const def = NATIVE_BY_NAME.get(name);
@@ -973,14 +955,26 @@ export function graphCatalogText(names?: readonly string[]): string {
         return def;
       })
     : NATIVE_OPERATORS;
-  return selected
-    .map(def => `${graphOperatorSignature(def)}\n    Ports: ${graphOperatorPorts(def)}.\n    ${def.brief}`)
-    .join("\n\n");
+  return selected.map(def => `${def.signature}\n    ${def.brief}`).join("\n\n");
 }
 
-/** Signatures and ports stay visible when contracts are retrieved on demand. */
-export function graphCatalogIndexText(): string {
-  return NATIVE_OPERATORS.map(def => `${graphOperatorSignature(def)} — ${graphOperatorPorts(def)}`).join("\n");
+/** Signatures stay visible when contracts are retrieved on demand. */
+export function catalogIndexText(): string {
+  return NATIVE_OPERATORS.map(def => def.signature).join("\n");
+}
+
+/** A definition as the model writes it, `id = operator(inputs, ...)`, with its
+ * current inputs; an unconnected input shows as `?`. Stored sources omit the
+ * inputs because edges own them. */
+export function nativeAssignmentText(id: string, view: NativeOpView): string | undefined {
+  if (!view.source) return undefined;
+  // Expression-mode programs stored the whole assignment, inputs included.
+  if (!view.graph) return view.source;
+  const inputs = view.inputs.map(input => input || "?");
+  const open = view.source.indexOf("(");
+  if (!inputs.length || open < 0) return `${id} = ${view.source}`;
+  const rest = view.source.slice(open + 1);
+  return `${id} = ${view.source.slice(0, open + 1)}${inputs.join(", ")}${rest.startsWith(")") ? "" : ", "}${rest}`;
 }
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.

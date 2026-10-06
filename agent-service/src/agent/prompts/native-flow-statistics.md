@@ -45,8 +45,8 @@ the task asks for it; establish that before using its aggregate.
 Failed-value and unmatched-key examples are bounded examples with counts.
 They can be clipped and need not enumerate all affected values. Absent or
 trimmed flow lines do not establish that there were no losses or failures.
-Custom functions have unknown internal row and column mapping, so inspect
-their definition and return diagnostics as columns when needed.
+Custom functions have unknown internal row and column mapping; return
+diagnostics as columns when you need them.
 
 Each enabled kind of statistics has its own budget and does not displace
 records. Use these measurements to evaluate a computation, and validate the

@@ -234,18 +234,16 @@ async function probes() {
   const retrieve = (operator_id: string): DataflowAction => ({ type: "retrieve", operator_id, view: "sample" });
   const edit = (changes: string): DataflowAction => ({ type: "edit", changes });
   const execute: DataflowAction = { type: "execute" };
-  const loader = (last: number, verb = "create") =>
-    `${verb} operator source: process(fn=load_source, doc="Three rows with an execution timestamp")\n    def load_source():\n        import pandas as pd\n        import time\n        return pd.DataFrame({"x": [1, 2, ${last}], "stamp": [str(time.time_ns())] * 3})`;
+  const loader = (last: number) =>
+    `source = process(fn=load_source, doc="Three rows with an execution timestamp")\n    def load_source():\n        import pandas as pd\n        import time\n        return pd.DataFrame({"x": [1, 2, ${last}], "stamp": [str(time.time_ns())] * 3})`;
   const other =
-    'create operator other: process(fn=load_other, doc="An independent constant table")\n    def load_other():\n        import pandas as pd\n        return pd.DataFrame({"x": [10]})';
+    'other = process(fn=load_other, doc="An independent constant table")\n    def load_other():\n        import pandas as pd\n        return pd.DataFrame({"x": [10]})';
   // Execute covers both independent components. The existing scheduler sends
   // each component in its own backend request, even when both are cache hits.
   const initial = await run(
     "initial execution",
     [
-      edit(
-        `${loader(3)}\n${other}\ncreate operator total: aggregate(sum_x=sum("x"))\ncreate edge source.out -> total.in`
-      ),
+      edit(`${loader(3)}\n${other}\ntotal = aggregate(source, sum_x=sum("x"))`),
       execute,
       retrieve("source"),
       retrieve("total"),
@@ -263,7 +261,7 @@ async function probes() {
   }
   const leaf = await run(
     "leaf edit keeps ancestors cached",
-    [edit('update operator total: aggregate(sum_x=sum("x"), n=count())'), execute, retrieve("total")],
+    [edit('total = aggregate(source, sum_x=sum("x"), n=count())'), execute, retrieve("total")],
     ["ok", "ok", "ok"],
     2
   );
@@ -272,7 +270,7 @@ async function probes() {
   assert.equal((leaf.snapshot.results.other as any).state, "CompletedFromCache");
   await run(
     "stale retrieval fails and skips execute",
-    [edit(loader(4, "update")), retrieve("total"), execute],
+    [edit(loader(4)), retrieve("total"), execute],
     ["ok", "error", "skipped"],
     0
   );
@@ -283,12 +281,10 @@ async function probes() {
   assert.equal((revised.snapshot.results.total as any).state, "Completed");
   assert.equal((revised.snapshot.results.other as any).state, "CompletedFromCache");
   const partial = await run(
-    "missing edge endpoint rejects the entire edit and skips suffix",
+    "an unknown input rejects the entire edit and skips suffix",
     [
       { type: "inspect", target: "graph" },
-      edit(
-        "create operator good: limit(1)\ncreate operator bad: limit(1)\ncreate edge other.out -> good.in\ncreate edge missing.out -> bad.in"
-      ),
+      edit("good = limit(other, 1)\nbad = limit(missing, 1)"),
       execute,
       retrieve("good"),
     ],
@@ -299,8 +295,8 @@ async function probes() {
   assert.ok(!partial.snapshot.workflow!.operators.some(op => op.operatorID === "bad" || op.operatorID === "blocked"));
   assert.doesNotMatch(renderDataflowActionsResult(partial.result), /\bprogram\b/i);
   const rewired = await run(
-    "edge change recomputes the receiver",
-    [edit("delete edge source.out -> total.in\ncreate edge other.out -> total.in"), execute, retrieve("total")],
+    "input change recomputes the receiver",
+    [edit('total = aggregate(other, sum_x=sum("x"), n=count())'), execute, retrieve("total")],
     ["ok", "ok", "ok"],
     2
   );
@@ -308,13 +304,7 @@ async function probes() {
   assert.equal((rewired.snapshot.results.source as any).state, "CompletedFromCache");
   const joined = await run(
     "self-join uses left and right ports",
-    [
-      edit(
-        'create operator joined: join(on="x")\ncreate edge source.out -> joined.left\ncreate edge source.out -> joined.right'
-      ),
-      execute,
-      retrieve("joined"),
-    ],
+    [edit('joined = join(source, source, on="x")'), execute, retrieve("joined")],
     ["ok", "ok", "ok"],
     2
   );
@@ -326,13 +316,15 @@ async function probes() {
   );
   const deleted = await run(
     "delete removes every incident edge",
-    [edit("delete operator joined\ndelete operator other"), retrieve("total")],
+    [edit("del joined\ndel other"), retrieve("total")],
     ["ok", "error"],
     0
   );
   const receipt = renderDataflowActionsResult(deleted.result);
-  assert.ok(receipt.includes("source.out -> joined.left") && receipt.includes("source.out -> joined.right"));
-  assert.ok(receipt.includes("other.out -> total.in"));
+  assert.ok(
+    receipt.includes("edge source -> joined.left removed") && receipt.includes("edge source -> joined.right removed")
+  );
+  assert.ok(receipt.includes("edge other -> total removed"));
   await run(
     "unconnected execute blocks before engine and permits independent retrieval",
     [execute, retrieve("source")],
@@ -340,8 +332,8 @@ async function probes() {
     0
   );
   const restored = await run(
-    "reconnect after deletion",
-    [edit("create edge source.out -> total.in"), execute, retrieve("total")],
+    "restate after deletion",
+    [edit('total = aggregate(source, sum_x=sum("x"), n=count())'), execute, retrieve("total")],
     ["ok", "ok", "ok"],
     1
   );
@@ -349,14 +341,12 @@ async function probes() {
   const dates = await run(
     "datetime cast survives transport to a native consumer",
     [
-      edit(`create operator date_source: process(fn=load_date, doc="One local timestamp")
+      edit(`date_source = process(fn=load_date, doc="One local timestamp")
     def load_date():
         import pandas as pd
         return pd.DataFrame({"when": ["2025-01-01 00:00:00"]})
-create operator utc_dates: cast(when=datetime(tz="America/Los_Angeles"))
-create operator utc_hour: map(lambda row: {"hour": row["when"].hour}, doc="Hour of the converted UTC timestamp")
-create edge date_source.out -> utc_dates.in
-create edge utc_dates.out -> utc_hour.in`),
+utc_dates = cast(date_source, when=datetime(tz="America/Los_Angeles"))
+utc_hour = map(utc_dates, lambda row: {"hour": row["when"].hour}, doc="Hour of the converted UTC timestamp")`),
       execute,
       retrieve("utc_hour"),
     ],
@@ -388,14 +378,12 @@ async function retrievalProbes() {
   await debug(agentId, [
     {
       type: "edit",
-      changes: `create operator wide: process(fn=load_rows, doc="One thousand records")
+      changes: `wide = process(fn=load_rows, doc="One thousand records")
     def load_rows():
         import pandas as pd
         return pd.DataFrame({"x": [None if i % 100 == 0 else i for i in range(1000)], "label": ["record-" + str(i) + "q" * 32 for i in range(1000)]})
-create operator projected: project(keep=["x"])
-create operator filtered: filter(lambda row: row["x"] is not None and row["x"] > 500, doc="Values above 500")
-create edge wide.out -> projected.in
-create edge projected.out -> filtered.in`,
+projected = project(wide, keep=["x"])
+filtered = filter(projected, lambda row: row["x"] is not None and row["x"] > 500, doc="Values above 500")`,
     },
     { type: "execute" },
   ]);
@@ -442,12 +430,11 @@ async function timestampProbe() {
   await debug(agentId, [
     {
       type: "edit",
-      changes: `create operator dates: process(fn=load_dates, doc="Two known UTC instants")
+      changes: `dates = process(fn=load_dates, doc="Two known UTC instants")
     def load_dates():
         import pandas as pd
         return pd.DataFrame({"when": pd.to_datetime(["2025-01-01T08:00:00Z", "2025-07-01T07:00:00Z"], utc=True)})
-create operator date_strings: map(lambda row: {"iso": row["when"].isoformat()}, doc="UTC value seen by the next operator")
-create edge dates.out -> date_strings.in`,
+date_strings = map(dates, lambda row: {"iso": row["when"].isoformat()}, doc="UTC value seen by the next operator")`,
     },
     { type: "execute" },
     { type: "retrieve", operator_id: "dates", view: "sample_stats" },
@@ -472,8 +459,7 @@ create edge dates.out -> date_strings.in`,
   await debug(agentId, [
     {
       type: "edit",
-      changes:
-        'update operator date_strings: map(lambda row: {"hour": row["when"].hour}, doc="UTC hour from cached source")',
+      changes: 'date_strings = map(dates, lambda row: {"hour": row["when"].hour}, doc="UTC hour from cached source")',
     },
     { type: "execute" },
     { type: "retrieve", operator_id: "date_strings", view: "sample_stats" },

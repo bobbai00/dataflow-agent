@@ -29,11 +29,9 @@ async function fixture(results = true) {
   const context = { metadataStore };
   const first = await planGraphEdit(
     new WorkflowState().getWorkflowContent(),
-    `create operator source: scan("old.csv")
-create operator prepared: filter(lambda row: row["x"] > 0, doc="Keep positive values")
-create operator prior_answer: aggregate(n=count())
-create edge source.out -> prepared.in
-create edge prepared.out -> prior_answer.in`,
+    `source = scan("old.csv")
+prepared = filter(source, lambda row: row["x"] > 0, doc="Keep positive values")
+prior_answer = aggregate(prepared, n=count())`,
     context
   );
   const path = ["s1", "s2", "s3"];
@@ -52,19 +50,12 @@ create edge prepared.out -> prior_answer.in`,
       });
   const second = await planGraphEdit(
     first.workflow,
-    `create operator left_values: map(lambda row: {"x": row["x"] + 1}, doc="Add one to each value")
-create operator right_values: map(lambda row: {"x": row["x"] + 2}, doc="Add two to each value")
-create operator combined: union(schema="strict")
-create operator unique_values: distinct(columns=["x"])
-create operator answer: aggregate(n=count())
-create operator experiment: limit(1)
-create edge prepared.out -> left_values.in
-create edge prepared.out -> right_values.in
-create edge left_values.out -> combined.in[0]
-create edge right_values.out -> combined.in[1]
-create edge combined.out -> unique_values.in
-create edge unique_values.out -> answer.in
-create edge source.out -> experiment.in`,
+    `left_values = map(prepared, lambda row: {"x": row["x"] + 1}, doc="Add one to each value")
+right_values = map(prepared, lambda row: {"x": row["x"] + 2}, doc="Add two to each value")
+combined = union(left_values, right_values, schema="strict")
+unique_values = distinct(combined, columns=["x"])
+answer = aggregate(unique_values, n=count())
+experiment = limit(source, 1)`,
     context
   );
   storage.createSnapshot("s2", second.workflow);
@@ -105,7 +96,7 @@ test("a task shows its five contributing operators and one shared saved input", 
 
 test("a changed ancestor keeps unchanged downstream definitions inside the local computation", async () => {
   const { storage, tasks, first, context } = await fixture();
-  const changed = await planGraphEdit(first.workflow, 'update operator source: scan("new.csv")', context);
+  const changed = await planGraphEdit(first.workflow, 'source = scan("new.csv")', context);
   storage.createSnapshot("s3", changed.workflow);
   tasks[1].stepId = "s3";
   const graph = inspectTaskSubgraph(storage, tasks[1], tasks, ["prior_answer"], false);
@@ -147,7 +138,7 @@ test("input metadata is pinned to its owning snapshot, including after a later c
 
 test("restoring an older computation is local when it changes the immediately preceding task", async () => {
   const { first, context } = await fixture();
-  const changed = await planGraphEdit(first.workflow, 'update operator source: scan("changed.csv")', context);
+  const changed = await planGraphEdit(first.workflow, 'source = scan("changed.csv")', context);
   const path = ["before", "changed", "restored"];
   const storage = new WorkflowSnapshotStorage(id => path.slice(0, path.indexOf(id) + 1));
   storage.createSnapshot("before", first.workflow);

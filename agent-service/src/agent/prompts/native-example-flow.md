@@ -20,7 +20,8 @@
 ### Example: use cast flow statistics to repair unintended missing values
 
 Request: analyze fractional measurements. `measurements` was loaded with
-`all_text=True`, and `typed` was defined with `cast(value=int64, errors="null")`.
+`all_text=True`, and `typed` was defined as
+`typed = cast(measurements, value=int64, errors="null")`.
 The execute receipt reports:
 
 ```text
@@ -47,7 +48,7 @@ cast, then retrieve the repaired result and check the cast's reported failures:
 {
   "reasoning": "Preserve valid fractional measurements with a floating-point cast.",
   "actions": [
-    {"type": "edit", "changes": "update operator typed: cast(value=float64, errors=\"raise\")"},
+    {"type": "edit", "changes": "typed = cast(measurements, value=float64, errors=\"raise\")"},
     {"type": "execute", "operator_ids": ["typed"]},
     {"type": "retrieve", "operator_id": "typed", "view": "sample_stats"}
   ]
@@ -56,9 +57,9 @@ cast, then retrieve the repaired result and check the cast's reported failures:
 
 ### Example: use join flow statistics to check population coverage
 
-Request: include all orders in a regional budget analysis. `compared` is an
-inner join of `budget_orders` and `budgets`. Its block in the execute receipt
-reads:
+Request: include all orders in a regional budget analysis. `compared` is
+defined as `compared = join(budget_orders, budgets, on="region", how="inner")`.
+Its block in the execute receipt reads:
 
 ```text
 - **compared** (join, executed)
@@ -75,13 +76,13 @@ reads:
 The returned rows alone may look reasonable, but the flow measurement reveals
 that the join excluded three of the twelve orders. Their keys, `EAST` and
 `WEST`, differ from the matched `east` and `west` only in case. Normalize the
-keys before the join, reconnect it and recompute:
+keys before the join, restate the join with the normalized input and recompute:
 
 ```json
 {
   "reasoning": "Normalize region keys so every order finds its budget.",
   "actions": [
-    {"type": "edit", "changes": "create operator normalized: map(lambda row: {**row, \"region\": row[\"region\"].lower() if row[\"region\"] is not None else None}, doc=\"Orders with lower-case region keys\")\ndelete edge budget_orders.out -> compared.left\ncreate edge budget_orders.out -> normalized.in\ncreate edge normalized.out -> compared.left"},
+    {"type": "edit", "changes": "normalized = map(budget_orders, lambda row: {**row, \"region\": row[\"region\"].lower() if row[\"region\"] is not None else None}, doc=\"Orders with lower-case region keys\")\ncompared = join(normalized, budgets, on=\"region\", how=\"inner\")"},
     {"type": "execute", "operator_ids": ["compared"]},
     {"type": "retrieve", "operator_id": "compared", "view": "sample_stats"}
   ]

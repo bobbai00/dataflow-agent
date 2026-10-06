@@ -38,7 +38,7 @@ The generated references are the source of truth for the public interface:
 | Declare answer sources | `type: "answer"`, `content`, optional `operator_ids` | Records completed answer tables as retrieval roots; an answer with `from` records these automatically |
 | Inspect graph | `target: "graph"`, `operator_ids` | Named current operators, direct input references, ports, result shapes and unconnected inputs; single-task sessions also allow an unscoped graph read |
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
-| Edit | `changes` | Applied change count, automatically deleted edges, unconnected inputs and invalidated results |
+| Edit | `changes` | One line per operator and edge change, invalidated results and unconnected inputs |
 | Execute | none | Completed operator count, errors and diagnostics; valid cached results can be reused |
 | Retrieve | `operator_id`, `view` | Existing records as `full`, `sample`, or `sample_stats`, with automatic flow evidence when enabled |
 | Answer | `content` | Final response; ends the loop |
@@ -62,34 +62,44 @@ context. Full operator receipts remain in the saved trace. Retrieve provides
 row counts and tables; execution does not repeat every successful operator
 from earlier tasks. Errors and enabled checks remain visible immediately.
 
-## Graph syntax
+## Edit statements
+
+An Edit's `changes` string holds statements, each starting at the margin:
 
 ```text
-create operator <id>: <operator>(parameters)
-update operator <id>: <operator>(parameters)
-delete operator <id>
-create edge <source>.out -> <target>.<input_port>
-delete edge <source>.out -> <target>.<input_port>
+<name> = <operator>(<input>, ..., <parameter>=<value>, ...)
+    def helper(...):          # Python, indented under the operator that uses it
+del <name>, ...
 ```
 
-Identifiers contain letters, digits and underscores and start with a letter or
-underscore. Create requires a new ID; Update requires an existing one. Update
-supplies the complete definition, preserves the ID and all connections, and
-resets omitted parameters to defaults. An incompatible definition is rejected.
+Names contain letters, digits and underscores and start with a letter or
+underscore; Python keywords are rejected with a rename hint.
 
-Saved `modify operator` edits remain replayable as a legacy spelling. New calls
-and observations use `update operator`.
+- **Create or replace.** Assigning a new name creates the operator. Assigning an
+  existing name replaces its whole definition: parameters (omitted ones reset to
+  defaults), functions and inputs. Restating an operator unchanged is a no-op
+  and invalidates nothing.
+- **Inputs are edges.** The leading positional names of the call are the input
+  tables, in port order; the catalog's arity decides how many there are. Each
+  becomes an edge into the operator. Restating an operator with other inputs
+  removes the edges whose source changed and creates the new ones; edges that
+  did not change stay. Outgoing edges belong to the consumers' statements and
+  are never touched by restating the producer.
+- **Delete.** `del x` removes `x` and every incident edge. A consumer left
+  without an input stays in the graph; it must be restated or deleted before it
+  executes.
+- **Order.** Names resolve against the graph as it stands after the whole Edit,
+  so statements may come in any order. A name is assigned at most once per Edit,
+  and an operator cannot be its own input (`x = filter(x, ...)` is rejected with
+  a hint to name the new table).
+- **Atomicity.** Every statement is validated on a private draft before
+  anything is committed. An unknown input, a wrong number of inputs, a nested
+  operator call, a cycle or an invalid parameter rejects the whole Edit, and
+  previous results stay valid.
 
-Operator expressions contain parameters only; edges supply all input tables.
-Delete automatically removes every incident edge and lists them in its receipt.
-Consumers remain in the graph with unconnected inputs. Edges cannot be updated:
-delete the old edge and create its replacement.
-
-Commands are staged in order. Each Edit is atomic: a missing operator, invalid
-parameter or port, occupied input, or cycle rejects all changes in that Edit.
-Unconnected inputs are allowed during construction. Execute requires every
-required input in its execution scope to be connected. A rejected Edit leaves
-previous results valid.
+Every input of an operator is named in its statement, so the edit language
+cannot leave an operator unconnected except through `del`. Execute requires
+every input in its scope to be connected.
 
 To run one task's branch, use `{"type":"execute","operator_ids":["total"]}`.
 This materializes `total` and every upstream dependency while leaving other
@@ -101,16 +111,34 @@ existing freshness checks.
 
 ### Ports
 
-Every operator has one output, `out`. An input accepts exactly one edge; an
-output may feed any number of inputs, including both sides of a self-join.
+Every operator has one output, `out`. An input takes one edge; an output may
+feed any number of inputs, including both sides of a self-join.
 
-| Operators | Input ports |
+| Operators | Inputs, in port order |
 |---|---|
 | `scan` | none |
-| `project`, `cast`, `filter`, `map`, `aggregate`, `distinct`, `sort`, `limit`, `window`, `unpivot`, `pivot` | `in` |
-| `join` | `left`, `right` |
-| `union` | Consecutive `in[0]`, `in[1]`, …; at least two, at most 256 |
-| `process` | One `in[i]` per function parameter, in parameter order; no parameters means a source |
+| `project`, `cast`, `filter`, `map`, `aggregate`, `distinct`, `sort`, `limit`, `window`, `unpivot`, `pivot` | one: `in` |
+| `join` | two: `left`, `right` |
+| `union` | two or more: `in[0]`, `in[1]`, … |
+| `process` | one per function parameter: `in[0]`, …; none for a loader |
+
+### Receipts
+
+An Edit reports one line per change, then the results it invalidated and any
+unconnected inputs. A port is named only when the operator has several:
+
+```text
+### 1. edit: ok
+operator orders updated (scan)
+operator totals created (aggregate)
+operator compared unchanged
+operator scratch deleted
+edge orders -> totals created
+edge budgets -> compared.right removed
+edge budgets_2024 -> compared.right created
+results invalidated: orders, compared
+top.in is unconnected; restate top with its inputs or delete it before executing.
+```
 
 ### Example
 
@@ -118,44 +146,46 @@ output may feed any number of inputs, including both sides of a self-join.
 {
   "reasoning": "Count the source rows and check the result.",
   "actions": [
-    {"type": "edit", "changes": "create operator source: scan(\"data/orders.csv\")\ncreate operator total: aggregate(n=count())\ncreate edge source.out -> total.in"},
+    {"type": "edit", "changes": "source = scan(\"data/orders.csv\")\ntotal = aggregate(source, n=count())"},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "total", "view": "sample"}
   ]
 }
 ```
 
-To change the calculation while keeping the edge:
+To change the calculation, restate it; its input stays `source`:
 
 ```dataflow
-update operator total: aggregate(total_amount=sum("amount"))
+total = aggregate(source, total_amount=sum("amount"))
 ```
 
-Given another source named `replacement`, rewire explicitly:
+Given another source named `replacement`, rewire by naming it:
 
 ```dataflow
-delete edge source.out -> total.in
-create edge replacement.out -> total.in
+total = aggregate(replacement, total_amount=sum("amount"))
 ```
 
-Deleting `replacement` now removes `replacement.out -> total.in` automatically.
-The observation lists that removal and identifies `total.in` as unconnected.
-Reconnect it before executing:
+The receipt reports `edge source -> total removed` and
+`edge replacement -> total created`. Deleting `replacement` removes
+`replacement -> total` and leaves `total.in` unconnected until `total` is
+restated or deleted.
 
-```dataflow
-delete operator replacement
-create edge source.out -> total.in
-```
+### Saved versions (`stateHistory`)
+
+`x = at(x, task=N)` restores the definition task N saved, in place, on today's
+inputs. `y = at(x, task=N)` copies x and the inputs it had at task N under new
+names, with their saved results. A restore of an operator deleted since task N
+re-creates it on its saved inputs when they still exist; otherwise it is
+rejected with a hint to copy it under a new name.
 
 ### Python implementations
 
 Keep loading, deriving columns, filtering, joining and aggregation in separate
 predefined operators. Each stage produces an independently retrievable table.
-Build a known chain and its edges in one Edit, then execute and retrieve the
-needed results.
+Build a known chain in one Edit, then execute and retrieve the needed results.
 
 Use `process` for one operation the catalog cannot express. A custom calculation
-consumes connected tables; a source process loads an unsupported format and
+consumes its input tables; a source process loads an unsupported format and
 returns its parsed table. Use predefined operators for subsequent transformations.
 Filter and map receive one row; process receives one DataFrame per input and
 returns one DataFrame. All three require a `doc` describing the output's meaning.
@@ -168,15 +198,26 @@ exact. Each process receives its own copy of the inputs.
 Functions are lambdas or complete definitions indented under the operator that
 uses them. Helpers belong in the same block and imports belong inside functions.
 There are no shared definitions between operators. Include required functions
-again when updating an operator.
+again when restating an operator.
 
 ```dataflow
-create operator correlation: process(fn=correlate, doc="Pearson correlation of x and y")
+correlation = process(source, fn=correlate, doc="Pearson correlation of x and y")
     def correlate(df):
         import pandas as pd
         return pd.DataFrame({"correlation": [df["x"].corr(df["y"])]})
-create edge source.out -> correlation.in[0]
 ```
+
+### Why assignments
+
+Until 2026-10-06 an Edit used graph commands (`create operator x: op(params)`,
+`update operator`, `delete operator`, `create edge a.out -> x.in`,
+`delete edge`). On 208 Luna KramaBench attempts (full-statistics A/B, rep 1),
+edit text was 41% of output tokens; rewriting the recorded edits as
+assignments shrinks edit text by 7.3% (about 3% of output). The language also
+removes three failure classes seen in those traces: reconnecting an occupied
+input (3 rejected edits), malformed command lines (1), updating an unknown
+operator (1), and process operators executed without their edges (4 rejected
+executions).
 
 ## Execution, results and caching
 
@@ -269,19 +310,26 @@ snapshot tree; this feature adds no separate catalog or task store.
 ### Graph implementation
 
 `native/catalog.ts` defines operator parameters, meanings and input arity.
-`native/python/graph_parser.py` parses the five graph commands and extracts
-operator-local functions without executing them. `tools/graph-edits.ts` stages
-and validates a private graph, then returns a complete plan for the runtime to
-commit after checking cancellation and ownership.
+`native/python/graph_parser.py` splits an Edit into statements, parses each
+with the program parser (Python `ast`, nothing executed) and returns every
+argument's source text. `tools/graph-edits.ts` splits each call's inputs from
+its parameters by arity, stores the definition without its inputs, derives the
+incoming edges, compares them with the current ones, and stages the whole
+change on a private graph; the runtime commits the plan after checking
+cancellation and ownership. Rendered definitions put the current inputs back
+(`total = aggregate(source, ...)`), so a rewired or copied operator never
+shows stale input names.
 
 Logical port connections become ordered native inputs and physical engine
 ports. The native compiler and Python validator check definitions and callback
 signatures. Runtime errors retain the existing operator error taxonomy, repair
 hints, source locations and result contracts.
 
-Existing assignment-based traces remain replayable through their original edit
-interpreter. New calls use graph commands. Historical benchmark arms must run
-at their recorded service revision. Code-mode behavior is unchanged.
+Edits recorded in the graph-command syntax are rejected with a rewrite hint, so
+traces from before 2026-10-06 no longer replay their edits; expression-mode
+`edits` traces still replay through their original interpreter. Historical
+benchmark arms must run at their recorded service revision. Code-mode behavior
+is unchanged.
 
 ## Defaults and verification
 

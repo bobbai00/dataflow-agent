@@ -129,20 +129,19 @@ for (const scenario of cases) {
     const seeded = await actions([
       {
         type: "edit",
-        changes: unique.map(i => `create operator ${i.operator_id}: scan(${JSON.stringify(i.path)})`).join("\n"),
+        changes: unique.map(i => `${i.operator_id} = scan(${JSON.stringify(i.path)})`).join("\n"),
       },
       { type: "execute", operator_ids: unique.map(i => i.operator_id) },
     ]);
     assert.equal(seeded.receipt.status, "completed");
-    const edges = (id: string) =>
-      scenario.inputs.map((i, port) => `create edge ${i.operator_id}.out -> ${id}.in[${port}]`).join("\n");
+    const inputs = scenario.inputs.map(i => i.operator_id).join(", ");
     const countId = `${label}_counts`;
     const params = scenario.inputs.map((_, i) => `p${i}`).join(", ");
     const columns = scenario.inputs.map((_, i) => `${JSON.stringify(`port_${i}`)}: [len(p${i})]`).join(", ");
     const counts = await actions([
       {
         type: "edit",
-        changes: `create operator ${countId}: process(fn=count_inputs, doc="Verify each input port")\n    def count_inputs(${params}):\n        import pandas as pd\n        return pd.DataFrame({${columns}})\n${edges(countId)}`,
+        changes: `${countId} = process(${inputs}, fn=count_inputs, doc="Verify each input port")\n    def count_inputs(${params}):\n        import pandas as pd\n        return pd.DataFrame({${columns}})`,
       },
       { type: "execute", operator_ids: [countId] },
       { type: "retrieve", operator_id: countId, view: "full" },
@@ -153,10 +152,10 @@ for (const scenario of cases) {
     const callback = await actions([
       {
         type: "edit",
-        changes: `create operator ${label}: process(fn=${entry}, doc="Replay original callback")\n${code
+        changes: `${label} = process(${inputs}, fn=${entry}, doc="Replay original callback")\n${code
           .split("\n")
           .map(l => "    " + l)
-          .join("\n")}\n${edges(label)}`,
+          .join("\n")}`,
       },
       { type: "execute", operator_ids: [label] },
       { type: "retrieve", operator_id: label, view: "full" },
@@ -216,7 +215,7 @@ for (const scenario of cases) {
       await actions([
         {
           type: "edit",
-          changes: `create operator ${faultId}: aggregate(n=count())\ncreate edge ${source}.out -> ${faultId}.in`,
+          changes: `${faultId} = aggregate(${source}, n=count())`,
         },
       ]);
       const moved: string[] = [];

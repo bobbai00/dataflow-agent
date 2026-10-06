@@ -148,7 +148,7 @@ import {
   type DriverRunTurnResult,
 } from "./llm-drivers/types";
 import { forkState, historicalTask } from "./state-history";
-import { restoreCommands, splitVersionCommands } from "./state-ledger";
+import { restoreAssignment, splitVersionCommands } from "./state-ledger";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -2681,12 +2681,12 @@ export class TexeraAgent {
                         );
                       } else {
                         expanded.push(
-                          restoreCommands(
+                          restoreAssignment(
                             this.snapshotStorage,
                             task,
                             this.workflowState.getWorkflowContent(),
                             command.id
-                          ).commands
+                          ).assignment
                         );
                       }
                     }
@@ -2964,7 +2964,7 @@ export class TexeraAgent {
     const input = {
       reasoning: "Load the supplied source files.",
       actions: [
-        { type: "edit", changes: plan.program.replace(/^(\w+) = /gm, "create operator $1: ") },
+        { type: "edit", changes: plan.program },
         { type: "execute" },
         ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id, view })),
       ],

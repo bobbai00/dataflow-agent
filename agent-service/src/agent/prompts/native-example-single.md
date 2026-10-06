@@ -26,7 +26,7 @@ Request: report the total order amount by region. The layout of
 {
   "reasoning": "Preview the orders file to choose its parse options.",
   "actions": [
-    {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
+    {"type": "edit", "changes": "orders = scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}
   ]
@@ -61,7 +61,7 @@ compute the requested totals in the same call:
 {
   "reasoning": "Load all orders and compute total amounts by region.",
   "actions": [
-    {"type": "edit", "changes": "update operator orders: scan(\"data/orders.csv\", skip_lines=1)\ncreate operator totals: aggregate(by=[\"region\"], total=sum(\"amount\"))\ncreate edge orders.out -> totals.in"},
+    {"type": "edit", "changes": "orders = scan(\"data/orders.csv\", skip_lines=1)\ntotals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))"},
     {"type": "execute", "operator_ids": ["totals"]},
     {"type": "retrieve", "operator_id": "totals", "view": "full"}
   ]
@@ -72,13 +72,10 @@ Observation:
 
 ```text
 ### 1. edit: ok
-3 changes applied; results invalidated: orders.
-- **orders** (scan, updated)
-  - result: stale (execute to recompute)
-- **totals** (aggregate, created)
-  - inputs: `orders`
-  - result: not run
-- created edge: orders.out -> totals.in
+operator orders updated (scan)
+operator totals created (aggregate)
+edge orders -> totals created
+results invalidated: orders
 
 ### 2. execute totals: ok
 2 operators in scope: 2 executed, 0 cached.

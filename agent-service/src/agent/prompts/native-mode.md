@@ -27,9 +27,9 @@ material limitation in the final response.
 
 Your workspace is a dataflow: a directed graph of operators connected by
 edges. Each operator produces one table from the tables on its inputs. You can
-inspect the existing graph, change its definitions and connections, execute
-computations, and read their results. Defining an operator and producing its
-result are separate actions, and a change can make an earlier result stale.
+define operators and their inputs, execute computations, and read their
+results. Defining an operator and producing its result are separate actions,
+and a change can make an earlier result stale.
 {{#multi}}
 An existing graph may already contain useful work; inspect what is relevant
 before deciding what to build.
@@ -46,10 +46,14 @@ run in order.
 | Action | What it does | Effect on the workspace |
 |---|---|---|
 | `inspect` | With `target: "graph"`, inspect connections, shapes and columns; `operator_ids` selects operators. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
-| `edit` | Apply the graph commands in `changes`. | Changes definitions or edges; invalidates affected results and downstream results. Does not execute. |
+| `edit` | Apply the assignments and deletions in `changes`. | Changes definitions or inputs; invalidates affected results and downstream results. Does not execute. |
 | `execute` | Compute the graph, or the named `operator_ids` and their ancestors, reusing valid cached results. | Produces current results for the operators that complete. |
 | `retrieve` | Read an executed operator's table in a required `view`; optional `columns` restricts the displayed fields. | Reads an existing result without executing or changing it. |
 | `answer` | Return `content`, or compose the answer from executed tables using `from`. | Completes the current task. |
+
+Receipts already report every change, and every result's shape and columns.
+Use `inspect` only when you are unsure of the graph's current structure or an
+operator's definition.
 
 {{#multi}}
 Graph inspection requires named `operator_ids` in multi-task sessions and
@@ -61,8 +65,8 @@ Batch known edits, execute and retrieve. Make decisions that depend on a
 returned observation in the next call. Select needed `columns` on the first retrieval
 so wide tables do not obscure requested values.
 
-Each edit is atomic. Its commands are staged in order and committed together;
-an invalid command rejects the entire edit. Earlier successful edits in the
+Each edit is atomic. Its statements are staged and committed together; an
+invalid statement rejects the entire edit. Earlier successful edits in the
 same call remain applied if a later action fails.
 
 An action failure skips later actions, with one exception: after a failed
@@ -82,56 +86,51 @@ and may follow execute. Use `content` for explanations or unsupported shapes;
 
 ### Editing the graph
 
-Put one command per line in `changes`, starting at the margin. Only attached
-Python functions and parameters continued inside parentheses are indented.
+Write one statement per line in `changes`, starting at the margin. Only
+Python functions and arguments continued inside parentheses are indented.
 
 ```text
-create operator <id>: <operator>(parameters)
-update operator <id>: <operator>(parameters)
-delete operator <id>
-create edge <source>.out -> <target>.<input_port>
-delete edge <source>.out -> <target>.<input_port>
+<name> = <operator>(<inputs>, <parameters>)
+del <name>
 ```
 
-Identifiers use letters, digits and underscores and cannot start with a digit.
-Create requires a new identifier; update requires an existing one. An update
-replaces the complete definition, applies defaults to omitted parameters and
-preserves edges. Deleting an operator also deletes its edges and reports them.
+Names use letters, digits and underscores and cannot start with a digit.
+Assigning a new name creates an operator. Assigning an existing name replaces
+its complete definition, inputs included, and applies defaults to omitted
+parameters; restating an operator unchanged changes nothing. `del` deletes an
+operator and its edges; restate or delete its consumers before executing them.
 
-Definitions contain parameters; edges specify the inputs. Every operator
-writes to `out`. Single-input operators use `in`; joins use `left` and `right`;
-unions use consecutive `in[0]`, `in[1]`, ... ports. A process has one `in[i]`
-per function parameter, with `in` available when there is one input, and no
-inputs for a loader. Each input takes one edge. To reconnect an occupied
-input, delete its edge and create the new edge in the same edit.
+The inputs are the operator names written first in the call; each becomes an
+edge into the operator. Most operators take one input, a join takes `left`
+then `right`, a union two or more, and a process one per function parameter,
+or none when it loads data itself. A scan takes none. To reconnect an
+operator, restate it with its new inputs. Give every new table its own name:
+an operator cannot be its own input.
 
-A missing operator, an unknown or occupied port, or a cycle rejects the whole
-edit. Operators can remain unconnected while being built; connect their inputs
-before executing them. Changing a definition or an incoming edge invalidates
-that operator's result and every downstream result.
+Names refer to the graph after the whole edit, so statements can come in any
+order. An unknown name, a wrong number of inputs or a cycle rejects the whole
+edit. Changing a definition or an input invalidates that operator's result and
+every downstream result.
 
 When the layouts are known, build the graph in one edit. This graph sums
 transactions by region, checks that the budget lookup is unique, and keeps
 regions over budget:
 
 ```dataflow
-create operator transactions: scan("data/transactions.csv")
-create operator budgets: scan("data/budgets.csv")
-create operator spending: aggregate(by=["region"], spent=sum("amount"))
-create operator compared: join(on="region", how="inner", validate="many_to_one")
-create operator over_budget: filter(lambda row: row["spent"] is not None and row["budget"] is not None and row["spent"] > row["budget"], doc="Regions whose total spending exceeds their budget")
-create edge transactions.out -> spending.in
-create edge budgets.out -> compared.right
-create edge spending.out -> compared.left
-create edge compared.out -> over_budget.in
+transactions = scan("data/transactions.csv")
+budgets = scan("data/budgets.csv")
+spending = aggregate(transactions, by=["region"], spent=sum("amount"))
+compared = join(spending, budgets, on="region", how="inner", validate="many_to_one")
+over_budget = filter(compared, lambda row: row["spent"] is not None and row["budget"] is not None and row["spent"] > row["budget"], doc="Regions whose total spending exceeds their budget")
 ```
 
 ### Operator catalog
 
-Each entry gives a signature, defaults, ports and a contract. Column names,
+Each entry gives a signature, with its input tables first (`T`; `L` and `R`;
+or `T1`, `T2`, ...), its defaults and a contract. Column names,
 reducer arguments and window-function arguments are strings. A column parameter
 whose name has spaces or punctuation uses a quoted dictionary, for example
-`cast(**{"Age (years)": float64})`.
+`cast(people, **{"Age (years)": float64})`.
 
 ```text
 {{OPERATOR_CATALOG}}
@@ -144,10 +143,10 @@ value arrives as `None`; handle it explicitly. A map returns the complete row
 as a dictionary, with consistent keys and scalar values. Use `{**row, ...}`
 to retain the original columns when adding or changing fields.
 
-`process(fn=name, doc="...")` attaches `def name(...)`, receiving one pandas
-DataFrame per input and returning one DataFrame. It must return unique string
-column names, one scalar type per column and timezone-aware datetimes.
-Serialize nested or mixed values as text.
+`process(inputs, fn=name, doc="...")` attaches `def name(...)`, which receives
+one pandas DataFrame per input, in order, and returns one DataFrame. It must
+return unique string column names, one scalar type per column and
+timezone-aware datetimes. Serialize nested or mixed values as text.
 
 Indent complete functions and their helpers under their operator, and repeat
 them on each update. `pd` and `np` are available in every function; import
@@ -161,10 +160,9 @@ For example, if `yearly_changes` already holds the changes, compute their
 correlation in one custom operation:
 
 ```dataflow
-create operator correlation: process(fn=correlate, doc="Pearson correlation between yearly changes")
+correlation = process(yearly_changes, fn=correlate, doc="Pearson correlation between yearly changes")
     def correlate(df):
         return pd.DataFrame({"correlation": [df["x_change"].corr(df["y_change"])]})
-create edge yearly_changes.out -> correlation.in[0]
 ```
 
 ### Understanding observations
@@ -182,12 +180,24 @@ columns with their types, and issue lines.
   - columns: unit str, is_eligible bool, value float64
 ```
 
-An edit reports each operator as `created`, `updated`, `reconnected` or
-`deleted`. An execute receipt counts the operators in scope that executed,
-reused cached results or failed, and gives a block only to an operator with
-something to report, such as a failure, an empty result or a note; retrieve or
-inspect to see the others. A result that predates a change is `stale`. Inspecting the graph
-lists every operator in a table, one row per operator.
+An edit reports one line per change: `operator <name> created (<kind>)`,
+`updated`, `unchanged` or `deleted`, and `edge <source> -> <target> created` or
+`removed`, naming the target's port only for a join, union or multi-input
+process. It then lists the results it invalidated:
+
+```text
+### 1. edit: ok
+operator spending updated (aggregate)
+operator over_budget created (filter)
+edge compared -> over_budget created
+results invalidated: spending, compared
+```
+
+An execute receipt counts the operators in scope that executed, reused cached
+results or failed, and gives a block only to an operator with something to
+report, such as a failure, an empty result or a note; retrieve to see the
+others. A result that predates a change is `stale`. Inspecting the graph lists
+every operator in a table, one row per operator.
 
 #### Records
 
@@ -249,13 +259,14 @@ For example, a misspelled column fails a map, and its consumer does not run:
 - not run: top_doubled (upstream `doubled` failed)
 ```
 
-Repair the operator that failed, or delete it and reconnect its consumers when
-replacing it; the consumers run once it succeeds.
+Repair the operator that failed, or replace it and restate its consumers with
+the new input; the consumers run once it succeeds.
 
 Successful execution may use the wrong rows or formula. Compare definitions,
 `scope` and available statistics with the request. Repair the responsible
-operator or edge, recompute its consumers and retrieve. Preserve independent
-work; a display error may need only a final projection or calculation.
+operator or its inputs, recompute its consumers and retrieve. Preserve
+independent work; a display error may need only a final projection or
+calculation.
 
 ## Solving a task
 
@@ -272,8 +283,8 @@ these stages when an observation calls for a change.
    units, missing-value markers and repeated records.
 3. **Build the analysis.** Keep reusable intermediates inspectable and
    correctable. Prefer catalog operators; use `process` for a coherent custom
-   operation, such as a parser, correlation or model fit. Create known operators
-   and edges together in one edit.
+   operation, such as a parser, correlation or model fit. Define known operators
+   together in one edit.
 4. **Execute and judge the evidence.** Execute the relevant graph, retrieve
    what you need, and compare what the receipts show with the request. Repair
    errors or investigate unexpected losses, missingness and duplication.

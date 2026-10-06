@@ -2436,9 +2436,10 @@ if __name__ == "__main__":
 
     request = json.load(sys.stdin)
     if isinstance(request, dict) and "changes" in request:
-        from graph_parser import parse_graph_changes
+        # Parse a graph edit (see graph_parser.py); no operator semantics.
+        from graph_parser import parse_graph_edit
 
-        print(json.dumps(parse_graph_changes(request["changes"]), ensure_ascii=True))
+        print(json.dumps(parse_graph_edit(request["changes"]), ensure_ascii=True))
     elif isinstance(request, dict) and "program" in request:
         # Parse a native program (see program_parser.py); no operator semantics.
         from program_parser import parse_program

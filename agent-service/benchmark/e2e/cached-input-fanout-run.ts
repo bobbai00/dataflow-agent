@@ -130,22 +130,23 @@ try {
   writeFileSync(file, "value\n1\n2\n");
   writeFileSync(join(directory, "fresh.csv"), "value\n1\n2\n");
   const cached = await actions([
-    { type: "edit", changes: `create operator source: scan(${JSON.stringify(file)})` },
+    { type: "edit", changes: `source = scan(${JSON.stringify(file)})` },
     { type: "execute", operator_ids: ["source"] },
     { type: "retrieve", operator_id: "source", view: "full" },
   ]);
   assert.ok(textOf(cached, 2).includes("2"));
-  const pair = (id: string, source: string) => `create operator ${id}: process(fn=compare, doc="Count both input ports")
+  const pair = (
+    id: string,
+    source: string
+  ) => `${id} = process(${source}, ${source}, fn=compare, doc="Count both input ports")
     def compare(a, b):
         import pandas as pd
-        return pd.DataFrame({"left_rows": [len(a)], "right_rows": [len(b)], "sum": [a["value"].sum() + b["value"].sum()]})
-create edge ${source}.out -> ${id}.in[0]
-create edge ${source}.out -> ${id}.in[1]`;
+        return pd.DataFrame({"left_rows": [len(a)], "right_rows": [len(b)], "sum": [a["value"].sum() + b["value"].sum()]})`;
   const checks: any[] = [];
   for (const fresh of [false, true]) {
     const id = fresh ? "fresh_pair" : "cached_pair";
     const changes = fresh
-      ? `create operator fresh_source: scan(${JSON.stringify(join(directory, "fresh.csv"))})\n${pair(id, "fresh_source")}`
+      ? `fresh_source = scan(${JSON.stringify(join(directory, "fresh.csv"))})\n${pair(id, "fresh_source")}`
       : pair(id, "source");
     const start = performance.now();
     const receipt = await actions([{ type: "edit", changes }]);

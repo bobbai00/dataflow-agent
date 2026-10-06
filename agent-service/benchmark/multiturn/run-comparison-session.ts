@@ -159,7 +159,7 @@ try {
       .filter(
         (a: any) =>
           (a.type === "inspect" && ["state", "task"].includes(a.target) && a.task_id != null) ||
-          (a.type === "edit" && /(?:^|\n)(?:fork operator\b|update operator\s+\S+\s+from task\b)/.test(a.changes ?? ""))
+          (a.type === "edit" && /(?:^|\n)\w+\s*=\s*at\(/.test(a.changes ?? ""))
       );
     const gold = load(join(prepared, "gold.json")).turns.find((t: any) => t.turn_id === turn.turn_id);
     records.push({

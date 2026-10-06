@@ -38,7 +38,7 @@ A call that fails validation runs nothing and has a single receipt:
 
 ```
 ### dataflow call rejected
-- error CALL_REJECTED: action 2: "create" is a graph command; put it inside an edit: {"type": "edit", "changes": "create operator <id>: <expression>"}. No actions ran.
+- error CALL_REJECTED: action 2: "create" is a graph change; write it inside an edit: {"type": "edit", "changes": "<name> = <operator>(<inputs>, ...)"}. No actions ran.
 ```
 
 Other validation causes: `actions` sent as a string, an unknown action type, an

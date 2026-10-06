@@ -100,15 +100,15 @@ function agentWith(turns: DataflowAction[][][]) {
 
 const receiptText = (outcome: DataflowActionsResult) => renderDataflowActionsResult(outcome);
 
-test("restore and fork commands are split out of an edit program and nothing else is", () => {
+test("restore and fork assignments are split out of an edit and nothing else is", () => {
   const { rest, versions } = splitVersionCommands(
-    "update operator score from task 2\ncreate operator a: limit(3)\nfork operator ranking from task 1 as ranking_t1\ncreate edge score.out -> a.in\nupdate operator b: limit(2)"
+    "score = at(score, task=2)\na = limit(score, 3)\nranking_t1 = at( ranking , task = 1 )  # copy\nb = limit(a, 2)\nc = filter(at(score, task=2), lambda row: True)"
   );
   expect(versions).toEqual([
-    { line: 1, id: "score", task: 2, as: undefined },
+    { line: 1, id: "score", task: 2 },
     { line: 3, id: "ranking", task: 1, as: "ranking_t1" },
   ]);
-  expect(rest).toBe("create operator a: limit(3)\ncreate edge score.out -> a.in\nupdate operator b: limit(2)");
+  expect(rest).toBe("a = limit(score, 3)\nb = limit(a, 2)\nc = filter(at(score, task=2), lambda row: True)");
 });
 
 test("answering writes the ledger, reuse shows provenance, limited and subset inputs get notes, restore and fork bring back a version", async () => {
@@ -119,7 +119,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
         {
           type: "edit",
           changes:
-            'create operator units: scan("data/units.csv")\ncreate operator eligible: filter(lambda row: row["k"] > 0, doc="Units with positive k")\ncreate operator top8: limit(8)\ncreate edge units.out -> eligible.in\ncreate edge eligible.out -> top8.in',
+            'units = scan("data/units.csv")\neligible = filter(units, lambda row: row["k"] > 0, doc="Units with positive k")\ntop8 = limit(eligible, 8)',
         },
         { type: "execute" },
         { type: "retrieve", operator_id: "top8", view: "full" },
@@ -132,7 +132,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
         {
           type: "edit",
           changes:
-            'create operator joined: join(on="k", how="inner")\ncreate operator score: map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")\ncreate edge eligible.out -> joined.left\ncreate edge top8.out -> joined.right\ncreate edge joined.out -> score.in',
+            'joined = join(eligible, top8, on="k", how="inner")\nscore = map(joined, lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")',
         },
         { type: "execute" },
       ],
@@ -143,7 +143,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
       [
         {
           type: "edit",
-          changes: 'update operator score: map(lambda row: {**row, "score": row["k"] * 3}, doc="Tripled k")',
+          changes: 'score = map(joined, lambda row: {**row, "score": row["k"] * 3}, doc="Tripled k")',
         },
         { type: "execute" },
       ],
@@ -152,7 +152,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
     // Task 4: roll the rule back in place and keep the v2 rule beside it.
     [
       [
-        { type: "edit", changes: "update operator score from task 2\nfork operator score from task 3 as score_t3" },
+        { type: "edit", changes: "score = at(score, task=2)\nscore_t3 = at(score, task=3)" },
         { type: "execute", operator_ids: ["score"] },
       ],
       [{ type: "answer", content: '{"restored":true}' }],
@@ -197,7 +197,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
   await s.agent.sendMessage("Task 3");
   const seal3 = receiptText(s.outcomes[5]);
   expect(seal3).toMatch(
-    /\*\*score\*\* \(map, updated\)[\s\S]*definition: `map\(lambda row: \{\*\*row, "score": row\["k"\] \* 3/
+    /\*\*score\*\* \(map, updated\)[\s\S]*definition: `score = map\(joined, lambda row: \{\*\*row, "score": row\["k"\] \* 3/
   );
 
   await s.agent.sendMessage("Task 4");
@@ -221,7 +221,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
 test("an empty result gets a block in the execute receipt without the ledger, flow or checks", async () => {
   const s = agentWith([
     [
-      [{ type: "edit", changes: 'create operator empty_units: scan("data/none.csv")' }, { type: "execute" }],
+      [{ type: "edit", changes: 'empty_units = scan("data/none.csv")' }, { type: "execute" }],
       [{ type: "answer", content: "none" }],
     ],
   ]);
@@ -233,7 +233,7 @@ test("an empty result gets a block in the execute receipt without the ledger, fl
 test("ledger text is stable: the same receipt renders the same bytes on replay", async () => {
   const s = agentWith([
     [
-      [{ type: "edit", changes: 'create operator empty_units: scan("data/none.csv")' }, { type: "execute" }],
+      [{ type: "edit", changes: 'empty_units = scan("data/none.csv")' }, { type: "execute" }],
       [{ type: "answer", content: "none" }],
     ],
   ]);
@@ -250,7 +250,7 @@ test("semi and anti joins get membership notes, not inner-join arithmetic", asyn
         {
           type: "edit",
           changes:
-            'create operator units: scan("data/units.csv")\ncreate operator top8: limit(8)\ncreate operator kept: join(on="k", how="semi")\ncreate operator dropped: join(on="k", how="anti")\ncreate edge units.out -> top8.in\ncreate edge units.out -> kept.left\ncreate edge top8.out -> kept.right\ncreate edge units.out -> dropped.left\ncreate edge top8.out -> dropped.right',
+            'units = scan("data/units.csv")\ntop8 = limit(units, 8)\nkept = join(units, top8, on="k", how="semi")\ndropped = join(units, top8, on="k", how="anti")',
         },
         { type: "execute" },
       ],
@@ -272,14 +272,14 @@ test("loaded state numbers tasks after it, marks unchanged tables as loaded, and
         {
           type: "edit",
           changes:
-            'create operator scored: map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")\ncreate edge units.out -> scored.in',
+            'scored = map(units, lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")',
         },
         { type: "execute" },
       ],
       [{ type: "answer", content: "scored" }],
     ],
   ]);
-  await s.agent.seedState('create operator units: scan("data/units.csv")', 3);
+  await s.agent.seedState('units = scan("data/units.csv")', 3);
   const prompt = s.agent.getSettings().systemPrompt;
   expect(prompt).toContain("### Earlier tasks in the session");
   await s.agent.sendMessage("Task 4");
@@ -287,7 +287,7 @@ test("loaded state numbers tasks after it, marks unchanged tables as loaded, and
   expect(edit).toMatch(/inputs from earlier tasks:\n- \*\*units\*\* \(scan, \w+\)[\s\S]*origin: loaded/);
   expect(receiptText(s.outcomes[1])).toContain("#### Task 4\n1 table created.");
   expect(s.agent.getSettings().systemPrompt).toBe(prompt);
-  await expect(s.agent.seedState('create operator other: scan("data/units.csv")')).rejects.toThrow(
+  await expect(s.agent.seedState('other = scan("data/units.csv")')).rejects.toThrow(
     "before the first request"
   );
 });
@@ -309,7 +309,7 @@ test("retrieving a consumer of a failed operator reports that it did not run", a
         {
           type: "edit",
           changes:
-            'create operator units: scan("data/units.csv")\ncreate operator doubled: map(lambda row: {**row, "d": row["kk"] * 2}, doc="Doubled")\ncreate operator top: limit(3)\ncreate edge units.out -> doubled.in\ncreate edge doubled.out -> top.in',
+            'units = scan("data/units.csv")\ndoubled = map(units, lambda row: {**row, "d": row["kk"] * 2}, doc="Doubled")\ntop = limit(doubled, 3)',
         },
         { type: "execute" },
         { type: "retrieve", operator_id: "top", view: "full" },
@@ -359,12 +359,12 @@ test("every answered task stays reachable: a restore is a new version, and the v
     [{ type: "answer", content: "done" }],
   ];
   const s = agentWith([
-    edit('create operator units: scan("data/units.csv")\ncreate operator score: map(lambda row: {**row, "score": row["k"] * 1}, doc="k")\ncreate edge units.out -> score.in'),
-    edit('update operator score: map(lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")'),
-    edit('update operator score: map(lambda row: {**row, "score": row["k"] * 3}, doc="Tripled k")'),
-    edit("update operator score from task 1"),
-    edit("update operator score from task 3"),
-    edit("update operator score from task 4"),
+    edit('units = scan("data/units.csv")\nscore = map(units, lambda row: {**row, "score": row["k"] * 1}, doc="k")'),
+    edit('score = map(units, lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")'),
+    edit('score = map(units, lambda row: {**row, "score": row["k"] * 3}, doc="Tripled k")'),
+    edit("score = at(score, task=1)"),
+    edit("score = at(score, task=3)"),
+    edit("score = at(score, task=4)"),
     [[{ type: "inspect", target: "state", operator_id: "score", task_id: null, include_implementation: false, view: null }], [{ type: "answer", content: "listed" }]],
   ]);
   const definition = () => s.agent.getWorkflowState().getOperator("score")!.nativeOp!.source;

@@ -55,8 +55,8 @@ async function debug(agentId: string, actions: DataflowAction[]) {
   });
 }
 
-const probe = `create operator cities: scan("data/archeology/input/worldcities.csv")
-create operator escape: process(fn=escape, doc="Attempt to read outside the task data")
+const probe = `cities = scan("data/archeology/input/worldcities.csv")
+escape = process(cities, fn=escape, doc="Attempt to read outside the task data")
     def escape(cities):
         import os, subprocess
         import pandas as pd
@@ -83,8 +83,7 @@ create operator escape: process(fn=escape, doc="Attempt to read outside the task
             attempt("touch task data", lambda: run("touch", "data/archeology/input/probe.txt")),
             attempt("data still listed", lambda: sorted(os.listdir("data/archeology/input"))),
         ]
-        return pd.DataFrame(rows)
-create edge cities.out -> escape.in[0]`;
+        return pd.DataFrame(rows)`;
 
 const token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
 const cu = await createComputingUnit(token, `sandbox-probe-${Date.now()}`, {

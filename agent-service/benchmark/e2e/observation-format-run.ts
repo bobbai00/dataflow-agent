@@ -178,15 +178,16 @@ try {
   const built = await debug([
     {
       type: "edit",
-      changes: `create operator source: scan(${JSON.stringify(csv)})\ncreate operator typed: cast(id=int64)\ncreate operator positive: filter(lambda row: row["id"] > 0, doc="Positive identifiers")\ncreate operator wide: scan(${JSON.stringify(wideCsv)})\ncreate edge source.out -> typed.in\ncreate edge typed.out -> positive.in`,
+      changes: `source = scan(${JSON.stringify(csv)})\ntyped = cast(source, id=int64)\npositive = filter(typed, lambda row: row["id"] > 0, doc="Positive identifiers")\nwide = scan(${JSON.stringify(wideCsv)})`,
     },
     { type: "execute" },
   ]);
   assert.equal(built.result.status, "completed", built.text);
   assert(built.text.includes("### 1. edit: ok"));
-  assert(built.text.includes("- **source** (scan, created)"));
+  assert(built.text.includes("operator source created (scan)"));
+  assert(built.text.includes("edge typed -> positive created"));
   assert(!built.text.includes('"operators":'));
-  passed("edit and execution receipts use operator blocks");
+  passed("edit receipts list each change; execution receipts use operator blocks");
   const executionCount = (await history()).length;
   for (const tableFormat of ["markdown", "tsv"]) {
     await settings({ tableFormat });
@@ -212,7 +213,7 @@ try {
   const task = Number(/#### Task (\d+)/.exec(seal.text)![1]);
   await debug("Compare the completed task's saved result.");
   const copy = await debug([
-    { type: "edit", changes: `fork operator positive from task ${task} as historical` },
+    { type: "edit", changes: `historical = at(positive, task=${task})` },
     { type: "retrieve", operator_id: "historical", view: "full" },
   ]);
   assert.equal(copy.result.status, "completed", copy.text);
@@ -295,7 +296,7 @@ try {
   assert.equal(inspected.result.status, "completed", inspected.text);
   assert(inspected.text.includes("| U01 | 44 |"));
   const forked = await debug([
-    { type: "edit", changes: `fork operator score from task ${savedTask} as score_t2` },
+    { type: "edit", changes: `score_t2 = at(score, task=${savedTask})` },
     { type: "retrieve", operator_id: "score_t2", view: "full" },
   ]);
   assert(read(forked, "score_t2").text.includes("| U01 | 44 |"));
@@ -303,7 +304,7 @@ try {
   const comparison = await debug(
     versions[0].actions.map((action: any) =>
       action.type === "edit"
-        ? { ...action, changes: action.changes.replace(/^fork operator score from task 2 as score_t2\n/, "") }
+        ? { ...action, changes: action.changes.replace(/^score_t2 = at\(score, task=2\)\n/, "") }
         : action
     )
   );
@@ -314,13 +315,11 @@ try {
   await debug("Working-state example, task 5: restore delivered-only scoring on the updated source.");
   const changedOrders = join(directory, "orders-updated.csv");
   writeFileSync(changedOrders, "order,unit,status,amount\n" + [...orderRows, "25,U01,delivered,100"].join("\n") + "\n");
-  await debug([{ type: "edit", changes: `update operator orders: scan(${JSON.stringify(changedOrders)})` }]);
+  await debug([{ type: "edit", changes: `orders = scan(${JSON.stringify(changedOrders)})` }]);
   await debug(versions[1].actions);
   const restored = await debug([
     ...versions[2].actions.map((action: any) =>
-      action.type === "edit"
-        ? { ...action, changes: action.changes.replace("from task 2", `from task ${savedTask}`) }
-        : action
+      action.type === "edit" ? { ...action, changes: action.changes.replace("task=2", `task=${savedTask}`) } : action
     ),
     { type: "retrieve", operator_id: "score", view: "full" },
     { type: "retrieve", operator_id: "score_t2", view: "full" },
@@ -332,7 +331,7 @@ try {
     {
       type: "edit",
       changes:
-        'update operator covered_scores: filter(lambda row: row["order_count"] >= 3 and row["unit"] in ["U01", "U03"], doc="Two qualifying units")',
+        'covered_scores = filter(counted_scores, lambda row: row["order_count"] >= 3 and row["unit"] in ["U01", "U03"], doc="Two qualifying units")',
     },
     { type: "execute", operator_ids: ["report"] },
     { type: "retrieve", operator_id: "report", view: "full" },
@@ -341,7 +340,8 @@ try {
   const empty = await debug([
     {
       type: "edit",
-      changes: 'update operator covered_scores: filter(lambda row: row["order_count"] >= 5, doc="No qualifying units")',
+      changes:
+        'covered_scores = filter(counted_scores, lambda row: row["order_count"] >= 5, doc="No qualifying units")',
     },
     { type: "execute", operator_ids: ["report"] },
     { type: "retrieve", operator_id: "report", view: "full" },
@@ -353,7 +353,7 @@ try {
     {
       type: "edit",
       changes:
-        'create operator broken: filter(lambda row: row["unknown"] > 0, doc="Exercise a missing column")\ncreate operator blocked: project(keep=["label"])\ncreate edge source.out -> broken.in\ncreate edge broken.out -> blocked.in',
+        'broken = filter(source, lambda row: row["unknown"] > 0, doc="Exercise a missing column")\nblocked = project(broken, keep=["label"])',
     },
     { type: "execute", operator_ids: ["blocked"] },
     { type: "retrieve", operator_id: "broken", view: "sample" },
@@ -363,7 +363,7 @@ try {
   assert(failure.text.includes("- not run: blocked"));
   assert(!failure.text.includes("NATIVE_ERROR_V2"));
   const rejected = await debug([
-    { type: "edit", changes: "create edge absent.out -> positive.in" },
+    { type: "edit", changes: 'positive = filter(absent, lambda row: True, doc="Rows of a missing input")' },
     { type: "execute" },
   ]);
   assert(rejected.text.includes("skipped"));
@@ -376,7 +376,7 @@ try {
     {
       type: "edit",
       changes:
-        'update operator covered_scores: filter(lambda row: row["order_count"] >= 3, doc="Units with at least three source orders")\ncreate operator mean_score: aggregate(by=[], average_score=mean("score"))\ncreate edge report.out -> mean_score.in',
+        'covered_scores = filter(counted_scores, lambda row: row["order_count"] >= 3, doc="Units with at least three source orders")\nmean_score = aggregate(report, by=[], average_score=mean("score"))',
     },
     { type: "execute", operator_ids: ["mean_score"] },
     { type: "retrieve", operator_id: "mean_score", view: "full" },
@@ -401,7 +401,7 @@ try {
   assert.equal(renderDataflowActionsResult(ordinary.result), frozenOrdinary);
   passed("ordinary observations expose limited input ancestry; the generic repair recomputes the full-table mean");
 
-  await debug([{ type: "edit", changes: "update operator report: limit(2)" }]);
+  await debug([{ type: "edit", changes: "report = limit(ranked, 2)" }]);
   const savedScope = await debug([
     {
       type: "inspect",
@@ -411,7 +411,7 @@ try {
       include_implementation: false,
       view: "full",
     },
-    { type: "edit", changes: `fork operator report from task ${savedTask} as report_saved` },
+    { type: "edit", changes: `report_saved = at(report, task=${savedTask})` },
     { type: "retrieve", operator_id: "report_saved", view: "full" },
   ]);
   assert(savedScope.text.includes('scope: limit "report": n=5'));

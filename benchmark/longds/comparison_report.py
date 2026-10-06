@@ -77,11 +77,20 @@ def native_metrics(folder):
                     counts["action_"+action.get("type", "unknown")] += 1
                     if action.get("type") == "edit":
                         for line in action.get("changes", "").splitlines():
+                            # Graph commands (traces before 2026-10-06).
                             for command in ["fork", "restore", "update", "create", "delete"]:
                                 if re.match(rf"\s*{command} operator\b", line):
                                     counts[command+"_operator"] += 1
                             if re.match(r"\s*update operator\s+\S+\s+from task\b", line):
                                 counts["restore_operator"] += 1
+                            # Assignments: `x = at(x, task=N)` restores, `y = at(x, task=N)` forks.
+                            version = re.match(r"(\w+)\s*=\s*at\(\s*(\w+)\s*,\s*task\s*=", line)
+                            if version:
+                                counts["restore_operator" if version[1] == version[2] else "fork_operator"] += 1
+                            elif re.match(r"\w+\s*=\s*\w+\(", line):
+                                counts["assign_operator"] += 1
+                            elif re.match(r"del\s+\w", line):
+                                counts["delete_operator"] += 1
                     if action.get("type") == "inspect" and action.get("target") == "state":
                         if action.get("task_id") is not None:
                             counts["historical_inspect"] += 1

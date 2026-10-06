@@ -22,7 +22,7 @@
 When you know the input columns, batch the graph changes and execution:
 
 ```json
-{"reasoning":"Compute total spending by region.","actions":[{"type":"edit","changes":"create operator purchases: scan(\"data/purchases.csv\")\ncreate operator totals: aggregate(by=[\"region\"], total=sum(\"amount\"))\ncreate edge purchases.out -> totals.in"},{"type":"execute","operator_ids":["totals"]},{"type":"retrieve","operator_id":"totals","view":"sample_stats"}]}
+{"reasoning":"Compute total spending by region.","actions":[{"type":"edit","changes":"purchases = scan(\"data/purchases.csv\")\ntotals = aggregate(purchases, by=[\"region\"], total=sum(\"amount\"))"},{"type":"execute","operator_ids":["totals"]},{"type":"retrieve","operator_id":"totals","view":"sample_stats"}]}
 ```
 
 Read the result before deciding whether to repair the calculation or answer.
@@ -56,8 +56,8 @@ Check whether its saved filters, denominator and output match the new request.
 Reuse a matching result; otherwise fork its version, adjust the necessary
 branch and execute that branch. Expand individual saved input references when
 their definitions matter. The dependency index points to possible reuse and
-does not certify the previous answer. A fork already preserves its incoming
-edges: delete an existing edge before replacing it. Prefer one inspection that
+does not certify the previous answer. A copy keeps its saved inputs; restate
+an operator to give it other inputs. Prefer one inspection that
 returns the relevant implementation and result over repeated broader reads.
 {{/history}}
 

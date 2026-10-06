@@ -28,11 +28,9 @@ import type { ReActStep } from "../types/agent";
 async function fixture() {
   const metadataStore = WorkflowSystemMetadata.getInstance();
   metadataStore.seedCodeModeDefaults();
-  const graph = await planGraphEdit(
-    new WorkflowState().getWorkflowContent(),
-    'create operator source: scan("data.csv")',
-    { metadataStore }
-  );
+  const graph = await planGraphEdit(new WorkflowState().getWorkflowContent(), 'source = scan("data.csv")', {
+    metadataStore,
+  });
   const ids = ["s1", "s2", "s3"];
   const storage = new WorkflowSnapshotStorage(id => ids.slice(0, ids.indexOf(id) + 1));
   for (const id of ids) storage.createSnapshot(id, graph.workflow);

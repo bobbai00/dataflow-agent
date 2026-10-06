@@ -29,7 +29,7 @@ separate top-five selection:
 {
   "reasoning": "Revise the scoring population and recompute the current report while preserving the source-based coverage rule.",
   "actions": [
-    {"type": "edit", "changes": "update operator eligible: filter(lambda row: row[\"amount\"] is not None, doc=\"Orders with an amount\")"},
+    {"type": "edit", "changes": "eligible = filter(orders, lambda row: row[\"amount\"] is not None, doc=\"Orders with an amount\")"},
     {"type": "execute", "operator_ids": ["report"]},
     {"type": "retrieve", "operator_id": "covered_scores", "view": "full"},
     {"type": "retrieve", "operator_id": "report", "view": "full"}

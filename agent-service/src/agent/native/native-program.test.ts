@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { ContextMode } from "../../types/agent";
 import { buildNativeModeSystemPrompt, nativeRetrievalExamples } from "../prompts";
 import type { WorkflowState } from "../workflow-state";
-import { NATIVE_OPERATORS, nativeCatalogText, graphCatalogText } from "./catalog";
+import { NATIVE_OPERATORS, nativeCatalogText, catalogText } from "./catalog";
 import { compileNativeOp } from "./codegen";
 import { compileProgram, type ProgramStatement } from "./program";
 import { nativeTestTools } from "./test-support";
@@ -39,7 +39,7 @@ import { missingGraphInputs, planGraphEdit } from "../tools/graph-edits";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { forkState, type HistoricalTask } from "../state-history";
-import { restoreCommands, splitVersionCommands } from "../state-ledger";
+import { restoreAssignment, splitVersionCommands } from "../state-ledger";
 import { parseAnswerFromParts } from "./answer";
 
 const python = process.env.UDF_PYTHON_PATH ?? fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
@@ -92,7 +92,7 @@ describe("membership joins", () => {
   test("values is not an operator: request constants stay in the definition that uses them", async () => {
     const v = await views(`excluded = values(country=["Canada", "Mexico"])`);
     expect(v.excluded.error?.message).toMatch(/values/);
-    expect(graphCatalogText()).not.toContain("values(column");
+    expect(catalogText()).not.toContain("values(column");
   });
 
   test("semi and anti joins are join types that need keys", async () => {
@@ -103,7 +103,7 @@ bare = join(orders, review_units, how="semi")`);
     expect(v.kept.view!.properties).toEqual({ on: "unit", type: "semi" });
     expect(v.rest.view!.properties).toEqual({ on: [["unit", "key"]], type: "anti" });
     expect(v.bare.error?.message).toContain("join needs on=");
-    expect(graphCatalogText()).toContain("semi keeps the left rows with a match");
+    expect(catalogText()).toContain("semi keeps the left rows with a match");
   });
 });
 
@@ -363,7 +363,7 @@ i = process(source, fn=lambda a, b: a)
     ],
     ["lambda with two parameters", "a = map(t, lambda row, i: {})", ["takes exactly one parameter", "takes 2"]],
     ["map without a function", "a = map(t)", ["map needs a row function"]],
-    ["undefined function", "a = filter(t, is_ok)", ["is_ok", "not a function defined in this program"]],
+    ["undefined function", "a = filter(t, is_ok)", ["is_ok", "not a function defined in this edit"]],
     ["invalid sort direction", 'a = sort(t, by=[("x", "down")])', ['got "down"']],
     ["invalid scan format", 'a = scan("d.csv", format="feather")', ['got "feather"']],
     ["filter without doc", "a = filter(t, lambda row: True)", ['filter needs doc="one sentence stating which rows']],
@@ -665,9 +665,7 @@ describe("native prompt", () => {
       expect(initial.report).toHaveLength(5);
       // Exercise the generic repair example: both means execute successfully,
       // but only the unlimited input answers a request about every covered unit.
-      await edit(
-        'create operator mean_score: aggregate(by=[], average_score=mean("score"))\ncreate edge report.out -> mean_score.in'
-      );
+      await edit('mean_score = aggregate(report, by=[], average_score=mean("score"))');
       expect(execute(state, "mean_score")[0].average_score).toBe(59.2);
       for (const call of calls("### Example: repair an aggregate that reads a limited report"))
         for (const action of call.actions) if (action.type === "edit") await edit(action.changes);
@@ -690,18 +688,18 @@ describe("native prompt", () => {
       const compared = execute(state, ["score_change", "score_t2"]);
       expect(compared.score_change.map(row => row.change)).toEqual([10, 0, 20, 0, 30, 15, 0, 25]);
       expect(compared.score_t2).toEqual(oldScores);
-      await edit(restoreCommands(storage, tasks[0], state.getWorkflowContent(), "eligible").commands);
+      await edit(restoreAssignment(storage, tasks[0], state.getWorkflowContent(), "eligible").assignment);
       const restored = execute(state, ["score", "score_t2"]);
       expect(restored.score).toEqual(oldScores);
       expect(restored.score_t2).toEqual(oldScores);
 
       // Asking for five never expands a population with only two eligible units.
       await edit(
-        'update operator covered_scores: filter(lambda row: row["order_count"] >= 3 and row["unit"] in ["U01", "U03"], doc="Two qualifying units")'
+        'covered_scores = filter(counted_scores, lambda row: row["order_count"] >= 3 and row["unit"] in ["U01", "U03"], doc="Two qualifying units")'
       );
       expect(execute(state, "report").map(row => row.unit)).toEqual(["U01", "U03"]);
       await edit(
-        'update operator covered_scores: filter(lambda row: row["order_count"] >= 4, doc="No qualifying units")'
+        'covered_scores = filter(counted_scores, lambda row: row["order_count"] >= 4, doc="No qualifying units")'
       );
       expect(execute(state, "report")).toEqual([]);
       expect(storage.getWorkflow("s2").operators.find(op => op.operatorID === "eligible")!.nativeOp!.source).toContain(
@@ -743,7 +741,7 @@ describe("native prompt", () => {
     expect(prompt).toContain("Failed-value");
     expect(prompt).toContain("unmatched-key examples");
     expect(prompt).toContain("window boundary");
-    expect(prompt).toContain("reconnect it and recompute");
+    expect(prompt).toContain("restate the join with the normalized input and recompute");
     for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
       expect(prepareDataflowActions(JSON.parse(json), ["full", "sample", "sample_stats"]).error).toBeUndefined();
     const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
@@ -768,7 +766,7 @@ describe("native prompt", () => {
     const examples = nativeRetrievalExamples({ retrievalViews: ["sample_stats"], flowEvidence: true });
     const repair = [...examples.matchAll(/```json\n([\s\S]*?)\n```/g)]
       .map(([, json]) => JSON.parse(json))
-      .find(e => e.actions.some((a: any) => a.type === "edit" && a.changes.includes("update operator typed")));
+      .find(e => e.actions.some((a: any) => a.type === "edit" && a.changes.startsWith("typed = cast(")));
     const directory = mkdtempSync(join(tmpdir(), "native-evidence-prompt-"));
     try {
       const path = join(directory, "values.csv");
@@ -779,11 +777,9 @@ describe("native prompt", () => {
       const initial = await planGraphEdit(
         state.getWorkflowContent(),
         `
-create operator source: scan(${JSON.stringify(path)}, all_text=True)
-create operator typed: cast(value=int64, errors="null")
-create operator total: aggregate(average=mean("value"))
-create edge source.out -> typed.in
-create edge typed.out -> total.in
+measurements = scan(${JSON.stringify(path)}, all_text=True)
+typed = cast(measurements, value=int64, errors="null")
+total = aggregate(typed, average=mean("value"))
 `,
         { metadataStore }
       );
@@ -806,7 +802,7 @@ create edge typed.out -> total.in
     expect(prompt).toContain("A complete view of a scan preview");
     expect(prompt).toContain("not a random sample");
     expect(prompt).toContain("Statistics are collected independently of the displayed sample records");
-    expect(prompt).toContain("window(partition_by=");
+    expect(prompt).toContain("window(T, partition_by=");
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
@@ -843,7 +839,7 @@ create edge typed.out -> total.in
         const prompt = buildNativeModeSystemPrompt(mode, layout);
         expect(prompt).not.toContain("{{");
         expect(prompt).toContain("dataflow(reasoning, actions)");
-        expect(prompt).toContain(graphCatalogText());
+        expect(prompt).toContain(catalogText());
         expect(prompt.includes("recallState")).toBe("recall" in layout);
         expect(prompt).toContain("next call");
         expect(prompt).toContain("only action");
@@ -869,7 +865,7 @@ create edge typed.out -> total.in
     expect(plain).toContain("reasoning");
   });
 
-  test("every graph-command example in the prompt parses", async () => {
+  test("every edit example in the prompt parses", async () => {
     const { runNativePython } = await import("./codegen");
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
     const examples = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)];
@@ -877,14 +873,14 @@ create edge typed.out -> total.in
     for (const [, changes] of examples) {
       const parsed = (await runNativePython({ changes })) as any;
       expect(parsed).toMatchObject({ ok: true });
-      expect(parsed.commands.length).toBeGreaterThan(0);
+      expect(parsed.statements.length).toBeGreaterThan(0);
     }
   });
 
   test("the native calculation example executes as separate connected stages in one edit", async () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
     const example = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].find(([, changes]) =>
-      changes.includes("create operator over_budget:")
+      changes.includes("over_budget = filter(")
     )?.[1];
     expect(example).toBeDefined();
 

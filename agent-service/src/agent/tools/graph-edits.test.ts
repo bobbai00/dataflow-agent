@@ -24,6 +24,7 @@ import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { compileNativeOp } from "../native/codegen";
 import { validateNativeSettings } from "../native/settings";
+import { nativeAssignmentText } from "../native/catalog";
 
 const context = () => {
   const metadataStore = WorkflowSystemMetadata.getInstance();
@@ -35,11 +36,13 @@ async function edit(state: WorkflowState, changes: string) {
   state.setWorkflowContent(result.workflow);
   return result;
 }
-const chain = `create operator source: scan("data/a.csv")
-create operator selected: project(keep=["region", "amount"])
-create operator total: aggregate(by=["region"], total=sum("amount"))
-create edge source.out -> selected.in
-create edge selected.out -> total.in`;
+const chain = `source = scan("data/a.csv")
+selected = project(source, keep=["region", "amount"])
+total = aggregate(selected, by=["region"], total=sum("amount"))`;
+const lines = (result: Awaited<ReturnType<typeof edit>>) =>
+  result.changes.map(c =>
+    c.change === "edge" ? `edge ${c.edge} ${c.action}` : `operator ${c.operator_id} ${c.action} (${c.operator})`
+  );
 
 test("project accepts explicit None defaults like omitted optional parameters", async () => {
   for (const [explicit, omitted] of [
@@ -48,52 +51,140 @@ test("project accepts explicit None defaults like omitted optional parameters", 
     ['keep=None, drop=None, rename={"amount": "value"}', 'rename={"amount": "value"}'],
   ]) {
     const state = new WorkflowState();
-    await edit(state, `create operator explicit: project(${explicit})\ncreate operator omitted: project(${omitted})`);
+    await edit(
+      state,
+      `source = scan("a.csv")\nexplicit = project(source, ${explicit})\nomitted = project(source, ${omitted})`
+    );
     expect(state.getOperator("explicit")!.nativeOp!.properties).toEqual(
       state.getOperator("omitted")!.nativeOp!.properties
     );
   }
   const state = new WorkflowState();
-  await expect(edit(state, "create operator empty: project(keep=None, drop=None, rename=None)")).rejects.toThrow(
-    "project needs"
-  );
-  await expect(edit(state, 'create operator invalid: project(keep=["x"], drop=["y"])')).rejects.toThrow("not both");
+  await expect(
+    edit(state, 'source = scan("a.csv")\nempty = project(source, keep=None, drop=None, rename=None)')
+  ).rejects.toThrow("project needs");
+  await expect(
+    edit(state, 'source = scan("a.csv")\ninvalid = project(source, keep=["x"], drop=["y"])')
+  ).rejects.toThrow("not both");
   expect(state.getAllOperators()).toEqual([]);
 });
 
-test("graph edits keep definitions separate from edges and expose named ports", async () => {
+test("an assignment creates the operator and an edge from each input, reported one line per change", async () => {
   const state = new WorkflowState();
-  await edit(state, chain);
+  const result = await edit(state, chain);
+  expect(lines(result)).toEqual([
+    "operator source created (scan)",
+    "operator selected created (project)",
+    "operator total created (aggregate)",
+    "edge source -> selected created",
+    "edge selected -> total created",
+  ]);
   expect(state.getOperator("total")!.nativeOp!.inputs).toEqual(["selected"]);
   const graph = inspectGraph(state.getWorkflowContent());
-  expect(graph.edges).toContain("source.out -> selected.in");
+  expect(graph.edges).toEqual(["source -> selected", "selected -> total"]);
   expect(graph.operators.find(o => o.id === "selected")!.ports).toEqual({ inputs: ["in"], outputs: ["out"] });
   expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
 });
 
-test("create and update are distinct and invalid edits are atomic", async () => {
+test("definitions are stored without inputs and rendered with the current ones", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const view = state.getOperator("total")!.nativeOp!;
+  expect(view.source).toBe('aggregate(by=["region"], total=sum("amount"))');
+  expect(nativeAssignmentText("total", view)).toBe('total = aggregate(selected, by=["region"], total=sum("amount"))');
+  expect(nativeAssignmentText("source", state.getOperator("source")!.nativeOp!)).toBe('source = scan("data/a.csv")');
+});
+
+test("statements may refer to operators defined later in the same edit", async () => {
+  const state = new WorkflowState();
+  await edit(state, `total = aggregate(source, by=["region"], total=sum("amount"))\nsource = scan("data/a.csv")`);
+  expect(state.getOperator("total")!.nativeOp!.inputs).toEqual(["source"]);
+});
+
+test("reassigning a name replaces its definition, keeps consumers and invalidates descendants", async () => {
   const state = new WorkflowState();
   await edit(state, chain);
   const before = state.getWorkflowContent();
-  for (const bad of [
-    'create operator source: scan("b.csv")',
-    'update operator absent: scan("b.csv")',
-    'create operator extra: scan("b.csv")\ncreate edge absent.out -> total.in',
-    "delete operator selected\nupdate operator absent: limit(1)",
-    "update edge source.out -> total.in",
-    "modify edge source.out -> total.in",
-    "create operator bad: limit(source, 1)",
+  const result = await edit(state, 'selected = project(source, keep=["region", "amount"], rename={"amount": "value"})');
+  expect(lines(result)).toEqual(["operator selected updated (project)"]);
+  const after = state.getWorkflowContent();
+  expect(after.links).toEqual(before.links);
+  expect(state.getOperator("total")!.nativeOp!.inputs).toEqual(["selected"]);
+  expect(computeStaleResultOps(before, after)).toEqual(new Set(["selected", "total"]));
+});
+
+test("restating an operator unchanged changes nothing", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const before = state.getWorkflowContent();
+  const result = await edit(state, 'selected = project(source,  keep=["region", "amount"])');
+  expect(lines(result)).toEqual(["operator selected unchanged (project)"]);
+  expect(result.operators).toEqual([]);
+  expect(computeStaleResultOps(before, state.getWorkflowContent())).toEqual(new Set());
+});
+
+test("restating an operator with another input rewires only that edge", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain + '\nalternative = scan("b.csv")');
+  const before = state.getWorkflowContent();
+  const result = await edit(state, 'selected = project(alternative, keep=["region", "amount"])');
+  expect(lines(result)).toEqual(["edge source -> selected removed", "edge alternative -> selected created"]);
+  expect(state.getOperator("selected")!.nativeOp!.inputs).toEqual(["alternative"]);
+  expect(computeStaleResultOps(before, state.getWorkflowContent())).toEqual(new Set(["selected", "total"]));
+});
+
+test("del removes operators and their edges and leaves consumers unconnected until restated", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const result = await edit(state, "del selected");
+  expect(lines(result)).toEqual([
+    "operator selected deleted (project)",
+    "edge source -> selected removed",
+    "edge selected -> total removed",
+  ]);
+  expect(state.getOperator("total")).toBeDefined();
+  expect(state.getAllLinks()).toEqual([]);
+  expect(result.unconnected_inputs).toEqual(["total.in"]);
+  await edit(state, 'total = aggregate(source, by=["region"], total=sum("amount"))');
+  expect(state.getOperator("total")!.nativeOp!.inputs).toEqual(["source"]);
+  expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
+});
+
+test("invalid edits are rejected whole, with the reason and the line", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const before = state.getWorkflowContent();
+  for (const [bad, reason] of [
+    [
+      'extra = scan("b.csv")\nselected = project(absent, keep=["region"])',
+      "Line 2: selected's input `absent` is not an operator",
+    ],
+    ["del absent", "Operator absent does not exist"],
+    ['source = project(source, keep=["region"])', "source cannot be its own input"],
+    ['source = scan("b.csv")\nsource = scan("c.csv")', "source is assigned twice"],
+    ["total = limit(selected, 1)\ndel total", "total is both assigned and deleted"],
+    ['del selected\ntotal = aggregate(selected, by=["region"], total=sum("amount"))', "(deleted in this edit)"],
+    ["source = limit(total, 1)", "cycle"],
+    ["selected = limit(1)", "limit takes the input table as its first positional argument"],
+    ['selected = join(source, on="region")', "join takes the left and right tables"],
+    ["selected = union(source)", "union takes two or more input tables"],
+    ['selected = filter(scan("a.csv"), lambda row: True, doc="All")', "Nested operator calls are not supported"],
+    ["selected = source", "must be an operator call"],
+    ['selected.keep = ["region"]', "restating the whole definition"],
+    ["update operator selected: limit(1)", "write `selected = limit(...)`"],
+    ["create edge source.out -> total.in", "edges follow from inputs"],
+    ["delete operator selected", "`del name`"],
   ]) {
-    await expect(edit(state, bad)).rejects.toThrow();
+    await expect(edit(state, bad)).rejects.toThrow(reason);
     expect(state.getWorkflowContent()).toEqual(before);
   }
 });
 
-test("expression syntax errors name the command's line in the edit", async () => {
+test("syntax errors name their line in the edit", async () => {
   const state = new WorkflowState();
-  await expect(
-    edit(state, 'create operator source: scan("data.csv")\ncreate operator typed: cast(Age (years)=float64)')
-  ).rejects.toThrow("Line 2:");
+  await expect(edit(state, 'source = scan("data.csv")\ntyped = cast(source, Age (years)=float64)')).rejects.toThrow(
+    "Line 2:"
+  );
   expect(state.getAllOperators()).toEqual([]);
 });
 
@@ -101,188 +192,134 @@ test("reserved operator names explain the rename and keep the edit atomic", asyn
   const state = new WorkflowState();
   await edit(state, chain);
   const before = state.getWorkflowContent();
-  await expect(edit(state, 'delete operator selected\ncreate operator global: scan("data.csv")')).rejects.toThrow(
+  await expect(edit(state, 'del selected\nglobal = scan("data.csv")')).rejects.toThrow(
     "Line 2: `global` is a Python keyword"
   );
   expect(state.getWorkflowContent()).toEqual(before);
-  await expect(edit(state, 'create operator global: scan("data.csv")')).rejects.toThrow("global_data");
-  await edit(state, 'create operator global_data: scan("data.csv")');
+  await expect(edit(state, 'global = scan("data.csv")')).rejects.toThrow("global_data");
+  await edit(state, 'global_data = scan("data.csv")');
   expect(state.getOperator("global_data")).toBeDefined();
 });
 
-test("an indented graph command reports its own line and leaves the graph intact", async () => {
+test("an indented statement reports its own line and leaves the graph intact", async () => {
   const state = new WorkflowState();
   await edit(state, chain);
   const before = state.getWorkflowContent();
-  await expect(edit(state, "delete operator selected\n delete operator total")).rejects.toThrow(
-    "Line 2: start graph commands without indentation"
+  await expect(edit(state, 'del total\n    other = scan("b.csv")')).rejects.toThrow(
+    "Line 2: start each statement at the margin"
   );
+  await expect(edit(state, '  other = scan("b.csv")')).rejects.toThrow("Line 1: start each statement at the margin");
   expect(state.getWorkflowContent()).toEqual(before);
 });
 
-test.each(["update", "modify"])("%s preserves connections and invalidates descendants", async verb => {
+test("joins take left then right, including a self-join, and a kind change rewires the ports", async () => {
   const state = new WorkflowState();
-  await edit(state, chain);
-  const before = state.getWorkflowContent();
   const result = await edit(
     state,
-    `${verb} operator selected: project(keep=["region", "amount"], rename={"amount": "value"})`
+    `source = scan("a.csv")\nother = scan("b.csv")\ncombined = join(source, other, on="id")`
   );
-  const after = state.getWorkflowContent();
-  expect(result.changes).toEqual([{ operation: "update_operator", operator_id: "selected" }]);
-  expect(after.links).toEqual(before.links);
-  expect(state.getOperator("selected")!.nativeOp!.inputs).toEqual(["source"]);
-  expect(computeStaleResultOps(before, after)).toEqual(new Set(["selected", "total"]));
-});
-
-test("operator deletion reports every incident edge and leaves consumers unconnected", async () => {
-  const state = new WorkflowState();
-  await edit(state, chain);
-  const result = await edit(state, "delete operator selected");
-  expect(result.changes[0].deleted_edges).toEqual(["source.out -> selected.in", "selected.out -> total.in"]);
-  expect(state.getOperator("total")).toBeDefined();
-  expect(state.getAllLinks()).toEqual([]);
-  expect(missingGraphInputs(state.getWorkflowContent())).toEqual(["total.in"]);
-  await edit(state, "create edge source.out -> total.in");
-  expect(state.getOperator("total")!.nativeOp!.inputs).toEqual(["source"]);
-});
-
-test("rewiring requires an explicit edge deletion and invalidates the receiving branch", async () => {
-  const state = new WorkflowState();
-  await edit(state, chain + '\ncreate operator alternative: scan("b.csv")');
-  await expect(edit(state, "create edge alternative.out -> selected.in")).rejects.toThrow("occupied");
-  const before = state.getWorkflowContent();
-  await edit(state, "delete edge source.out -> selected.in\ncreate edge alternative.out -> selected.in");
-  expect(state.getOperator("selected")!.nativeOp!.inputs).toEqual(["alternative"]);
-  expect(computeStaleResultOps(before, state.getWorkflowContent())).toEqual(new Set(["selected", "total"]));
-});
-
-test("invalid ports and cycles cannot enter the graph", async () => {
-  const state = new WorkflowState();
-  await edit(state, chain);
-  for (const bad of [
-    "create edge source.out -> total.left",
-    "create edge source.wrong -> total.in",
-    "create edge source.out -> source.in",
-    "delete edge source.out -> total.in",
-    "delete edge source.out -> selected.in\ncreate edge total.out -> selected.in",
-  ]) {
-    await expect(edit(state, bad)).rejects.toThrow();
-  }
-  expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
-});
-
-test("joins have distinct left and right ports including a self-join", async () => {
-  const state = new WorkflowState();
-  await edit(
-    state,
-    `create operator source: scan("a.csv")
-create operator combined: join(on="id")
-create edge source.out -> combined.left
-create edge source.out -> combined.right`
-  );
-  expect(state.getAllLinks()).toHaveLength(2);
+  expect(lines(result).slice(-2)).toEqual([
+    "edge source -> combined.left created",
+    "edge other -> combined.right created",
+  ]);
+  await edit(state, 'combined = join(source, source, on="id")');
   const view = state.getOperator("combined")!.nativeOp!;
   expect(view.inputs).toEqual(["source", "source"]);
-  const code = compileNativeOp(view, "combined").code;
-  expect(code).toContain("def process(_input_0, _input_1)");
-  await expect(edit(state, 'update operator combined: project(keep=["id"])')).rejects.toThrow();
+  expect(compileNativeOp(view, "combined").code).toContain("def process(_input_0, _input_1)");
+  const narrowed = await edit(state, 'combined = project(source, keep=["id"])');
+  expect(lines(narrowed)).toEqual([
+    "operator combined updated (project)",
+    "edge source -> combined.left removed",
+    "edge source -> combined.right removed",
+    "edge source -> combined created",
+  ]);
+  expect(state.getAllLinks()).toHaveLength(1);
 });
 
-test("union inputs are ordered, can grow, and gaps remain explicitly unconnected", async () => {
+test("union inputs are ordered and grow or shrink with the statement", async () => {
   const state = new WorkflowState();
-  await edit(
-    state,
-    `create operator a: scan("a.csv")
-create operator b: scan("b.csv")
-create operator u: union(schema="align")
-create edge a.out -> u.in[0]
-create edge b.out -> u.in[2]`
-  );
-  expect(missingGraphInputs(state.getWorkflowContent())).toEqual(["u.in[1]"]);
-  await edit(state, "create edge a.out -> u.in[1]");
-  expect(state.getOperator("u")!.nativeOp!.inputs).toEqual(["a", "a", "b"]);
+  await edit(state, `a = scan("a.csv")\nb = scan("b.csv")\nu = union(a, b, schema="align")`);
+  expect(inspectGraph(state.getWorkflowContent()).edges.slice(-2)).toEqual(["a -> u.in[0]", "b -> u.in[1]"]);
+  const grown = await edit(state, 'u = union(a, b, a, schema="align")');
+  expect(lines(grown)).toEqual(["operator u updated (union)", "edge a -> u.in[2] created"]);
+  expect(state.getOperator("u")!.nativeOp!.inputs).toEqual(["a", "b", "a"]);
+  const shrunk = await edit(state, 'u = union(b, a, schema="align")');
+  expect(lines(shrunk)).toEqual([
+    "operator u updated (union)",
+    "edge a -> u.in[0] removed",
+    "edge b -> u.in[1] removed",
+    "edge a -> u.in[2] removed",
+    "edge b -> u.in[0] created",
+    "edge a -> u.in[1] created",
+  ]);
   expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
 });
 
-test("custom implementations belong to their operator and declare process input count", async () => {
+test("custom functions belong to their operator, and a process takes one input per parameter", async () => {
   const state = new WorkflowState();
-  await edit(
+  const result = await edit(
     state,
-    `create operator source: scan("a.csv")
-create operator fitted: process(fn=fit, doc="Compare the two input tables")
+    `source = scan("a.csv")
+fitted = process(source, source, fn=fit, doc="Compare the two input tables")
     def fit(left, right):
         import pandas as pd
-        return pd.DataFrame({"difference": [len(left) - len(right)]})
-create edge source.out -> fitted.in[0]
-create edge source.out -> fitted.in[1]`
+        return pd.DataFrame({"difference": [len(left) - len(right)]})`
   );
+  expect(lines(result).slice(-2)).toEqual([
+    "edge source -> fitted.in[0] created",
+    "edge source -> fitted.in[1] created",
+  ]);
   expect(inspectGraph(state.getWorkflowContent()).operators.find(o => o.id === "fitted")!.ports.inputs).toEqual([
     "in[0]",
     "in[1]",
   ]);
-  expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
   expect(state.getOperator("fitted")!.nativeOp!.properties.code).toContain("def fit(left, right)");
+  const before = state.getWorkflowContent();
+  await expect(
+    edit(state, 'fitted = process(source, fn=fit, doc="Compare")\n    def fit(left, right):\n        return left')
+  ).rejects.toThrow("has 1 input table(s) but fit takes 2 parameter(s)");
+  await expect(edit(state, 'fitted = process(source, fn=fit, doc="Compare")')).rejects.toThrow(
+    "not a function defined in this edit"
+  );
+  expect(state.getWorkflowContent()).toEqual(before);
 });
 
-test("multiline parameters and command text inside Python strings parse without changing boundaries", async () => {
+test("a single-input process names no port, and a loader takes no inputs", async () => {
+  const state = new WorkflowState();
+  const result = await edit(
+    state,
+    `loaded = process(fn=load, doc="A diagnostic source")
+    def load():
+        import pandas as pd
+        return pd.DataFrame({"x": [1]})
+shaped = process(loaded, fn=shape, doc="Keep the input table")
+    def shape(table):
+        return table`
+  );
+  expect(lines(result).at(-1)).toBe("edge loaded -> shaped created");
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(["loaded -> shaped"]);
+  expect(state.getOperator("shaped")!.nativeOp!.graph!.inputPorts).toEqual(["in[0]"]);
+});
+
+test("multiline parameters and statement text inside Python strings parse without changing boundaries", async () => {
   const state = new WorkflowState();
   await edit(
     state,
-    `create operator source: scan(
+    `source = scan(
     "a.csv",
     skip_lines=2
 )
-create operator loaded: process(fn=load, doc="A diagnostic source")
+loaded = process(fn=load, doc="A diagnostic source")
     def load():
         import pandas as pd
         text = """first
-create operator fake: scan('never.csv')
+fake = scan('never.csv')
+del source
 last"""
         return pd.DataFrame({"text": [text]})`
   );
   expect(state.getAllOperators().map(o => o.operatorID)).toEqual(["source", "loaded"]);
   expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
-});
-
-test("a single-input process accepts in as shorthand but stores canonical ports", async () => {
-  const state = new WorkflowState();
-  const added = await edit(
-    state,
-    `create operator source: scan("a.csv")
-create operator alternative: scan("b.csv")
-create operator shaped: process(fn=shape, doc="Keep the input table")
-    def shape(table):
-        return table
-create edge source.out -> shaped.in`
-  );
-  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(["source.out -> shaped.in[0]"]);
-  expect(added.changes.at(-1)?.edge).toBe("source.out -> shaped.in[0]");
-  expect(state.getOperator("shaped")!.nativeOp!.inputs).toEqual(["source"]);
-  await expect(edit(state, "create edge alternative.out -> shaped.in[0]")).rejects.toThrow("occupied");
-  await expect(edit(state, "create edge alternative.out -> shaped.in")).rejects.toThrow("occupied");
-  const rewired = await edit(state, "delete edge source.out -> shaped.in\ncreate edge alternative.out -> shaped.in[0]");
-  expect(rewired.changes[0].edge).toBe("source.out -> shaped.in[0]");
-  expect(state.getOperator("shaped")!.nativeOp!.inputs).toEqual(["alternative"]);
-  expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
-});
-
-test("in never guesses a multi-input process, join, or union port", async () => {
-  const state = new WorkflowState();
-  await edit(
-    state,
-    `create operator source: scan("a.csv")
-create operator combined: join(on="id")
-create operator stacked: union(schema="align")
-create operator compared: process(fn=compare, doc="Compare tables")
-    def compare(left, right):
-        return left`
-  );
-  const before = state.getWorkflowContent();
-  for (const id of ["combined", "stacked", "compared"]) {
-    await expect(edit(state, `create edge source.out -> ${id}.in`)).rejects.toThrow("Unknown input port");
-    expect(state.getWorkflowContent()).toEqual(before);
-  }
 });
 
 test("full profile scope is compiled into new operators, and existing operators keep theirs", async () => {
@@ -296,11 +333,13 @@ test("full profile scope is compiled into new operators, and existing operators 
     expect(op.nativeOp?.profileCollection).toBe(true);
     expect(op.nativeOp?.profileScope).toBe("full");
   }
-  const code = JSON.parse(String(full.workflow.operators[0].operatorProperties.code).match(/json\.loads\((".*")\)/)![1]);
+  const code = JSON.parse(
+    String(full.workflow.operators[0].operatorProperties.code).match(/json\.loads\((".*")\)/)![1]
+  );
   expect(JSON.parse(code).profileScope).toBe("full");
   const prefix = await plan(new WorkflowState().getWorkflowContent(), chain, "prefix");
   expect(prefix.workflow.operators.some(op => "profileScope" in op.nativeOp!)).toBe(false);
-  const updated = await plan(full.workflow, 'update operator source: scan("data/b.csv")', "prefix");
+  const updated = await plan(full.workflow, 'source = scan("data/b.csv")', "prefix");
   expect(updated.workflow.operators.find(op => op.operatorID === "source")!.nativeOp?.profileScope).toBe("full");
   expect(() => validateNativeSettings({ nativeProfileScope: "everything" } as any)).toThrow(/prefix" or "full/);
 });

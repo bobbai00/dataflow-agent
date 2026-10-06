@@ -41,7 +41,7 @@ beforeAll(async () => {
   workflow = (
     await planGraphEdit(
       new WorkflowState().getWorkflowContent(),
-      'create operator source: scan("data/test.csv")\ncreate operator output: project(keep=["id"])\ncreate edge source.out -> output.in',
+      'source = scan("data/test.csv")\noutput = project(source, keep=["id"])',
       { metadataStore: metadata, settings: { nativeProfileCollection: true } }
     )
   ).workflow;

@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { buildNativeModeSystemPrompt, nativeReferenceText } from "../prompts";
-import { NATIVE_OPERATORS, graphCatalogText } from "./catalog";
+import { NATIVE_OPERATORS, catalogText } from "./catalog";
 import { TexeraAgent } from "../texera-agent";
 import { dataflowActionsSchema, prepareDataflowActions } from "../tools/dataflow-actions";
 import { ContextMode } from "../../types/agent";
@@ -35,7 +35,7 @@ test("on-demand prompt retains execution and state contracts with a smaller init
     "## Role and objective",
     "## Actions and their effects",
     "Each edit is atomic",
-    "occupied",
+    "cannot be its own input",
     "### Understanding observations",
     "sample_stats",
     "from task",
@@ -79,7 +79,7 @@ test("unknown reference operators reject the whole call before an edit", () => {
   const r = prepareDataflowActions({
     reasoning: "Read a contract.",
     actions: [
-      { type: "edit", changes: 'create operator input: scan("data.csv")' },
+      { type: "edit", changes: 'input = scan("data.csv")' },
       { type: "inspect", target: "reference", topic: "operators", operator_names: ["made_up_operator"] },
     ],
   });
@@ -110,7 +110,7 @@ test("prompt detail updates are validated atomically and rebuild the prompt", ()
 
 test("reference lookup returns only selected contracts and uses the canonical catalog", () => {
   const text = nativeReferenceText({ topic: "operators", operator_names: ["join", "process"] }, {});
-  expect(text).toBe(graphCatalogText(["join", "process"]));
+  expect(text).toBe(catalogText(["join", "process"]));
   for (const name of ["join", "process"]) expect(text).toContain(NATIVE_OPERATORS.find(o => o.name === name)!.brief);
   expect(text).not.toContain("pivot(");
   expect(() => nativeReferenceText({ topic: "operators", operator_names: ["made_up"] }, {})).toThrow();

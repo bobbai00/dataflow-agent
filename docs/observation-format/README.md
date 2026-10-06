@@ -52,7 +52,7 @@ the test suite checks that they stay in sync.
 |---|---|
 | this file | requirements, building blocks, value rules, settings, decisions |
 | [inspect.md](inspect.md) | `inspect` of the graph, of one operator, of a saved version |
-| [edit.md](edit.md) | `edit` with each graph command: create, update and delete operator, create and delete edge, restore and fork from an earlier task |
+| [edit.md](edit.md) | `edit` with each statement: create or replace an operator, rewire its inputs, delete it, restore or copy an earlier task's version |
 | [execute.md](execute.md) | `execute` of the whole graph or a selection |
 | [retrieve.md](retrieve.md) | `retrieve` in every view, with statistics and flow evidence |
 | [answer-and-catalog.md](answer-and-catalog.md) | `answer` with `content` or `from`, and the catalog task entry |
@@ -73,9 +73,11 @@ and compact arrow lines in the ledger (`name 10,012×23 join ← a, b · …`).
    field, nested bullets for structure, and tables for records, statistics and
    operator lists. The table syntax is a setting (Markdown by default, TSV as
    the alternative). JSON stays only in the call, where the tool schema needs it.
-2. **Mirror the command language.** Definitions appear exactly as written after
-   `create operator <id>:`; edges exactly as in `create edge`
-   (`orders.out -> selected.in`); changes use the command verbs.
+2. **Mirror the edit language.** Definitions appear as assignments with their
+   current inputs (`selected = project(orders, keep=["region"])`); edges as
+   `orders -> selected`, with the port only when there are several; each change
+   is one line (`operator x created (filter)`, `edge a -> x removed`).
+   (Graph commands were the edit language until 2026-10-06.)
 3. **Five building blocks.** Receipts, catalog entries and the request listing
    are composed only from the operator block, the operator index, the edge line,
    the table block and the issue line.
@@ -122,7 +124,7 @@ Fields, in this order:
 | field | content | when present |
 |---|---|---|
 | header | `**<id>** (<kind>, <change or state>)` | always |
-| definition | the expression after `create operator <id>:`; a process shows `process(fn=…, doc="…")` | when the call does not already hold it |
+| definition | the assignment with its current inputs, `<id> = <operator>(<inputs>, …)`; a process shows `process(<inputs>, fn=…, doc="…")` | when the call does not already hold it |
 | functions | the attached Python, in a fenced block | `inspect` with implementation only |
 | inputs | names; ports only where there are several: `left`/`right`, `in[0]`/`in[1]` | operators with inputs |
 | origin | `task N` (the task that last defined it) or `loaded` (unchanged since loaded state) | operators defined before the current task |
@@ -295,6 +297,7 @@ Implemented decisions:
    controlled comparison found (GPT-4.1-nano, 1,000 records × 8 attributes),
    key-value records scored 60.7%, Markdown tables 51.9%, CSV 44.3%; not yet
    tested on our models and tables.
-7. **Earlier versions are edit commands.** The `fork` action left the tool
-   schema; `fork operator <id> from task <N> as <new_id>` and `update operator
-   <id> from task <N>` are edit commands (2026-10-03, replacing `rollback`).
+7. **Earlier versions are edit statements.** The `fork` action left the tool
+   schema (2026-10-03, replacing `rollback`); since 2026-10-06
+   `new_name = at(name, task=N)` copies a saved version and `name = at(name, task=N)`
+   restores it in place.
