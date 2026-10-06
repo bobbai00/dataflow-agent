@@ -17,79 +17,41 @@
   under the License.
 -->
 
-### Example: preview a source, compute from the full file and answer
+### Example: load a source, compute from it and answer
 
-Request: report the total order amount by region. The layout of
-`data/orders.csv` is unknown, so preview it before choosing parse options:
+Request: report the total order amount by region from `data/orders.csv`. Scan
+the file in full and look at it:
 
 ```json
-{
-  "reasoning": "Preview the orders file to choose its parse options.",
-  "actions": [
-    {"type": "edit", "changes": "orders = scan(\"data/orders.csv\", preview=8)"},
-    {"type": "execute"},
-    {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}
-  ]
-}
+{"reasoning": "Load the orders file and check its layout.", "actions": [{"type": "edit", "changes": "orders = scan(\"data/orders.csv\")"}, {"type": "execute"}, {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}]}
 ```
 
-The receipt of the retrieve is:
+The receipt of the retrieve shows the parsed table:
 
 ```text
 ### 3. retrieve orders: ok
 - **orders** (scan, executed)
-  - result: 6 rows × 3 columns
-  - columns: file str, line_no int64, line str
-records: sample_stats; 6 of 6 rows, 3 of 3 columns (complete; source preview only)
-| file | line_no | line |
-|---|---|---|
-| orders.csv | 0 | Exported by finance |
-| orders.csv | 1 | region,amount,date |
-| orders.csv | 2 | east,70.5,2026-01-03 |
-| orders.csv | 3 | west,30,2026-01-04 |
-| orders.csv | 4 | east,50,2026-01-05 |
-| orders.csv | 5 | west,50,2026-01-06 |
-statistics: not shown; the complete records above show every value
-- flow: Scan preview only (not full source); files selected=1/1, omitted=0; output=6 rows.
-```
-
-The file starts with one preamble line, and the header is on line 1. `orders`
-still holds only the preview, so load the full file without the preamble and
-compute the requested totals in the same call:
-
-```json
-{
-  "reasoning": "Load all orders and compute total amounts by region.",
-  "actions": [
-    {"type": "edit", "changes": "orders = scan(\"data/orders.csv\", skip_lines=1)\ntotals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))"},
-    {"type": "execute", "operator_ids": ["totals"]},
-    {"type": "retrieve", "operator_id": "totals", "view": "full"}
-  ]
-}
-```
-
-Observation:
-
-```text
-### 1. edit: ok
-operator orders updated (scan)
-operator totals created (aggregate)
-edge orders -> totals created
-results invalidated: orders
-
-### 2. execute totals: ok
-2 operators in scope: 2 executed, 0 cached.
-- **orders** (scan, executed)
   - result: 4 rows × 3 columns
   - columns: region str, amount float64, date str
-  - flow: Scan parsed selected sources; files selected=1/1, omitted=0; output=4 rows.
-- **totals** (aggregate, executed)
-  - inputs: `orders`
-  - result: 2 rows × 2 columns
-  - columns: region str, total float64
-  - flow: Aggregate groups=2 from 4 rows; group size min=2, max=2.
-  - flow: "total" nonnull=4/4; per-group min=2, max=2; reducer=sum.
+records: sample_stats; 4 of 4 rows, 3 of 3 columns (complete)
+| region | amount | date |
+|---|---|---|
+| east | 70.5 | 2026-01-03 |
+| west | 30 | 2026-01-04 |
+| east | 50 | 2026-01-05 |
+| west | 50 | 2026-01-06 |
+statistics: not shown; the complete records above show every value
+- flow: Scan parsed selected sources; files selected=1/1, omitted=0; output=4 rows.
+```
 
+The header and types are as expected. Compute the totals and read the small
+result in full:
+
+```json
+{"reasoning": "Compute total amounts by region.", "actions": [{"type": "edit", "changes": "totals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))"}, {"type": "execute", "operator_ids": ["totals"]}, {"type": "retrieve", "operator_id": "totals", "view": "full"}]}
+```
+
+```text
 ### 3. retrieve totals: ok
 - **totals** (aggregate, executed)
   - inputs: `orders`
@@ -101,18 +63,10 @@ records: full; 2 of 2 rows, 2 of 2 columns (complete)
 | east | 120.5 |
 | west | 80 |
 - flow: Aggregate groups=2 from 4 rows; group size min=2, max=2.
-- flow: "total" nonnull=4/4; per-group min=2, max=2; reducer=sum.
-- flow: contract; Aggregate: one output row per group; group keys=["region"]; null keys form a group.
 ```
 
-The complete result establishes the requested totals. Answer in the requested
-format:
+The complete result answers the request:
 
 ```json
-{
-  "reasoning": "The complete totals table answers the request.",
-  "actions": [
-    {"type": "answer", "content": "east: 120.5; west: 80"}
-  ]
-}
+{"reasoning": "The complete totals table answers the request.", "actions": [{"type": "answer", "content": "east: 120.5; west: 80"}]}
 ```

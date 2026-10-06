@@ -109,8 +109,7 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
     type: "array",
     minItems: 1,
     maxItems: 32,
-    description:
-      "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
+    description: "Actions run in order; decide on returned results in the next call.",
     items: {
       anyOf: [
         action(
@@ -169,11 +168,11 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "execute",
-          "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
+          "Run the whole graph, reusing valid cached results. Returns status and errors; retrieve tables separately."
         ),
         action(
           "execute",
-          "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately.",
+          "Run only these operators and their upstream dependencies, reusing valid cached results; other branches are left as they are. Returns status and errors; retrieve tables separately.",
           { operator_ids: { type: "array", items: text, minItems: 1 } }
         ),
         action(
@@ -293,12 +292,10 @@ function validationMessage(input: any, stateHistory: boolean): string {
 }
 
 export const DATAFLOW_ACTIONS_DESCRIPTION =
-  "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
-  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of operator assignments. " +
-  "Edits do not run the graph; retrieval reads existing results. " +
-  "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
-  "After an execution failure, inspect and retrieve may still read independent completed results. " +
-  "An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.";
+  "Work with a dataflow through an ordered list of inspect, edit, execute, retrieve and answer actions, after a brief reasoning sentence. " +
+  "actions is a JSON array of objects; edit.changes is a string of operator assignments. " +
+  "Edits do not run the graph, and retrieval never executes. A failure skips later actions; completed edits remain. " +
+  "An answer with content is the only action of its call; an answer with from is the last.";
 
 /** Validate first. The agent resolves this receipt after creating the step's
  * snapshot, in onStepFinish, before another model request or stop decision.
@@ -401,9 +398,16 @@ export function prepareDataflowActions(
 export function createDataflowTool(
   views: readonly RetrievalView[] = availableRetrievalViews(),
   stateHistory = false,
-  multiTask = stateHistory
+  multiTask = stateHistory,
+  /** Reference inspection reads operator contracts and examples; the full
+   * prompt already contains them, so only the on-demand prompt offers it. */
+  references = false
 ) {
   const schema = structuredClone(dataflowActionsSchema(stateHistory));
+  if (!references)
+    schema.properties.actions.items.anyOf = schema.properties.actions.items.anyOf.filter(
+      a => !("target" in a.properties && (a.properties.target as { const: string }).const === "reference")
+    );
   if (multiTask)
     schema.properties.actions.items.anyOf = schema.properties.actions.items.anyOf.filter(
       a =>
@@ -414,17 +418,16 @@ export function createDataflowTool(
         )
     );
   const descriptions = {
-    full: "full requests records up to its character cap; narrow large tables first",
-    sample: "sample checks layout and example values with a small record view",
-    sample_stats:
-      "sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics",
+    full: "full shows every record up to its character cap",
+    sample: "sample shows a few records",
+    sample_stats: "sample_stats adds statistics on every column to the sample",
   };
   for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
     (retrieve.properties as any).view.enum = [...views];
     const scoped = "columns" in retrieve.properties;
     retrieve.description = scoped
-      ? `Read an existing result restricted to the named columns, in the same views (${views.join(", ")}); use it on a wide table instead of a projection operator when only some columns are needed. Never executes.`
-      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
+      ? `Read an existing result restricted to the named columns, in the same views (${views.join(", ")}); use it on a wide table when only some columns are needed. Never executes.`
+      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}.${views.includes("full") && views.length > 1 ? ` Look with ${views.includes("sample_stats") ? "sample_stats" : "sample"} first; request full only when you need every row.` : ""} Never executes; missing or stale results require execute.`;
   }
   for (const inspect of schema.properties.actions.items.anyOf.filter(
     a => "target" in a.properties && "view" in a.properties

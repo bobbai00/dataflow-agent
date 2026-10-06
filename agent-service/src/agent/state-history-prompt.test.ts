@@ -59,7 +59,7 @@ test("computed answers prefer runtime composition and narrow the first retrieval
   for (const stateHistory of [false, true]) {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory });
     expect(prompt).toContain("Prefer `answer` with `from` for tabular answers");
-    expect(prompt).toContain("Select needed `columns` on the first retrieval");
+    expect(prompt).toContain("Use `columns` when a wide result hides the fields you need");
   }
 });
 
@@ -67,7 +67,7 @@ test("scope and repair guidance is general and works in ordinary ReAct without a
   const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
   expect(single).toContain("Completeness describes the stored result");
   expect(single).toContain("scope");
-  expect(single).toContain("A smaller table is appropriate when the request asks for that selection");
+  expect(single).toContain("A smaller table is right when the request asks for that selection");
   for (const view of ["full", "sample", "sample_stats"] as const) {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true, retrievalViews: [view] });
     const section =

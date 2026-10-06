@@ -322,8 +322,16 @@ describe("ordered dataflow actions", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.properties.actions.items.anyOf).toHaveLength(12);
+    expect(schema.properties.actions.items.anyOf).toHaveLength(10);
     expect(schema.properties.edits).toBeUndefined();
+    // Reference inspection reads documentation the full prompt already holds;
+    // only the on-demand prompt's tool offers it.
+    const targets = (s: any) =>
+      s.properties.actions.items.anyOf.map((a: any) => a.properties.target?.const).filter(Boolean);
+    expect(targets(schema)).not.toContain("reference");
+    const onDemand = asSchema(createDataflowTool(undefined, false, false, true).inputSchema).jsonSchema as any;
+    expect(onDemand.properties.actions.items.anyOf).toHaveLength(12);
+    expect(targets(onDemand).filter((t: string) => t === "reference")).toHaveLength(2);
     const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);
   });

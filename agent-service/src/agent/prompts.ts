@@ -364,30 +364,33 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const views = availableRetrievalViews(options);
   const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
   const rowLimit = options.maxResultRows ?? 50;
-  const rows = rowLimit > 0 ? ` and at most ${rowLimit} records` : "";
+  const rows = rowLimit > 0 ? `at most ${rowLimit} example records` : "example records";
+  const sample = `The schema and ${rows}, within ${sampleLimit} characters`;
   const descriptions = {
-    full: `Records within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters. A capped view remains partial.`,
-    sample: `Schema and retained example records within ${sampleLimit} characters${rows}.`,
-    sample_stats: `Schema and retained example records within ${sampleLimit} characters${rows}, plus data statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget.`,
+    sample: `${sample}.`,
+    sample_stats: `${views.includes("sample") ? "The sample" : sample}, plus statistics on every column within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget.`,
+    full: `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`,
   };
+  const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
   return [
     "Choose a `view` on every retrieve:",
     "",
-    "| View | Available information |",
+    "| View | Shows |",
     "|---|---|",
-    ...views.map(view => `| \`${view}\` | ${descriptions[view]} |`),
+    ...(["sample", "sample_stats", "full"] as const)
+      .filter(view => views.includes(view))
+      .map(view => `| \`${view}\` | ${descriptions[view]} |`),
     "",
-    views.includes("sample_stats")
-      ? "Start with `sample_stats` to understand the result and judge what needs further work."
-      : views.includes("sample")
-        ? "Start with `sample` to understand layout and types."
-        : "Check the completeness of every `full` view.",
-    "If a wide result hides the fields you need, use `columns`.",
-    ...(views.includes("full")
-      ? [
-          "Request `full` when you need row associations or ordering that the sample and available statistics do not establish. For a large result, compute a focused projection, filter or aggregate in the graph before retrieving its full view.",
-        ]
-      : []),
+    [
+      first && views.includes("full")
+        ? `Look at a result with \`${first}\` first, and retrieve \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+        : first
+          ? ""
+          : "Check the completeness of every `full` view.",
+      "Use `columns` when a wide result hides the fields you need.",
+    ]
+      .filter(Boolean)
+      .join(" "),
   ].join("\n");
 }
 

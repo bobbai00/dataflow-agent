@@ -19,40 +19,27 @@
 
 #### Flow statistics
 
-Flow statistics are enabled in this session. Use them as evidence for judging
-how a result was produced and whether transformations preserved the intended
-population, key identity and calculation.
+Flow statistics show how a result was produced: whether transformations kept
+the intended population, key identity and calculation. Execution receipts show
+`flow` lines on the operators that ran, and a retrieval adds selected lines for
+the result and the upstream operators that produced it, named as in
+`flow (eligible):`, within their own {{FLOW_BUDGET}}-character budget.
 
-Execution receipts show `flow` lines on the operators that ran. Retrieval
-automatically adds selected flow information for the result and the upstream
-operators that produced it, even when you did not retrieve their tables; a
-line about an upstream operator names it, as in `flow (eligible):`. This
-information has its own {{FLOW_BUDGET}}-character budget in every available
-retrieval view.
+They report scan sources, cast failures, filter retention, join matching and
+duplication, aggregate denominators and window boundary nulls. A `contract;`
+line states the operator's behavior rather than a measurement; measured counts
+describe this execution.
 
-Flow measurements can report scan sources, cast failures, filter retention,
-join matching or duplication, aggregate denominators, and window boundary
-nulls. Lines marked `contract;` state the operator's behavior rather than a
-measurement. A measured count describes this execution, and evidence refers to
-the versions that produced the result.
+Compare them with the intended operation: a failed conversion can remove valid
+values, an inner join can exclude intended rows, repeated keys can multiply
+contributions, and a reducer can use fewer valid rows than intended. An
+exclusion is right when the task asks for it; establish that first.
+Failed-value and unmatched-key examples are bounded, and absent or trimmed
+lines do not show that nothing was lost. Rows inside custom functions are not
+tracked; return diagnostics as columns when you need them. Measurements
+evaluate a computation; still check its population and formula against the
+request.
 
-Compare the measurements with the intended operation. Unexpected conversion
-failures can remove valid values, an inner join can exclude intended rows, and
-repeated keys can multiply contributions. Check whether a reducer used the
-intended number of valid rows. A reported exclusion may be appropriate when
-the task asks for it; establish that before using its aggregate.
-
-Failed-value and unmatched-key examples are bounded examples with counts.
-They can be clipped and need not enumerate all affected values. Absent or
-trimmed flow lines do not establish that there were no losses or failures.
-Custom functions have unknown internal row and column mapping; return
-diagnostics as columns when you need them.
-
-Each enabled kind of statistics has its own budget and does not displace
-records. Use these measurements to evaluate a computation, and validate the
-population and formula against the request as well.
-
-Use structural `scope` lines alongside these measurements. A limit can be
-intentional for a report and inappropriate as input to an aggregate over all
-qualifying rows. Inspect the definition and select the input that the request
-names; a smaller count alone is not a reason to change a filter or join.
+A limit in `scope` can be right for a report and wrong as the input to an
+aggregate over all qualifying rows; use the input the request names. A smaller
+count alone is not a reason to change a filter or join.

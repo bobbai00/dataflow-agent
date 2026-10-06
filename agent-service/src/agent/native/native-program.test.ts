@@ -734,16 +734,20 @@ describe("native prompt", () => {
     });
     const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(([, json]) => JSON.parse(json));
     expect(
-      examples.some(e => e.actions.some((a: any) => a.operator_id === "eligible" && a.view === "sample_stats"))
+      examples.some(e => e.actions.some((a: any) => a.operator_id === "orders" && a.view === "sample_stats"))
     ).toBe(true);
-    expect(examples.some(e => e.actions.some((a: any) => a.operator_id === "summary" && a.view === "full"))).toBe(true);
+    expect(prompt).toContain("statistics: full table, 20 of 20 rows");
+    expect(prompt).toContain("summary = aggregate(eligible");
     expect(prompt).toContain("all:");
     expect(prompt).toContain("Failed-value");
     expect(prompt).toContain("unmatched-key examples");
     expect(prompt).toContain("window boundary");
-    expect(prompt).toContain("restate the join with the normalized input and recompute");
+    expect(prompt).toContain("restate the join on the normalized");
     for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
       expect(prepareDataflowActions(JSON.parse(json), ["full", "sample", "sample_stats"]).error).toBeUndefined();
+    const { runNativePython } = await import("./codegen");
+    for (const [, changes] of prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g))
+      expect(await runNativePython({ changes })).toMatchObject({ ok: true });
     const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
     expect(plain).not.toContain("failed-value examples");
     expect(plain).not.toContain('"view": "full"');
@@ -755,18 +759,18 @@ describe("native prompt", () => {
       flowEvidence: true,
     });
     expect(examples).not.toMatch(/KramaBench|ChromaBench|Case_excluded|North Carolina|APP-Z|PLK1|texera-observation/i);
-    expect(examples).toContain("key values and definitions");
-    expect(examples).toContain("exclusions are intentional");
-    expect(examples).toContain("four missing values must be reported");
+    expect(examples).toContain("read the key values on both sides first");
+    expect(examples).toContain("change the join type only when its semantics fit the request");
+    expect(examples).toContain("16 have a value");
     expect(examples).not.toMatch(
       /\b(?:legal|biomedical|environment|archeology|wildfire|astronomy)-(?:easy|hard)-\d+\b/
     );
   });
   test("the synthetic decimal repair runs and preserves graph connections", async () => {
     const examples = nativeRetrievalExamples({ retrievalViews: ["sample_stats"], flowEvidence: true });
-    const repair = [...examples.matchAll(/```json\n([\s\S]*?)\n```/g)]
-      .map(([, json]) => JSON.parse(json))
-      .find(e => e.actions.some((a: any) => a.type === "edit" && a.changes.startsWith("typed = cast(")));
+    const repair = [...examples.matchAll(/```dataflow\n([\s\S]*?)\n```/g)]
+      .map(([, changes]) => changes)
+      .find(changes => changes.startsWith("typed = cast("))!;
     const directory = mkdtempSync(join(tmpdir(), "native-evidence-prompt-"));
     try {
       const path = join(directory, "values.csv");
@@ -785,7 +789,7 @@ total = aggregate(typed, average=mean("value"))
       );
       state.setWorkflowContent(initial.workflow);
       expect(execute(state, "total")).toEqual([{ average: 1 }]);
-      const updated = await planGraphEdit(state.getWorkflowContent(), repair.actions[0].changes, { metadataStore });
+      const updated = await planGraphEdit(state.getWorkflowContent(), repair, { metadataStore });
       state.setWorkflowContent(updated.workflow);
       expect(updated.workflow.links).toEqual(initial.workflow.links);
       expect(execute(state, "total")).toEqual([{ average: 1.1 }]);
@@ -797,11 +801,12 @@ total = aggregate(typed, average=mean("value"))
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
       retrievalViews: ["full", "sample", "sample_stats"],
     });
-    expect(prompt).toContain("Start with `sample_stats`");
-    expect(prompt).toContain("compute a focused projection, filter or aggregate");
-    expect(prompt).toContain("A complete view of a scan preview");
+    expect(prompt).toContain("Look at a result with `sample_stats` first");
+    expect(prompt).toContain("reduce a large result in the graph first");
+    expect(prompt).toContain("A scan preview covers only the previewed");
     expect(prompt).toContain("not a random sample");
-    expect(prompt).toContain("Statistics are collected independently of the displayed sample records");
+    expect(prompt).toContain("Statistics are collected independently of the sample records");
+    expect(prompt).toContain("Scan each supplied path in full");
     expect(prompt).toContain("window(T, partition_by=");
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
