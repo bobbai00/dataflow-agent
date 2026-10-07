@@ -53,12 +53,12 @@ same calculation among eligible records. Retrieve the earlier calculation:
 ```
 
 Check whether its saved filters, denominator and output match the new request.
-Reuse a matching result by its `name@N` address; otherwise copy it with
-`variant = name@N`, adjust the variant and execute it. Read individual saved
-inputs when their definitions matter. The dependency index points to possible
-reuse and does not certify the previous answer. A copied definition keeps its
-saved direct inputs; restate it to change them. Prefer one read that returns
-the relevant implementation and result over repeated broader reads.
+Reuse a matching result by its `name@N` address; to continue from an earlier
+definition, make it current with `name = name@N` and change it there. Read
+individual saved inputs when their definitions matter. The dependency index
+points to possible reuse and does not certify the previous answer. Prefer one
+read that returns the relevant implementation and result over repeated broader
+reads.
 {{/history}}
 
 Additional worked examples are available through

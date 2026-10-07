@@ -78,30 +78,6 @@ export interface NativeOpView {
   /** A shared-function call's settings with defaults filled in, for display
    * and history. The call itself passes only `properties.params`. */
   settings?: Record<string, unknown>;
-  /** Set on every step a `variant(...)` copied: the variant it belongs to and
-   * the step it copies. The variant table also records what it varies. */
-  variant?: VariantInfo;
-}
-
-/** One change a variant makes to a step it copies. */
-export interface VariantChange {
-  step: string;
-  /** New values for some of the step's settings. */
-  settings?: Record<string, unknown>;
-  /** A replacement definition for the whole step, as written. */
-  definition?: string;
-  /** An existing table read in place of the step. */
-  table?: string;
-}
-
-export interface VariantInfo {
-  /** The variant table's name. */
-  name: string;
-  /** The original step this operator copies. */
-  step: string;
-  /** On the variant table only: the table it varies and the changes. */
-  of?: string;
-  changes?: VariantChange[];
 }
 
 /* ----------------------------------------------------------------------------

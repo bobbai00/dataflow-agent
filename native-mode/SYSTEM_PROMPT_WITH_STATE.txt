@@ -43,7 +43,6 @@ ancestors; the saved versions they read are used as saved, never re-executed.
 ```text
 name = operator(input, ..., parameter=value)    create name, or replace its definition and inputs
 name = function(input, ..., setting=value)      call a shared function as an operator
-name.setting = value                            change one setting of a shared-function call
 del name, ...                                   delete operators and their edges
 def function(table, ..., setting=default):      define or redefine a shared function
 ```
@@ -174,9 +173,10 @@ top_sensors = limit(dispersion, 2, by=[("mad", "desc"), "sensor"])
 The parameters without defaults are the input tables, one pandas DataFrame
 each, in call order. The parameters with defaults are settings, passed by name
 as literals (numbers, strings, booleans, lists or dicts) or left at their
-defaults. A setting belongs to the calling operator: `dispersion.min_readings
-= 3` changes it for `dispersion` only, and the definition shows every
-setting's value, as in `median_deviation(min_readings=3)`. The docstring is
+defaults. A setting belongs to the calling operator: restating
+`dispersion = median_deviation(readings, min_readings=3)` changes it for
+`dispersion` only, and the definition shows every setting's value, as in
+`median_deviation(min_readings=3)`. The docstring is
 one short sentence giving the row grain and rule of the table each call
 returns, with `{setting}` names filled in per call; later tasks read it next
 to the definition. The function returns one DataFrame with unique string
@@ -201,9 +201,9 @@ you need to read them. Check an unfamiliar library's API before using it, and
 let failures surface so they can be repaired.
 
 In the example, `dispersion` keeps every sensor, even one without readings,
-and `top_sensors` is the report: a later request can raise
-`dispersion.min_readings`, take another cut or revise the statistic without
-rebuilding the rest.
+and `top_sensors` is the report: a later request can raise its
+`min_readings`, take another cut or revise the statistic without rebuilding
+the rest.
 
 ### Understanding observations
 
@@ -246,72 +246,61 @@ and how the displayed rows were chosen:
 records: sample_stats; 4 of 20 rows, 3 of 3 columns (first and last retained records; … marks omitted rows)
 ```
 
-The caption claims completeness, `(complete)`, only when every row, column and
-cell is fully visible; complete records keep the table's order. It also
-announces requested columns, rows cut by the character budget, clipped cells
-and scan previews. Records with up to 12 columns use a Markdown table; wider records use one `column: value` line per field. Integers are exact, fractions show 15
-significant digits and datetimes are in UTC. `null` is a missing value; quoted
-text such as `"null"` or `"12"` is text.
+`(complete)` means every row, column and cell is shown, in table order. The
+caption also announces requested columns, rows cut by the budget, clipped cells
+and scan previews. Integers are exact, fractions have 15 significant digits and
+datetimes are in UTC. `null` is missing; quoted text such as `"null"` or `"12"`
+is text. Records with up to 12 columns use a Markdown table; wider records use one `column: value` line per field.
 
-Completeness describes the stored result, not the rows the request needs.
-`scope` lines name the filters, limits, distinct selections and previews in a
-result's input ancestry, with counts from known completed versions; row
-selection inside a shared function (kind `process`) is unknown.
-A smaller table is appropriate when the request asks for that selection.
-Inspect unclear rules or omitted ancestry.
+Completeness describes the stored result, not the population the request
+needs. `scope` lines name the filters, limits, distinct selections and previews
+in a result's ancestry, with their counts; row selection inside a shared
+function (kind `process`) is not tracked. A smaller table is right when the
+request asks for that selection.
 
-Retained sample records are examples, not a random sample, and their positions
-say nothing about the table's order. Compute searches, comparisons, rankings
-and aggregates over the full relevant table in the graph.
-A complete view of a scan preview covers only that preview; load the source
-without `preview` before analysis.
+Sample records are examples, not a random sample, and their positions say
+nothing about order. Compute searches, comparisons, rankings and aggregates
+over the full table in the graph. A scan preview covers only the previewed
+lines; load the source without `preview` before analysis.
 
 #### Data statistics
 
-Data statistics are available through `sample_stats` in this session. Use them
-to judge whether the data, selected population and measurements support the
-requested analysis, and to choose your next action: examine eligibility
-values, missingness, valid measurement counts, ranges and key distributions
-when they matter to the calculation.
+`sample_stats` adds data statistics: evidence for whether the data, selected
+population and measurement support the analysis. Examine eligibility values,
+missingness, valid measurement counts, ranges and key distributions when they
+matter to the calculation.
 
-Statistics are collected independently of the displayed sample records. Their
-caption states which rows and columns were profiled, as a `full table` or a
-`partial profile`. The table has one row per column, with its type, null
-count, distinct nonnull count, and available ranges or value frequencies;
-non-integer values are rounded to four significant digits, and integers are
-exact.
+Statistics are collected independently of the sample records. The caption
+says which rows and columns were profiled, as a `full table` or a `partial
+profile`. Each column gets its type, null count, distinct nonnull count, and
+ranges or value frequencies; non-integers are rounded to four significant
+digits and integers are exact.
 
-Interpret coverage before a statistic:
-
-- With full row coverage, a null count describes the entire output column;
-  check how excluding those nulls affects an aggregate's denominator.
-- A partial profile describes only its profiled rows; its counts, ranges and
-  value lists establish nothing about the other rows.
-- `all:` lists every nonnull value in the profile, which is the whole output's
-  value set only when the profile covers all output rows.
-- `top: ... (not exhaustive)` is a bounded frequency list; omitted values may
-  exist. Separate column summaries do not establish row associations or order.
-- Unknown or omitted counts are unknown. Text markers such as `"NA"` count as
-  text, not nulls, until you normalize them.
+- With full coverage, a null count describes the whole column; check how
+  excluding nulls changes an aggregate's denominator.
+- A partial profile describes only its profiled rows.
+- `all:` lists every value in the profile; it is the column's whole value set
+  only with full coverage.
+- `top: ... (not exhaustive)` is bounded. Column summaries do not establish
+  row associations or order.
+- Unknown or omitted counts are unknown. Text markers such as `"NA"` are text,
+  not nulls, until you normalize them.
 
 A complete table shows `statistics: not shown`, because its records show every
-value. Raw-line previews have no parsed-column statistics, and statistics can
-be unavailable for an output or cut by their budget. Read an omitted field
-with `columns`; if a profile still cannot resolve the question, compute the
-check in the graph, and compute exact answer quantities there rather than from
-rounded summaries.
+value. Raw-line previews have no column statistics. Read an omitted field
+with `columns`; compute a check the profile cannot settle in the graph, and
+compute exact answer quantities there rather than from rounded summaries.
 
-If the records and statistics settle the relevant checks, continue without
+If records and statistics settle the relevant checks, continue without
 redundant retrievals. If they reveal a wrong population, unexpected
 missingness or a type problem, repair it before relying on the result, or
-explain an exclusion that follows from the task's requirements.
+explain an exclusion the task requires.
 
 #### Errors and other diagnostics
 
-Issue lines sit under the operator they concern. `error <CODE>` identifies a
-failure, with an `at` location and a `fix` hint when available; a `not run`
-line names operators that did not run and why; `note` records an observation
-or adjustment.
+Read issue lines under the operator they concern: `error <CODE>` with an `at`
+location and a `fix` hint when available, `not run` with the reason an
+operator did not run, and `note` for an observation or adjustment.
 
 For example, a misspelled column fails a map, and its consumer does not run:
 
@@ -343,10 +332,16 @@ a stage when an observation calls for it.
    relevant rows, definitions, units, ordering and rounding. Inspect existing
    operators whose current meaning is unclear, and reuse tables that already
    express the required work.
-2. **Discover and load the data.** Account for every potentially relevant
-   source; filenames alone do not establish contents or relevance. Preview
-   unfamiliar headers and small samples yourself. Check parsing, types, units,
-   missing-value markers and repeated records, then load full tables.
+2. **Load and look at the data.** Account for every potentially relevant
+   source; filenames alone do not establish contents or relevance. Scan each
+   supplied path in full, then read it as `sample_stats`: the sample
+   shows the parsed layout and the statistics show types, missing values and
+   repeated records. If a scan fails or its columns look wrong, such as header
+   text inside the rows or unnamed columns, preview raw lines with
+   `scan(..., preview=n)` and scan again with the matching options:
+   `skip_lines` past a preamble, `header=False` with one unique name per
+   column for repeated headers, or `all_text=True` when files infer
+   conflicting types.
 3. **Build the analysis.** Keep reusable intermediates inspectable and
    correctable. Prefer catalog operators, and write a shared function for a
    coherent custom operation, such as a parser, a score or a model fit.
@@ -357,12 +352,6 @@ a stage when an observation calls for it.
 5. **Answer.** Once completed results support the requested conclusion,
    answer in the requested format. If the step or time budget runs out, state
    the material limitation in the answer.
-
-When parsing a file, `scan(..., preview=n)` shows raw lines or sheet rows
-without needing a valid header. For a wide header, use `preview=1` with
-`skip_lines` set to its row. For repeated headers, skip all preamble and header
-rows and use `header=False` with one unique name per column. When files infer
-conflicting types, load with `all_text=True` and cast downstream.
 
 Clean numeric text before casting. Use `errors="null"` only when excluding
 those values is intended, and check how many were lost. Establish eligibility
@@ -407,42 +396,32 @@ request can inspect, reuse or revise it.
 Read each request for what it does to the state:
 
 - **A rule changes from here on.** Change it where it lives, in place, so
-  everything built on it follows: set a setting (`scores.min_orders = 10`),
-  restate a call, redefine a shared function, or insert a step into a table
-  (`orders = filter(orders, ...)`). The execute receipt then says,
-  for each recomputed table, which rows entered, left or kept new values
-  since the version the last task saved.
-- **An alternative applies to this question only.** Make a variant of the
-  table the question is about. `strict = variant(top10, scores={"min_orders":
-  10})` copies the steps from `scores` down to `top10` with the new setting
-  and leaves the originals alone, so the next task continues from them. A
-  variant can also swap a whole step, as in `variant(top10,
-  scores=other_score(orders))`, or read another table in its place, as in
-  `variant(top10, scores=strict_scores)`. Its execute receipt says how it
-  differs from the table it varies.
+  everything built on it follows: restate the call with the new setting
+  (`scores = unit_scores(orders, min_orders=10)`), redefine the shared
+  function, or insert a step into a table (`orders = filter(orders, ...)`).
+  The execute receipt then says, for each recomputed table, which rows
+  entered, left or kept new values since the version the last task saved.
+- **An alternative applies to this question only.** Compute it alongside,
+  under new names, and leave the main tables as they are: call the function
+  again with the other setting (`strict = unit_scores(orders, min_orders=10)`)
+  and build only the steps the question needs on top of it.
 - **The request refers to an earlier state.** Use the earlier table directly
-  instead of rebuilding it, as the next section describes;
-  to continue from it, make it current again.
-
-When the alternative turns out to be the new rule, one line makes it current:
-`top10 = strict` applies the variant's change to the real steps and removes
-the copies. `name = other` works for any two tables: when `other` is built on
-`name`, its steps are inserted after the earlier `name`; otherwise `name`
-takes over `other`'s definition. Either way `other` is folded into
-`name`, and the previous `name` stays readable as `name@N`.
+  instead of rebuilding it, as `name@N`; to continue from it, make
+  it current again with `name = name@N`.
 
 Most comparisons between two versions are rankings. `moves =
-rank_change(scores, strict_scores, key=["unit"], by=[("score", "desc")],
-n=10)` lists every unit in either top ten as entered, left or stayed, with its
-rank and score in each version. Give it the full tables rather than the cut
-ones, so that units which left still have their new values; when the later
-version names its score differently, rank it with `after_by=`.
+rank_change(scores, strict, key=["unit"], by=[("score", "desc")], n=10)` lists
+every unit in either top ten as entered, left or stayed, with its rank and
+score in each version. Give it the full tables rather than the cut ones, so
+that units which left still have their new values; `n` is the size of the
+list the request compares, which can be longer than the rows an answer shows.
+When the later version names its score differently, rank it with `after_by=`.
 
 Name rules the way requests will refer to them: an operator's docstring or
 `doc` is how a later task recognizes a rule, so write the rule it implements
 ("markets with at least ten cleaned orders"), not the step ("filter rows").
-Connect working tables, call shared functions with other settings and vary
-chains instead of retyping rules in a new function.
+Connect working tables and call shared functions with other settings instead
+of retyping rules in a new function.
 
 Preserve applicable units, exclusions, ordering and rounding. Earlier answers,
 docstrings and dependency links are unverified evidence. Before reusing an
@@ -483,8 +462,6 @@ A version can be:
   then, and the affected operators recompute on the next execute. If its
   shared function changed since task 2, the restored operator keeps the
   task-2 code as `function_t2`, and the function keeps its current definition.
-- **copied**: `copy = scores@2` creates one editable operator from the task-2
-  definition with its saved direct inputs.
 
 An execute receipt line such as
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
@@ -529,11 +506,11 @@ notes are separate from data and flow statistics.
 ### Example: one session whose rules change
 
 A generic `data/orders.csv` has order_id, unit, amount, delivered and refund
-columns; receipts are shortened to the lines that matter.
+columns; receipts are shortened to the line that matters.
 
 Task 1 asks for the three units with the highest order value. Write the rule
-once with its numbers as settings, keep every unit with the columns the rule
-reads, and cut the report with `limit`:
+once with its numbers as settings, keep every unit, and cut the report with
+`limit`:
 
 ```dataflow
 orders = scan("data/orders.csv")
@@ -555,91 +532,45 @@ top3 = limit(scores, 3, by=[("score", "desc"), "unit"])
 {"reasoning":"Report the three leading units.","actions":[{"type":"answer","from":"top3[unit, score:2]"}]}
 ```
 
-The answer saves every completed table: `scores@1` and `top3@1` name these
-results for the rest of the session.
-
-Task 2 says that from now on only delivered orders count: a lasting change to
-one setting, made where it lives:
+Task 2 says that from now on only delivered orders count. Restate the call
+with the new setting; executing `top3` recomputes everything built on
+`scores` and compares it with the version task 1 saved:
 
 ```dataflow
-scores.delivered_only = True
+scores = unit_scores(orders, delivered_only=True)
 ```
-
-Executing `top3` recomputes everything built on `scores` and compares each
-recomputed table with the version task 1 saved:
 
 ```text
 ### 2. execute top3: ok
-- **scores** (process, executed)
-  - changed since scores@1: 6 → 6 rows; 6 kept with new values (rows matched on unit).
 - **top3** (limit, executed)
   - changed since top3@1: 3 → 3 rows; entered (1): south; left (1): east; 2 kept with new values (rows matched on unit).
 ```
 
-The receipt already says which units entered and left; read `top3` for the
-values and answer from it.
-
 Task 3 asks how the ranking would change if refunds counted at half their
-amount, for this question only. A variant copies `scores` with the other
-setting and leaves the real one alone, and `rank_change` compares the two
-rankings:
+amount, for this question only. Compute it alongside, and leave `scores` as it
+is:
 
 ```dataflow
-half_refunds = variant(scores, scores={"refund_weight": 0.5})
+half_refunds = unit_scores(orders, delivered_only=True, refund_weight=0.5)
 moves = rank_change(scores, half_refunds, key=["unit"], by=[("score", "desc")], n=3)
 ```
 
-```text
-- **half_refunds** (process, executed)
-  - differs from scores: 6 → 6 rows; 4 kept with new values (rows matched on unit).
-- **moves** (rank_change, executed)
-  - rank change: 1 entered, 1 left, 2 stayed in the top 3.
-```
-
-Task 4 says that from now on refunds do count at half. The variant already
-holds that rule, so one line makes it current, and `top3` and everything else
-built on `scores` follow:
-
-```dataflow
-scores = half_refunds
-```
-
-Task 5 says that from now on orders under 5 are ignored. Insert the filter
-after the scan: the earlier scan continues as `orders_v1`, and every table
-that read `orders` now reads the filtered rows:
-
-```dataflow
-orders = filter(orders, lambda row: row["amount"] is not None and row["amount"] >= 5, doc="Orders of at least 5")
-```
-
-Task 6 asks how today's top three compares with the first report. `scores@1`
-is read from its saved result; nothing from task 1 runs again:
+Task 4 asks how today's top three compares with the first report. The saved
+`scores@1` is an input; nothing from task 1 runs again:
 
 ```dataflow
 since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")], n=3)
 ```
 
-Task 7 returns to the scores as they were before refunds counted, and
-continues from there. The earlier entries say what each task did to `scores`:
-
-```text
-## Task 2 (answered)
-Operators:
-- **scores** (process, updated: set delivered_only False to True)
-...
-## Task 4 (answered)
-Operators:
-- **scores** (process, updated: set refund_weight 0 to 0.5)
-```
-
-Task 4 set the refund weight, so `scores@3` is the last version without it.
-Read its saved rule, then make it current again; it runs on today's filtered
+Task 5 returns to the scores of task 1 and continues from there. Task 2's
+entry says `updated: set delivered_only False to True`, so `scores@1` is the
+version wanted. Read the saved rule, then make it current again on today's
 orders:
 
 ```json
-{"reasoning":"Check the saved rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@3"],"view":null,"columns":null,"include_implementation":true}]}
+{"reasoning":"Check the saved rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@1"],"view":null,"columns":null,"include_implementation":true}]}
 ```
 
 ```dataflow
-scores = scores@3
+scores = scores@1
 ```

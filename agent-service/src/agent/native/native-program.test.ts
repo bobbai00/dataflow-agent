@@ -718,7 +718,7 @@ describe("native prompt", () => {
       const section = prompt.split("### Example: one session whose rules change")[1]!;
       const calls = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
       const read = calls.flatMap(call => call.actions).find((a: any) => a.type === "read" && a.view === null);
-      expect(read).toMatchObject({ operator_ids: ["scores@3"], view: null });
+      expect(read).toMatchObject({ operator_ids: ["scores@1"], view: null });
       for (const call of calls) {
         expect(prepareDataflowActions(call, [view], true, true).status).toBe("pending");
         for (const item of call.actions) if (item.type === "read" && item.view !== null) expect(item.view).toBe(view);
@@ -800,9 +800,9 @@ total = aggregate(typed, average=mean("value"))
     });
     expect(prompt).toContain("Start with `sample_stats`");
     expect(prompt).toContain("compute a focused projection, filter or aggregate");
-    expect(prompt).toContain("A complete view of a scan preview");
+    expect(prompt).toContain("A scan preview covers only the previewed");
     expect(prompt).toContain("not a random sample");
-    expect(prompt).toContain("Statistics are collected independently of the displayed sample records");
+    expect(prompt).toContain("Statistics are collected independently of the sample records");
     expect(prompt).toContain("window(T, partition_by=");
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {

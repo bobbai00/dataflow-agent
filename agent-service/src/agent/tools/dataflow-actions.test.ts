@@ -309,13 +309,17 @@ describe("ordered dataflow actions", () => {
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
       asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("copy = scores@2");
+    expect(s.agent.getSettings().systemPrompt).toContain("scores = scores@2");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.properties.actions.items.anyOf).toHaveLength(12);
+    // Reference lookups return documentation the full prompt already contains,
+    // so only the on-demand prompt's tool offers them.
+    expect(schema.properties.actions.items.anyOf).toHaveLength(10);
+    const onDemand = asSchema(createDataflowTool(undefined, false, false, true).inputSchema).jsonSchema as any;
+    expect(onDemand.properties.actions.items.anyOf).toHaveLength(12);
     expect(schema.properties.edits).toBeUndefined();
     const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);

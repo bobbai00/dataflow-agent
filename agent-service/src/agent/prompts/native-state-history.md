@@ -47,8 +47,6 @@ A version can be:
   then, and the affected operators recompute on the next execute. If its
   shared function changed since task 2, the restored operator keeps the
   task-2 code as `function_t2`, and the function keeps its current definition.
-- **copied**: `copy = scores@2` creates one editable operator from the task-2
-  definition with its saved direct inputs.
 
 An execute receipt line such as
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`

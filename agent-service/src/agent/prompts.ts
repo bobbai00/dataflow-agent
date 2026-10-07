@@ -328,7 +328,7 @@ function adaptReceipts(text: string, options: NativePromptLayoutOptions, flags: 
         if (!execute || !line.startsWith("- **")) return true;
         const end = lines.findIndex((next, j) => j > i && !next.startsWith("  "));
         const fields = lines.slice(i + 1, end < 0 ? lines.length : end);
-        if (fields.some(field => /^  - (error|note|check|flow|changed since|differs from|rank change)\b/.test(field))) return true;
+        if (fields.some(field => /^  - (error|note|check|flow|changed since|rank change)\b/.test(field))) return true;
         fields.forEach((_, k) => (lines[i + 1 + k] = "\u0000"));
         return false;
       })

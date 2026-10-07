@@ -118,7 +118,7 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
     minItems: 1,
     maxItems: 32,
     description:
-      "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
+      "Actions run in order; decide on returned results in the next call.",
     items: {
       anyOf: [
         action(
@@ -171,17 +171,17 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
             changes: {
               ...text,
               description:
-                "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name, and a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function as an operator; `name.setting = value` changes one setting of such a call; `name = variant(table, step={\"setting\": value})` copies the steps from step to table with the change; `name = other` makes name what other is, folding other in; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies.",
+                "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies.",
             },
           }
         ),
         action(
           "execute",
-          "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
+          "Run the whole graph, reusing valid cached results. Returns status and errors; retrieve tables separately."
         ),
         action(
           "execute",
-          "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately.",
+          "Run only these operators and their upstream dependencies, reusing valid cached results; other branches are left as they are. Returns status and errors; retrieve tables separately.",
           { operator_ids: { type: "array", items: text, minItems: 1 } }
         ),
         action(
@@ -271,7 +271,7 @@ for (const entry of SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf) {
   entry.description = entry.description.replace("retrieve tables separately", "read tables separately");
   if (entry.properties.type.const === "edit" && "changes" in entry.properties)
     (entry.properties as unknown as { changes: { description: string } }).changes.description =
-      "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name, and a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function as an operator; `name.setting = value` changes one setting of such a call; `name = variant(table, step={\"setting\": value})` copies the steps from step to table with the change; `name = other` makes name what other is, folding other in; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. A saved version `name@N` can be an input table; `name = name@N` makes the definition saved at the end of task N current again on today's inputs, and `copy = name@N` copies it with its saved direct inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies.";
+      "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. A saved version `name@N` can be an input table, and `name = name@N` makes the definition saved at the end of task N current again on today's inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies.";
 }
 SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action("read", "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns.", {
@@ -327,12 +327,10 @@ function validationMessage(input: any, stateHistory: boolean, savedVersions = fa
 }
 
 export const DATAFLOW_ACTIONS_DESCRIPTION =
-  "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
-  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of statements such as `totals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))`. " +
-  "Edits do not run the graph; retrieval reads existing results. " +
-  "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
-  "After an execution failure, inspect and retrieve may still read independent completed results. " +
-  "An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.";
+  "Work with a dataflow through an ordered list of inspect, edit, execute, retrieve and answer actions, after a brief reasoning sentence. " +
+  "actions is a JSON array of objects; edit.changes is a string of statements such as `totals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))`. " +
+  "Edits do not run the graph, and retrieval never executes. A failure skips later actions; completed edits remain. " +
+  "An answer with content is the only action of its call; an answer with from is the last.";
 
 /** Validate first. The agent resolves this receipt after creating the step's
  * snapshot, in onStepFinish, before another model request or stop decision.
@@ -442,9 +440,16 @@ export function prepareDataflowActions(
 export function createDataflowTool(
   views: readonly RetrievalView[] = availableRetrievalViews(),
   stateHistory = false,
-  multiTask = stateHistory
+  multiTask = stateHistory,
+  /** Reference inspection returns operator contracts and examples; the full
+   * prompt already contains them, so only the on-demand prompt offers it. */
+  references = false
 ) {
   const schema = structuredClone(dataflowActionsSchema(stateHistory, stateHistory));
+  if (!references)
+    schema.properties.actions.items.anyOf = schema.properties.actions.items.anyOf.filter(
+      a => !("target" in a.properties && (a.properties.target as { const: string }).const === "reference")
+    );
   if (multiTask)
     schema.properties.actions.items.anyOf = schema.properties.actions.items.anyOf.filter(
       a =>
@@ -455,17 +460,16 @@ export function createDataflowTool(
         )
     );
   const descriptions = {
-    full: "full requests records up to its character cap; narrow large tables first",
-    sample: "sample checks layout and example values with a small record view",
-    sample_stats:
-      "sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics",
+    full: "full shows every record up to its character cap",
+    sample: "sample shows a few records",
+    sample_stats: "sample_stats adds statistics on every column to the sample",
   };
   for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
     (retrieve.properties as any).view.enum = [...views];
     const scoped = "columns" in retrieve.properties;
     retrieve.description = scoped
-      ? `Read an existing result restricted to the named columns, in the same views (${views.join(", ")}); use it on a wide table instead of a projection operator when only some columns are needed. Never executes.`
-      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute.`;
+      ? `Read an existing result restricted to the named columns, in the same views (${views.join(", ")}); use it on a wide table when only some columns are needed. Never executes.`
+      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}.${views.includes("full") && views.length > 1 ? ` Look with ${views.includes("sample_stats") ? "sample_stats" : "sample"} first; request full only when you need every row.` : ""} Never executes; missing or stale results need execute.`;
   }
   for (const inspect of schema.properties.actions.items.anyOf.filter(
     a => "view" in a.properties && ("target" in a.properties || a.properties.type.const === "read")
@@ -474,7 +478,7 @@ export function createDataflowTool(
   return tool({
     description:
       stateHistory
-        ? "Use ordered edit, execute, read, and answer actions. Each answered task saves immutable versions addressed as name@N. Read a saved definition or result, use it as an input table, or answer from it; historical reads never execute or fall back to current data. A rule that changes from here on is changed in place (set a setting, restate the call, redefine the shared function or make a variant current with `name = variant_name`), and the execute receipt compares recomputed tables with the version the last task saved. An alternative for one question is a `variant`. `name = name@N` makes an old definition current again on today's inputs; `copy = name@N` copies it with its saved direct inputs. Sources are required for content answers; [] declares that no table was used. A held statement or a failed action skips later actions while earlier edits remain."
+        ? "Use ordered edit, execute, read and answer actions. Each answered task saves its tables as name@N: read one, use it as an input table or answer from it; saved versions never execute or fall back to current data. `name = name@N` makes an old definition current again on today's inputs. Content answers name their source tables, or [] when none was used. A held statement or a failed action skips the later actions; earlier edits remain."
         : DATAFLOW_ACTIONS_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

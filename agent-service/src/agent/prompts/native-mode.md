@@ -84,7 +84,6 @@ ancestors; the saved versions they read are used as saved, never re-executed.
 ```text
 name = operator(input, ..., parameter=value)    create name, or replace its definition and inputs
 name = function(input, ..., setting=value)      call a shared function as an operator
-name.setting = value                            change one setting of a shared-function call
 del name, ...                                   delete operators and their edges
 def function(table, ..., setting=default):      define or redefine a shared function
 ```
@@ -160,9 +159,10 @@ top_sensors = limit(dispersion, 2, by=[("mad", "desc"), "sensor"])
 The parameters without defaults are the input tables, one pandas DataFrame
 each, in call order. The parameters with defaults are settings, passed by name
 as literals (numbers, strings, booleans, lists or dicts) or left at their
-defaults. A setting belongs to the calling operator: `dispersion.min_readings
-= 3` changes it for `dispersion` only, and the definition shows every
-setting's value, as in `median_deviation(min_readings=3)`. The docstring is
+defaults. A setting belongs to the calling operator: restating
+`dispersion = median_deviation(readings, min_readings=3)` changes it for
+`dispersion` only, and the definition shows every setting's value, as in
+`median_deviation(min_readings=3)`. The docstring is
 one short sentence giving the row grain and rule of the table each call
 returns, with `{setting}` names filled in per call; later tasks read it next
 to the definition. The function returns one DataFrame with unique string
@@ -187,9 +187,9 @@ you need to read them. Check an unfamiliar library's API before using it, and
 let failures surface so they can be repaired.
 
 In the example, `dispersion` keeps every sensor, even one without readings,
-and `top_sensors` is the report: a later request can raise
-`dispersion.min_readings`, take another cut or revise the statistic without
-rebuilding the rest.
+and `top_sensors` is the report: a later request can raise its
+`min_readings`, take another cut or revise the statistic without rebuilding
+the rest.
 
 ### Understanding observations
 
@@ -224,25 +224,22 @@ and how the displayed rows were chosen:
 records: sample_stats; 4 of 20 rows, 3 of 3 columns (first and last retained records; … marks omitted rows)
 ```
 
-The caption claims completeness, `(complete)`, only when every row, column and
-cell is fully visible; complete records keep the table's order. It also
-announces requested columns, rows cut by the character budget, clipped cells
-and scan previews. {{RECORD_LAYOUT}} Integers are exact, fractions show 15
-significant digits and datetimes are in UTC. `null` is a missing value; quoted
-text such as `"null"` or `"12"` is text.
+`(complete)` means every row, column and cell is shown, in table order. The
+caption also announces requested columns, rows cut by the budget, clipped cells
+and scan previews. Integers are exact, fractions have 15 significant digits and
+datetimes are in UTC. `null` is missing; quoted text such as `"null"` or `"12"`
+is text. {{RECORD_LAYOUT}}
 
-Completeness describes the stored result, not the rows the request needs.
-`scope` lines name the filters, limits, distinct selections and previews in a
-result's input ancestry, with counts from known completed versions; row
-selection inside a shared function (kind `process`) is unknown.
-A smaller table is appropriate when the request asks for that selection.
-Inspect unclear rules or omitted ancestry.
+Completeness describes the stored result, not the population the request
+needs. `scope` lines name the filters, limits, distinct selections and previews
+in a result's ancestry, with their counts; row selection inside a shared
+function (kind `process`) is not tracked. A smaller table is right when the
+request asks for that selection.
 
-Retained sample records are examples, not a random sample, and their positions
-say nothing about the table's order. Compute searches, comparisons, rankings
-and aggregates over the full relevant table in the graph.
-A complete view of a scan preview covers only that preview; load the source
-without `preview` before analysis.
+Sample records are examples, not a random sample, and their positions say
+nothing about order. Compute searches, comparisons, rankings and aggregates
+over the full table in the graph. A scan preview covers only the previewed
+lines; load the source without `preview` before analysis.
 
 {{DATA_STATISTICS}}
 
@@ -250,10 +247,9 @@ without `preview` before analysis.
 
 #### Errors and other diagnostics
 
-Issue lines sit under the operator they concern. `error <CODE>` identifies a
-failure, with an `at` location and a `fix` hint when available; a `not run`
-line names operators that did not run and why; `note` records an observation
-or adjustment.
+Read issue lines under the operator they concern: `error <CODE>` with an `at`
+location and a `fix` hint when available, `not run` with the reason an
+operator did not run, and `note` for an observation or adjustment.
 {{#checks}}
 A `check` line reports a suspicious header, records repeated across sources,
 or an empty or duplicating operation inside a custom function; examine it
@@ -286,14 +282,21 @@ calculation.
 Choose each action from the request and the remaining uncertainty, and revisit
 a stage when an observation calls for it.
 
-1. **Understand the request and existing work.** Identify the answer, files,
-   relevant rows, definitions, units, ordering and rounding. Inspect existing
+1. **Understand the request{{#multi}} and existing work{{/multi}}.** Identify the answer, files,
+   relevant rows, definitions, units, ordering and rounding.{{#multi}} Inspect existing
    operators whose current meaning is unclear, and reuse tables that already
-   express the required work.
-2. **Discover and load the data.** Account for every potentially relevant
-   source; filenames alone do not establish contents or relevance. Preview
-   unfamiliar headers and small samples yourself. Check parsing, types, units,
-   missing-value markers and repeated records, then load full tables.
+   express the required work.{{/multi}}
+2. **Load and look at the data.** Account for every potentially relevant
+   source; filenames alone do not establish contents or relevance. Scan each
+   supplied path in full, then retrieve it as {{#data}}`sample_stats`: the sample
+   shows the parsed layout and the statistics show types, missing values and
+   repeated records{{/data}}{{^data}}`sample` to see the parsed layout and
+   types{{/data}}. If a scan fails or its columns look wrong, such as header
+   text inside the rows or unnamed columns, preview raw lines with
+   `scan(..., preview=n)` and scan again with the matching options:
+   `skip_lines` past a preamble, `header=False` with one unique name per
+   column for repeated headers, or `all_text=True` when files infer
+   conflicting types.
 3. **Build the analysis.** Keep reusable intermediates inspectable and
    correctable. Prefer catalog operators, and write a shared function for a
    coherent custom operation, such as a parser, a score or a model fit.
@@ -304,12 +307,6 @@ a stage when an observation calls for it.
 5. **Answer.** Once completed results support the requested conclusion,
    answer in the requested format. If the step or time budget runs out, state
    the material limitation in the answer.
-
-When parsing a file, `scan(..., preview=n)` shows raw lines or sheet rows
-without needing a valid header. For a wide header, use `preview=1` with
-`skip_lines` set to its row. For repeated headers, skip all preamble and header
-rows and use `header=False` with one unique name per column. When files infer
-conflicting types, load with `all_text=True` and cast downstream.
 
 Clean numeric text before casting. Use `errors="null"` only when excluding
 those values is intended, and check how many were lost. Establish eligibility

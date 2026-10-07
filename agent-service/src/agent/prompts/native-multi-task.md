@@ -27,42 +27,32 @@ request can inspect, reuse or revise it.
 Read each request for what it does to the state:
 
 - **A rule changes from here on.** Change it where it lives, in place, so
-  everything built on it follows: set a setting (`scores.min_orders = 10`),
-  restate a call, redefine a shared function, or insert a step into a table
-  (`orders = filter(orders, ...)`).{{#history}} The execute receipt then says,
-  for each recomputed table, which rows entered, left or kept new values
-  since the version the last task saved.{{/history}}
-- **An alternative applies to this question only.** Make a variant of the
-  table the question is about. `strict = variant(top10, scores={"min_orders":
-  10})` copies the steps from `scores` down to `top10` with the new setting
-  and leaves the originals alone, so the next task continues from them. A
-  variant can also swap a whole step, as in `variant(top10,
-  scores=other_score(orders))`, or read another table in its place, as in
-  `variant(top10, scores=strict_scores)`. Its execute receipt says how it
-  differs from the table it varies.
+  everything built on it follows: restate the call with the new setting
+  (`scores = unit_scores(orders, min_orders=10)`), redefine the shared
+  function, or insert a step into a table (`orders = filter(orders, ...)`).{{#history}}
+  The execute receipt then says, for each recomputed table, which rows
+  entered, left or kept new values since the version the last task saved.{{/history}}
+- **An alternative applies to this question only.** Compute it alongside,
+  under new names, and leave the main tables as they are: call the function
+  again with the other setting (`strict = unit_scores(orders, min_orders=10)`)
+  and build only the steps the question needs on top of it.
 - **The request refers to an earlier state.** Use the earlier table directly
-  instead of rebuilding it{{#history}}, as the next section describes{{/history}};
-  to continue from it, make it current again.
-
-When the alternative turns out to be the new rule, one line makes it current:
-`top10 = strict` applies the variant's change to the real steps and removes
-the copies. `name = other` works for any two tables: when `other` is built on
-`name`, its steps are inserted after the earlier `name`; otherwise `name`
-takes over `other`'s definition. Either way `other` is folded into
-`name`{{#history}}, and the previous `name` stays readable as `name@N`{{/history}}.
+  instead of rebuilding it{{#history}}, as `name@N`; to continue from it, make
+  it current again with `name = name@N`{{/history}}.
 
 Most comparisons between two versions are rankings. `moves =
-rank_change(scores, strict_scores, key=["unit"], by=[("score", "desc")],
-n=10)` lists every unit in either top ten as entered, left or stayed, with its
-rank and score in each version. Give it the full tables rather than the cut
-ones, so that units which left still have their new values; when the later
-version names its score differently, rank it with `after_by=`.
+rank_change(scores, strict, key=["unit"], by=[("score", "desc")], n=10)` lists
+every unit in either top ten as entered, left or stayed, with its rank and
+score in each version. Give it the full tables rather than the cut ones, so
+that units which left still have their new values; `n` is the size of the
+list the request compares, which can be longer than the rows an answer shows.
+When the later version names its score differently, rank it with `after_by=`.
 
 Name rules the way requests will refer to them: an operator's docstring or
 `doc` is how a later task recognizes a rule, so write the rule it implements
 ("markets with at least ten cleaned orders"), not the step ("filter rows").
-Connect working tables, call shared functions with other settings and vary
-chains instead of retyping rules in a new function.
+Connect working tables and call shared functions with other settings instead
+of retyping rules in a new function.
 
 Preserve applicable units, exclusions, ordering and rounding. Earlier answers,
 docstrings and dependency links are unverified evidence. Before reusing an

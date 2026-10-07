@@ -14,8 +14,8 @@
 # KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Parser forms for state changes: `name.setting = value`, `name = other`, and
-the statement blocks an edit is applied by."""
+"""Parser forms for state changes: retired forms refused with the statement to
+write instead, restores, and the statement blocks an edit is applied by."""
 import sys
 from pathlib import Path
 
@@ -29,19 +29,15 @@ def commands(source):
     return result["commands"]
 
 
-def test_a_setting_assignment_takes_a_literal_value():
-    assert commands("scores.rating_weight = 0.6") == [
-        dict(operation="set_setting", id="scores", setting="rating_weight", value=0.6, line=1)]
-    assert commands('scores.columns = ["a", "b"]')[0]["value"] == ["a", "b"]
-    assert "literal value" in parse_graph_edit("scores.weight = rating * 2")["error"]
-    for frozen in ("scores@2.weight = 1", "scores@2 .weight = 1"):
-        assert parse_graph_edit(frozen)["error"] == ("Line 1: a saved version never changes; set `scores.weight` "
-                                                     "on the current table.")
+def test_a_setting_is_changed_by_restating_the_call():
+    error = parse_graph_edit("scores.rating_weight = 0.6")["error"]
+    assert error == ("Line 1: to change a setting, restate the call with it: "
+                     "`scores = function(inputs, rating_weight=...)`.")
 
 
-def test_assigning_one_table_to_another_is_a_commit():
-    assert commands("top10 = heavy") == [dict(operation="commit", id="top10", other="heavy", line=1)]
-    assert "changes nothing" in parse_graph_edit("top10 = top10")["error"]
+def test_a_second_name_for_a_table_is_refused_and_a_restore_keeps_the_name():
+    assert "second name" in parse_graph_edit("top10 = heavy")["error"]
+    assert "a saved version is read where a table is expected" in parse_graph_edit("copy = top10@3")["error"]
     assert commands("top10 = top10@3")[0]["operation"] == "assign_version"
 
 

@@ -20,11 +20,11 @@
 ### Example: one session whose rules change
 
 A generic `data/orders.csv` has order_id, unit, amount, delivered and refund
-columns; receipts are shortened to the lines that matter.
+columns; receipts are shortened to the line that matters.
 
 Task 1 asks for the three units with the highest order value. Write the rule
-once with its numbers as settings, keep every unit with the columns the rule
-reads, and cut the report with `limit`:
+once with its numbers as settings, keep every unit, and cut the report with
+`limit`:
 
 ```dataflow
 orders = scan("data/orders.csv")
@@ -46,91 +46,45 @@ top3 = limit(scores, 3, by=[("score", "desc"), "unit"])
 {"reasoning":"Report the three leading units.","actions":[{"type":"answer","from":"top3[unit, score:2]"}]}
 ```
 
-The answer saves every completed table: `scores@1` and `top3@1` name these
-results for the rest of the session.
-
-Task 2 says that from now on only delivered orders count: a lasting change to
-one setting, made where it lives:
+Task 2 says that from now on only delivered orders count. Restate the call
+with the new setting; executing `top3` recomputes everything built on
+`scores` and compares it with the version task 1 saved:
 
 ```dataflow
-scores.delivered_only = True
+scores = unit_scores(orders, delivered_only=True)
 ```
-
-Executing `top3` recomputes everything built on `scores` and compares each
-recomputed table with the version task 1 saved:
 
 ```text
 ### 2. execute top3: ok
-- **scores** (process, executed)
-  - changed since scores@1: 6 → 6 rows; 6 kept with new values (rows matched on unit).
 - **top3** (limit, executed)
   - changed since top3@1: 3 → 3 rows; entered (1): south; left (1): east; 2 kept with new values (rows matched on unit).
 ```
 
-The receipt already says which units entered and left; read `top3` for the
-values and answer from it.
-
 Task 3 asks how the ranking would change if refunds counted at half their
-amount, for this question only. A variant copies `scores` with the other
-setting and leaves the real one alone, and `rank_change` compares the two
-rankings:
+amount, for this question only. Compute it alongside, and leave `scores` as it
+is:
 
 ```dataflow
-half_refunds = variant(scores, scores={"refund_weight": 0.5})
+half_refunds = unit_scores(orders, delivered_only=True, refund_weight=0.5)
 moves = rank_change(scores, half_refunds, key=["unit"], by=[("score", "desc")], n=3)
 ```
 
-```text
-- **half_refunds** (process, executed)
-  - differs from scores: 6 → 6 rows; 4 kept with new values (rows matched on unit).
-- **moves** (rank_change, executed)
-  - rank change: 1 entered, 1 left, 2 stayed in the top 3.
-```
-
-Task 4 says that from now on refunds do count at half. The variant already
-holds that rule, so one line makes it current, and `top3` and everything else
-built on `scores` follow:
-
-```dataflow
-scores = half_refunds
-```
-
-Task 5 says that from now on orders under 5 are ignored. Insert the filter
-after the scan: the earlier scan continues as `orders_v1`, and every table
-that read `orders` now reads the filtered rows:
-
-```dataflow
-orders = filter(orders, lambda row: row["amount"] is not None and row["amount"] >= 5, doc="Orders of at least 5")
-```
-
-Task 6 asks how today's top three compares with the first report. `scores@1`
-is read from its saved result; nothing from task 1 runs again:
+Task 4 asks how today's top three compares with the first report. The saved
+`scores@1` is an input; nothing from task 1 runs again:
 
 ```dataflow
 since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")], n=3)
 ```
 
-Task 7 returns to the scores as they were before refunds counted, and
-continues from there. The earlier entries say what each task did to `scores`:
-
-```text
-## Task 2 (answered)
-Operators:
-- **scores** (process, updated: set delivered_only False to True)
-...
-## Task 4 (answered)
-Operators:
-- **scores** (process, updated: set refund_weight 0 to 0.5)
-```
-
-Task 4 set the refund weight, so `scores@3` is the last version without it.
-Read its saved rule, then make it current again; it runs on today's filtered
+Task 5 returns to the scores of task 1 and continues from there. Task 2's
+entry says `updated: set delivered_only False to True`, so `scores@1` is the
+version wanted. Read the saved rule, then make it current again on today's
 orders:
 
 ```json
-{"reasoning":"Check the saved rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@3"],"view":null,"columns":null,"include_implementation":true}]}
+{"reasoning":"Check the saved rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@1"],"view":null,"columns":null,"include_implementation":true}]}
 ```
 
 ```dataflow
-scores = scores@3
+scores = scores@1
 ```

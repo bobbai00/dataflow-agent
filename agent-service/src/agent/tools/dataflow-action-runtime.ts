@@ -736,14 +736,10 @@ export async function executeDataflowActionBatch(
         // An existing table that the last answered task saved: what this run changed.
         const fresh = info.state !== "CompletedFromCache" && !info.materialization?.cached;
         const effect = lastTask && fresh ? effectLine(`${op.operatorID}@${lastTask.taskId}`, storage.getOperatorResult(lastTask.stepId, op.operatorID), info) : undefined;
-        // A variant against the table it varies.
-        const of = op.nativeOp?.variant?.name === op.operatorID ? op.nativeOp.variant.of : undefined;
-        const contrast = of && fresh ? effectLine(of, current(of), info, "differs from") : undefined;
         const checks = [
           // An empty result is always worth a block, whatever else is enabled.
           ...(rows === 0 ? ["note: empty table."] : []),
           ...(effect ? [effect] : []),
-          ...(contrast ? [contrast] : []),
           ...(settings.nativeChecks ? nativeCheckLines(op, info) : []),
           ...nativeAdjustmentLines(op, info),
           ...(notes.get(op.operatorID) ?? []),

@@ -23,8 +23,7 @@ An edit is a sequence of statements, each starting at the margin:
 
     name = operator(input, ..., setting=value)   create `name` or replace its definition
     name = shared_fn(input, ..., setting=value)  call a shared function as an operator
-    name = name@N                                restore the definition saved at task N
-    copy = name@N                                copy it with its saved inputs
+    name = name@N                                make the definition saved at task N current again
     def shared_fn(table, setting=default):       define or redefine a shared function
         \"\"\"What each call produces, with {setting}.\"\"\"
     del name, ...                                delete operators
@@ -186,32 +185,25 @@ def _assignment_block(start, block):
     if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Attribute)
             and isinstance(node.targets[0].value, ast.Name)):
         owner, setting = node.targets[0].value.id, node.targets[0].attr
-        if owner in references:
-            raise ValueError(f"Line {start}: a saved version never changes; set `{references[owner].split('@')[0]}.{setting}` "
-                             "on the current table.")
-        if meaningful:
-            raise ValueError(f"Line {start}: a setting takes a value, not functions.")
-        try:
-            value = ast.literal_eval(node.value)
-        except ValueError:
-            raise ValueError(f"Line {start}: `{owner}.{setting}` takes a literal value such as 0.5, \"desc\" or [1, 2].")
-        return [dict(operation="set_setting", id=owner, setting=setting, value=value, line=start)]
+        raise ValueError(f"Line {start}: to change a setting, restate the call with it: "
+                         f"`{owner} = function(inputs, {setting}=...)`.")
     if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
-        raise ValueError(f"Line {start}: write `name = operator(inputs, ...)`, `name = other`, `name = name@N`, "
-                         "`name.setting = value`, a `def` at the margin, or `del name`.")
+        raise ValueError(f"Line {start}: write `name = operator(inputs, ...)`, `name = name@N`, "
+                         "a `def` at the margin, or `del name`.")
     name = node.targets[0].id
     value = node.value
     if isinstance(value, ast.Name) and value.id in references:
         if meaningful:
             raise ValueError(f"Line {start}: a saved version takes no functions.")
         source_id, task = references[value.id].split("@")
+        if source_id != name:
+            raise ValueError(f"Line {start}: a saved version is read where a table is expected, as in "
+                             f"`{name} = filter({source_id}@{task}, ...)`; `{source_id} = {source_id}@{task}` "
+                             "makes it current again.")
         return [dict(operation="assign_version", id=name, sourceId=source_id, task=int(task), line=start)]
     if isinstance(value, ast.Name):
-        if meaningful:
-            raise ValueError(f"Line {start}: `{name} = {value.id}` takes no functions.")
-        if value.id == name:
-            raise ValueError(f"Line {start}: `{name} = {name}` changes nothing.")
-        return [dict(operation="commit", id=name, other=value.id, line=start)]
+        raise ValueError(f"Line {start}: `{name} = {value.id}` would give a table a second name; use "
+                         f"`{value.id}` where it is needed, or write `{name}`'s own call.")
     if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
         raise ValueError(f"Line {start}: the right-hand side of `{name}` must be an operator or shared-function "
                          "call, such as `filter(orders, ...)`.")
@@ -274,7 +266,7 @@ def _hoist_nested(name, value, statement, start, references):
     assigned to `a__project` and the outer call reads it, as if written so."""
     nested = [(i, arg) for i, arg in enumerate(value.args)
               if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id != "lambda"]
-    if not nested or (isinstance(value.func, ast.Name) and value.func.id == "variant"):
+    if not nested:
         return None
     restore = lambda text: re.sub(rf"\b{SAVED}(\w+?)__(\d+)\b", r"\1@\2", text)
     steps, names, taken = [], {}, set()

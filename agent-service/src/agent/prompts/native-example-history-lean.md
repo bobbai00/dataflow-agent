@@ -17,26 +17,25 @@
   under the License.
 -->
 
-### Example: change a rule in place, try an alternative, use an earlier version
+### Example: change a rule in place, compute an alternative, use an earlier version
 
 Keep each rule in one shared function whose numbers are settings, and cut
 reports with `limit(table, n, by=[...])`. When a request changes the rule
-from here on, change it in place: set the setting
-(`scores.delivered_only = True`), restate the call or redefine the `def`.
+from here on, change it in place: restate the call with the new setting
+(`scores = unit_scores(orders, delivered_only=True)`) or redefine the `def`.
 Everything built on it recomputes on the next execute, and the execute
 receipt compares each recomputed table with the version the last task saved
 (`changed since top3@1: 3 → 3 rows; entered (1): south; left (1): east`).
-For an alternative that applies to one question, make a variant:
-`half = variant(scores, scores={"refund_weight": 0.5})` copies the steps
-with the other setting and leaves the originals alone, and `scores = half`
-makes it current if it becomes the rule.
+For an alternative that applies to one question, compute it alongside under a
+new name, `half = unit_scores(orders, refund_weight=0.5)`, and leave the main
+tables as they are.
 
 An earlier version is one reference away: read `scores@2`, compare it
 (`moves = rank_change(scores@2, scores, key=["unit"], by=[("score", "desc")], n=3)`),
-answer from it, restore it in place with `scores = scores@2`, or copy it with
-`copy = scores@2`. Saved values are never recomputed from current files;
-if one is unavailable, the action fails clearly. For the complete worked
-example, inspect reference with topic=example and example=history.
+answer from it, or make it current again with `scores = scores@2`. Saved
+values are never recomputed from current files; if one is unavailable, the
+action fails clearly. For the complete worked example, inspect reference with
+topic=example and example=history.
 
 ```json
 {"reasoning":"Check the earlier rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@2"],"view":"sample_stats","columns":null,"include_implementation":true}]}

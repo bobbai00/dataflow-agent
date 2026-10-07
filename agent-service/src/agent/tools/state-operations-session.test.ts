@@ -17,9 +17,8 @@
  * under the License.
  */
 
-// State operations in a running session: what a variant's receipt says, how
-// held statements are reported, and the current state a later task starts
-// from.
+// State operations in a running session: how held statements are reported,
+// what each task's entry says it changed, and how entries list columns.
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { prepareDataflowActions, renderDataflowActionsResult, type DataflowAction, type DataflowActionsResult } from "./dataflow-actions";
@@ -109,24 +108,6 @@ def score(orders, refund_weight=0.0):
 scores = score(orders)
 top2 = limit(scores, 2, by=[("score", "desc"), "unit"])`;
 
-test("a variant's receipt says how it differs from the table it varies", async () => {
-  const s = session([
-    [{ type: "edit", changes: TASK_1 }, { type: "execute", operator_ids: ["top2"] }],
-    [{ type: "answer", content: "done", operator_ids: ["top2"] }],
-  ]);
-  await s.agent.sendMessage("Task 1.");
-  s.replace([
-    [{ type: "edit", changes: 'refunded = variant(top2, scores={"refund_weight": 1.0})' }, { type: "execute", operator_ids: ["refunded"] }],
-    [{ type: "answer", content: "done", operator_ids: ["refunded"] }],
-  ]);
-  await s.agent.sendMessage("Task 2: what if refunds counted in full?");
-  const receipt = renderDataflowActionsResult(s.outcomes[2]);
-  expect(receipt).toContain("- note: refunded is a variant of top2 with scores.refund_weight=1; it copies scores. top2 and the steps it reads are unchanged.");
-  expect(receipt).toContain("differs from top2: 2 → 2 rows; entered (1): c; left (1): b (rows matched on unit).");
-  // The real chain is untouched.
-  expect(s.agent.getWorkflowState().getOperator("scores")!.nativeOp!.properties.params).toEqual({});
-});
-
 test("a held statement is reported, stops the call, and leaves the applied ones", async () => {
   const s = session([
     [
@@ -150,7 +131,7 @@ test("each task's entry says what it did to the tables it changed", async () => 
   ]);
   await s.agent.sendMessage("Task 1.");
   s.replace([
-    [{ type: "edit", changes: "scores.refund_weight = 1.0" }, { type: "execute", operator_ids: ["top2"] }],
+    [{ type: "edit", changes: "scores = score(orders, refund_weight=1.0)" }, { type: "execute", operator_ids: ["top2"] }],
     [{ type: "answer", content: "done", operator_ids: ["top2"] }],
   ]);
   await s.agent.sendMessage("Task 2: refunds count in full from now on.");

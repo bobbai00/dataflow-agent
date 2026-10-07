@@ -19,40 +19,33 @@
 
 #### Data statistics
 
-Data statistics are available through `sample_stats` in this session. Use them
-to judge whether the data, selected population and measurements support the
-requested analysis, and to choose your next action: examine eligibility
-values, missingness, valid measurement counts, ranges and key distributions
-when they matter to the calculation.
+`sample_stats` adds data statistics: evidence for whether the data, selected
+population and measurement support the analysis. Examine eligibility values,
+missingness, valid measurement counts, ranges and key distributions when they
+matter to the calculation.
 
-Statistics are collected independently of the displayed sample records. Their
-caption states which rows and columns were profiled, as a `full table` or a
-`partial profile`. The table has one row per column, with its type, null
-count, distinct nonnull count, and available ranges or value frequencies;
-non-integer values are rounded to four significant digits, and integers are
-exact.
+Statistics are collected independently of the sample records. The caption
+says which rows and columns were profiled, as a `full table` or a `partial
+profile`. Each column gets its type, null count, distinct nonnull count, and
+ranges or value frequencies; non-integers are rounded to four significant
+digits and integers are exact.
 
-Interpret coverage before a statistic:
-
-- With full row coverage, a null count describes the entire output column;
-  check how excluding those nulls affects an aggregate's denominator.
-- A partial profile describes only its profiled rows; its counts, ranges and
-  value lists establish nothing about the other rows.
-- `all:` lists every nonnull value in the profile, which is the whole output's
-  value set only when the profile covers all output rows.
-- `top: ... (not exhaustive)` is a bounded frequency list; omitted values may
-  exist. Separate column summaries do not establish row associations or order.
-- Unknown or omitted counts are unknown. Text markers such as `"NA"` count as
-  text, not nulls, until you normalize them.
+- With full coverage, a null count describes the whole column; check how
+  excluding nulls changes an aggregate's denominator.
+- A partial profile describes only its profiled rows.
+- `all:` lists every value in the profile; it is the column's whole value set
+  only with full coverage.
+- `top: ... (not exhaustive)` is bounded. Column summaries do not establish
+  row associations or order.
+- Unknown or omitted counts are unknown. Text markers such as `"NA"` are text,
+  not nulls, until you normalize them.
 
 A complete table shows `statistics: not shown`, because its records show every
-value. Raw-line previews have no parsed-column statistics, and statistics can
-be unavailable for an output or cut by their budget. Retrieve an omitted field
-with `columns`; if a profile still cannot resolve the question, compute the
-check in the graph, and compute exact answer quantities there rather than from
-rounded summaries.
+value. Raw-line previews have no column statistics. Retrieve an omitted field
+with `columns`; compute a check the profile cannot settle in the graph, and
+compute exact answer quantities there rather than from rounded summaries.
 
-If the records and statistics settle the relevant checks, continue without
+If records and statistics settle the relevant checks, continue without
 redundant retrievals. If they reveal a wrong population, unexpected
 missingness or a type problem, repair it before relying on the result, or
-explain an exclusion that follows from the task's requirements.
+explain an exclusion the task requires.

@@ -128,7 +128,7 @@ describe("state across tasks in assignment edits", () => {
     expect(receipt).toContain("changed since scores@1: 3 → 3 rows; 3 kept with new values (rows matched on unit).");
   });
 
-  test("saved versions are inputs, copies and in-place restores", async () => {
+  test("saved versions are inputs and in-place restores", async () => {
     const s = session([
       [{ type: "edit", changes: TASK_1 }, { type: "execute", operator_ids: ["top"] }],
       [{ type: "answer", content: "done", operator_ids: ["top"] }],
@@ -141,8 +141,8 @@ describe("state across tasks in assignment edits", () => {
     await s.agent.sendMessage("Task 2.");
     s.replace([
       [
-        { type: "edit", changes: 'shift = diff(scores@1, scores, key=["unit"], columns=["score"])\nfirst = scores@1' },
-        { type: "execute", operator_ids: ["shift", "first"] },
+        { type: "edit", changes: 'shift = diff(scores@1, scores, key=["unit"], columns=["score"])' },
+        { type: "execute", operator_ids: ["shift"] },
       ],
       [{ type: "edit", changes: "scores = scores@1" }, { type: "execute", operator_ids: ["top"] }],
       [{ type: "answer", content: "done", operator_ids: ["shift"] }],
@@ -152,7 +152,6 @@ describe("state across tasks in assignment edits", () => {
     const workflow = s.agent.getWorkflowState().getWorkflowContent();
     const handles = workflow.operators.filter(op => op.savedResult);
     expect(handles.map(op => op.savedResult!.operatorId)).toContain("scores");
-    expect(s.agent.getWorkflowState().getOperator("first")!.nativeOp!.properties.params).toEqual({});
     // The restore brings back task 1's setting; the shared function itself is unchanged.
     expect(s.outcomes[5].status).toBe("completed");
     expect(s.agent.getWorkflowState().getOperator("scores")!.nativeOp!.properties.params).toEqual({});

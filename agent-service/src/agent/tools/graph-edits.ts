@@ -31,8 +31,6 @@ import {
   type NativeOpView,
   type ParsedFunction,
   type ParsedStatement,
-  type ParsedValue,
-  type VariantChange,
 } from "../native/catalog";
 import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
@@ -40,10 +38,8 @@ import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
 import type { VersionCommand } from "../state-ledger";
 import {
-  effectiveSettings,
   literalSetting,
   parsedFunction,
-  pyLiteral,
   rebuildCaller,
   renameFunction,
   sharedCallView,
@@ -72,11 +68,6 @@ type Command = Edge & {
   tables?: string[];
   settings?: Record<string, unknown>;
   doc?: string | null;
-  /** `set_setting`: `id.setting = value`. */
-  setting?: string;
-  value?: unknown;
-  /** `commit`: `id = other`. */
-  other?: string;
 };
 export interface GraphChangeReceipt {
   operation: string;
@@ -386,8 +377,6 @@ async function planGraphEditOnce(
     for (const command of parsed.commands ?? []) {
       if (command.operation !== "define_function") continue;
       if (defined.has(command.id)) throw new Error(`Line ${command.line}: ${command.id} is defined twice in this edit.`);
-      if (command.id === "variant")
-        throw new Error(`Line ${command.line}: \`variant\` varies a table; give the function another name.`);
       defined.set(command.id, command as unknown as SharedFunction);
     }
     const commands = [...parsed.commands!];
@@ -396,34 +385,6 @@ async function planGraphEditOnce(
       .filter(command => command.operation === "assign_operator" || command.operation === "assign_version")
       .map(command => command.id);
     const incoming = (id: string) => [...edges.values()].filter(edge => edge.target === id);
-    const reach = (id: string, step: (edge: Edge) => [string, string]) => {
-      const seen = new Set<string>();
-      for (const stack = [id]; stack.length; ) {
-        const next = stack.pop()!;
-        for (const edge of edges.values()) {
-          const [from, to] = step(edge);
-          if (from === next && !seen.has(to)) {
-            seen.add(to);
-            stack.push(to);
-          }
-        }
-      }
-      return seen;
-    };
-    const ancestors = (id: string) => reach(id, edge => [edge.target, edge.source]);
-    const descendants = (id: string) => reach(id, edge => [edge.source, edge.target]);
-    /** The variant a hidden copied step belongs to. */
-    const partOf = (id: string) => {
-      const variant = nodes.get(id)?.variant;
-      return variant && variant.name !== id ? variant.name : undefined;
-    };
-    const notPart = (id: string) => {
-      const owner = partOf(id);
-      if (owner)
-        throw new Error(
-          `\`${id}\` is a step inside the variant \`${owner}\`; change the variant with \`${owner} = variant(...)\` or delete it with \`del ${owner}\`.`
-        );
-    };
     const removeNode = (id: string) => {
       for (const edge of [...edges.values()].filter(edge => edge.source === id || edge.target === id)) {
         edges.delete(edgeText(edge));
@@ -441,14 +402,6 @@ async function planGraphEditOnce(
         changed.add(moved.target);
       }
     };
-    /** A variant table being redefined or replaced loses its hidden copies. */
-    const dropCopies = (id: string) => {
-      if (nodes.get(id)?.variant?.name !== id) return;
-      for (const [part, view] of [...nodes]) if (part !== id && view.variant?.name === id) removeNode(part);
-    };
-    /** Readers of `from` read `to` instead. */
-    const repoint = (from: string, to: string) =>
-      moveEdges([...edges.values()].filter(edge => edge.source === from), { source: to });
     /** The name an earlier definition keeps when a step is inserted after it. */
     const keptName = (id: string) => {
       let k = 1;
@@ -522,303 +475,18 @@ async function planGraphEditOnce(
         );
       return { view, inputs: view.inputs.map(name => references[name] ?? name) };
     };
-    /** Variants and commits apply after the edit's other statements. */
-    const deferred: Array<{ command: Command; index: number }> = [];
-    const describeChange = (change: VariantChange) =>
-      change.settings
-        ? Object.entries(change.settings).map(([name, value]) => `${change.step}.${name}=${pyLiteral(value)}`).join(", ")
-        : change.table
-          ? `${change.table} in place of ${change.step}`
-          : `${change.step} = ${change.definition}`;
-    /** `name = variant(table, step={"setting": value}, other=new_call(...))`:
-     * copy the steps between the changed steps and the table, apply the
-     * changes to the copies, and name the copy of the table. */
-    const expandVariant = (command: Command) => {
-      const name = command.id;
-      const usage = `\`${name} = variant(table, step={"setting": value}, other_step=new_call(...))\``;
-      const [targetArg, ...extra] = command.statement.args;
-      if (!targetArg || targetArg.kind !== "name" || extra.length)
-        throw new Error(`variant takes the table to vary, then the changes by step name: ${usage}.`);
-      const target = targetArg.name;
-      if (command.references?.[target])
-        throw new Error(`variant varies a current table; \`${command.references[target]}\` is a saved version. Vary the current table.`);
-      required(target);
-      notPart(target);
-      if (target === name)
-        throw new Error(`A variant needs its own name, such as \`${name}_alt = variant(${name}, ...)\`; to change ${name} itself, set its setting or restate it.`);
-      const requested = Object.entries(command.statement.kwargs);
-      if (!requested.length) throw new Error(`variant needs at least one change: ${usage}.`);
-      const previous = nodes.get(name);
-      if (previous?.variant && previous.variant.name !== name) notPart(name);
-      if (previous?.variant?.name === name)
-        for (const [part, view] of [...nodes]) if (part !== name && view.variant?.name === name) removeNode(part);
-      const upstream = ancestors(target);
-      const changes: VariantChange[] = [];
-      const replaced = new Map<string, { view: NativeOpView; inputs: string[] }>();
-      for (const [step, value] of requested) {
-        if (!nodes.has(step)) throw new Error(`variant changes \`${step}\`, which is not an operator.`);
-        notPart(step);
-        if (step !== target && !upstream.has(step))
-          throw new Error(`\`${step}\` is not upstream of \`${target}\`, so changing it cannot change ${target}.`);
-        if (value.kind === "dict") {
-          const view = nodes.get(step)!;
-          const entry = sharedEntry(view);
-          if (!entry)
-            throw new Error(
-              `\`${step}\` is a ${nativeOperatorName(view.type)} step without settings; give the variant a new definition for it instead: \`${step}=${nativeOperatorName(view.type)}(...)\`.`
-            );
-          const fn = functionTable().get(entry)!;
-          const settings: Record<string, unknown> = {};
-          for (const [setting, item] of value.entries) {
-            if (!(setting in fn.settings))
-              throw new Error(`\`${step}\` has no setting \`${setting}\`; its settings are ${Object.keys(fn.settings).join(", ") || "none"}.`);
-            settings[setting] = literalSetting(item, `${step}.${setting}`);
-          }
-          changes.push({ step, settings });
-        } else if (value.kind === "name") {
-          // An existing table read in place of the step.
-          const table = command.references?.[value.name] ? inputId(command.references[value.name]) : value.name;
-          if (!nodes.has(table)) throw new Error(`variant reads \`${value.name}\` in place of \`${step}\`, but it is not an operator.`);
-          notPart(table);
-          if (table === step) throw new Error(`\`${step}=${step}\` changes nothing.`);
-          if (descendants(step).has(table) || table === target)
-            throw new Error(`\`${value.name}\` is built on \`${step}\`, so it cannot stand in for it.`);
-          changes.push({ step, table });
-        } else if (value.kind === "call") {
-          const statement: ParsedStatement = {
-            id: step,
-            op: value.name,
-            line: command.line,
-            endLine: command.line,
-            source: value.source,
-            args: value.args,
-            kwargs: value.kwargs,
-          };
-          const built = callView(step, statement, command.functions, command.references ?? {}, nodes.get(step)!.profileCollection);
-          replaced.set(step, built);
-          changes.push({ step, definition: savedNames(value.source) });
-        } else
-          throw new Error(
-            `\`${step}=...\` takes new setting values as a dict, such as ${step}={"weight": 0.5}, a new call that defines the step, or another table to read in place of it.`
-          );
-      }
-      const targetSide = new Set([...upstream, target]);
-      const chain = new Set<string>();
-      const standIns = new Map(changes.filter(change => change.table).map(change => [change.step, change.table!]));
-      for (const { step, table } of changes)
-        for (const id of [...(table ? [] : [step]), ...descendants(step)]) if (targetSide.has(id)) chain.add(id);
-      if (!chain.size) throw new Error(`variant leaves \`${target}\` as it is; change a step upstream of it.`);
-      const copyOf = (id: string) => (id === target ? name : `${name}__${id}`);
-      for (const id of chain)
-        if (id !== target && nodes.has(copyOf(id)) && partOf(copyOf(id)) !== name)
-          throw new Error(`\`${copyOf(id)}\` already names an operator; give the variant another name.`);
-      for (const id of topological([...chain])) {
-        const original = nodes.get(id)!;
-        const settings = changes.find(change => change.step === id)?.settings;
-        let view: NativeOpView;
-        let sources: string[];
-        if (replaced.has(id)) {
-          const built = replaced.get(id)!;
-          const portNames = portsFor(built.view, built.inputs.length);
-          view = { ...built.view, graph: { inputPorts: portNames } };
-          sources = built.inputs.map(inputId);
-        } else {
-          view = structuredClone(original);
-          sources = ports(original).map(port => incoming(id).find(edge => edge.targetPort === port)?.source ?? "");
-          if (settings) {
-            const fn = functionTable().get(sharedEntry(view)!)!;
-            const passed = (view.properties.params ?? {}) as Record<string, unknown>;
-            view = { ...view, ...sharedCallView(fn, parsedFunctions(), view.inputs, { ...passed, ...settings }), graph: view.graph };
-          }
-        }
-        const copy = copyOf(id);
-        view.variant = id === target ? { name, step: id, of: target, changes } : { name, step: id };
-        if (id === target) view.source = savedNames(command.statement.source.replace(/^\w+\s*=\s*/, ""));
-        for (const edge of incoming(copy)) edges.delete(edgeText(edge));
-        nodes.set(copy, view);
-        changed.add(copy);
-        ports(view).forEach((port, i) => {
-          if (!sources[i]) return;
-          const source = standIns.get(sources[i]) ?? (chain.has(sources[i]) ? copyOf(sources[i]) : sources[i]);
-          const edge: Edge = { source, sourcePort: "out", target: copy, targetPort: port };
-          edges.set(edgeText(edge), edge);
-        });
-      }
-      const copied = [...chain].filter(id => id !== target);
-      notes.push(
-        `${name} is a variant of ${target} with ${changes.map(describeChange).join("; ")}${copied.length ? `; it copies ${copied.join(", ")}` : ""}. ${target} and the steps it reads are unchanged.`
-      );
-      outcomes.push({
-        id: name,
-        op: nativeOperatorName(nodes.get(name)!.type),
-        status: previous ? "modified" : "added",
-        message: `${previous ? "updated" : "added"} variant \`${name}\` of \`${target}\` with ${changes.map(describeChange).join("; ")}${copied.length ? `; it copies ${copied.join(", ")}` : ""}`,
-      });
-      receipts.push({ operation: previous ? "update_operator" : "create_operator", operator_id: name });
-    };
-    /** Steps in input order. */
-    const topological = (ids: string[]) => {
-      const pending = new Set(ids);
-      const ordered: string[] = [];
-      while (pending.size) {
-        const ready = [...pending].filter(id => !incoming(id).some(edge => pending.has(edge.source)));
-        const next = ready.length ? ready : [...pending];
-        for (const id of next) {
-          pending.delete(id);
-          ordered.push(id);
-        }
-      }
-      return ordered;
-    };
-    /** `table = other`: from now on, table is what other is. */
-    const commitTable = (command: Command) => {
-      const table = command.id;
-      const other = command.other!;
-      if (!nodes.has(table))
-        throw new Error(
-          `\`${table}\` does not exist yet. \`${table} = ${other}\` makes an existing table take ${other}'s definition; to make a new table, write its call.`
-        );
-      if (!nodes.has(other)) throw new Error(`\`${other}\` is not an operator.`);
-      notPart(table);
-      notPart(other);
-      if (templates.get(table)?.savedResult || templates.get(other)?.savedResult)
-        throw new Error("Historical result handles are read-only; restore one with `name = name@N`.");
-      const source = nodes.get(other)!;
-      let note: string;
-      if (source.variant?.of !== undefined) {
-        if (source.variant.of !== table)
-          throw new Error(`\`${other}\` is a variant of \`${source.variant.of}\`; make it current with \`${source.variant.of} = ${other}\`.`);
-        const original = (id: string) => (nodes.get(id)?.variant?.name === other ? nodes.get(id)!.variant!.step : id);
-        const applied: string[] = [];
-        for (const change of source.variant.changes ?? []) {
-          const real = required(change.step);
-          if (change.table) {
-            const steps = new Set([...nodes].filter(([, view]) => view.variant?.name === other).map(([, view]) => view.variant!.step));
-            moveEdges([...edges.values()].filter(edge => edge.source === change.step && steps.has(edge.target)), { source: change.table });
-            applied.push(`${change.table} in place of ${change.step}`);
-            continue;
-          }
-          if (change.settings) {
-            const fn = functionTable().get(sharedEntry(real)!)!;
-            const passed = (real.properties.params ?? {}) as Record<string, unknown>;
-            const before = effectiveSettings(fn, passed);
-            nodes.set(change.step, {
-              ...real,
-              ...sharedCallView(fn, parsedFunctions(), real.inputs, { ...passed, ...change.settings }),
-              graph: real.graph,
-            });
-            applied.push(...Object.entries(change.settings).map(([name, value]) => `${change.step}.${name} ${pyLiteral(before[name])} to ${pyLiteral(value)}`));
-          } else {
-            const copy = change.step === table ? other : `${other}__${change.step}`;
-            const view = structuredClone(nodes.get(copy)!);
-            delete view.variant;
-            if (change.step === table) view.source = nodes.get(copy)!.source;
-            for (const edge of incoming(change.step)) edges.delete(edgeText(edge));
-            for (const edge of incoming(copy)) {
-              const moved: Edge = { ...edge, source: original(edge.source), target: change.step };
-              edges.set(edgeText(moved), moved);
-            }
-            nodes.set(change.step, view);
-            applied.push(`${change.step} = ${change.definition}`);
-          }
-          changed.add(change.step);
-          receipts.push({ operation: "update_operator", operator_id: change.step });
-        }
-        repoint(other, table);
-        for (const [part, view] of [...nodes]) if (view.variant?.name === other) removeNode(part);
-        note = `${table} now has ${other}'s changes (${applied.join("; ")}); everything built on them recomputes on the next execute.`;
-      } else if (ancestors(other).has(table)) {
-        dropCopies(table);
-        const kept = keepEarlier(table);
-        const chain = new Set([...ancestors(other), other]);
-        moveEdges([...edges.values()].filter(edge => edge.source === table && chain.has(edge.target)), { source: kept });
-        nodes.set(table, structuredClone(nodes.get(other)!));
-        for (const edge of incoming(other)) {
-          const moved: Edge = { ...edge, target: table };
-          edges.set(edgeText(moved), moved);
-        }
-        repoint(other, table);
-        removeNode(other);
-        note = `${table} now applies ${other}'s steps to the earlier ${table}, which continues as ${kept}; everything that read ${table} sees the new table.`;
-      } else {
-        // Not built on table, so nothing it reads can read table: no cycle.
-        dropCopies(table);
-        for (const edge of incoming(table)) edges.delete(edgeText(edge));
-        nodes.set(table, structuredClone(nodes.get(other)!));
-        for (const edge of incoming(other)) {
-          const moved: Edge = { ...edge, target: table };
-          edges.set(edgeText(moved), moved);
-        }
-        repoint(other, table);
-        removeNode(other);
-        note = `${table} now has ${other}'s definition and inputs; ${other} was folded into it, and tables that read ${other} read ${table}.`;
-      }
-      notes.push(`${note} The previous ${table} stays readable as ${table}@N.`);
-      changed.add(table);
-      outcomes.push({ id: table, op: nativeOperatorName(nodes.get(table)!.type), status: "modified", message: `updated \`${table}\` from \`${other}\`` });
-      outcomes.push({ id: other, op: nativeOperatorName(source.type), status: "deleted", message: `folded \`${other}\` into \`${table}\`` });
-      receipts.push({ operation: "update_operator", operator_id: table }, { operation: "delete_operator", operator_id: other });
-    };
     for (let [index, command] of commands.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
       // Functions and operators have separate names: `screen = screen(water)` is fine.
       if (command.operation === "define_function") continue;
-      // `name = name@N` restores in place; `copy = name@N` copies with saved inputs.
+      // `name = name@N` makes the saved definition current again, or brings
+      // back a table deleted since.
       if (command.operation === "assign_version")
         command = { ...command, operation: "copy_definition", create: !nodes.has(command.id) };
       const { operation, id } = command;
-      if (operation === "commit") {
-        deferred.push({ command, index });
-        continue;
-      }
-      if (operation === "set_setting") {
-        notPart(id);
-        if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
-        const view = required(id);
-        const setting = command.setting!;
-        const entry = sharedEntry(view);
-        const kind = nativeOperatorName(view.type);
-        if (!entry)
-          throw new Error(
-            `\`${id}\` is a ${kind} step; only shared functions have settings. Restate the step to change it: \`${id} = ${kind}(...)\`.`
-          );
-        const fn = functionTable().get(entry);
-        if (!fn) throw new Error(`${id} calls ${entry}, which is not defined.`);
-        if (!(setting in fn.settings))
-          throw new Error(`\`${id}\` has no setting \`${setting}\`; its settings are ${Object.keys(fn.settings).join(", ") || "none"}.`);
-        const passed = (view.properties.params ?? {}) as Record<string, unknown>;
-        const before = effectiveSettings(fn, passed)[setting];
-        const rebuilt: NativeOpView = {
-          ...view,
-          ...sharedCallView(fn, parsedFunctions(), view.inputs, { ...passed, [setting]: command.value }),
-          graph: view.graph,
-        };
-        if (definitionKey(rebuilt) === definitionKey(view)) continue;
-        // On a variant whose copied step is this call, the change becomes part of the variant.
-        if (view.variant?.name === id && view.variant.of) {
-          const step = view.variant.step;
-          const changes = [...(view.variant.changes ?? [])];
-          const at = changes.findIndex(change => change.step === step && change.settings);
-          if (at >= 0) changes[at] = { step, settings: { ...changes[at].settings, [setting]: command.value } };
-          else changes.push({ step, settings: { [setting]: command.value } });
-          rebuilt.variant = { ...view.variant, changes };
-        }
-        nodes.set(id, rebuilt);
-        changed.add(id);
-        outcomes.push({ id, op: kind, status: "modified", message: `updated \`${id}\`: ${setting} ${pyLiteral(before)} to ${pyLiteral(command.value)}` });
-        receipts.push({ operation: "update_operator", operator_id: id });
-        continue;
-      }
       if (operation === "assign_operator") {
-        notPart(id);
         if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
-        if (command.statement.op === "variant") {
-          deferred.push({ command, index });
-          continue;
-        }
-        dropCopies(id);
         const existing = nodes.get(id);
-        if (existing?.variant) delete existing.variant;
         const references = command.references ?? {};
         const profileCollection = existing?.profileCollection ?? context.settings?.nativeProfileCollection;
         const { view, inputs } = callView(id, command.statement, command.functions, references, profileCollection, {
@@ -968,12 +636,8 @@ async function planGraphEditOnce(
         });
         receipts.push({ operation, operator_id: id });
       } else if (operation === "delete_operator") {
-        notPart(id);
         const node = required(id);
         if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
-        // A variant's hidden copies go with it.
-        if (node.variant?.name === id)
-          for (const [part, view] of [...nodes]) if (part !== id && view.variant?.name === id) removeNode(part);
         const removed = [...edges.values()].filter(e => e.source === id || e.target === id);
         for (const edge of removed) {
           edges.delete(edgeText(edge));
@@ -1043,10 +707,8 @@ async function planGraphEditOnce(
           `${name} redefined; ${callers.get(name)?.length ? `its callers ${callers.get(name)!.join(", ")} recompute on the next execute` : "no other operator calls it"}. Results saved by earlier tasks stay readable as name@N.`
         );
     }
-    // Inputs become edges once every definition and deletion is known; a
-    // statement that reads a variant of this edit is wired once it exists.
-    const wire = (entries: Array<[string, { inputs: string[]; line: number }]>) => {
-    for (const [id, { inputs, line }] of entries) {
+    // Inputs become edges once every definition and deletion is known.
+    for (const [id, { inputs, line }] of pendingInputs) {
       location = `Line ${line}: `;
       const view = required(id);
       const sources = inputs.map(address => {
@@ -1072,20 +734,6 @@ async function planGraphEditOnce(
         changed.add(id);
         receipts.push({ operation: "create_edge", edge: edgeText({ ...edge, source: inputs[i] }) });
       });
-    }
-    };
-    const variants = deferred.filter(({ command }) => command.operation !== "commit");
-    const variantNames = new Set(variants.map(({ command }) => command.id));
-    const readsVariant = ([, { inputs }]: [string, { inputs: string[] }]) => inputs.some(name => variantNames.has(name));
-    wire([...pendingInputs].filter(entry => !readsVariant(entry)));
-    for (const { command, index } of variants) {
-      location = `Change ${index + 1} (line ${command.line}): `;
-      expandVariant(command);
-    }
-    wire([...pendingInputs].filter(readsVariant));
-    for (const { command, index } of deferred.filter(({ command }) => command.operation === "commit")) {
-      location = `Change ${index + 1} (line ${command.line}): `;
-      commitTable(command);
     }
     if (defined.size) {
       location = "Shared functions: ";
@@ -1113,7 +761,7 @@ async function planGraphEditOnce(
         }
         if (best.score >= 0.8)
           notes.push(
-            `${name} repeats ${best.other} (${Math.round(best.score * 100)}% identical lines). To change that rule from here on, redefine it in place; for a variant, give it a setting and call it with another value.`
+            `${name} repeats ${best.other} (${Math.round(best.score * 100)}% identical lines). To change that rule from here on, redefine it in place; to compute it another way alongside, give it a setting and call it again with another value.`
           );
       }
     }
@@ -1206,7 +854,7 @@ async function planGraphEditOnce(
         target: { operatorID: edge.target, portID: `input-${ports(nodes.get(edge.target)!).indexOf(edge.targetPort)}` },
       });
     for (const id of changed) {
-      if (nodes.has(id) && !outcomes.some(o => o.id === id) && !partOf(id))
+      if (nodes.has(id) && !outcomes.some(o => o.id === id))
         outcomes.push({
           id,
           op: nativeOperatorName(nodes.get(id)!.type),

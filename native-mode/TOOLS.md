@@ -6,7 +6,7 @@ Native mode exposes one dataflow tool with a brief rationale and an ordered acti
 
 ## `dataflow`
 
-Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of statements such as `totals = aggregate(orders, by=["region"], total=sum("amount"))`. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.
+Work with a dataflow through an ordered list of inspect, edit, execute, retrieve and answer actions, after a brief reasoning sentence. actions is a JSON array of objects; edit.changes is a string of statements such as `totals = aggregate(orders, by=["region"], total=sum("amount"))`. Edits do not run the graph, and retrieval never executes. A failure skips later actions; completed edits remain. An answer with content is the only action of its call; an answer with from is the last.
 
 ```json
 {
@@ -23,94 +23,9 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
-      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
+      "description": "Actions run in order; decide on returned results in the next call.",
       "items": {
         "anyOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "reference"
-              },
-              "topic": {
-                "type": "string",
-                "const": "operators"
-              },
-              "operator_names": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "scan",
-                    "project",
-                    "cast",
-                    "filter",
-                    "map",
-                    "aggregate",
-                    "join",
-                    "diff",
-                    "rank_change",
-                    "union",
-                    "distinct",
-                    "sort",
-                    "limit",
-                    "window",
-                    "unpivot",
-                    "pivot",
-                    "process"
-                  ]
-                },
-                "minItems": 1,
-                "maxItems": 8
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "topic",
-              "operator_names"
-            ],
-            "description": "Read selected operator contracts from the same catalog as the initial prompt. Documentation only; never reads results, executes or edits state."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "reference"
-              },
-              "topic": {
-                "type": "string",
-                "const": "example"
-              },
-              "example": {
-                "type": "string",
-                "enum": [
-                  "single",
-                  "statistics",
-                  "history"
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "topic",
-              "example"
-            ],
-            "description": "Read a worked example adapted to this session's views and features. Documentation only; never executes or changes state. History and statistics examples require their features to be enabled."
-          },
           {
             "type": "object",
             "additionalProperties": false,
@@ -201,7 +116,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name, and a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function as an operator; `name.setting = value` changes one setting of such a call; `name = variant(table, step={\"setting\": value})` copies the steps from step to table with the change; `name = other` makes name what other is, folding other in; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
               }
             },
             "required": [
@@ -222,7 +137,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
             "required": [
               "type"
             ],
-            "description": "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
+            "description": "Run the whole graph, reusing valid cached results. Returns status and errors; retrieve tables separately."
           },
           {
             "type": "object",
@@ -246,7 +161,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "type",
               "operator_ids"
             ],
-            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately."
+            "description": "Run only these operators and their upstream dependencies, reusing valid cached results; other branches are left as they are. Returns status and errors; retrieve tables separately."
           },
           {
             "type": "object",
@@ -274,7 +189,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics; full requests records up to its character cap; narrow large tables first. Start with sample_stats when available; request full only for unresolved row associations. Never executes. Check completeness; missing or stale outputs require execute."
+            "description": "Read an existing result: sample_stats adds statistics on every column to the sample; full shows every record up to its character cap. Look with sample_stats first; request full only when you need every row. Never executes; missing or stale results need execute."
           },
           {
             "type": "object",
@@ -312,7 +227,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "view",
               "columns"
             ],
-            "description": "Read an existing result restricted to the named columns, in the same views (sample_stats, full); use it on a wide table instead of a projection operator when only some columns are needed. Never executes."
+            "description": "Read an existing result restricted to the named columns, in the same views (sample_stats, full); use it on a wide table when only some columns are needed. Never executes."
           },
           {
             "type": "object",
@@ -398,94 +313,9 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
-      "description": "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer with content is the sole action; an answer with from is the last action.",
+      "description": "Actions run in order; decide on returned results in the next call.",
       "items": {
         "anyOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "reference"
-              },
-              "topic": {
-                "type": "string",
-                "const": "operators"
-              },
-              "operator_names": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "scan",
-                    "project",
-                    "cast",
-                    "filter",
-                    "map",
-                    "aggregate",
-                    "join",
-                    "diff",
-                    "rank_change",
-                    "union",
-                    "distinct",
-                    "sort",
-                    "limit",
-                    "window",
-                    "unpivot",
-                    "pivot",
-                    "process"
-                  ]
-                },
-                "minItems": 1,
-                "maxItems": 8
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "topic",
-              "operator_names"
-            ],
-            "description": "Read selected operator contracts from the same catalog as the initial prompt. Documentation only; never reads results, executes or edits state."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "reference"
-              },
-              "topic": {
-                "type": "string",
-                "const": "example"
-              },
-              "example": {
-                "type": "string",
-                "enum": [
-                  "single",
-                  "statistics",
-                  "history"
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "topic",
-              "example"
-            ],
-            "description": "Read a worked example adapted to this session's views and features. Documentation only; never executes or changes state. History and statistics examples require their features to be enabled."
-          },
           {
             "type": "object",
             "additionalProperties": false,
@@ -498,7 +328,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name, and a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function as an operator; `name.setting = value` changes one setting of such a call; `name = variant(table, step={\"setting\": value})` copies the steps from step to table with the change; `name = other` makes name what other is, folding other in; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. A saved version `name@N` can be an input table; `name = name@N` makes the definition saved at the end of task N current again on today's inputs, and `copy = name@N` copies it with its saved direct inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. A saved version `name@N` can be an input table, and `name = name@N` makes the definition saved at the end of task N current again on today's inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
               }
             },
             "required": [
@@ -529,7 +359,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "type",
               "operator_ids"
             ],
-            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this when unrelated branches are unfinished or failed. Returns status and errors; read tables separately."
+            "description": "Run only these operators and their upstream dependencies, reusing valid cached results; other branches are left as they are. Returns status and errors; read tables separately."
           },
           {
             "type": "object",

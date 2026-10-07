@@ -31,8 +31,8 @@ test("on-demand prompt retains execution and state contracts with a smaller init
   expect(buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "full" } as any)).toBe(full);
   const lean = buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "on_demand" } as any);
   expect(lean.length).toBeLessThan(full.length);
-  expect(lean).not.toContain("Task 7 returns to the scores as they were before refunds counted");
-  expect(full).toContain("Task 7 returns to the scores as they were before refunds counted");
+  expect(lean).not.toContain("Task 5 returns to the scores of task 1");
+  expect(full).toContain("Task 5 returns to the scores of task 1");
   for (const contract of [
     "## Role and objective",
     "## Actions and their effects",

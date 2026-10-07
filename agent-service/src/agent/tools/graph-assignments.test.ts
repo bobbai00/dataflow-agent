@@ -62,7 +62,9 @@ test("an assignment creates an operator whose call arguments become its input ed
   const inserted = await edit(state, 'totals = aggregate(totals, by=["unit"], n=count())');
   expect(inspectGraph(state.getWorkflowContent()).edges.sort()).toEqual(["delivered.out -> totals_v1.in", "orders2.out -> delivered.in", "totals_v1.out -> totals.in"]);
   expect(inserted.notes?.join(" ")).toContain("continues as totals_v1");
-  await expect(edit(state, "copy = totals")).rejects.toThrow("`copy` does not exist yet");
+  // A second name for a table, or for a saved version, is refused with the form to use.
+  await expect(edit(state, "copy = totals")).rejects.toThrow("would give a table a second name");
+  await expect(edit(state, "copy = totals@1")).rejects.toThrow("a saved version is read where a table is expected");
   await edit(state, "del totals_v1");
   // A saved reference inside a nested call keeps its meaning, and an error
   // never shows the parser's placeholder for it.

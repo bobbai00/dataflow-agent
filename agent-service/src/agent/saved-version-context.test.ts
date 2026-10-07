@@ -24,7 +24,7 @@ import { renderActionObservations } from "./native/action-observations";
 test("saved-version prompts teach read, exact results and an editable separate branch", () => {
   const prompt = buildNativeModeSystemPrompt(undefined, {stateHistory:true,multiTask:true});
   expect(prompt).toContain("view=null");
-  expect(prompt).toContain("copy = scores@2");
+  expect(prompt).toContain("scores = scores@2");
   expect(prompt).toContain("HISTORICAL_RESULT_UNAVAILABLE");
   expect(prompt).not.toMatch(/fork operator|target.*[\"'](?:state|task)[\"']|type.*[\"']retrieve[\"']/);
   expect(prompt).toContain("unique");
