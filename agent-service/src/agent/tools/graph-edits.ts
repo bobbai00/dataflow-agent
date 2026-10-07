@@ -419,6 +419,22 @@ async function planGraphEditOnce(
       receipts.push({ operation: "create_operator", operator_id: kept });
       return kept;
     };
+    /** The steps among the ancestors of `inputs` that read `id` directly, with
+     * this edit's statements read through their pending inputs. */
+    const readersBelow = (id: string, inputs: string[]) => {
+      const readers: string[] = [];
+      const seen = new Set<string>();
+      for (const stack = inputs.map(inputId); stack.length; ) {
+        const next = stack.pop()!;
+        if (next === id || seen.has(next)) continue;
+        seen.add(next);
+        const sources =
+          pendingInputs.get(next)?.inputs.map(inputId) ?? incoming(next).map(edge => edge.source);
+        if (sources.includes(id)) readers.push(next);
+        stack.push(...sources);
+      }
+      return readers;
+    };
     const savedNames = (text: string) => text.replace(/\b__saved_(\w+?)__(\d+)\b/g, "$1@$2");
     /** The operator a call defines, with its input tables by name. */
     const callView = (
@@ -493,7 +509,7 @@ async function planGraphEditOnce(
           positional: command.positional ?? [],
           keywords: command.keywords ?? [],
         });
-        const inserted = inputs.includes(id);
+        let inserted = inputs.includes(id);
         const again = pendingInputs.has(id);
         if (again && !inserted)
           throw new Error(
@@ -516,6 +532,24 @@ async function planGraphEditOnce(
             notes.push(
               `${id} now applies ${command.statement.op} to the earlier ${id}, which continues as ${kept}; everything that read ${id} sees the new table. The previous ${id} stays readable as ${id}@N.`
             );
+        } else if (existing && !again) {
+          // The same insertion over several statements (`detail = f(x)`, then
+          // `x = g(detail)`): the steps the new x is built on read the earlier
+          // x, and everything else that read x sees the new table.
+          const readers = readersBelow(id, inputs);
+          if (readers.length) {
+            const kept = keepEarlier(id);
+            for (const reader of readers) {
+              const pending = pendingInputs.get(reader);
+              if (pending) pending.inputs = pending.inputs.map(name => (inputId(name) === id ? kept : name));
+              else moveEdges([...edges.values()].filter(edge => edge.source === id && edge.target === reader), { source: kept });
+            }
+            inserted = true;
+            if (templates.has(id))
+              notes.push(
+                `${id} is now built on ${readers.join(", ")}, which read${readers.length === 1 ? "s" : ""} the earlier ${id}; it continues as ${kept}, and everything else that read ${id} sees the new table. The previous ${id} stays readable as ${id}@N.`
+              );
+          }
         }
         const portNames = portsFor(view, inputs.length);
         const draftView: NativeOpView = { ...view, inputs: portNames.map(() => ""), graph: { inputPorts: portNames } };

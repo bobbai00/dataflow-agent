@@ -124,6 +124,27 @@ test("rebinding a name within one edit builds a chain, as in Python", async () =
   expect(view(state, "x").properties).toEqual({ n: 1 });
 });
 
+test("a table rebuilt on steps that read it inserts those steps, in one edit or across edits", async () => {
+  const state = new WorkflowState();
+  await edit(state, SESSION);
+  const result = await edit(
+    state,
+    `detail = map(scores, lambda row: {**row, "gap": row["score"] - 1}, doc="Scores with their gap")\nscores = project(detail, keep=["store", "score", "gap"])`
+  );
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(
+    expect.arrayContaining(["scores_v1.out -> detail.in", "detail.out -> scores.in", "scores.out -> ranked.in"])
+  );
+  expect(result.notes).toEqual(
+    expect.arrayContaining([expect.stringContaining("scores is now built on detail, which reads the earlier scores; it continues as scores_v1")])
+  );
+  // A step written in an earlier edit: only it reads the earlier table.
+  await edit(state, `flags = map(ranked, lambda row: {**row, "top": row["score"] > 1}, doc="Ranked stores with a top flag")`);
+  await edit(state, `ranked = filter(flags, lambda row: row["top"], doc="Top-flagged stores")`);
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(
+    expect.arrayContaining(["ranked_v1.out -> flags.in", "flags.out -> ranked.in", "ranked.out -> top10.in"])
+  );
+});
+
 test("a nested operator call is its own step, named after the table that reads it", async () => {
   const state = new WorkflowState();
   await edit(state, `${SESSION}\nunits = distinct(project(scores, keep=["store"]), columns=["store"])`);
