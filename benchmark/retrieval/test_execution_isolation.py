@@ -27,6 +27,7 @@ from unittest import mock
 
 from benchmark.retrieval import execution_isolation
 from benchmark.retrieval.execution_isolation import isolated_command
+from benchmark.retrieval.native_isolated_python import data_roots
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -73,6 +74,29 @@ print(json.dumps({{'isolated': True}}))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(json.loads(result.stdout)["isolated"])
             self.assertEqual((workspace / "saved.txt").read_text(), "persistent")
+
+    def test_linked_data_directory_resolves_without_its_neighbours(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tmp = Path(temp)
+            sessions = tmp / "reference" / "dataset" / "sessions"
+            sessions.mkdir(parents=True)
+            (sessions / "input.csv").write_text("x\n3\n")
+            secret = tmp / "reference" / "gold.json"
+            secret.write_text('{"answer": 1234567}')
+            data = tmp / "data"
+            data.mkdir()
+            (data / "sessions").symlink_to(sessions)
+            workspace = tmp / "session"
+            workspace.mkdir()
+            code = f"""
+from pathlib import Path
+assert (Path({str(data)!r}) / 'sessions' / 'input.csv').read_text() == 'x\\n3\\n'
+assert not Path({str(secret)!r}).exists()
+"""
+            command = isolated_command([sys.executable, "-c", code], python=sys.executable,
+                                       data_roots=data_roots(data), workspace=workspace)
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_scratch_is_separate_between_sessions(self):
         with tempfile.TemporaryDirectory() as temp:

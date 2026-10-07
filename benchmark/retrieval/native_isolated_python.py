@@ -24,8 +24,10 @@ which contain gold answers. Set NATIVE_ISOLATED_PYTHON to the real venv
 interpreter, NATIVE_WORKSPACE to a private scratch parent and
 NATIVE_SOURCE_DATA to the KramaBench data tree. Each worker then sees the
 interpreter, the engine's Python sources, read-only task data (at amber/data,
-the workers' relative data path) and the result warehouse it writes. Use only
-on the experiment's own engine.
+the workers' relative data path) and the result warehouse it writes. A data
+directory that is a symbolic link (LongDS links its session data out of the
+reference checkout) is mounted at its target too, so it resolves without
+exposing the target's neighbours. Use only on the experiment's own engine.
 
 The agent service reads the same variable for its own interpreter: it runs
 the native runtime script with a JSON request on stdin to parse and validate
@@ -41,6 +43,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from execution_isolation import isolated_command  # noqa: E402
+
+
+def data_roots(source_data):
+    """The data tree and the targets of directory links directly inside it."""
+    return [source_data, *(child.resolve() for child in sorted(source_data.iterdir())
+                           if child.is_symlink() and child.is_dir())]
 
 
 def main():
@@ -71,7 +79,7 @@ def main():
     # The data root is also mounted at its real path, read-only, so absolute
     # paths a receipt showed still open.
     command = isolated_command(
-        [python, "-u", *args], python=python, data_roots=[source_data], workspace=workspace,
+        [python, "-u", *args], python=python, data_roots=data_roots(source_data), workspace=workspace,
         read_only=[(python_source, python_source), (source_data, amber / "data"), (source_data, root / "data")],
         read_write=[(warehouse, warehouse)], cwd=amber, network=True,
         environment={"PYTHONPATH": str(python_source), "HOME": "/workspace"},
