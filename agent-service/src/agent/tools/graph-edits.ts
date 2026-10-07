@@ -527,7 +527,9 @@ async function planGraphEditOnce(
     const describeChange = (change: VariantChange) =>
       change.settings
         ? Object.entries(change.settings).map(([name, value]) => `${change.step}.${name}=${pyLiteral(value)}`).join(", ")
-        : `${change.step} = ${change.definition}`;
+        : change.table
+          ? `${change.table} in place of ${change.step}`
+          : `${change.step} = ${change.definition}`;
     /** `name = variant(table, step={"setting": value}, other=new_call(...))`:
      * copy the steps between the changed steps and the table, apply the
      * changes to the copies, and name the copy of the table. */
@@ -573,6 +575,15 @@ async function planGraphEditOnce(
             settings[setting] = literalSetting(item, `${step}.${setting}`);
           }
           changes.push({ step, settings });
+        } else if (value.kind === "name") {
+          // An existing table read in place of the step.
+          const table = command.references?.[value.name] ? inputId(command.references[value.name]) : value.name;
+          if (!nodes.has(table)) throw new Error(`variant reads \`${value.name}\` in place of \`${step}\`, but it is not an operator.`);
+          notPart(table);
+          if (table === step) throw new Error(`\`${step}=${step}\` changes nothing.`);
+          if (descendants(step).has(table) || table === target)
+            throw new Error(`\`${value.name}\` is built on \`${step}\`, so it cannot stand in for it.`);
+          changes.push({ step, table });
         } else if (value.kind === "call") {
           const statement: ParsedStatement = {
             id: step,
@@ -588,12 +599,15 @@ async function planGraphEditOnce(
           changes.push({ step, definition: savedNames(value.source) });
         } else
           throw new Error(
-            `\`${step}=...\` takes new setting values as a dict, such as ${step}={"weight": 0.5}, or a new call that defines the step.`
+            `\`${step}=...\` takes new setting values as a dict, such as ${step}={"weight": 0.5}, a new call that defines the step, or another table to read in place of it.`
           );
       }
       const targetSide = new Set([...upstream, target]);
       const chain = new Set<string>();
-      for (const { step } of changes) for (const id of [step, ...descendants(step)]) if (targetSide.has(id)) chain.add(id);
+      const standIns = new Map(changes.filter(change => change.table).map(change => [change.step, change.table!]));
+      for (const { step, table } of changes)
+        for (const id of [...(table ? [] : [step]), ...descendants(step)]) if (targetSide.has(id)) chain.add(id);
+      if (!chain.size) throw new Error(`variant leaves \`${target}\` as it is; change a step upstream of it.`);
       const copyOf = (id: string) => (id === target ? name : `${name}__${id}`);
       for (const id of chain)
         if (id !== target && nodes.has(copyOf(id)) && partOf(copyOf(id)) !== name)
@@ -625,7 +639,8 @@ async function planGraphEditOnce(
         changed.add(copy);
         ports(view).forEach((port, i) => {
           if (!sources[i]) return;
-          const edge: Edge = { source: chain.has(sources[i]) ? copyOf(sources[i]) : sources[i], sourcePort: "out", target: copy, targetPort: port };
+          const source = standIns.get(sources[i]) ?? (chain.has(sources[i]) ? copyOf(sources[i]) : sources[i]);
+          const edge: Edge = { source, sourcePort: "out", target: copy, targetPort: port };
           edges.set(edgeText(edge), edge);
         });
       }
@@ -677,6 +692,12 @@ async function planGraphEditOnce(
         const applied: string[] = [];
         for (const change of source.variant.changes ?? []) {
           const real = required(change.step);
+          if (change.table) {
+            const steps = new Set([...nodes].filter(([, view]) => view.variant?.name === other).map(([, view]) => view.variant!.step));
+            moveEdges([...edges.values()].filter(edge => edge.source === change.step && steps.has(edge.target)), { source: change.table });
+            applied.push(`${change.table} in place of ${change.step}`);
+            continue;
+          }
           if (change.settings) {
             const fn = functionTable().get(sharedEntry(real)!)!;
             const passed = (real.properties.params ?? {}) as Record<string, unknown>;

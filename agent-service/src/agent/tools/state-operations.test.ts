@@ -194,3 +194,18 @@ test("a nested operator call is its own step, named after the table that reads i
   );
   expect(view(state, "units__project").properties).toEqual({ keep: ["store"] });
 });
+
+test("a variant can read another table in place of a step, and committing it re-points the real steps", async () => {
+  const state = new WorkflowState();
+  await edit(state, `${SESSION}\nstrict = score(stores, rating_weight=0.9)`);
+  const added = await edit(state, "with_strict = variant(top10, scores=strict)");
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(
+    expect.arrayContaining(["strict.out -> with_strict__ranked.in", "with_strict__ranked.out -> with_strict.in", "scores.out -> ranked.in"])
+  );
+  expect(state.getOperator("with_strict__scores")).toBeUndefined();
+  expect(added.notes?.join(" ")).toContain("with_strict is a variant of top10 with strict in place of scores; it copies ranked");
+  await edit(state, "top10 = with_strict");
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(expect.arrayContaining(["strict.out -> ranked.in", "ranked.out -> top10.in"]));
+  expect(state.getOperator("with_strict")).toBeUndefined();
+  await expect(edit(state, "x = variant(top10, ranked=top10)")).rejects.toThrow("cannot stand in for it");
+});

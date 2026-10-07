@@ -90,6 +90,8 @@ export interface VariantChange {
   settings?: Record<string, unknown>;
   /** A replacement definition for the whole step, as written. */
   definition?: string;
+  /** An existing table read in place of the step. */
+  table?: string;
 }
 
 export interface VariantInfo {

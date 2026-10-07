@@ -411,8 +411,9 @@ Read each request for what it does to the state:
   10})` copies the steps from `scores` down to `top10` with the new setting
   and leaves the originals alone, so the next task continues from them.
   A variant can also swap a whole step, as in `variant(top10,
-  scores=other_score(orders))`, and its execute receipt says how it differs
-  from the table it varies.
+  scores=other_score(orders))`, or read another table in its place, as in
+  `variant(top10, scores=strict_scores)`. Its execute receipt says how it
+  differs from the table it varies.
 - **The request refers to an earlier state.** Use the earlier table
   directly, as the next section describes, instead of rebuilding it; to
   continue from it, make it current again.

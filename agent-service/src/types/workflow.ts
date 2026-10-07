@@ -100,7 +100,7 @@ export interface OperatorPredicate {
       name: string;
       step: string;
       of?: string;
-      changes?: Array<{ step: string; settings?: Record<string, unknown>; definition?: string }>;
+      changes?: Array<{ step: string; settings?: Record<string, unknown>; definition?: string; table?: string }>;
     };
   };
 }
