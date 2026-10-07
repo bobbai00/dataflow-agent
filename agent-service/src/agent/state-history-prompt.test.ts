@@ -61,7 +61,7 @@ test("computed answers prefer runtime composition and narrow the first retrieval
 test("history guidance explains complete delta blocks and exact references without correctness or cache guarantees", () => {
   for (const nativePromptDetail of ["full", "on_demand"] as const) {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, nativePromptDetail });
-    for (const text of ["first-edit order", "Function bodies", "Statistics and catalog records are off by default",
+    for (const text of ["first-edit order", "Function bodies", "a chain starts",
       "not a correctness guarantee", "All working tables", "HISTORICAL_RESULT_UNAVAILABLE",
       "never substitutes a newer table", "saved direct inputs", "exploratory reads do not become answer roots"])
       expect(prompt).toContain(text);

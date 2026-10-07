@@ -745,7 +745,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "diff",
-    brief: "Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.",
+    brief: "Compare two tables by explicit unique, non-null entity keys, separate from the compared columns; keys are never inferred. Returns added, removed and changed rows (include_same=True keeps unchanged ones) with status and each compared column's _left, _right, _delta (later minus earlier) and _abs_delta; missing values and non-numeric differences have null deltas.",
     type: "Diff",
     inputs: 2,
     rowEffect: "unknown",
@@ -1067,7 +1067,8 @@ export function graphCatalogText(names?: readonly string[]): string {
   return selected
     .map(
       def =>
-        `${graphOperatorSignature(def)}\n    Inputs: ${graphOperatorPorts(def)}.\n    ${def.name === "process" ? SHARED_FUNCTION_BRIEF : def.brief}`
+        // One input table is the signature's `T`; other inputs are named.
+        `${graphOperatorSignature(def)}\n${def.inputs === 1 ? "" : `    Inputs: ${graphOperatorPorts(def)}.\n`}    ${def.name === "process" ? SHARED_FUNCTION_BRIEF : def.brief}`
     )
     .join("\n\n");
 }

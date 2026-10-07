@@ -19,91 +19,53 @@
 
 #### Saved versions
 
-When you answer, the dataflow as it stands is saved under that task's number:
-every operator with a completed result becomes a version you can refer to
-later as `name@N`, together with the shared functions its definition calls.
-Saved definitions and results never change; task 9 can return to task 3, and
-task 12 to task 9. A saved result can become unavailable after cleanup or
-eviction: the action then fails with HISTORICAL_RESULT_UNAVAILABLE. The
-engine never substitutes a newer table and never reruns the old definition on
-today's files.
+When you answer, every operator with a completed result is saved under the
+task's number, with the shared functions it calls, so an in-place change never
+loses an earlier version. `scores` names the current operator; `scores@2`
+names the version saved at the end of task 2: its definition, its inputs as
+they were then, and its matching completed result. Saved definitions and
+results never change, and using a version never executes anything or changes
+the current graph. If a saved result has been evicted, the action fails with
+HISTORICAL_RESULT_UNAVAILABLE; the engine never substitutes a newer table and
+never reruns an old definition on today's files.
 
-`scores` names the current operator. `scores@2` names the version saved at
-the end of task 2: its definition, its inputs as they were then, and its
-matching completed result. A version can be read, used as an input, answered
-from, compared, restored or copied, but not edited or executed. Using a
-version never executes anything by itself and never changes the current
-graph.
+A version can be:
 
-Earlier tasks appear either as sealed entries under # Prior Tasks or in full
-above, each ending with its answer receipt. Entries show the
-operators a task created or modified in first-edit order with their final
-definitions, direct inputs, output shape and columns; deletions are separate.
-All working tables are included, even those outside that task's answer
-computation. An answer source marker records the table the agent declared,
-not a correctness guarantee. Function bodies are available on demand.
-Statistics and catalog records are off by default; when enabled they describe
-the saved output with their stated coverage. Saved states may contain earlier
-mistakes, and earlier answers are the earlier agent's output: read a
-definition before relying on it.
-
-What you can do with a version:
-
-- **Read it.** `read` with `operator_ids: ["scores@2"]`. With `view: null`
-  (view=null) it returns the definition and direct inputs without data,
-  including failed or unexecuted operators; `include_implementation: true`
-  adds the Python. A non-null view reads the saved records, and `columns`
-  narrows them. Several addresses may be read together. Reads never execute.
-- **Use it as an input.** Any call takes `name@N` in place of an input table:
-  `shift = diff(scores@2, scores, key=["unit"], columns=["score"])`. The
-  engine binds the original materialization, with no ancestor copies or
-  upstream execution. A version never follows later changes, so build on
+- **read**: `read` with `operator_ids: ["scores@2"]` and `view: null` returns
+  its definition and direct inputs without data, for failed or unexecuted
+  operators too; `include_implementation: true` adds the Python, and another
+  view reads the saved records.
+- **used as an input**: `shift = diff(scores@2, scores, key=["unit"],
+  columns=["score"])` binds the saved result itself, with no upstream
+  execution, and `rank_change(scores@2, scores, ...)` compares a saved
+  ranking with today's. A version never follows later changes, so build on
   current tables by their current names and use `name@N` only when the
   request needs that earlier table.
-- **Answer from it.** `answer` with `from: "scores@2[unit, score:2]"`.
-- **Make it current again.** `scores = scores@2` restores the definition
-  saved at the end of task 2 in place, on today's inputs; the receipt names
-  inputs that changed since then, and the affected operators recompute on
-  the next execute. If the shared function it calls changed since task 2,
-  the restored operator keeps the task-2 code under the name
-  `function_t2`, while the function keeps its current definition.
-- **Copy it.** `copy = scores@2` creates one editable operator from the
-  task-2 definition with its saved direct inputs; adjust it or its inputs.
+- **answered from**: `"from": "scores@2[unit, score:2]"`.
+- **made current again**: `scores = scores@2` restores task 2's definition in
+  place, on today's inputs; the receipt names the inputs that changed since
+  then, and the affected operators recompute on the next execute. If its
+  shared function changed since task 2, the restored operator keeps the
+  task-2 code as `function_t2`, and the function keeps its current definition.
+- **copied**: `copy = scores@2` creates one editable operator from the task-2
+  definition with its saved direct inputs.
 
-An in-place change keeps the earlier version. After `scores.minimum = 3` and
-an execute, `scores@1` still names the first result, and the execute receipt
-compares each recomputed table with the version the last task saved, for
-example
+An execute receipt line such as
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
-That line often answers what a change did; read the tables when the request
-needs their values.
+often answers what an in-place change did; read the tables when the request
+needs their values. Never retype an earlier rule or its numbers from memory;
+the saved version is one reference away.
 
-Never retype an earlier rule or its numbers from memory; the saved version is
-one reference away. Before using an earlier table, read its definition and
-shape: is it every qualifying row, an earlier answer's selection, or an older
-version of the rule? When the request concerns the reported selection, keep
-it; when it concerns every row, use the table before the cut. When an earlier
-task was wrong, correct the rule in place rather than trusting the old answer.
-
-`rank_change(scores@2, scores, key=["entity"], by=[("score", "desc")], n=5)`
-compares two versions of a ranking: every entity in either top five, marked
-entered, left or stayed, with its rank and score in both.
-
-`diff(earlier, later, key=["entity"], columns=["score"])` compares two tables
-row by row. Entity keys must be explicit, unique and non-null, and compared columns are
-separate from keys. Each output row carries status (added, removed, changed;
-same with include_same=True) and each column's _left, _right, _delta and
-_abs_delta. Deltas are later minus earlier; missing values and non-numeric
-differences have null deltas. Cut it like any table:
-`largest = limit(shift, 5, by=[("score_abs_delta", "desc"), "unit"])`.
-
-`answer` with `from` also takes a cut over a complete table:
-`scores[unit, score:3] top 5 by score desc, unit asc`. Ordering uses
-unrounded values. Specify the tie-breaking columns explicitly; an ambiguous
-tie at the cut is refused. Above the pagination ceiling, cut in the graph
-with `limit`. The answer records the full source and its selection
-separately.
-
-Free-text content answers require operator_ids naming their completed source
-tables, current or historical. Pass [] only when no table was used. Missing
-sources are rejected, and exploratory reads do not become answer roots.
+Earlier tasks appear under # Prior Tasks as sealed entries, or in full in
+sessions that keep every call. An entry lists, in first-edit order, every
+operator the task created or changed, with its final definition, direct
+inputs, shape and columns, then its deletions and its answer.
+All working tables are included, not only those its answer used. Columns are
+listed where a chain starts, and a later step gives only how its columns
+differ from its first input's, as in ``same as `scores`; plus rank int64``. An
+operator's state names what the task did to it, such as `updated: set
+min_orders 5 to 10` or `updated: restored task 3's version`; use these to find
+the table a request means and the task an earlier state refers to.
+Function bodies are left out; read them on demand. The answer source marker
+records the table the agent declared, not a correctness guarantee.
+Saved states may contain earlier mistakes.
