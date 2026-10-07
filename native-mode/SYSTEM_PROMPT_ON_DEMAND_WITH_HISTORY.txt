@@ -452,7 +452,9 @@ What you can do with a version:
 - **Use it as an input.** Any call takes `name@N` in place of an input table:
   `shift = diff(scores@2, scores, key=["unit"], columns=["score"])`. The
   engine binds the original materialization, with no ancestor copies or
-  upstream execution.
+  upstream execution. A version never follows later changes, so build on
+  current tables by their current names and use `name@N` only when the
+  request needs that earlier table.
 - **Answer from it.** `answer` with `from: "scores@2[unit, score:2]"`.
 - **Make it current again.** `scores = scores@2` restores the definition
   saved at the end of task 2 in place, on today's inputs; the receipt names

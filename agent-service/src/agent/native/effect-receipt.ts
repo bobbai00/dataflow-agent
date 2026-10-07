@@ -34,19 +34,27 @@ const SHOWN = 8;
 const complete = (info: OperatorInfo) =>
   Array.isArray(info.result) && info.result.length === (info.totalRowCount ?? info.outputTuples);
 
-function labelColumns(before: OperatorInfo, after: OperatorInfo): string[] {
-  const types = (info: OperatorInfo) => new Map((info.resultSchema ?? []).map(c => [c.name, String(c.type).toLowerCase()]));
-  const a = types(before),
-    b = types(after);
-  return [...a]
-    .filter(([name, type]) => b.get(name) === type && /str|string|bool/.test(type))
-    .map(([name]) => name);
-}
-
 const keyOf = (row: Record<string, unknown>, columns: string[]) =>
   JSON.stringify(columns.map(column => row[column] ?? null));
 const label = (row: Record<string, unknown>, columns: string[]) =>
   columns.map(column => String(row[column] ?? "null")).join(" / ");
+
+/** The columns that name a row in both versions: a unique id-like column of
+ * any type first, then a unique text column, then all text and boolean
+ * columns together; none when nothing identifies the rows. */
+function labelColumns(before: OperatorInfo, after: OperatorInfo): string[] {
+  const types = (info: OperatorInfo) => new Map((info.resultSchema ?? []).map(c => [c.name, String(c.type).toLowerCase()]));
+  const a = types(before),
+    b = types(after);
+  const shared = [...a].filter(([name, type]) => b.get(name) === type).map(([name]) => name);
+  const rows = [before.result as Record<string, unknown>[], after.result as Record<string, unknown>[]];
+  const unique = (columns: string[]) =>
+    rows.every(list => new Set(list.map(row => keyOf(row, columns))).size === list.length && list.every(row => columns.every(c => row[c] !== null && row[c] !== undefined)));
+  const idLike = shared.filter(name => /(^|_)(id|key|code|name)$/i.test(name) || /^id/i.test(name));
+  const text = shared.filter(name => /str|string|bool/.test(a.get(name)!));
+  for (const name of [...idLike, ...text.filter(n => !idLike.includes(n))]) if (unique([name])) return [name];
+  return text.length && unique(text) ? text : [];
+}
 
 /** One receipt line, or undefined when the result is unchanged or unknown. */
 export function effectLine(

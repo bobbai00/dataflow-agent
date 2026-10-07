@@ -733,7 +733,8 @@ export async function executeDataflowActionBatch(
         }
         const rows = info.totalRowCount ?? info.outputTuples;
         // An existing table that the last answered task saved: what this run changed.
-        const effect = lastTask ? effectLine(`${op.operatorID}@${lastTask.taskId}`, storage.getOperatorResult(lastTask.stepId, op.operatorID), info) : undefined;
+        const fresh = info.state !== "CompletedFromCache" && !info.materialization?.cached;
+        const effect = lastTask && fresh ? effectLine(`${op.operatorID}@${lastTask.taskId}`, storage.getOperatorResult(lastTask.stepId, op.operatorID), info) : undefined;
         const checks = [
           // An empty result is always worth a block, whatever else is enabled.
           ...(rows === 0 ? ["note: empty table."] : []),
