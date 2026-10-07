@@ -118,7 +118,7 @@ diff(key, columns, include_same=False) — in[0], in[1] -> out
 union(schema="strict") — in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255)
 distinct(columns=None, keep="first") — in -> out
 sort(by, nulls="last") — in -> out
-limit(n, offset=0) — in -> out
+limit(n, by=[...], offset=0) — in -> out
 window(partition_by=[], order_by=[...], name=fn, ...) — in -> out
 unpivot(columns, name="variable", value="value") — in -> out
 pivot(index, columns, values) — in -> out

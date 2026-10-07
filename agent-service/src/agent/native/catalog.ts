@@ -799,20 +799,28 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "limit",
-    brief: "Keep n rows from offset. Sort first when selecting a top-k.",
+    brief: 'Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys.',
     type: "Limit",
     inputs: 1,
     rowEffect: "drop",
-    signature: "limit(T, n, offset=0)",
-    doc: "Keeps n rows starting at offset, in the current order. Sort first for a meaningful top-k; past the end you get an empty table with the same columns. Example: `top_three = limit(ranked, 3)`.",
-    schema: object({ n: { type: "integer", minimum: 1 }, offset: { type: "integer", minimum: 0 } }, ["n"]),
+    signature: "limit(T, n, by=[...], offset=0)",
+    doc: 'Keeps n rows starting at offset. With `by`, it first orders the rows by those keys, exactly as sort does, so one operator holds a top-n selection: `top_three = limit(scores, 3, by=[("total", "desc"), "region"])`. Ordering is stable, so give the keys that break ties. Without `by` it keeps the current order. Past the end you get an empty table with the same columns.',
+    schema: object(
+      {
+        n: { type: "integer", minimum: 1 },
+        offset: { type: "integer", minimum: 0 },
+        by: list(object({ col: S, desc: { type: "boolean" } }, ["col"])),
+      },
+      ["n"]
+    ),
     normalize(rest, kwargs) {
-      keywords("limit", kwargs, ["n", "offset"]);
+      keywords("limit", kwargs, ["n", "offset", "by"]);
       if (rest.length > 1) fail("limit takes the input table and n.");
       const n = rest[0] ?? kwargs.n;
       if (!n) fail("limit needs n: limit(t, 10).", "n");
       const props: Record<string, unknown> = { n: int(n!, "n", 1) };
       if (kwargs.offset) props.offset = int(kwargs.offset, "offset", 0);
+      if (kwargs.by) props.by = sortKeys(kwargs.by, "by");
       return props;
     },
   },
@@ -930,7 +938,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "unknown",
     signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
     doc: 'One custom operation in Python: `trend = process(yearly_totals, fn=fit_trend, doc="Fits a linear trend to yearly totals")`. `fn` is a `def` supplied in this edit taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes. A function with no inputs may load a format scan cannot handle and return its parsed table. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Reserve process for one operation the catalog cannot express, such as a custom parser, correlation or model fit. Keep filtering, deriving columns, grouping and joining in separate predefined operators, including after a custom loader.',
-    schema: object({ code: S, entry: S, doc: S }, ["code", "entry", "doc"]),
+    // `params` and `shared` belong to a shared function called by name (see
+    // tools/shared-functions.ts); a process(fn=...) never sets them.
+    schema: object({ code: S, entry: S, doc: S, params: { type: "object" }, shared: { type: "boolean" } }, ["code", "entry", "doc"]),
     normalize(rest, kwargs, context) {
       keywords("process", kwargs, ["fn", "doc"]);
       if (rest.length > 1) fail("process takes its input tables, then fn= and doc=.");

@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import { effectLine } from "../native/effect-receipt";
 import type { AgentSettings } from "../../types/agent";
 import { nativeReferenceText } from "../prompts";
 import type { OperatorInfo } from "../../types/execution";
@@ -606,7 +607,7 @@ export async function executeDataflowActionBatch(
         runtime.historicalTasks ?? []
       );
       const versions = plan.versions?.map(version => version.command) ?? [];
-      const versionNotes = plan.versions?.map(version => version.note) ?? [];
+      const versionNotes = [...(plan.versions?.map(version => version.note) ?? []), ...(plan.notes ?? [])];
       const restoredIds = new Map<string, string>();
       for (const fork of plan.forks ?? [])
         for (const id of Object.values(fork.mapping)) restoredIds.set(id, `forked from task ${fork.task_id}`);
@@ -704,6 +705,7 @@ export async function executeDataflowActionBatch(
             operators.map(op => op.operatorID)
           )
         : new Map<string, string[]>();
+      const lastTask = settings.stateHistory ? runtime.historicalTasks?.at(-1) : undefined;
       const outcomes = operators.map(op => {
         const info = current(op.operatorID);
         if (!info || !["Completed", "CompletedFromCache"].includes(info.state) || info.error) {
@@ -730,9 +732,12 @@ export async function executeDataflowActionBatch(
           };
         }
         const rows = info.totalRowCount ?? info.outputTuples;
+        // An existing table that the last answered task saved: what this run changed.
+        const effect = lastTask ? effectLine(`${op.operatorID}@${lastTask.taskId}`, storage.getOperatorResult(lastTask.stepId, op.operatorID), info) : undefined;
         const checks = [
           // An empty result is always worth a block, whatever else is enabled.
           ...(rows === 0 ? ["note: empty table."] : []),
+          ...(effect ? [effect] : []),
           ...(settings.nativeChecks ? nativeCheckLines(op, info) : []),
           ...nativeAdjustmentLines(op, info),
           ...(notes.get(op.operatorID) ?? []),

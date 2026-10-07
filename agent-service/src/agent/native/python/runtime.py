@@ -126,7 +126,9 @@ def _filename(spec, field):
     return f"native-v2:{spec.get('id', 'operator')}:{spec.get('revision', 'unversioned')}:{field}"
 
 
-def _validate_function(spec, source, field, entry, parameters=None):
+def _validate_function(spec, source, field, entry, parameters=None, settings=None):
+    """`settings` is the call's settings for a shared function: its table
+    parameters come first without defaults, its settings follow with defaults."""
     filename = _filename(spec, field)
     try:
         tree = ast.parse(source, filename=filename)
@@ -148,13 +150,24 @@ def _validate_function(spec, source, field, entry, parameters=None):
         node = entries[0]
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
-        valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
-        # Inputs bind positionally (`function(*frames)` below), so only the arity
-        # has to match the ordered inputs; the parameter names are the author's.
         expected = len(parameters) if parameters is not None else 1
-        valid = valid and len(positional) == expected
+        if settings is not None:
+            tables = positional[: len(positional) - len(args.defaults)]
+            optional = set(positional[len(tables):])
+            valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs)
+            valid = valid and len(tables) == expected and set(settings) <= optional
+        else:
+            valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
+            # Inputs bind positionally (`function(*frames)` below), so only the arity
+            # has to match the ordered inputs; the parameter names are the author's.
+            valid = valid and len(positional) == expected
     if not valid:
-        if parameters is not None:
+        if settings is not None:
+            message = (
+                f"Define {entry} with {expected} table parameter(s) first, one per input in order, then each "
+                f"setting as a parameter with a default ({', '.join(sorted(settings)) or 'none passed'})."
+            )
+        elif parameters is not None:
             message = (
                 f"Define exactly one synchronous def {entry} with {expected} positional parameter(s), one per input "
                 f"in order ({', '.join(parameters)}); names are yours. No decorators, defaults or variadic arguments."
@@ -265,6 +278,11 @@ def validate_native(spec):
                 )
         choice(props.get("nulls", "last"), ("first", "last"), "SORT_ARGUMENT", "nulls")
     elif kind == "Limit":
+        for i, item in enumerate(props.get("by", [])):
+            if not isinstance(item, dict) or not isinstance(item.get("col"), str) or not item["col"]:
+                raise _error(spec, "LIMIT_ARGUMENT", "Each by key names a column.", stage="validate", field=f"by[{i}]")
+            if "desc" in item and not isinstance(item["desc"], bool):
+                raise _error(spec, "LIMIT_ARGUMENT", "Sort direction is asc or desc.", stage="validate", field=f"by[{i}]")
         n, offset = props.get("n"), props.get("offset", 0)
         if type(n) is not int or n < 1:
             raise _error(spec, "LIMIT_ARGUMENT", f"n must be an integer >= 1, got {n!r}.", stage="validate", field="n")
@@ -292,7 +310,8 @@ def validate_native(spec):
     if kind in ("Filter", "Map"):
         _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
     elif kind == "Process":
-        _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
+        _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs,
+                           props.get("params", {}) if props.get("shared") else None)
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -405,9 +424,9 @@ def _function(spec, source, field, entry):
     except Exception as error:
         raise _caught(spec, error, source, field, entry) from error
 
-    def call(*args):
+    def call(*args, **settings):
         try:
-            return function(*args)
+            return function(*args, **settings)
         except Exception as error:
             raise _caught(spec, error, source, field, entry) from error
 
@@ -2475,13 +2494,20 @@ def execute_native(spec, inputs):
         output = output.reset_index(drop=True)
     elif kind == "Limit":
         start = props.get("offset", 0)
-        output = source.iloc[start : start + props["n"]].copy().reset_index(drop=True)
+        ordered = source
+        if props.get("by"):
+            _columns(spec, source, [item["col"] for item in props["by"]], "by")
+            # The same stable multi-key order as sort: ties keep input order.
+            for item in reversed(props["by"]):
+                ordered = ordered.sort_values(item["col"], ascending=not item.get("desc", False),
+                                              na_position="last", kind="stable")
+        output = ordered.iloc[start : start + props["n"]].copy().reset_index(drop=True)
         operations["removedRows"] = len(source) - len(output)
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
         with _ProcessTrace(_filename(spec, "code")) as trace:
-            output = _frame(spec, function(*[_process_input(frame) for frame in inputs]))
+            output = _frame(spec, function(*[_process_input(frame) for frame in inputs], **props.get("params", {})))
         if trace.reads or trace.events:
             operations["process"] = {"reads": trace.reads[:16], "events": trace.events[:8]}
     else:
@@ -2509,9 +2535,9 @@ if __name__ == "__main__":
 
     request = json.load(sys.stdin)
     if isinstance(request, dict) and "changes" in request:
-        from graph_parser import parse_graph_changes
+        from graph_parser import parse_graph_edit
 
-        print(json.dumps(parse_graph_changes(request["changes"]), ensure_ascii=True))
+        print(json.dumps(parse_graph_edit(request["changes"], request.get("shared")), ensure_ascii=True))
     elif isinstance(request, dict) and "program" in request:
         # Parse a native program (see program_parser.py); no operator semantics.
         from program_parser import parse_program

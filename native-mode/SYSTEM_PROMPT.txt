@@ -151,9 +151,9 @@ sort(by, nulls="last")
     Ports: in -> out.
     Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last".
 
-limit(n, offset=0)
+limit(n, by=[...], offset=0)
     Ports: in -> out.
-    Keep n rows from offset. Sort first when selecting a top-k.
+    Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys.
 
 window(partition_by=[], order_by=[...], name=fn, ...)
     Ports: in -> out.

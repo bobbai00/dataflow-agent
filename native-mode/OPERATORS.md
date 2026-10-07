@@ -34,7 +34,7 @@ Create requires a new identifier. Update replaces the definition and preserves i
 | `union` | in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255) | Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first. |
 | `distinct` | in -> out | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
 | `sort` | in -> out | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
-| `limit` | in -> out | Keep n rows from offset. Sort first when selecting a top-k. |
+| `limit` | in -> out | Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys. |
 | `window` | in -> out | Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order. |
 | `unpivot` | in -> out | Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types. |
 | `pivot` | in -> out | Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names. |
@@ -89,9 +89,9 @@ sort(by, nulls="last")
     Ports: in -> out.
     Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last".
 
-limit(n, offset=0)
+limit(n, by=[...], offset=0)
     Ports: in -> out.
-    Keep n rows from offset. Sort first when selecting a top-k.
+    Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys.
 
 window(partition_by=[], order_by=[...], name=fn, ...)
     Ports: in -> out.

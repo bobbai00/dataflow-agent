@@ -36,6 +36,17 @@ import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperato
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
 import type { VersionCommand } from "../state-ledger";
+import {
+  literalSetting,
+  parsedFunction,
+  rebuildCaller,
+  renameFunction,
+  sharedCallView,
+  sharedEntry,
+  sharedSources,
+  similarity,
+  type SharedFunction,
+} from "./shared-functions";
 
 type Edge = { source: string; sourcePort: string; target: string; targetPort: string };
 type Command = Edge & {
@@ -45,6 +56,17 @@ type Command = Edge & {
   statement: ParsedStatement;
   functions: Record<string, ParsedFunction>;
   line: number;
+  /** Assignment syntax: argument source text and `name@N` placeholders. */
+  positional?: string[];
+  keywords?: string[];
+  references?: Record<string, string>;
+  sourceId?: string;
+  task?: number;
+  create?: boolean;
+  /** `define_function`: the shared function's signature, docstring and source. */
+  tables?: string[];
+  settings?: Record<string, unknown>;
+  doc?: string | null;
 };
 export interface GraphChangeReceipt {
   operation: string;
@@ -63,6 +85,8 @@ export interface GraphEditPlan {
   /** Distinguishes command-order execution from older version-first traces. */
   ordered_versions?: true;
   applied?: number;
+  /** Shared-function and version notes for the edit receipt. */
+  notes?: string[];
 }
 
 export interface GraphForkReceipt {
@@ -156,6 +180,10 @@ function definition(command: Command, profileCollection?: boolean): NativeOpView
   return { ...normalized.view, inputs: names.map(() => ""), source: command.expression, graph: { inputPorts: names } };
 }
 
+/** What identifies a definition apart from its inputs. */
+const definitionKey = (view: NativeOpView) =>
+  JSON.stringify([view.type, view.properties, view.functions ?? {}, ports(view)]);
+
 /** Validate and compile against a private draft. The caller commits the returned
  * workflow only after checking cancellation/HEAD ownership. No mutation occurs here. */
 export async function planGraphEdit(
@@ -165,7 +193,10 @@ export async function planGraphEdit(
   resolveVersion?: (command: VersionCommand, current: WorkflowContent) => VersionEditResolution,
   resolveInput?: (address: string) => OperatorPredicate
 ): Promise<GraphEditPlan> {
-  const parsed = (await runNativePython({ changes })) as { ok: boolean; commands?: Command[]; error?: string };
+  const parsed = (await runNativePython({
+    changes,
+    shared: sharedSources(original.operators.map(op => op.nativeOp)),
+  })) as { ok: boolean; commands?: Command[]; error?: string; shared_functions?: Record<string, SharedFunction> };
   if (!parsed.ok) throw new Error(`${parsed.error} No changes were applied.`);
   if (!context.metadataStore) throw new Error("Metadata store not available for graph editing.");
   const nodes = new Map<string, NativeOpView>();
@@ -237,11 +268,104 @@ export async function planGraphEdit(
       target: { operatorID: edge.target, portID: `input-${ports(required(edge.target)).indexOf(edge.targetPort)}` },
     })),
   });
+  // Shared functions: those the graph's callers carry, and those this edit defines.
+  const known = new Map<string, SharedFunction>(Object.entries(parsed.shared_functions ?? {}));
+  const defined = new Map<string, SharedFunction>();
+  const functionTable = () => new Map([...known, ...defined]);
+  const parsedFunctions = (): Record<string, ParsedFunction> =>
+    Object.fromEntries([...functionTable()].map(([name, fn]) => [name, parsedFunction(fn)]));
+  // Assignments wire their inputs once every statement is known.
+  const pendingInputs = new Map<string, { inputs: string[]; line: number }>();
+  const notes: string[] = [];
+  const portsFor = (view: NativeOpView, count: number): string[] => {
+    const def = NATIVE_BY_TYPE.get(view.type);
+    if (def?.name === "diff") return indexed(2);
+    if (def?.inputs === "many") return indexed(count);
+    return def?.inputs === 0 ? [] : def?.inputs === 1 ? ["in"] : ["left", "right"];
+  };
   try {
+    for (const command of parsed.commands ?? []) {
+      if (command.operation !== "define_function") continue;
+      if (defined.has(command.id)) throw new Error(`Line ${command.line}: ${command.id} is defined twice in this edit.`);
+      defined.set(command.id, command as unknown as SharedFunction);
+    }
     const commands = [...parsed.commands!];
-    for (const [index, command] of commands.entries()) {
+    for (let [index, command] of commands.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
+      if (command.operation === "define_function") {
+        if (nodes.has(command.id) && !templates.get(command.id)?.savedResult)
+          throw new Error(`\`${command.id}\` already names an operator; give the function another name.`);
+        continue;
+      }
+      // `name = name@N` restores in place; `copy = name@N` copies with saved inputs.
+      if (command.operation === "assign_version")
+        command = { ...command, operation: "copy_definition", create: !nodes.has(command.id) };
       const { operation, id } = command;
+      if (operation === "assign_operator") {
+        if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
+        if (functionTable().has(id)) throw new Error(`\`${id}\` names a shared function; give the table another name.`);
+        if (pendingInputs.has(id)) throw new Error(`${id} is assigned twice in this edit; write one definition.`);
+        const existing = nodes.get(id);
+        const references = command.references ?? {};
+        const op = command.statement.op;
+        const fn = functionTable().get(op);
+        const functions = { ...parsedFunctions(), ...command.functions };
+        const profileCollection = existing?.profileCollection ?? context.settings?.nativeProfileCollection;
+        let view: NativeOpView;
+        if (NATIVE_BY_NAME.has(op)) {
+          const normalized = normalizeStatement(command.statement, functions, { profileCollection });
+          if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
+          view = normalized.view;
+          // Inputs live on edges; the stored definition names only the parameters.
+          view.source = `${op}(${[...(command.positional ?? []).slice(view.inputs.length), ...(command.keywords ?? [])].join(", ")})`;
+        } else if (fn) {
+          const args = command.statement.args;
+          const named = args.filter((arg): arg is { kind: "name"; name: string } => arg.kind === "name");
+          const settingNames = Object.keys(fn.settings);
+          if (named.length !== args.length || named.length !== fn.tables.length)
+            throw new Error(
+              `${op} takes ${fn.tables.length} input table(s) by name (${fn.tables.join(", ") || "none"}), then settings by name: \`${id} = ${op}(${[...fn.tables, ...settingNames.slice(0, 1).map(name => `${name}=...`)].join(", ")})\`.`
+            );
+          const unknown = Object.keys(command.statement.kwargs).filter(name => !settingNames.includes(name));
+          if (unknown.length)
+            throw new Error(
+              `${op} has no setting ${unknown.join(", ")}; its settings are ${settingNames.join(", ") || "none"}. A parameter with a default in the def is a setting.`
+            );
+          if (!fn.doc?.trim())
+            throw new Error(
+              `Give ${op} a one-sentence docstring stating the table each call returns; {setting} names in it are filled in per call.`
+            );
+          const settings = Object.fromEntries(
+            Object.entries(command.statement.kwargs).map(([name, value]) => [name, literalSetting(value, name)])
+          );
+          view = sharedCallView(fn, functions, named.map(arg => arg.name), settings, command.keywords ?? []);
+          if (profileCollection === true) view.profileCollection = true;
+        } else
+          throw new Error(
+            `Unknown operator or function \`${op}\`. Operators: ${[...NATIVE_BY_NAME.keys()].join(", ")}. For custom Python, define \`def ${op}(table, setting=default):\` with a docstring at the margin of the edit and call it by name.`
+          );
+        const inputs = view.inputs.map(name => references[name] ?? name);
+        if (inputs.includes(id))
+          throw new Error(
+            `${id} cannot be its own input. Build on its saved version with \`${id}@N\`, or give the new table its own name.`
+          );
+        const portNames = portsFor(view, inputs.length);
+        const draftView: NativeOpView = { ...view, inputs: portNames.map(() => ""), graph: { inputPorts: portNames } };
+        pendingInputs.set(id, { inputs, line: command.line });
+        // An unchanged definition is reported only if its inputs change.
+        if (existing && definitionKey(existing) === definitionKey(draftView)) continue;
+        nodes.set(id, draftView);
+        changed.add(id);
+        const kind = nativeOperatorName(draftView.type);
+        outcomes.push({
+          id,
+          op: kind,
+          status: existing ? "modified" : "added",
+          message: `${existing ? "updated" : "added"} ${kind} operator \`${id}\``,
+        });
+        receipts.push({ operation: existing ? "update_operator" : "create_operator", operator_id: id });
+        continue;
+      }
       if (operation === "fork_operator" || operation === "restore_operator" || operation === "copy_definition") {
         if (!resolveVersion) throw new Error("Saved-version commands require stateHistory.");
         const versionCommand = command as unknown as VersionCommand;
@@ -271,6 +395,25 @@ export async function planGraphEdit(
           if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
           const view = structuredClone(resolved.definition.nativeOp!);
           view.graph = { inputPorts: ports(view) };
+          // One name has one definition: a restored call whose function changed
+          // since that task keeps the old code under its own name.
+          const entry = sharedEntry(view);
+          const current = entry ? functionTable().get(entry) : undefined;
+          const savedSource = entry ? view.functions?.[entry] : undefined;
+          if (entry && current && savedSource && similarity(current.source, savedSource) < 1) {
+            const renamed = `${entry}_t${versionCommand.task}`;
+            view.functions = Object.fromEntries(
+              Object.entries(view.functions ?? {}).map(([name, source]) => [
+                name === entry ? renamed : name,
+                renameFunction(source, entry, renamed),
+              ])
+            );
+            view.properties = { ...view.properties, entry: renamed, code: renameFunction(String(view.properties.code), entry, renamed) };
+            if (view.source) view.source = renameFunction(view.source, entry, renamed);
+            notes.push(
+              `${id} runs ${entry} as it was at the end of task ${versionCommand.task}, now named ${renamed}; ${entry} keeps its current definition.`
+            );
+          }
           nodes.set(id, view);
           if (versionCommand.create) templates.set(id, { ...resolved.definition, operatorID: id, savedResult: undefined, stateOrigin: undefined });
           changed.add(id);
@@ -369,6 +512,89 @@ export async function planGraphEdit(
         }
         changed.add(edge.target);
         receipts.push({ operation, edge: edgeText({ ...edge, source: command.source }) });
+      }
+    }
+    // A redefined function rebuilds every caller this edit did not restate;
+    // they recompute on the next execute, like any in-place update.
+    const redefined = [...defined.keys()].filter(name => known.has(name));
+    if (redefined.length) {
+      location = "Shared functions: ";
+      const table = functionTable();
+      const functions = parsedFunctions();
+      const callers = new Map<string, string[]>();
+      for (const [nodeId, view] of nodes) {
+        if (pendingInputs.has(nodeId) || !sharedEntry(view)) continue;
+        const touched = Object.keys(view.functions ?? {}).filter(name => defined.has(name));
+        if (!touched.length) continue;
+        const rebuilt = { ...rebuildCaller(nodeId, view, table, functions), graph: view.graph };
+        if (definitionKey(rebuilt) === definitionKey(view)) continue;
+        nodes.set(nodeId, rebuilt);
+        changed.add(nodeId);
+        outcomes.push({ id: nodeId, op: "process", status: "modified", message: `updated \`${nodeId}\`: ${touched.join(", ")} changed` });
+        receipts.push({ operation: "update_operator", operator_id: nodeId });
+        for (const name of touched) callers.set(name, [...(callers.get(name) ?? []), nodeId]);
+      }
+      for (const name of redefined)
+        notes.push(
+          `${name} redefined; ${callers.get(name)?.length ? `its callers ${callers.get(name)!.join(", ")} recompute on the next execute` : "no other operator calls it"}. Results saved by earlier tasks stay readable as name@N.`
+        );
+    }
+    // Inputs become edges once every definition and deletion is known.
+    for (const [id, { inputs, line }] of pendingInputs) {
+      location = `Line ${line}: `;
+      const view = required(id);
+      const sources = inputs.map(address => {
+        const source = inputId(address);
+        if (!nodes.has(source))
+          throw new Error(
+            `${id}'s input \`${address}\` is not an operator. Operators: ${[...nodes.keys()].filter(key => !templates.get(key)?.savedResult).join(", ")}.`
+          );
+        return source;
+      });
+      const portNames = ports(view);
+      const wanted: Edge[] = sources.map((source, i) => ({ source, sourcePort: "out", target: id, targetPort: portNames[i] }));
+      const keys = new Set(wanted.map(edgeText));
+      for (const [key, edge] of [...edges]) {
+        if (edge.target !== id || keys.has(key)) continue;
+        edges.delete(key);
+        changed.add(id);
+        receipts.push({ operation: "delete_edge", edge: key });
+      }
+      wanted.forEach((edge, i) => {
+        if (edges.has(edgeText(edge))) return;
+        edges.set(edgeText(edge), edge);
+        changed.add(id);
+        receipts.push({ operation: "create_edge", edge: edgeText({ ...edge, source: inputs[i] }) });
+      });
+    }
+    if (defined.size) {
+      location = "Shared functions: ";
+      const used = new Set<string>();
+      for (const view of nodes.values()) for (const name of Object.keys(view.functions ?? {})) used.add(name);
+      const unused = [...defined.keys()].filter(name => !used.has(name));
+      if (unused.length)
+        throw new Error(
+          `${unused.join(", ")} ${unused.length > 1 ? "are" : "is"} defined but never used. Call a shared function as an operator, \`table = ${unused[0]}(input, ...)\`, or from another shared function.`
+        );
+      // A new function that mostly repeats an existing one: say which, so the
+      // rule changes in one place instead of in copies.
+      for (const [name, fn] of defined) {
+        if (known.has(name)) continue;
+        let best = { score: 0, other: "" };
+        for (const [other, existing] of known) {
+          const score = similarity(fn.source, existing.source);
+          if (score > best.score) best = { score, other };
+        }
+        for (const op of original.operators) {
+          const view = op.nativeOp;
+          if (view?.type !== "Process" || sharedEntry(view)) continue;
+          const score = similarity(fn.source, String(view.properties.code ?? ""));
+          if (score > best.score) best = { score, other: `the function of ${op.operatorID}` };
+        }
+        if (best.score >= 0.8)
+          notes.push(
+            `${name} repeats ${best.other} (${Math.round(best.score * 100)}% identical lines). To change that rule from here on, redefine it in place; for a variant, give it a setting and call it with another value.`
+          );
       }
     }
     // A saved-result handle exists only to feed an edge. One left without a
@@ -481,6 +707,7 @@ export async function planGraphEdit(
       ...(versions.length
         ? { versions, forks, ordered_versions: true as const, applied: parsed.commands!.length }
         : {}),
+      ...(notes.length ? { notes } : {}),
     };
   } catch (error) {
     throw new Error(
