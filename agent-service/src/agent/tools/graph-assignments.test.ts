@@ -96,7 +96,10 @@ test("shared-function calls are checked against the signature, and unused or cop
   await expect(edit(state, 'bad = score(orders, weight="x" + "y")')).rejects.toThrow();
   await expect(edit(state, 'def helper(t):\n    """Unused."""\n    return t')).rejects.toThrow("defined but never used");
   await expect(edit(state, 'def nodoc(t):\n    return t\nx = nodoc(orders)')).rejects.toThrow("docstring");
-  await expect(edit(state, "score = limit(orders, 3)")).rejects.toThrow("names a shared function");
+  // A table may share its function's name; the two never collide.
+  await edit(state, "score = score(orders, minimum=2)");
+  expect(state.getOperator("score")!.nativeOp!.properties).toMatchObject({ entry: "score", params: { minimum: 2 } });
+  await edit(state, "del score");
   const copied = await edit(state, `${SCORE.replace("def score(", "def score_copy(").replace("weight", "w")}\nother = score_copy(orders)`);
   expect(copied.notes?.join(" ")).toContain("score_copy repeats score");
   // Helpers at the margin travel with the functions that call them.

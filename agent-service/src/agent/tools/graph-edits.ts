@@ -292,18 +292,14 @@ export async function planGraphEdit(
     const commands = [...parsed.commands!];
     for (let [index, command] of commands.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
-      if (command.operation === "define_function") {
-        if (nodes.has(command.id) && !templates.get(command.id)?.savedResult)
-          throw new Error(`\`${command.id}\` already names an operator; give the function another name.`);
-        continue;
-      }
+      // Functions and operators have separate names: `screen = screen(water)` is fine.
+      if (command.operation === "define_function") continue;
       // `name = name@N` restores in place; `copy = name@N` copies with saved inputs.
       if (command.operation === "assign_version")
         command = { ...command, operation: "copy_definition", create: !nodes.has(command.id) };
       const { operation, id } = command;
       if (operation === "assign_operator") {
         if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
-        if (functionTable().has(id)) throw new Error(`\`${id}\` names a shared function; give the table another name.`);
         if (pendingInputs.has(id)) throw new Error(`${id} is assigned twice in this edit; write one definition.`);
         const existing = nodes.get(id);
         const references = command.references ?? {};
