@@ -17,8 +17,10 @@
 
 """Executed-script catalog and passive namespace audit; no historical heap API.
 
-Opcode tracing observes reads in user scripts/helpers, including global reads.
-Dependencies are conservative at script-block granularity, not column lineage.
+When a script's code runs (its body, and the functions and lambdas it defines),
+the globals that code loads are its reads; each code object is scanned once,
+and nothing is traced inside it. Dependencies are conservative at script-block
+granularity, not column lineage.
 The evaluator may export values; exports are never exposed to the solver.
 """
 import contextlib
@@ -29,6 +31,7 @@ import json
 import math
 import numbers
 from pathlib import Path
+import pickle
 import sys
 import traceback
 import types
@@ -77,12 +80,18 @@ def fingerprint(value):
             body = str(value.shape) + repr(getattr(value, 'columns', None)) + repr(value.dtypes)
             return hashlib.sha256(body.encode() + pd.util.hash_pandas_object(value, index=True).values.tobytes()).hexdigest()
         except (TypeError, ValueError):
-            return hashlib.sha256(repr(value.to_dict()).encode()).hexdigest()
+            # Unhashable cells such as lists. repr(to_dict()) took ~10 s per
+            # 650k-row table; the pickled bytes take ~1 s.
+            return hashlib.sha256(pickle.dumps(value, protocol=5)).hexdigest()
     if isinstance(value, types.FunctionType):
         return hashlib.sha256(value.__code__.co_code + repr(value.__code__.co_consts).encode()).hexdigest()
     if isinstance(value, (bool, int, float, str, list, tuple, dict, set, frozenset)):
         return hashlib.sha256(repr(value).encode()).hexdigest()
     return None
+
+
+# The value types `fingerprint` versions; everything else in the namespace is untracked.
+TRACKED = (pd.DataFrame, pd.Series, types.FunctionType, bool, int, float, str, list, tuple, dict, set, frozenset)
 
 
 class ScriptCatalog:
@@ -93,39 +102,40 @@ class ScriptCatalog:
         self.scripts = []
         self.bindings = {}
         self.tasks = []
+        # name -> (id, fingerprint) after the last script. Only scripts change
+        # the namespace, so an object still bound to its name keeps its version.
+        self.versions = {}
 
     def values(self):
         return {name: value for name, value in self.namespace.items()
                 if not name.startswith('_') and name not in {'In', 'Out', 'exit', 'quit', 'get_ipython'}
-                and fingerprint(value) is not None}
+                and isinstance(value, TRACKED)}
 
     def execute(self, task_id, source):
-        before = {name: fingerprint(value) for name, value in self.values().items()}
+        values = self.values()
+        before = {name: (self.versions[name][1] if self.versions.get(name, (None,))[0] == id(value)
+                         else fingerprint(value)) for name, value in values.items()}
         object_names = {}
-        for name, value in self.values().items():
+        for name, value in values.items():
             if isinstance(value, (pd.DataFrame, pd.Series)):
                 object_names.setdefault(id(value), set()).add(name)
         reads = set()
-        instructions = {}
+        scanned = {}
         previous_trace = sys.gettrace()
 
         def trace(frame, event, arg):
-            if not frame.f_code.co_filename.startswith('pilot-script-'):
+            code = frame.f_code
+            if event != 'call' or not code.co_filename.startswith('pilot-script-'):
                 return None
-            frame.f_trace_opcodes = True
-            if event == 'opcode':
-                ops = instructions.get(frame.f_code)
-                if ops is None:
-                    ops = {x.offset: x for x in dis.get_instructions(frame.f_code)}
-                    instructions[frame.f_code] = ops
-                op = ops.get(frame.f_lasti)
-                if op and op.opname in {'LOAD_NAME', 'LOAD_GLOBAL', 'LOAD_FAST', 'LOAD_DEREF'}:
-                    name = op.argval
-                    if name in before and op.opname in {'LOAD_NAME', 'LOAD_GLOBAL'}:
-                        reads.add(name)
-                    value = frame.f_locals.get(name, frame.f_globals.get(name))
-                    reads.update(object_names.get(id(value), set()))
-            return trace
+            names = scanned.get(code)
+            if names is None:
+                names = scanned[code] = {op.argval for op in dis.get_instructions(code)
+                                         if op.opname in {'LOAD_NAME', 'LOAD_GLOBAL'}}
+            for name in names:
+                if name in before:
+                    reads.add(name)
+                    reads.update(object_names.get(id(frame.f_globals.get(name)), set()))
+            return None
 
         output = io.StringIO()
         success = True
@@ -141,6 +151,7 @@ class ScriptCatalog:
             sys.settrace(previous_trace)
         values = self.values()
         after = {name: fingerprint(value) for name, value in values.items()}
+        self.versions = {name: (id(values[name]), version) for name, version in after.items()}
         writes = sorted(name for name, version in after.items() if before.get(name) != version)
         references = [dict(name=name, **self.bindings[name]) for name in sorted(reads) if name in self.bindings]
         parents = [{'name': r['name'], 'version': r['version'], 'task_id': r['changed_task']} for r in references]

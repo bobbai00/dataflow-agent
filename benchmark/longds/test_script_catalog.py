@@ -16,11 +16,39 @@
 # under the License.
 
 import unittest
+from unittest import mock
 import pandas as pd
+import script_catalog
 from script_catalog import ScriptCatalog
 
 
 class CatalogTest(unittest.TestCase):
+    def test_a_table_with_list_cells_is_versioned_and_its_mutation_detected(self):
+        ns = {'pd': pd}
+        cat = ScriptCatalog(ns)
+        first = cat.execute(1, 'loans = pd.DataFrame({"id": [1, 2], "genders": [["female"], ["male", "female"]]})')
+        self.assertEqual(first['writes'], ['loans'])
+        self.assertEqual(cat.execute(1, 'n = len(loans)')['writes'], ['n'])
+        self.assertEqual(cat.execute(1, 'loans.loc[0, "genders"] = ["male"]')['writes'], ['loans'])
+
+    def test_each_value_is_fingerprinted_at_most_once_per_script(self):
+        ns = {'pd': pd}
+        cat = ScriptCatalog(ns)
+        cat.execute(1, 'a = pd.DataFrame({"x": range(5)})\nb = pd.DataFrame({"y": range(3)})')
+        with mock.patch.object(script_catalog, 'fingerprint', wraps=script_catalog.fingerprint) as counted:
+            receipt = cat.execute(1, 'b["y"] = b["y"] * 2')
+        # `a` and `b` keep their objects, so their earlier versions are reused
+        # before the script and each is fingerprinted once after it.
+        self.assertEqual(counted.call_count, 2)
+        self.assertEqual(receipt['writes'], ['b'])
+
+    def test_a_global_read_inside_a_lambda_is_a_read(self):
+        ns = {'pd': pd}
+        cat = ScriptCatalog(ns)
+        cat.execute(1, 'rates = {"a": 2}\nt = pd.DataFrame({"k": ["a", "a"]})')
+        receipt = cat.execute(2, 'u = t["k"].map(lambda k: rates[k])')
+        self.assertEqual(receipt['reads'], ['rates', 't'])
+
     def test_statistics_default_off_preserves_shape_and_schema_without_values(self):
         cat = ScriptCatalog({'pd': pd})
         receipt = cat.execute(1, 'table = pd.DataFrame({"private": [9123456789], "label": ["PRIVATE_VALUE"]})')

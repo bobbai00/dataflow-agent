@@ -80,6 +80,27 @@ class ContextContractTest(unittest.TestCase):
         self.assertNotIn('PRIVATE_SCRIPT', rendered)
         self.assertNotIn('PRIVATE_SAMPLE', rendered)
 
+    def test_a_timed_out_script_restores_the_earlier_scripts_and_says_so(self):
+        kernel = Kernel.__new__(Kernel)
+        kernel.scripts = [(1, 'a = 1'), (2, 'b = a + 1')]
+        executed = []
+
+        def execute(code):
+            executed.append(code)
+            if 'slow()' in code:
+                raise RuntimeError('TimeoutError: Execution timed out after 240 seconds')
+            return ''
+        kernel.execute = execute
+        kernel.setup = lambda: executed.append('SETUP')
+        with self.assertRaises(RuntimeError) as raised:
+            kernel.code(3, 'slow()')
+        self.assertIn('earlier scripts were run again', str(raised.exception))
+        replay = executed[executed.index('SETUP') + 1:]
+        self.assertEqual(len(replay), 2)
+        self.assertIn("execute(1, 'a = 1')", replay[0])
+        self.assertIn("execute(2, 'b = a + 1')", replay[1])
+        self.assertEqual(kernel.scripts, [(1, 'a = 1'), (2, 'b = a + 1')])
+
     def test_observer_export_does_not_parse_large_kernel_stdout(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
