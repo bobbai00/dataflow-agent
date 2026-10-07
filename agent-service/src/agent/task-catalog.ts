@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import type { OperatorPredicate } from "../types/workflow";
+import { pyLiteral } from "./tools/shared-functions";
 import { isDeepStrictEqual } from "node:util";
 import type { TaskHistory, TaskRecord } from "./task-history";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
@@ -289,6 +291,25 @@ export function taskCatalogRecords(
 
 /** Render from this task's immutable endpoint only. A fork's proof covers its
  * whole copied branch, so edits to an ancestor prevent downstream collapsing. */
+type NativeView = NonNullable<OperatorPredicate["nativeOp"]>;
+
+/** What an update did to an operator, when it is more than a new definition:
+ * settings that moved, or the same definition on other inputs. */
+export function updateSummary(previous: NativeView, now: NativeView): string | undefined {
+  if (JSON.stringify([previous.type, previous.properties]) === JSON.stringify([now.type, now.properties]))
+    return previous.revision === now.revision ? undefined : "changed its inputs";
+  const sameCode =
+    now.type === "Process" &&
+    previous.type === "Process" &&
+    previous.properties.code === now.properties.code &&
+    previous.properties.entry === now.properties.entry;
+  if (!sameCode) return undefined;
+  const before = previous.settings ?? {};
+  const after = now.settings ?? {};
+  const moved = Object.keys(after).filter(name => JSON.stringify(before[name]) !== JSON.stringify(after[name]));
+  return moved.length ? moved.map(name => `set ${name} ${pyLiteral(before[name])} to ${pyLiteral(after[name])}`).join(", ") : undefined;
+}
+
 export function taskOperatorCatalog(
   storage: WorkflowSnapshotStorage,
   task: TaskHistory,
@@ -344,7 +365,23 @@ export function taskOperatorCatalog(
     if (!op) return { id: edit.id, kind: edit.kind, state: "deleted" };
     const origin = op.stateOrigin;
     const changedFork = edit.fork && (edit.modified || proofs.get(edit.id)?.subgraphHash !== origin?.subgraphHash);
-    const state = `${edit.state}${changedFork ? "; updated" : ""}`;
+    let state = `${edit.state}${changedFork ? "; updated" : ""}`;
+    const start = before?.workflow.operators.find(item => item.operatorID === edit.id && !item.savedResult)?.nativeOp;
+    if (edit.state === "updated" && start && op.nativeOp) {
+      // An update that brings back an earlier task's definition is a restore.
+      const restored = earlierTasks
+        .filter(earlier => earlier.taskId < task.taskId)
+        .reverse()
+        .find(earlier => {
+          const saved = storage.getWorkflow(earlier.stepId).operators.find(item => item.operatorID === edit.id && !item.savedResult);
+          return saved?.nativeOp?.revision === op.nativeOp!.revision;
+        });
+      const summary =
+        restored && start.revision !== op.nativeOp.revision
+          ? `restored task ${restored.taskId}'s version`
+          : updateSummary(start, op.nativeOp);
+      if (summary) state = `updated: ${summary}`;
+    }
     const saved = readForkResult(workflow, storage, edit.id, task.stepId);
     const info = storage.getOperatorResult(task.stepId, edit.id) ?? saved?.info;
     const previous = before?.results.get(edit.id)?.info;

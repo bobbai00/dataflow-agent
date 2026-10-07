@@ -64,10 +64,11 @@ test("an assignment creates an operator whose call arguments become its input ed
   expect(inserted.notes?.join(" ")).toContain("continues as totals_v1");
   await expect(edit(state, "copy = totals")).rejects.toThrow("`copy` does not exist yet");
   await edit(state, "del totals_v1");
-  // A rejected call shows a saved reference as written, never its placeholder.
-  await expect(edit(state, "top = limit(filter(orders@1, lambda row: True, doc=\"All\"), 1)")).rejects.toThrow(
-    "got filter(orders@1, "
-  );
+  // A saved reference inside a nested call keeps its meaning, and an error
+  // never shows the parser's placeholder for it.
+  const error = await edit(state, 'top = limit(filter(orders@1, lambda row: True, doc="All"), 1)').catch(e => e.message);
+  expect(error).toContain("Saved input references require stateHistory");
+  expect(error).not.toContain("__saved_");
   await edit(state, "del totals, orders");
   expect(state.getOperator("totals")).toBeUndefined();
   expect(state.getOperator("orders")).toBeUndefined();

@@ -57,3 +57,18 @@ def test_edit_blocks_split_an_edit_that_does_not_tokenize():
     blocks = edit_blocks('a = scan("x.csv")\nb = limit(a, 3,\nc = limit(b, 1)')
     assert [b["sets"] for b in blocks] == [["a"], ["b"], ["c"]]
     assert "b" in blocks[2]["uses"]
+
+
+def test_a_nested_operator_call_becomes_its_own_step():
+    hoisted = commands('pairs = distinct(project(social, keep=["country"]), columns=["country"])')
+    assert [(c["id"], c["statement"]["op"]) for c in hoisted] == [("pairs__project", "project"), ("pairs", "distinct")]
+    assert hoisted[1]["statement"]["args"][0] == {"kind": "name", "name": "pairs__project"}
+    deeper = commands("top = limit(sort(filter(t, lambda r: r['x'] > 0, doc='Positive'), by=['x']), 3)")
+    assert [c["id"] for c in deeper] == ["top__sort__filter", "top__sort", "top"]
+    # Saved versions inside a nested call keep their meaning.
+    assert commands("both = union(project(a@2, keep=['k']), b)")[0]["references"] == {"__saved_a__2": "a@2"}
+
+
+def test_a_function_depends_only_on_the_functions_it_calls():
+    blocks = edit_blocks('pairs = scan("p.csv")\ndef score(pairs, weight=1):\n    """Rows of pairs."""\n    return helper(pairs) * weight\nscores = score(pairs)')
+    assert blocks[1]["sets"] == ["score"] and blocks[1]["uses"] == ["helper"]

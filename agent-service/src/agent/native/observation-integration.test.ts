@@ -252,10 +252,12 @@ test("every prompt capability combination matches its schema and keeps the commo
             expect(/^\s*- flow\b/m.test(receipts)).toBe(flow && !history);
             expect(/^statistics: full table/m.test(receipts)).toBe(data && !history);
             expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown" && !history);
-            // As in the renderer, an execute receipt's blocks all have something to report.
-            for (const section of receipts.split(/^(?=### )/m).filter(text => /^### \d+\. execute\b/.test(text)))
-              for (const block of section.split(/^(?=- \*\*)/m).slice(1))
-                expect(block).toMatch(/^ {2}- (error|note|check|flow|scope|changed|differs|rank change)\b/m);
+            // As in the renderer, an execute receipt's blocks all have something
+            // to report. Each fenced block is its own receipt.
+            for (const [, fenced] of prompt.matchAll(/```text\n([\s\S]*?)\n```/g))
+              for (const section of fenced.split(/^(?=### )/m).filter(text => /^### \d+\. execute\b/.test(text)))
+                for (const block of section.split(/^(?=- \*\*)/m).slice(1))
+                  expect(block).toMatch(/^ {2}- (error|note|check|flow|scope|changed|differs|rank change)\b/m);
             for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
               expect(prepareDataflowActions(JSON.parse(json), views, history, history).status).toBe("pending");
             expect(JSON.stringify(dataflowActionsSchema(history))).not.toContain('"const":"fork"');

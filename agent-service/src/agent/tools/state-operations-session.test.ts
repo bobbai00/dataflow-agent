@@ -26,7 +26,6 @@ import { prepareDataflowActions, renderDataflowActionsResult, type DataflowActio
 import { TexeraAgent } from "../texera-agent";
 import { AgentMode } from "../../types/agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
-import { renderCurrentState } from "../current-state";
 
 const ORDERS = [
   { unit: "a", amount: 3, refund: 0 },
@@ -144,7 +143,7 @@ test("a held statement is reported, stops the call, and leaves the applied ones"
   expect(s.agent.getWorkflowState().getOperator("top2")).toBeDefined();
 });
 
-test("each task starts from the current state, with what every task did to each table", async () => {
+test("each task's entry says what it did to the tables it changed", async () => {
   const s = session([
     [{ type: "edit", changes: TASK_1 }, { type: "execute", operator_ids: ["top2"] }],
     [{ type: "answer", content: "done", operator_ids: ["top2"] }],
@@ -155,19 +154,13 @@ test("each task starts from the current state, with what every task did to each 
     [{ type: "answer", content: "done", operator_ids: ["top2"] }],
   ]);
   await s.agent.sendMessage("Task 2: refunds count in full from now on.");
+  expect(renderDataflowActionsResult(s.outcomes[3])).toContain("> - **scores** (process, updated: set refund_weight 0 to 1)");
   s.replace([
     [{ type: "edit", changes: "scores = scores@1" }, { type: "execute", operator_ids: ["top2"] }],
     [{ type: "answer", content: "done", operator_ids: ["top2"] }],
   ]);
   await s.agent.sendMessage("Task 3: go back to the first rule.");
-  const agent = s.agent as any;
-  const state = renderCurrentState(agent.snapshotStorage, agent.archivedTaskHistory(), agent.head)!;
-  expect(state).toContain("# Current state");
-  expect(state).toContain("- `orders` = `scan(\"data/orders.csv\")`; 3 rows; task 1 created it");
-  expect(state).toContain(
-    "- `scores` = `score(orders, refund_weight=0)`; 3 rows; task 1 created it; task 2 set refund_weight 0 to 1; task 3 restored task 1's version"
-  );
-  expect(state).toContain("  - doc: One row per unit: amount minus 0 times refunds.");
-  expect(state.indexOf("`orders`")).toBeLessThan(state.indexOf("`scores`"));
-  expect(state.indexOf("`scores`")).toBeLessThan(state.indexOf("`top2`"));
+  const receipt = renderDataflowActionsResult(s.outcomes[5]);
+  expect(receipt).toContain("> - **scores** (process, updated: restored task 1's version)");
+  expect(receipt).toContain("  - doc: One row per unit: amount minus 0 times refunds.");
 });

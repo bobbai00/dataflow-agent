@@ -64,9 +64,9 @@ cut ones, so that units which left still have their new values; when the
 later version names its score differently, rank it with `after_by=`.
 {{#history}}
 
-Each task starts with the current state: every table by name with its
-definition, its size and what each earlier task did to it. Use it to find the
-table a request means and the task an earlier state refers to.
+Each earlier task's entry says what it did to every table it changed, such as
+`updated: set min_orders 5 to 10`. Use the entries to find the table a
+request means and the task an earlier state refers to.
 {{/history}}
 
 Preserve applicable units, exclusions, ordering and rounding. Earlier

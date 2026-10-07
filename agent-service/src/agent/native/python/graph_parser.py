@@ -217,6 +217,9 @@ def _assignment_block(start, block):
                          "call, such as `filter(orders, ...)`.")
     width = len(meaningful[0]) - len(meaningful[0].lstrip()) if meaningful else 0
     functions = "\n".join(line[width:] if line.startswith(" " * width) else line for line in implementation)
+    hoisted = None if meaningful else _hoist_nested(name, value, statement, start, references)
+    if hoisted:
+        return hoisted
     parsed = parse_program(f"{statement}\n{functions}")
     if parsed["errors"]:
         error = parsed["errors"][0]
@@ -252,13 +255,43 @@ def edit_blocks(source):
             match = re.match(rf"def\s+({ID})", head) or re.match(rf"({ID})(?:\.{ID})?\s*=(?!=)", head)
             sets = [match[1]] if match else []
         try:
-            names = {t.string for t in tokenize.generate_tokens(io.StringIO(text + "\n").readline)
-                     if t.type == tokenize.NAME}
+            if head.startswith("def "):
+                names = {node.func.id for node in ast.walk(ast.parse(text))
+                         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+            else:
+                names = {t.string for t in tokenize.generate_tokens(io.StringIO(text + "\n").readline)
+                         if t.type == tokenize.NAME}
         except (tokenize.TokenError, IndentationError, SyntaxError):
-            names = set(re.findall(rf"\b{ID}\b", re.sub(r"(\"[^\"\n]*\"|'[^'\n]*')", "", text)))
+            names = set(re.findall(rf"\b{ID}\b(?=\s*\()" if head.startswith("def ") else rf"\b{ID}\b",
+                                   re.sub(r"(\"[^\"\n]*\"|'[^'\n]*')", "", text)))
         uses = sorted(names - set(sets) - set(keyword.kwlist))
         result.append(dict(line=start, end=start + len(block) - 1, text=text, sets=sets, uses=uses))
     return result
+
+
+def _hoist_nested(name, value, statement, start, references):
+    """`a = distinct(project(t, keep=["x"]))` is two steps: the inner call is
+    assigned to `a__project` and the outer call reads it, as if written so."""
+    nested = [(i, arg) for i, arg in enumerate(value.args)
+              if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id != "lambda"]
+    if not nested or (isinstance(value.func, ast.Name) and value.func.id == "variant"):
+        return None
+    restore = lambda text: re.sub(rf"\b{SAVED}(\w+?)__(\d+)\b", r"\1@\2", text)
+    steps, names, taken = [], {}, set()
+    for i, arg in nested:
+        inner = f"{name}__{arg.func.id}"
+        while inner in taken:
+            inner += "_"
+        taken.add(inner)
+        names[i] = inner
+        steps.append(f"{inner} = {restore(ast.get_source_segment(statement, arg))}")
+    args = [names.get(i, restore(ast.get_source_segment(statement, arg))) for i, arg in enumerate(value.args)]
+    keywords = [restore(ast.get_source_segment(statement, kw)) for kw in value.keywords]
+    outer = f"{name} = {value.func.id}({', '.join([*args, *keywords])})"
+    commands = []
+    for text in [*steps, outer]:
+        commands.extend(_assignment_block(start, [text]))
+    return commands
 
 
 def parse_graph_edit(source, shared=None):

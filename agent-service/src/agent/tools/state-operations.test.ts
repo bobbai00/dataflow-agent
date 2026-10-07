@@ -185,3 +185,12 @@ test("rebinding a name within one edit builds a chain, as in Python", async () =
   expect(twice.held).toEqual([{ line: 2, statement: "x = limit(scores, 2)", reason: expect.stringContaining("assigned twice in this edit") }]);
   expect(view(state, "x").properties).toEqual({ n: 1 });
 });
+
+test("a nested operator call is its own step, named after the table that reads it", async () => {
+  const state = new WorkflowState();
+  await edit(state, `${SESSION}\nunits = distinct(project(scores, keep=["store"]), columns=["store"])`);
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(
+    expect.arrayContaining(["scores.out -> units__project.in", "units__project.out -> units.in"])
+  );
+  expect(view(state, "units__project").properties).toEqual({ keep: ["store"] });
+});

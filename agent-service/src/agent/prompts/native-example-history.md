@@ -113,13 +113,17 @@ since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")]
 ```
 
 Task 7 returns to the scores as they were before refunds counted, and
-continues from there. The current state at the start of the task shows what
-each task did to each table:
+continues from there. The entries of earlier tasks say what each one did to
+`scores`:
 
 ```text
-- `orders_v1` = `scan("data/orders.csv")`; 120 rows; task 5 created it
-- `orders` = `filter(orders_v1, lambda row: row["amount"] is not None and row["amount"] >= 5, doc="Orders of at least 5")`; 112 rows; task 1 created it; task 5 changed the definition
-- `scores` = `unit_scores(orders, delivered_only=True, refund_weight=0.5)`; 6 rows; task 1 created it; task 2 set delivered_only False to True; task 4 set refund_weight 0.0 to 0.5
+## Task 2 (answered)
+Operators:
+- **scores** (process, updated: set delivered_only False to True)
+...
+## Task 4 (answered)
+Operators:
+- **scores** (process, updated: set refund_weight 0 to 0.5)
 ```
 
 Task 4 set the refund weight, so `scores@3` is the last version without it.
