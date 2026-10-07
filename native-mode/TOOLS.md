@@ -55,6 +55,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                     "aggregate",
                     "join",
                     "diff",
+                    "rank_change",
                     "union",
                     "distinct",
                     "sort",
@@ -200,7 +201,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name; `name = function(input, ..., setting=value)` calls a shared function as an operator; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. Python indented under an assignment belongs to that operator only. A failed edit applies no changes."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name, and a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function as an operator; `name.setting = value` changes one setting of such a call; `name = variant(table, step={\"setting\": value})` copies the steps from step to table with the change; `name = other` makes name what other is, folding other in; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
               }
             },
             "required": [
@@ -429,6 +430,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                     "aggregate",
                     "join",
                     "diff",
+                    "rank_change",
                     "union",
                     "distinct",
                     "sort",
@@ -496,7 +498,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name; `name = function(input, ..., setting=value)` calls a shared function as an operator; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. A saved version `name@N` can be an input table; `name = name@N` makes the definition saved at the end of task N current again on today's inputs, and `copy = name@N` copies it with its saved direct inputs. Python indented under an assignment belongs to that operator only. A failed edit applies no changes."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name, and a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function as an operator; `name.setting = value` changes one setting of such a call; `name = variant(table, step={\"setting\": value})` copies the steps from step to table with the change; `name = other` makes name what other is, folding other in; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. A saved version `name@N` can be an input table; `name = name@N` makes the definition saved at the end of task N current again on today's inputs, and `copy = name@N` copies it with its saved direct inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
               }
             },
             "required": [

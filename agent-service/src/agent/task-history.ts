@@ -377,7 +377,7 @@ const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
 const TASK_HISTORY_INTRO =
-  "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Operator blocks show added or modified operators in first-edit order, with their final saved definitions for that task. Dependencies record computation and reads, not correctness or every semantic dependency. Read relevant ID@task definitions (view=null) or completed results; include_implementation supplies process bodies on demand. Saved result addresses are immutable. Each entry's Saved versions line names what that task saved; an operator unchanged since an earlier task is also readable under that earlier number.";
+  "# Prior Tasks\n\nEach entry lists the operators that task created or changed, with their definitions as it left them, and its answer. Earlier answers are unverified outputs, and dependencies record computation and reads, not correctness. Every table's result at the end of task N stays readable as name@N; read a definition (view=null) before relying on it, and include_implementation for a function's body.";
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
@@ -389,15 +389,9 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
   const collapsed = new Set(
     task.forks?.flatMap(fork => fork.collapsed_operator_ids.filter(id => !recordText(id))) ?? []
   );
-  const saved = task.saved_versions ? new Set(task.saved_versions) : undefined;
-  const versionLine = (block: OperatorBlock) =>
-    !saved || block.state.startsWith("deleted")
-      ? []
-      : [saved.has(block.id) ? `  - saved as ${inlineCode(`${block.id}@${task.task_id}`)}` : "  - saved: no completed result"];
   const blockWithRecords = (block: OperatorBlock) =>
     [
       operatorBlock(block),
-      ...versionLine(block),
       ...(recordText(block.id)
         ?.split("\n")
         .map(line => `  ${line}`) ?? []),
@@ -424,8 +418,7 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
     `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
     ...(task.answer_from ? [`Selection: ${task.answer_from}`] : []),
     `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
-    `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => inlineCode(`${root.operator_id}@${root.task_id}`)).join(", ") || "[] (explicitly no table)" : "not declared"}`,
-    ...(saved ? [savedVersionsLine(task.task_id, saved, changedIds)] : []),
+    `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => inlineCode(root.task_id === task.task_id ? root.operator_id : `${root.operator_id}@${root.task_id}`)).join(", ") || "[] (explicitly no table)" : "not declared"}`,
     ...(includeOperatorChanges && referenced.length
       ? [
           "Referenced results:",
@@ -445,21 +438,6 @@ function taskOutcome(task: TaskRecord, answerChars: number, includeOperatorChang
   ]
     .join("\n")
     .trimEnd();
-}
-
-/** The versions a task saved: the ones it changed first, then the rest of
- * the graph, which an earlier task may already have saved under its number. */
-function savedVersionsLine(taskId: number, saved: ReadonlySet<string>, changed: ReadonlySet<string>): string {
-  const name = (id: string) => inlineCode(`${id}@${taskId}`);
-  if (!saved.size) return "Saved versions: none (no operator had a completed result).";
-  const changedSaved = [...saved].filter(id => changed.has(id));
-  const unchanged = [...saved].filter(id => !changed.has(id));
-  const shown = unchanged.slice(0, Math.max(0, 12 - changedSaved.length));
-  const more = unchanged.length - shown.length;
-  return (
-    `Saved versions: ${changedSaved.map(name).join(", ") || "none changed in this task"}` +
-    (unchanged.length ? `; unchanged, still readable: ${shown.map(name).join(", ")}${more > 0 ? ` … +${more} more` : ""}` : "")
-  );
 }
 
 export function renderTaskIndex(

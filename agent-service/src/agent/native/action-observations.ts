@@ -22,6 +22,7 @@ import { parseNativeDiagnostic, nativeDiagnosticIssue } from "./diagnostics";
 import { renderTaskBoundary, renderTaskIndex, type TaskRecord } from "../task-history";
 import {
   countOf,
+  inlineCode,
   observationFormat,
   operatorBlock,
   renderTable,
@@ -299,6 +300,10 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           for (const edge of change.deleted_edges ?? []) lines.push(`- deleted edge: ${edge}`);
         }
         if (output.version_notes?.length) lines.push(...output.version_notes.map((note: string) => `- note: ${note}`));
+        for (const held of output.held ?? [])
+          lines.push(`- held back, line ${held.line} ${inlineCode(held.statement)}: ${held.reason}`);
+        if (output.held?.length)
+          lines.push("The other statements applied. Resend only the held statements, corrected.");
         if (output.unconnected_inputs?.length)
           lines.push(`- note: unconnected inputs: ${output.unconnected_inputs.join(", ")}.`);
         if (output.provenance?.length) lines.push(...output.provenance);

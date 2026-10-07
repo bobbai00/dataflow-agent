@@ -21,6 +21,7 @@
 // mimicry, where the model echoes the context shape into its output instead
 // of calling tools via the native protocol.
 
+import { renderCurrentState } from "../current-state";
 import type { ModelMessage } from "ai";
 import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
@@ -530,7 +531,16 @@ export function assembleContext(
           }),
         ])
       );
-      return [...renderTaskMessages(buildTaskGraph(snapshotStorage, prior, options), requestMessages), ...messages];
+      // The tables as the task starts, just before its request. A budgeted
+      // context leaves inherited operators to its bounded checkpoint instead.
+      const state = options.contextWindowTokens
+        ? undefined
+        : renderCurrentState(snapshotStorage, prior, initialSnapshot.reactStepId);
+      return [
+        ...renderTaskMessages(buildTaskGraph(snapshotStorage, prior, options), requestMessages),
+        ...(state ? [{ role: "user" as const, content: state }] : []),
+        ...messages,
+      ];
     }
   }
   // The legacy entry point is now a thin preset shim over summarize(): the

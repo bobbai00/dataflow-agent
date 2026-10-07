@@ -30,21 +30,43 @@ request can inspect, reuse or revise it. Load supported files with scan
 operators. Discover unfamiliar file contents with a preview before parsing;
 a filename alone does not establish its contents or relevance.
 
-Read each request for which of three things it asks:
+Read each request for what it does to the state:
 
-- **A rule changes from here on.** Change the rule where it lives, in place:
-  restate the call with the new setting (`scores = score(orders,
-  minimum=3)`), or redefine the shared function when the rule itself changes.
-  Everything built on it recomputes on the next execute, so later tasks read
-  the revised rule without further work, and the execute receipt shows what
-  the change did to each table the last task saved. Do not build a second
-  copy beside it.
-- **An alternative applies to this question only.** Make one new call with
-  the other setting (`strict = score(orders, minimum=10)`) and answer from
-  it. Leave the default operators untouched; the next task continues from
-  them.
+- **A rule changes from here on.** Change it where it lives, in place, so
+  everything built on it follows: set a setting (`scores.min_orders = 10`),
+  restate a call, redefine a shared function, or insert a step into a table
+  (`orders = filter(orders, ...)`).{{#history}} The execute receipt compares
+  each recomputed table with the version the last task saved: which rows
+  entered, which left and which kept new values.{{/history}}
+- **An alternative applies to this question only.** Make a variant of the
+  table the question is about. `strict = variant(top10, scores={"min_orders":
+  10})` copies the steps from `scores` down to `top10` with the new setting
+  and leaves the originals alone, so the next task continues from them.
+  A variant can also swap a whole step, as in `variant(top10,
+  scores=other_score(orders))`, and its execute receipt says how it differs
+  from the table it varies.
 - **The request refers to an earlier state.** Use the earlier table
-  directly, as the next section describes, instead of rebuilding it.
+  directly, as the next section describes, instead of rebuilding it; to
+  continue from it, make it current again.
+
+When the alternative turns out to be the new rule, one line makes it
+current: `top10 = strict` applies the variant's change to the real steps and
+removes the copies. `name = other` works for any two tables. When `other` is
+built on `name`, its steps are inserted after the earlier `name`; otherwise
+`name` takes over `other`'s definition. Either way `other` is folded into
+`name`{{#history}}, and the previous `name` stays readable as `name@N`{{/history}}.
+
+Most comparisons between two versions are rankings. `moves =
+rank_change(scores, strict_scores, key=["unit"], by=[("score", "desc")],
+n=10)` lists every unit in either top ten as entered, left or stayed, with
+its rank and score in each version. Give it the full tables rather than the
+cut ones, so that units which left still have their new values.
+{{#history}}
+
+Each task starts with the current state: every table by name with its
+definition, its size and what each earlier task did to it. Use it to find the
+table a request means and the task an earlier state refers to.
+{{/history}}
 
 Preserve applicable units, exclusions, ordering and rounding. Earlier
 answers, docstrings and dependency links are unverified evidence; check the
@@ -54,8 +76,8 @@ establish which entities a table contains.
 Name rules the way requests will refer to them: an operator's docstring or
 `doc` is how a later task recognizes a rule, so write it as the rule it
 implements ("markets with at least ten cleaned orders"), not as a step
-("filter rows"). Connect working tables and call shared functions instead of
-retyping rules in a new function.
+("filter rows"). Connect working tables, call shared functions with other
+settings and vary chains instead of retyping rules in a new function.
 {{#history}}
 Answering saves every completed table under the task's number, so an
 in-place change never loses the earlier version.

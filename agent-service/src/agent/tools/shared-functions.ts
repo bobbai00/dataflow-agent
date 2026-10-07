@@ -29,6 +29,11 @@
  * Redefining it in a later edit rebuilds every caller, which then recomputes
  * on the next execute, exactly like an in-place operator update. One name
  * has one definition at a time; a saved version keeps the old one.
+ *
+ * A setting belongs to the operator that calls the function: its full name is
+ * `operator.setting`. The call stores only the values it passes, so a value
+ * it leaves out follows the function's default, as in Python; the definition
+ * shown for the operator lists every setting with its current value.
  */
 import { functionClosure, type NativeOpView, type ParsedFunction, type ParsedValue } from "../native/catalog";
 
@@ -82,6 +87,21 @@ export function literalSetting(value: ParsedValue, field: string): unknown {
   }
 }
 
+/** A JSON value written as a Python literal. */
+export function pyLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "None";
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(pyLiteral).join(", ")}]`;
+  return `{${Object.entries(value as Record<string, unknown>).map(([k, v]) => `${JSON.stringify(k)}: ${pyLiteral(v)}`).join(", ")}}`;
+}
+
+/** Every setting of a call, in signature order: the passed value or the default. */
+export function effectiveSettings(fn: SharedFunction, passed: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(fn.settings).map(([name, value]) => [name, name in passed ? passed[name] : value]));
+}
+
 /** The docstring's first paragraph with each `{setting}` filled in. */
 export function renderDoc(template: string, values: Record<string, unknown>): string {
   const summary = template.split(/\n\s*\n/)[0].replace(/\s+/g, " ").trim();
@@ -90,27 +110,29 @@ export function renderDoc(template: string, values: Record<string, unknown>): st
   );
 }
 
-/** One call: a process running the function with these inputs and settings. */
+/** One call: a process running the function with these inputs and the
+ * settings the call passes; the definition shows every setting's value. */
 export function sharedCallView(
   fn: SharedFunction,
   functions: Record<string, ParsedFunction>,
   inputs: string[],
-  settings: Record<string, unknown>,
-  settingSource: string[]
+  settings: Record<string, unknown>
 ): NativeOpView {
   const closure = functionClosure(parsedFunction(fn), functions);
+  const effective = effectiveSettings(fn, settings);
   return {
     type: "Process",
     properties: {
       code: closure.map(f => f.source).join("\n\n"),
       entry: fn.name,
-      doc: renderDoc(fn.doc ?? "", { ...fn.settings, ...settings }),
+      doc: renderDoc(fn.doc ?? "", effective),
       params: settings,
       shared: true,
     },
     inputs,
-    source: `${fn.name}(${settingSource.join(", ")})`,
+    source: `${fn.name}(${Object.entries(effective).map(([name, value]) => `${name}=${pyLiteral(value)}`).join(", ")})`,
     functions: Object.fromEntries(closure.map(f => [f.name, f.source])),
+    settings: effective,
   };
 }
 
@@ -133,9 +155,8 @@ export function rebuildCaller(
     );
   if (fn.tables.length !== view.inputs.length)
     throw new Error(`${entry} now takes ${fn.tables.length} table(s), but ${id} has ${view.inputs.length}; restate ${id}.`);
-  const settingSource = Object.entries(settings).map(([name, value]) => `${name}=${JSON.stringify(value)}`);
-  const rebuilt = sharedCallView(fn, functions, view.inputs, settings, settingSource);
-  return { ...view, properties: rebuilt.properties, functions: rebuilt.functions, source: view.source ?? rebuilt.source };
+  const rebuilt = sharedCallView(fn, functions, view.inputs, settings);
+  return { ...view, properties: rebuilt.properties, functions: rebuilt.functions, source: rebuilt.source, settings: rebuilt.settings };
 }
 
 const lines = (source: string) =>

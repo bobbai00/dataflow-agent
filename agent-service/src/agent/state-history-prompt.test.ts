@@ -40,7 +40,7 @@ test("saved-version examples inspect reusable rules and declare sources without 
     expect(calls.length).toBeGreaterThan(2);
     for (const call of calls) expect(prepareDataflowActions(call, [view], true, true).status).toBe("pending");
     expect(calls.some(call => call.actions.some((a: any) => a.type === "read" && a.view === null))).toBe(true);
-    expect(calls.some(call => call.actions.some((a: any) => a.type === "read" && a.operator_ids.includes("scores@1")))).toBe(true);
+    expect(calls.some(call => call.actions.some((a: any) => a.type === "read" && a.operator_ids.some((id: string) => /@\d+$/.test(id))))).toBe(true);
     expect(calls.some(call => call.actions.some((a: any) => a.type === "answer" && a.from))).toBe(true);
     expect(section).not.toMatch(/LongDS|Kiva|Netflix|NFL|Kaggle/i);
     expect(prompt).toContain("Saved states may contain");
@@ -89,7 +89,7 @@ test("scope and repair guidance is general and works in ordinary ReAct without a
 
 test("multi-task saved versions use references while ordinary sessions keep their public vocabulary", () => {
   const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
-  for (const text of ["scores@2", "scores = scores@2", "variant = scores@2", "diff(scores@2, scores",
+  for (const text of ["scores@2", "scores = scores@2", "copy = scores@2", "diff(scores@2, scores",
     "matching completed", "today's inputs", "historical", "top 5 by score", "changed since"])
     expect(history.toLowerCase()).toContain(text.toLowerCase());
   expect(history).not.toContain('"type": "fork"');

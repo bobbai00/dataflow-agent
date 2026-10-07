@@ -22,12 +22,11 @@
 When you answer, the dataflow as it stands is saved under that task's number:
 every operator with a completed result becomes a version you can refer to
 later as `name@N`, together with the shared functions its definition calls.
-The receipt of your answer lists what was saved. Saved definitions and
-results never change; task 9 can return to task 3, and task 12 to task 9. A
-saved result can become unavailable after cleanup or eviction: the action
-then fails with HISTORICAL_RESULT_UNAVAILABLE. The engine
-never substitutes a newer table and never reruns the old definition on today's
-files.
+Saved definitions and results never change; task 9 can return to task 3, and
+task 12 to task 9. A saved result can become unavailable after cleanup or
+eviction: the action then fails with HISTORICAL_RESULT_UNAVAILABLE. The
+engine never substitutes a newer table and never reruns the old definition on
+today's files.
 
 `scores` names the current operator. `scores@2` names the version saved at
 the end of task 2: its definition, its inputs as they were then, and its
@@ -37,7 +36,7 @@ version never executes anything by itself and never changes the current
 graph.
 
 Earlier tasks appear either as sealed entries under # Prior Tasks or in full
-above, each ending with the receipt that lists what it saved. Entries show the
+above, each ending with its answer receipt. Entries show the
 operators a task created or modified in first-edit order with their final
 definitions, direct inputs, output shape and columns; deletions are separate.
 All working tables are included, even those outside that task's answer
@@ -68,13 +67,13 @@ What you can do with a version:
   the next execute. If the shared function it calls changed since task 2,
   the restored operator keeps the task-2 code under the name
   `function_t2`, while the function keeps its current definition.
-- **Copy it.** `variant = scores@2` creates one editable operator from the
+- **Copy it.** `copy = scores@2` creates one editable operator from the
   task-2 definition with its saved direct inputs; adjust it or its inputs.
 
-An in-place change keeps the earlier version. After `scores = score(orders,
-minimum=3)` and an execute, `scores@1` still names the first result, and the
-execute receipt compares each recomputed table with the version the last
-task saved, for example
+An in-place change keeps the earlier version. After `scores.minimum = 3` and
+an execute, `scores@1` still names the first result, and the execute receipt
+compares each recomputed table with the version the last task saved, for
+example
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
 That line often answers what a change did; read the tables when the request
 needs their values.
@@ -86,8 +85,12 @@ version of the rule? When the request concerns the reported selection, keep
 it; when it concerns every row, use the table before the cut. When an earlier
 task was wrong, correct the rule in place rather than trusting the old answer.
 
-`diff(earlier, later, key=["entity"], columns=["score"])` compares two tables.
-Entity keys must be explicit, unique and non-null, and compared columns are
+`rank_change(scores@2, scores, key=["entity"], by=[("score", "desc")], n=5)`
+compares two versions of a ranking: every entity in either top five, marked
+entered, left or stayed, with its rank and score in both.
+
+`diff(earlier, later, key=["entity"], columns=["score"])` compares two tables
+row by row. Entity keys must be explicit, unique and non-null, and compared columns are
 separate from keys. Each output row carries status (added, removed, changed;
 same with include_same=True) and each column's _left, _right, _delta and
 _abs_delta. Deltas are later minus earlier; missing values and non-numeric

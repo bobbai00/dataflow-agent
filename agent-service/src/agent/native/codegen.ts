@@ -61,7 +61,7 @@ export function nativeRevision(view: NativeOpView): string {
 }
 
 function runtimeSpec(view: NativeOpView, operatorId: string) {
-  const { source: _source, functions: _functions, ...rest } = view;
+  const { source: _source, functions: _functions, settings: _settings, variant: _variant, ...rest } = view;
   return { ...rest, id: operatorId, revision: view.revision ?? nativeRevision(view) };
 }
 

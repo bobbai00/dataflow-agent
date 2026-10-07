@@ -24,7 +24,7 @@ import { renderActionObservations } from "./native/action-observations";
 test("saved-version prompts teach read, exact results and an editable separate branch", () => {
   const prompt = buildNativeModeSystemPrompt(undefined, {stateHistory:true,multiTask:true});
   expect(prompt).toContain("view=null");
-  expect(prompt).toContain("variant = scores@2");
+  expect(prompt).toContain("copy = scores@2");
   expect(prompt).toContain("HISTORICAL_RESULT_UNAVAILABLE");
   expect(prompt).not.toMatch(/fork operator|target.*[\"'](?:state|task)[\"']|type.*[\"']retrieve[\"']/);
   expect(prompt).toContain("unique");
@@ -39,7 +39,8 @@ test("an answer receipt and the next catalog use the same immutable task boundar
   const messages = renderTaskMessages([task],new Map([[2,[{role:"user",content:task.request}]]]));
   expect(messages.at(-1)?.content).toBe(boundary);
   expect(boundary).toContain("Selection: scores top 5 by score desc, entity asc");
-  expect(boundary).toContain("scores@2");
+  // A root of the task itself is named plainly; scores@2 reads it later.
+  expect(boundary).toContain("Answer sources: `scores`");
   const receipt = {kind:"dataflow-actions",status:"completed",saved_versions:true,answer:task.answer,task_catalog:task,
     operators:[],observe:[],observationErrors:[],actions:[{index:1,action:{type:"answer",content:task.answer,operator_ids:["scores"]},status:"ok",output:{text:"answer"}}]} as any;
   const quoted = renderActionObservations(receipt).split("\n").filter(line=>line.startsWith("> ")).map(line=>line.slice(2)).join("\n");

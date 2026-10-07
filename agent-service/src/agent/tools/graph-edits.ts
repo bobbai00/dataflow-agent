@@ -26,10 +26,13 @@ import type { NativeBatchOutcome } from "./native-batch-tools";
 import {
   NATIVE_BY_NAME,
   NATIVE_BY_TYPE,
+  TWO_VERSIONS,
   nativeOperatorName,
   type NativeOpView,
   type ParsedFunction,
   type ParsedStatement,
+  type ParsedValue,
+  type VariantChange,
 } from "../native/catalog";
 import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
@@ -37,8 +40,10 @@ import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
 import type { VersionCommand } from "../state-ledger";
 import {
+  effectiveSettings,
   literalSetting,
   parsedFunction,
+  pyLiteral,
   rebuildCaller,
   renameFunction,
   sharedCallView,
@@ -67,6 +72,11 @@ type Command = Edge & {
   tables?: string[];
   settings?: Record<string, unknown>;
   doc?: string | null;
+  /** `set_setting`: `id.setting = value`. */
+  setting?: string;
+  value?: unknown;
+  /** `commit`: `id = other`. */
+  other?: string;
 };
 export interface GraphChangeReceipt {
   operation: string;
@@ -87,6 +97,23 @@ export interface GraphEditPlan {
   applied?: number;
   /** Shared-function and version notes for the edit receipt. */
   notes?: string[];
+  /** Statements held back with the reason; the rest of the edit applied. */
+  held?: HeldStatement[];
+}
+
+export interface HeldStatement {
+  line: number;
+  statement: string;
+  reason: string;
+}
+
+/** One statement of an edit, as python/graph_parser.py splits it. */
+interface EditBlock {
+  line: number;
+  end: number;
+  text: string;
+  sets: string[];
+  uses: string[];
 }
 
 export interface GraphForkReceipt {
@@ -165,7 +192,7 @@ function definition(command: Command, profileCollection?: boolean): NativeOpView
   const def = NATIVE_BY_NAME.get(command.statement.op);
   if (!def) throw new Error(`Unknown operator ${command.statement.op}. Use an operator from the catalog.`);
   let names = def.inputs === 0 ? [] : def.inputs === 1 ? ["in"] : def.inputs === 2 ? ["left", "right"] : indexed(2);
-  if (def.name === "diff") names = indexed(2);
+  if (TWO_VERSIONS.has(def.name)) names = indexed(2);
   if (def.name === "process") {
     const fn = command.statement.kwargs.fn ?? command.statement.args[0];
     const params =
@@ -184,9 +211,81 @@ function definition(command: Command, profileCollection?: boolean): NativeOpView
 const definitionKey = (view: NativeOpView) =>
   JSON.stringify([view.type, view.properties, view.functions ?? {}, ports(view)]);
 
+/** The statement a failure belongs to: by its line (mapped back to the full
+ * edit), by the operator a graph check names, or by an unused function. */
+function failingBlock(message: string, blocks: readonly EditBlock[], lineMap: readonly number[]): number | undefined {
+  const line = /\(line (\d+)\)/.exec(message)?.[1] ?? /(?:^|: )Line (\d+):/.exec(message)?.[1];
+  if (line) {
+    const original = lineMap[Number(line) - 1] ?? Number(line);
+    const found = blocks.findIndex(block => block.line <= original && original <= block.end);
+    return found >= 0 ? found : undefined;
+  }
+  const named =
+    /^Resulting graph: (\w+): /.exec(message)?.[1] ?? /^Shared functions: (\w+)(?:, \w+)* (?:is|are) defined but never used/.exec(message)?.[1];
+  if (!named) return undefined;
+  const found = blocks.map(block => block.sets.includes(named)).lastIndexOf(true);
+  return found >= 0 ? found : undefined;
+}
+
+const reasonOf = (message: string) =>
+  message
+    .replace(/^(?:Change \d+ \(line \d+\): |Line \d+: |Resulting graph: |Shared functions: )/, "")
+    .replace(/\s*No changes were applied\.$/, "");
+
+/** Apply an edit statement by statement: when one statement fails, it and the
+ * statements that use what it defines are held back with the reason, and the
+ * rest applies. A failure that names no statement rejects the whole edit. */
+export async function planGraphEdit(
+  original: WorkflowContent,
+  changes: string,
+  context: ToolContext,
+  resolveVersion?: (command: VersionCommand, current: WorkflowContent) => VersionEditResolution,
+  resolveInput?: (address: string) => OperatorPredicate
+): Promise<GraphEditPlan> {
+  try {
+    return await planGraphEditOnce(original, changes, context, resolveVersion, resolveInput);
+  } catch (error) {
+    if (/^(create|update|modify|delete|fork) (operator|edge)\b/m.test(changes)) throw error;
+    const blocks = (await runNativePython({ edit_blocks: changes })) as EditBlock[];
+    if (!Array.isArray(blocks) || blocks.length < 2) throw error;
+    const held = new Map<number, string>();
+    let failure = error instanceof Error ? error : new Error(String(error));
+    let lineMap: number[] = [];
+    for (;;) {
+      const at = failingBlock(failure.message, blocks, lineMap);
+      if (at === undefined || held.has(at)) throw error;
+      held.set(at, reasonOf(failure.message));
+      for (let grown = true; grown; ) {
+        grown = false;
+        const names = new Set([...held.keys()].flatMap(i => blocks[i].sets));
+        blocks.forEach((block, i) => {
+          const used = block.uses.filter(name => names.has(name));
+          if (held.has(i) || !used.length) return;
+          held.set(i, `uses ${used.map(name => `\`${name}\``).join(", ")} from a statement held back`);
+          grown = true;
+        });
+      }
+      const kept = blocks.filter((_, i) => !held.has(i));
+      if (!kept.length) throw error;
+      lineMap = kept.flatMap(block => block.text.split("\n").map((_, k) => block.line + k));
+      try {
+        const plan = await planGraphEditOnce(original, kept.map(block => block.text).join("\n"), context, resolveVersion, resolveInput);
+        return {
+          ...plan,
+          held: [...held]
+            .sort(([a], [b]) => a - b)
+            .map(([i, reason]) => ({ line: blocks[i].line, statement: blocks[i].text.split("\n")[0], reason })),
+        };
+      } catch (next) {
+        failure = next instanceof Error ? next : new Error(String(next));
+      }
+    }
+  }
+}
+
 /** Validate and compile against a private draft. The caller commits the returned
  * workflow only after checking cancellation/HEAD ownership. No mutation occurs here. */
-export async function planGraphEdit(
+async function planGraphEditOnce(
   original: WorkflowContent,
   changes: string,
   context: ToolContext,
@@ -279,7 +378,7 @@ export async function planGraphEdit(
   const notes: string[] = [];
   const portsFor = (view: NativeOpView, count: number): string[] => {
     const def = NATIVE_BY_TYPE.get(view.type);
-    if (def?.name === "diff") return indexed(2);
+    if (def && TWO_VERSIONS.has(def.name)) return indexed(2);
     if (def?.inputs === "many") return indexed(count);
     return def?.inputs === 0 ? [] : def?.inputs === 1 ? ["in"] : ["left", "right"];
   };
@@ -287,6 +386,8 @@ export async function planGraphEdit(
     for (const command of parsed.commands ?? []) {
       if (command.operation !== "define_function") continue;
       if (defined.has(command.id)) throw new Error(`Line ${command.line}: ${command.id} is defined twice in this edit.`);
+      if (command.id === "variant")
+        throw new Error(`Line ${command.line}: \`variant\` varies a table; give the function another name.`);
       defined.set(command.id, command as unknown as SharedFunction);
     }
     const commands = [...parsed.commands!];
@@ -294,6 +395,342 @@ export async function planGraphEdit(
     const assigned = commands
       .filter(command => command.operation === "assign_operator" || command.operation === "assign_version")
       .map(command => command.id);
+    const incoming = (id: string) => [...edges.values()].filter(edge => edge.target === id);
+    const reach = (id: string, step: (edge: Edge) => [string, string]) => {
+      const seen = new Set<string>();
+      for (const stack = [id]; stack.length; ) {
+        const next = stack.pop()!;
+        for (const edge of edges.values()) {
+          const [from, to] = step(edge);
+          if (from === next && !seen.has(to)) {
+            seen.add(to);
+            stack.push(to);
+          }
+        }
+      }
+      return seen;
+    };
+    const ancestors = (id: string) => reach(id, edge => [edge.target, edge.source]);
+    const descendants = (id: string) => reach(id, edge => [edge.source, edge.target]);
+    /** The variant a hidden copied step belongs to. */
+    const partOf = (id: string) => {
+      const variant = nodes.get(id)?.variant;
+      return variant && variant.name !== id ? variant.name : undefined;
+    };
+    const notPart = (id: string) => {
+      const owner = partOf(id);
+      if (owner)
+        throw new Error(
+          `\`${id}\` is a step inside the variant \`${owner}\`; change the variant with \`${owner} = variant(...)\` or delete it with \`del ${owner}\`.`
+        );
+    };
+    const removeNode = (id: string) => {
+      for (const edge of [...edges.values()].filter(edge => edge.source === id || edge.target === id)) {
+        edges.delete(edgeText(edge));
+        if (edge.target !== id) changed.add(edge.target);
+      }
+      nodes.delete(id);
+      templates.delete(id);
+      changed.add(id);
+    };
+    const moveEdges = (edgesToMove: Edge[], change: Partial<Edge>) => {
+      for (const edge of edgesToMove) {
+        edges.delete(edgeText(edge));
+        const moved = { ...edge, ...change };
+        edges.set(edgeText(moved), moved);
+        changed.add(moved.target);
+      }
+    };
+    /** Readers of `from` read `to` instead. */
+    const repoint = (from: string, to: string) =>
+      moveEdges([...edges.values()].filter(edge => edge.source === from), { source: to });
+    /** The name an earlier definition keeps when a step is inserted after it. */
+    const keptName = (id: string) => {
+      let k = 1;
+      while (nodes.has(`${id}_v${k}`) || templates.has(`${id}_v${k}`)) k++;
+      return `${id}_v${k}`;
+    };
+    /** Keep `id`'s current definition under a new name that takes its inputs. */
+    const keepEarlier = (id: string) => {
+      const kept = keptName(id);
+      nodes.set(kept, nodes.get(id)!);
+      const template = templates.get(id);
+      if (template) templates.set(kept, { ...template, operatorID: kept });
+      moveEdges(incoming(id), { target: kept });
+      changed.add(kept);
+      receipts.push({ operation: "create_operator", operator_id: kept });
+      return kept;
+    };
+    const savedNames = (text: string) => text.replace(/\b__saved_(\w+?)__(\d+)\b/g, "$1@$2");
+    /** The operator a call defines, with its input tables by name. */
+    const callView = (
+      id: string,
+      statement: ParsedStatement,
+      extraFunctions: Record<string, ParsedFunction>,
+      references: Record<string, string>,
+      profileCollection: boolean | undefined,
+      written?: { positional: string[]; keywords: string[] }
+    ): { view: NativeOpView; inputs: string[] } => {
+      const op = statement.op;
+      const fn = functionTable().get(op);
+      const functions = { ...parsedFunctions(), ...extraFunctions };
+      let view: NativeOpView;
+      if (NATIVE_BY_NAME.has(op)) {
+        const normalized = normalizeStatement(statement, functions, {
+          profileCollection,
+          tables: new Set([...nodes.keys(), ...assigned]),
+        });
+        if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
+        view = normalized.view;
+        // Inputs live on edges; the stored definition names only the parameters.
+        view.source = written
+          ? `${op}(${[...written.positional.slice(view.inputs.length), ...written.keywords].join(", ")})`
+          : savedNames(
+              statement.source.replace(
+                new RegExp(`^${op}\\(\\s*${view.inputs.map(name => `${name}\\s*`).join(",\\s*")}(,\\s*)?`),
+                `${op}(`
+              )
+            );
+      } else if (fn) {
+        const args = statement.args;
+        const named = args.filter((arg): arg is { kind: "name"; name: string } => arg.kind === "name");
+        const settingNames = Object.keys(fn.settings);
+        if (named.length !== args.length || named.length !== fn.tables.length)
+          throw new Error(
+            `${op} takes ${fn.tables.length} input table(s) by name (${fn.tables.join(", ") || "none"}), then settings by name: \`${id} = ${op}(${[...fn.tables, ...settingNames.slice(0, 1).map(name => `${name}=...`)].join(", ")})\`.`
+          );
+        const unknown = Object.keys(statement.kwargs).filter(name => !settingNames.includes(name));
+        if (unknown.length)
+          throw new Error(
+            `${op} has no setting ${unknown.join(", ")}; its settings are ${settingNames.join(", ") || "none"}. A parameter with a default in the def is a setting.`
+          );
+        if (!fn.doc?.trim())
+          throw new Error(`Give ${op} a one-sentence docstring: the row grain of the table it returns and its rule.`);
+        const settings = Object.fromEntries(
+          Object.entries(statement.kwargs).map(([name, value]) => [name, literalSetting(value, name)])
+        );
+        view = sharedCallView(fn, functions, named.map(arg => arg.name), settings);
+        if (profileCollection === true) view.profileCollection = true;
+      } else
+        throw new Error(
+          `Unknown operator or function \`${op}\`. Operators: ${[...NATIVE_BY_NAME.keys()].join(", ")}. For custom Python, define \`def ${op}(table, setting=default):\` with a docstring at the margin of the edit and call it by name.`
+        );
+      return { view, inputs: view.inputs.map(name => references[name] ?? name) };
+    };
+    /** Variants and commits apply after the edit's other statements. */
+    const deferred: Array<{ command: Command; index: number }> = [];
+    const describeChange = (change: VariantChange) =>
+      change.settings
+        ? Object.entries(change.settings).map(([name, value]) => `${change.step}.${name}=${pyLiteral(value)}`).join(", ")
+        : `${change.step} = ${change.definition}`;
+    /** `name = variant(table, step={"setting": value}, other=new_call(...))`:
+     * copy the steps between the changed steps and the table, apply the
+     * changes to the copies, and name the copy of the table. */
+    const expandVariant = (command: Command) => {
+      const name = command.id;
+      const usage = `\`${name} = variant(table, step={"setting": value}, other_step=new_call(...))\``;
+      const [targetArg, ...extra] = command.statement.args;
+      if (!targetArg || targetArg.kind !== "name" || extra.length)
+        throw new Error(`variant takes the table to vary, then the changes by step name: ${usage}.`);
+      const target = targetArg.name;
+      if (command.references?.[target])
+        throw new Error(`variant varies a current table; \`${command.references[target]}\` is a saved version. Vary the current table.`);
+      required(target);
+      notPart(target);
+      if (target === name)
+        throw new Error(`A variant needs its own name, such as \`${name}_alt = variant(${name}, ...)\`; to change ${name} itself, set its setting or restate it.`);
+      const requested = Object.entries(command.statement.kwargs);
+      if (!requested.length) throw new Error(`variant needs at least one change: ${usage}.`);
+      const previous = nodes.get(name);
+      if (previous?.variant && previous.variant.name !== name) notPart(name);
+      if (previous?.variant?.name === name)
+        for (const [part, view] of [...nodes]) if (part !== name && view.variant?.name === name) removeNode(part);
+      const upstream = ancestors(target);
+      const changes: VariantChange[] = [];
+      const replaced = new Map<string, { view: NativeOpView; inputs: string[] }>();
+      for (const [step, value] of requested) {
+        if (!nodes.has(step)) throw new Error(`variant changes \`${step}\`, which is not an operator.`);
+        notPart(step);
+        if (step !== target && !upstream.has(step))
+          throw new Error(`\`${step}\` is not upstream of \`${target}\`, so changing it cannot change ${target}.`);
+        if (value.kind === "dict") {
+          const view = nodes.get(step)!;
+          const entry = sharedEntry(view);
+          if (!entry)
+            throw new Error(
+              `\`${step}\` is a ${nativeOperatorName(view.type)} step without settings; give the variant a new definition for it instead: \`${step}=${nativeOperatorName(view.type)}(...)\`.`
+            );
+          const fn = functionTable().get(entry)!;
+          const settings: Record<string, unknown> = {};
+          for (const [setting, item] of value.entries) {
+            if (!(setting in fn.settings))
+              throw new Error(`\`${step}\` has no setting \`${setting}\`; its settings are ${Object.keys(fn.settings).join(", ") || "none"}.`);
+            settings[setting] = literalSetting(item, `${step}.${setting}`);
+          }
+          changes.push({ step, settings });
+        } else if (value.kind === "call") {
+          const statement: ParsedStatement = {
+            id: step,
+            op: value.name,
+            line: command.line,
+            endLine: command.line,
+            source: value.source,
+            args: value.args,
+            kwargs: value.kwargs,
+          };
+          const built = callView(step, statement, command.functions, command.references ?? {}, nodes.get(step)!.profileCollection);
+          replaced.set(step, built);
+          changes.push({ step, definition: savedNames(value.source) });
+        } else
+          throw new Error(
+            `\`${step}=...\` takes new setting values as a dict, such as ${step}={"weight": 0.5}, or a new call that defines the step.`
+          );
+      }
+      const targetSide = new Set([...upstream, target]);
+      const chain = new Set<string>();
+      for (const { step } of changes) for (const id of [step, ...descendants(step)]) if (targetSide.has(id)) chain.add(id);
+      const copyOf = (id: string) => (id === target ? name : `${name}__${id}`);
+      for (const id of chain)
+        if (id !== target && nodes.has(copyOf(id)) && partOf(copyOf(id)) !== name)
+          throw new Error(`\`${copyOf(id)}\` already names an operator; give the variant another name.`);
+      for (const id of topological([...chain])) {
+        const original = nodes.get(id)!;
+        const settings = changes.find(change => change.step === id)?.settings;
+        let view: NativeOpView;
+        let sources: string[];
+        if (replaced.has(id)) {
+          const built = replaced.get(id)!;
+          const portNames = portsFor(built.view, built.inputs.length);
+          view = { ...built.view, graph: { inputPorts: portNames } };
+          sources = built.inputs.map(inputId);
+        } else {
+          view = structuredClone(original);
+          sources = ports(original).map(port => incoming(id).find(edge => edge.targetPort === port)?.source ?? "");
+          if (settings) {
+            const fn = functionTable().get(sharedEntry(view)!)!;
+            const passed = (view.properties.params ?? {}) as Record<string, unknown>;
+            view = { ...view, ...sharedCallView(fn, parsedFunctions(), view.inputs, { ...passed, ...settings }), graph: view.graph };
+          }
+        }
+        const copy = copyOf(id);
+        view.variant = id === target ? { name, step: id, of: target, changes } : { name, step: id };
+        if (id === target) view.source = savedNames(command.statement.source.replace(/^\w+\s*=\s*/, ""));
+        for (const edge of incoming(copy)) edges.delete(edgeText(edge));
+        nodes.set(copy, view);
+        changed.add(copy);
+        ports(view).forEach((port, i) => {
+          if (!sources[i]) return;
+          const edge: Edge = { source: chain.has(sources[i]) ? copyOf(sources[i]) : sources[i], sourcePort: "out", target: copy, targetPort: port };
+          edges.set(edgeText(edge), edge);
+        });
+      }
+      const copied = [...chain].filter(id => id !== target);
+      notes.push(
+        `${name} is a variant of ${target} with ${changes.map(describeChange).join("; ")}${copied.length ? `; it copies ${copied.join(", ")}` : ""}. ${target} and the steps it reads are unchanged.`
+      );
+      outcomes.push({
+        id: name,
+        op: nativeOperatorName(nodes.get(name)!.type),
+        status: previous ? "modified" : "added",
+        message: `${previous ? "updated" : "added"} variant \`${name}\` of \`${target}\` with ${changes.map(describeChange).join("; ")}${copied.length ? `; it copies ${copied.join(", ")}` : ""}`,
+      });
+      receipts.push({ operation: previous ? "update_operator" : "create_operator", operator_id: name });
+    };
+    /** Steps in input order. */
+    const topological = (ids: string[]) => {
+      const pending = new Set(ids);
+      const ordered: string[] = [];
+      while (pending.size) {
+        const ready = [...pending].filter(id => !incoming(id).some(edge => pending.has(edge.source)));
+        const next = ready.length ? ready : [...pending];
+        for (const id of next) {
+          pending.delete(id);
+          ordered.push(id);
+        }
+      }
+      return ordered;
+    };
+    /** `table = other`: from now on, table is what other is. */
+    const commitTable = (command: Command) => {
+      const table = command.id;
+      const other = command.other!;
+      if (!nodes.has(table))
+        throw new Error(
+          `\`${table}\` does not exist yet. \`${table} = ${other}\` makes an existing table take ${other}'s definition; to make a new table, write its call.`
+        );
+      if (!nodes.has(other)) throw new Error(`\`${other}\` is not an operator.`);
+      notPart(table);
+      notPart(other);
+      if (templates.get(table)?.savedResult || templates.get(other)?.savedResult)
+        throw new Error("Historical result handles are read-only; restore one with `name = name@N`.");
+      const source = nodes.get(other)!;
+      let note: string;
+      if (source.variant?.of !== undefined) {
+        if (source.variant.of !== table)
+          throw new Error(`\`${other}\` is a variant of \`${source.variant.of}\`; make it current with \`${source.variant.of} = ${other}\`.`);
+        const original = (id: string) => (nodes.get(id)?.variant?.name === other ? nodes.get(id)!.variant!.step : id);
+        const applied: string[] = [];
+        for (const change of source.variant.changes ?? []) {
+          const real = required(change.step);
+          if (change.settings) {
+            const fn = functionTable().get(sharedEntry(real)!)!;
+            const passed = (real.properties.params ?? {}) as Record<string, unknown>;
+            const before = effectiveSettings(fn, passed);
+            nodes.set(change.step, {
+              ...real,
+              ...sharedCallView(fn, parsedFunctions(), real.inputs, { ...passed, ...change.settings }),
+              graph: real.graph,
+            });
+            applied.push(...Object.entries(change.settings).map(([name, value]) => `${change.step}.${name} ${pyLiteral(before[name])} to ${pyLiteral(value)}`));
+          } else {
+            const copy = change.step === table ? other : `${other}__${change.step}`;
+            const view = structuredClone(nodes.get(copy)!);
+            delete view.variant;
+            if (change.step === table) view.source = nodes.get(copy)!.source;
+            for (const edge of incoming(change.step)) edges.delete(edgeText(edge));
+            for (const edge of incoming(copy)) {
+              const moved: Edge = { ...edge, source: original(edge.source), target: change.step };
+              edges.set(edgeText(moved), moved);
+            }
+            nodes.set(change.step, view);
+            applied.push(`${change.step} = ${change.definition}`);
+          }
+          changed.add(change.step);
+          receipts.push({ operation: "update_operator", operator_id: change.step });
+        }
+        repoint(other, table);
+        for (const [part, view] of [...nodes]) if (view.variant?.name === other) removeNode(part);
+        note = `${table} now has ${other}'s changes (${applied.join("; ")}); everything built on them recomputes on the next execute.`;
+      } else if (ancestors(other).has(table)) {
+        const kept = keepEarlier(table);
+        const chain = new Set([...ancestors(other), other]);
+        moveEdges([...edges.values()].filter(edge => edge.source === table && chain.has(edge.target)), { source: kept });
+        nodes.set(table, structuredClone(nodes.get(other)!));
+        for (const edge of incoming(other)) {
+          const moved: Edge = { ...edge, target: table };
+          edges.set(edgeText(moved), moved);
+        }
+        repoint(other, table);
+        removeNode(other);
+        note = `${table} now applies ${other}'s steps to the earlier ${table}, which continues as ${kept}; everything that read ${table} sees the new table.`;
+      } else {
+        // Not built on table, so nothing it reads can read table: no cycle.
+        for (const edge of incoming(table)) edges.delete(edgeText(edge));
+        nodes.set(table, structuredClone(nodes.get(other)!));
+        for (const edge of incoming(other)) {
+          const moved: Edge = { ...edge, target: table };
+          edges.set(edgeText(moved), moved);
+        }
+        repoint(other, table);
+        removeNode(other);
+        note = `${table} now has ${other}'s definition and inputs; ${other} was folded into it, and tables that read ${other} read ${table}.`;
+      }
+      notes.push(`${note} The previous ${table} stays readable as ${table}@N.`);
+      changed.add(table);
+      outcomes.push({ id: table, op: nativeOperatorName(nodes.get(table)!.type), status: "modified", message: `updated \`${table}\` from \`${other}\`` });
+      outcomes.push({ id: other, op: nativeOperatorName(source.type), status: "deleted", message: `folded \`${other}\` into \`${table}\`` });
+      receipts.push({ operation: "update_operator", operator_id: table }, { operation: "delete_operator", operator_id: other });
+    };
     for (let [index, command] of commands.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
       // Functions and operators have separate names: `screen = screen(water)` is fine.
@@ -302,61 +739,72 @@ export async function planGraphEdit(
       if (command.operation === "assign_version")
         command = { ...command, operation: "copy_definition", create: !nodes.has(command.id) };
       const { operation, id } = command;
+      if (operation === "commit") {
+        deferred.push({ command, index });
+        continue;
+      }
+      if (operation === "set_setting") {
+        notPart(id);
+        if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
+        const view = required(id);
+        const setting = command.setting!;
+        const entry = sharedEntry(view);
+        const kind = nativeOperatorName(view.type);
+        if (!entry)
+          throw new Error(
+            `\`${id}\` is a ${kind} step; only shared functions have settings. Restate the step to change it: \`${id} = ${kind}(...)\`.`
+          );
+        const fn = functionTable().get(entry);
+        if (!fn) throw new Error(`${id} calls ${entry}, which is not defined.`);
+        if (!(setting in fn.settings))
+          throw new Error(`\`${id}\` has no setting \`${setting}\`; its settings are ${Object.keys(fn.settings).join(", ") || "none"}.`);
+        const passed = (view.properties.params ?? {}) as Record<string, unknown>;
+        const before = effectiveSettings(fn, passed)[setting];
+        const rebuilt: NativeOpView = {
+          ...view,
+          ...sharedCallView(fn, parsedFunctions(), view.inputs, { ...passed, [setting]: command.value }),
+          graph: view.graph,
+        };
+        if (definitionKey(rebuilt) === definitionKey(view)) continue;
+        nodes.set(id, rebuilt);
+        changed.add(id);
+        outcomes.push({ id, op: kind, status: "modified", message: `updated \`${id}\`: ${setting} ${pyLiteral(before)} to ${pyLiteral(command.value)}` });
+        receipts.push({ operation: "update_operator", operator_id: id });
+        continue;
+      }
       if (operation === "assign_operator") {
+        notPart(id);
         if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
         if (pendingInputs.has(id)) throw new Error(`${id} is assigned twice in this edit; write one definition.`);
+        if (command.statement.op === "variant") {
+          deferred.push({ command, index });
+          continue;
+        }
         const existing = nodes.get(id);
         const references = command.references ?? {};
-        const op = command.statement.op;
-        const fn = functionTable().get(op);
-        const functions = { ...parsedFunctions(), ...command.functions };
         const profileCollection = existing?.profileCollection ?? context.settings?.nativeProfileCollection;
-        let view: NativeOpView;
-        if (NATIVE_BY_NAME.has(op)) {
-          const normalized = normalizeStatement(command.statement, functions, {
-            profileCollection,
-            tables: new Set([...nodes.keys(), ...assigned]),
+        const { view, inputs } = callView(id, command.statement, command.functions, references, profileCollection, {
+          positional: command.positional ?? [],
+          keywords: command.keywords ?? [],
+        });
+        const inserted = inputs.includes(id);
+        if (inserted) {
+          // `x = f(x)` inserts a step: the earlier x continues under a new
+          // name, and everything that read x reads the new step.
+          if (!existing) throw new Error(`${id} cannot read itself before it exists; build it first.`);
+          const kept = keepEarlier(id);
+          inputs.forEach((name, i) => {
+            if (name === id) inputs[i] = kept;
           });
-          if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
-          view = normalized.view;
-          // Inputs live on edges; the stored definition names only the parameters.
-          view.source = `${op}(${[...(command.positional ?? []).slice(view.inputs.length), ...(command.keywords ?? [])].join(", ")})`;
-        } else if (fn) {
-          const args = command.statement.args;
-          const named = args.filter((arg): arg is { kind: "name"; name: string } => arg.kind === "name");
-          const settingNames = Object.keys(fn.settings);
-          if (named.length !== args.length || named.length !== fn.tables.length)
-            throw new Error(
-              `${op} takes ${fn.tables.length} input table(s) by name (${fn.tables.join(", ") || "none"}), then settings by name: \`${id} = ${op}(${[...fn.tables, ...settingNames.slice(0, 1).map(name => `${name}=...`)].join(", ")})\`.`
-            );
-          const unknown = Object.keys(command.statement.kwargs).filter(name => !settingNames.includes(name));
-          if (unknown.length)
-            throw new Error(
-              `${op} has no setting ${unknown.join(", ")}; its settings are ${settingNames.join(", ") || "none"}. A parameter with a default in the def is a setting.`
-            );
-          if (!fn.doc?.trim())
-            throw new Error(
-              `Give ${op} a one-sentence docstring stating the table each call returns; {setting} names in it are filled in per call.`
-            );
-          const settings = Object.fromEntries(
-            Object.entries(command.statement.kwargs).map(([name, value]) => [name, literalSetting(value, name)])
+          notes.push(
+            `${id} now applies ${command.statement.op} to the earlier ${id}, which continues as ${kept}; everything that read ${id} sees the new table. The previous ${id} stays readable as ${id}@N.`
           );
-          view = sharedCallView(fn, functions, named.map(arg => arg.name), settings, command.keywords ?? []);
-          if (profileCollection === true) view.profileCollection = true;
-        } else
-          throw new Error(
-            `Unknown operator or function \`${op}\`. Operators: ${[...NATIVE_BY_NAME.keys()].join(", ")}. For custom Python, define \`def ${op}(table, setting=default):\` with a docstring at the margin of the edit and call it by name.`
-          );
-        const inputs = view.inputs.map(name => references[name] ?? name);
-        if (inputs.includes(id))
-          throw new Error(
-            `${id} cannot be its own input. Build on its saved version with \`${id}@N\`, or give the new table its own name.`
-          );
+        }
         const portNames = portsFor(view, inputs.length);
         const draftView: NativeOpView = { ...view, inputs: portNames.map(() => ""), graph: { inputPorts: portNames } };
         pendingInputs.set(id, { inputs, line: command.line });
         // An unchanged definition is reported only if its inputs change.
-        if (existing && definitionKey(existing) === definitionKey(draftView)) continue;
+        if (existing && !inserted && definitionKey(existing) === definitionKey(draftView)) continue;
         nodes.set(id, draftView);
         changed.add(id);
         const kind = nativeOperatorName(draftView.type);
@@ -471,8 +919,12 @@ export async function planGraphEdit(
         });
         receipts.push({ operation, operator_id: id });
       } else if (operation === "delete_operator") {
+        notPart(id);
         const node = required(id);
         if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
+        // A variant's hidden copies go with it.
+        if (node.variant?.name === id)
+          for (const [part, view] of [...nodes]) if (part !== id && view.variant?.name === id) removeNode(part);
         const removed = [...edges.values()].filter(e => e.source === id || e.target === id);
         for (const edge of removed) {
           edges.delete(edgeText(edge));
@@ -542,8 +994,10 @@ export async function planGraphEdit(
           `${name} redefined; ${callers.get(name)?.length ? `its callers ${callers.get(name)!.join(", ")} recompute on the next execute` : "no other operator calls it"}. Results saved by earlier tasks stay readable as name@N.`
         );
     }
-    // Inputs become edges once every definition and deletion is known.
-    for (const [id, { inputs, line }] of pendingInputs) {
+    // Inputs become edges once every definition and deletion is known; a
+    // statement that reads a variant of this edit is wired once it exists.
+    const wire = (entries: Array<[string, { inputs: string[]; line: number }]>) => {
+    for (const [id, { inputs, line }] of entries) {
       location = `Line ${line}: `;
       const view = required(id);
       const sources = inputs.map(address => {
@@ -569,6 +1023,20 @@ export async function planGraphEdit(
         changed.add(id);
         receipts.push({ operation: "create_edge", edge: edgeText({ ...edge, source: inputs[i] }) });
       });
+    }
+    };
+    const variants = deferred.filter(({ command }) => command.operation !== "commit");
+    const variantNames = new Set(variants.map(({ command }) => command.id));
+    const readsVariant = ([, { inputs }]: [string, { inputs: string[] }]) => inputs.some(name => variantNames.has(name));
+    wire([...pendingInputs].filter(entry => !readsVariant(entry)));
+    for (const { command, index } of variants) {
+      location = `Change ${index + 1} (line ${command.line}): `;
+      expandVariant(command);
+    }
+    wire([...pendingInputs].filter(readsVariant));
+    for (const { command, index } of deferred.filter(({ command }) => command.operation === "commit")) {
+      location = `Change ${index + 1} (line ${command.line}): `;
+      commitTable(command);
     }
     if (defined.size) {
       location = "Shared functions: ";
@@ -689,7 +1157,7 @@ export async function planGraphEdit(
         target: { operatorID: edge.target, portID: `input-${ports(nodes.get(edge.target)!).indexOf(edge.targetPort)}` },
       });
     for (const id of changed) {
-      if (nodes.has(id) && !outcomes.some(o => o.id === id))
+      if (nodes.has(id) && !outcomes.some(o => o.id === id) && !partOf(id))
         outcomes.push({
           id,
           op: nativeOperatorName(nodes.get(id)!.type),

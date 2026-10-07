@@ -93,6 +93,15 @@ export interface OperatorPredicate {
     source?: string;
     /** Top-level `def` sources the statement refers to, by name. */
     functions?: Record<string, string>;
+    /** A shared-function call's settings with defaults filled in. */
+    settings?: Record<string, unknown>;
+    /** Set on the steps a variant copied; see `VariantInfo` in the native catalog. */
+    variant?: {
+      name: string;
+      step: string;
+      of?: string;
+      changes?: Array<{ step: string; settings?: Record<string, unknown>; definition?: string }>;
+    };
   };
 }
 

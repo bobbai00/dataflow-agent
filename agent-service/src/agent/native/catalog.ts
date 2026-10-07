@@ -75,6 +75,31 @@ export interface NativeOpView {
   source?: string;
   /** Top-level `def` sources the statement refers to, by name. */
   functions?: Record<string, string>;
+  /** A shared-function call's settings with defaults filled in, for display
+   * and history. The call itself passes only `properties.params`. */
+  settings?: Record<string, unknown>;
+  /** Set on every step a `variant(...)` copied: the variant it belongs to and
+   * the step it copies. The variant table also records what it varies. */
+  variant?: VariantInfo;
+}
+
+/** One change a variant makes to a step it copies. */
+export interface VariantChange {
+  step: string;
+  /** New values for some of the step's settings. */
+  settings?: Record<string, unknown>;
+  /** A replacement definition for the whole step, as written. */
+  definition?: string;
+}
+
+export interface VariantInfo {
+  /** The variant table's name. */
+  name: string;
+  /** The original step this operator copies. */
+  step: string;
+  /** On the variant table only: the table it varies and the changes. */
+  of?: string;
+  changes?: VariantChange[];
 }
 
 /* ----------------------------------------------------------------------------
@@ -736,6 +761,36 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     },
   },
   {
+    name: "rank_change",
+    brief:
+      "Top-n membership between two versions of a ranked table: entered, left or stayed, with ranks and values on both sides.",
+    type: "RankChange",
+    inputs: 2,
+    rowEffect: "unknown",
+    signature: "rank_change(before, after, key, by, n, columns=None)",
+    doc: 'Ranks each table by by=, exactly as limit does, with key= breaking any remaining tie, and reports every item in either top n. status is entered (in the top n only after), left (only before) or stayed; rank_before and rank_after count over the full tables and are null where the item is missing. Each by= and columns= column appears as _before, _after and, for numbers, _change (after minus before). Pass the full tables rather than top-n cuts, so items that left still have their new values: `moves = rank_change(scores@4, scores, key=["store"], by=[("score", "desc")], n=10)`. Rows come in rank_after order, with items that left last, in rank_before order.',
+    schema: object(
+      {
+        key: NONEMPTY_NAMES,
+        by: list(object({ col: S, desc: { type: "boolean" } }, ["col"])),
+        n: { type: "integer", minimum: 1 },
+        columns: NONEMPTY_NAMES,
+      },
+      ["key", "by", "n"]
+    ),
+    normalize(rest, kwargs) {
+      noPositional("rank_change", rest, "the before and after tables followed by key=, by= and n=");
+      keywords("rank_change", kwargs, ["key", "by", "n", "columns"]);
+      if (!kwargs.key || !kwargs.by || !kwargs.n) fail("rank_change requires key=, by= and n=.");
+      return {
+        key: strList(kwargs.key, "key", 1),
+        by: sortKeys(kwargs.by, "by"),
+        n: int(kwargs.n, "n", 1),
+        ...(kwargs.columns ? { columns: strList(kwargs.columns, "columns", 1) } : {}),
+      };
+    },
+  },
+  {
     name: "union",
     brief:
       "Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.",
@@ -987,7 +1042,8 @@ export function graphOperatorSignature(def: NativeOperatorDef): string {
 export function graphOperatorPorts(def: NativeOperatorDef): string {
   if (def.inputs === 0) return "no input tables";
   if (def.inputs === 1) return "one input table, first";
-  if (def.inputs === 2) return def.name === "diff" ? "earlier table, then later table" : "left table, then right table";
+  if (def.inputs === 2)
+    return TWO_VERSIONS.has(def.name) ? "earlier table, then later table" : "left table, then right table";
   return def.name === "union"
     ? "two or more input tables, in order"
     : "the function's table parameters, in order";
@@ -1016,6 +1072,9 @@ export function graphCatalogText(names?: readonly string[]): string {
 export function graphCatalogIndexText(): string {
   return NATIVE_OPERATORS.map(def => `${graphOperatorSignature(def)} — ${graphOperatorPorts(def)}`).join("\n");
 }
+
+/** Operators that compare two versions of a table; their ports are numbered. */
+export const TWO_VERSIONS: ReadonlySet<string> = new Set(["diff", "rank_change"]);
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.
  * A name is a table unless it names only a program function; `tables` lists

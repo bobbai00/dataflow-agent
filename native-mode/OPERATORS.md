@@ -19,7 +19,7 @@ delete edge <source>.out -> <target>.<input_port>
 
 Create requires a new identifier. Update replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be updated; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction. Execute with operator_ids runs those operators and their upstream dependencies, materializing each result. Its scope requires complete inputs and an acyclic graph. Execute without operator_ids runs the whole graph.
 
-## Catalog (16 operators)
+## Catalog (17 operators)
 
 | Operator | Ports | Meaning |
 |---|---|---|
@@ -31,6 +31,7 @@ Create requires a new identifier. Update replaces the definition and preserves i
 | `aggregate` | one input table, first | One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation. |
 | `join` | left table, then right table | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified. |
 | `diff` | earlier table, then later table | Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred. |
+| `rank_change` | earlier table, then later table | Top-n membership between two versions of a ranked table: entered, left or stayed, with ranks and values on both sides. |
 | `union` | two or more input tables, in order | Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first. |
 | `distinct` | one input table, first | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
 | `sort` | one input table, first | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
@@ -76,6 +77,10 @@ join(L, R, on=None, how="inner", nulls_equal=False, suffix="_right", validate="m
 diff(L, R, key, columns, include_same=False)
     Inputs: earlier table, then later table.
     Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.
+
+rank_change(before, after, key, by, n, columns=None)
+    Inputs: earlier table, then later table.
+    Top-n membership between two versions of a ranked table: entered, left or stayed, with ranks and values on both sides.
 
 union(T1, T2, ..., schema="strict")
     Inputs: two or more input tables, in order.

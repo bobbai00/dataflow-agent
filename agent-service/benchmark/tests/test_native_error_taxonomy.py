@@ -576,6 +576,29 @@ CASES = [
         None,
         ["include_same"],
     ),
+    # rank_change ----------------------------------------------------------
+    (
+        "rank_change",
+        "duplicate item keys",
+        "RankChange",
+        [F, F],
+        dict(key=["g"], by=[{"col": "x", "desc": True}], n=1),
+        "RANK_KEYS",
+        "execute",
+        None,
+        ["unique", "non-null"],
+    ),
+    (
+        "rank_change",
+        "cutoff below one",
+        "RankChange",
+        [F, F],
+        dict(key=["x"], by=[{"col": "g"}], n=0),
+        "RANK_ARGUMENT",
+        "validate",
+        "n",
+        ["n must be"],
+    ),
     # join -----------------------------------------------------------------
     (
         "join",

@@ -309,7 +309,7 @@ describe("ordered dataflow actions", () => {
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
       asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("variant = scores@2");
+    expect(s.agent.getSettings().systemPrompt).toContain("copy = scores@2");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;

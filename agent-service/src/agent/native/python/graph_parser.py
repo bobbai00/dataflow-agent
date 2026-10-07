@@ -158,6 +158,9 @@ def _definition_block(start, block):
 
 def _assignment_block(start, block):
     head = block[0]
+    frozen = re.match(rf"^({ID})@[1-9]\d*\.({ID})\s*=(?!=)", head)
+    if frozen:
+        raise ValueError(f"Line {start}: a saved version never changes; set `{frozen[1]}.{frozen[2]}` on the current table.")
     target = re.match(rf"^({ID})\s*=(?!=)", head)
     if target and keyword.iskeyword(target[1]):
         raise ValueError(f"Line {start}: `{target[1]}` is a Python keyword and cannot name an operator; "
@@ -180,9 +183,22 @@ def _assignment_block(start, block):
         if not all(isinstance(t, ast.Name) for t in node.targets) or meaningful:
             raise ValueError(f"Line {start}: `del` takes operator names only: `del name, other`.")
         return [dict(operation="delete_operator", id=t.id, line=start) for t in node.targets]
+    if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Attribute)
+            and isinstance(node.targets[0].value, ast.Name)):
+        owner, setting = node.targets[0].value.id, node.targets[0].attr
+        if owner in references:
+            raise ValueError(f"Line {start}: a saved version never changes; set `{references[owner].split('@')[0]}.{setting}` "
+                             "on the current table.")
+        if meaningful:
+            raise ValueError(f"Line {start}: a setting takes a value, not functions.")
+        try:
+            value = ast.literal_eval(node.value)
+        except ValueError:
+            raise ValueError(f"Line {start}: `{owner}.{setting}` takes a literal value such as 0.5, \"desc\" or [1, 2].")
+        return [dict(operation="set_setting", id=owner, setting=setting, value=value, line=start)]
     if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
-        raise ValueError(f"Line {start}: write `name = operator(inputs, ...)`, `name = name@N`, a `def` "
-                         "at the margin, or `del name`.")
+        raise ValueError(f"Line {start}: write `name = operator(inputs, ...)`, `name = other`, `name = name@N`, "
+                         "`name.setting = value`, a `def` at the margin, or `del name`.")
     name = node.targets[0].id
     value = node.value
     if isinstance(value, ast.Name) and value.id in references:
@@ -191,8 +207,11 @@ def _assignment_block(start, block):
         source_id, task = references[value.id].split("@")
         return [dict(operation="assign_version", id=name, sourceId=source_id, task=int(task), line=start)]
     if isinstance(value, ast.Name):
-        raise ValueError(f"Line {start}: `{name} = {value.id}` only renames; write `{name} = {value.id}@N` for "
-                         "the version saved at the end of task N, or an operator call.")
+        if meaningful:
+            raise ValueError(f"Line {start}: `{name} = {value.id}` takes no functions.")
+        if value.id == name:
+            raise ValueError(f"Line {start}: `{name} = {name}` changes nothing.")
+        return [dict(operation="commit", id=name, other=value.id, line=start)]
     if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
         raise ValueError(f"Line {start}: the right-hand side of `{name}` must be an operator or shared-function "
                          "call, such as `filter(orders, ...)`.")
@@ -209,6 +228,37 @@ def _assignment_block(start, block):
                  positional=[ast.get_source_segment(statement, arg) for arg in value.args],
                  keywords=[ast.get_source_segment(statement, kw) for kw in value.keywords],
                  references=references)]
+
+
+def edit_blocks(source):
+    """The statements of an edit, each with the names it sets and the names it
+    mentions, so that one failing statement and those using it can be held
+    back while the rest apply."""
+    try:
+        blocks = _margin_blocks(source)
+    except (ValueError, SyntaxError, tokenize.TokenError, IndentationError):
+        lines = source.splitlines()
+        starts = [n for n, line in enumerate(lines, start=1)
+                  if re.match(rf"(def\s|del\s|{ID}(\.{ID})?\s*=(?!=))", line)]
+        blocks = [(start, lines[start - 1:(starts[i + 1] - 1 if i + 1 < len(starts) else len(lines))])
+                  for i, start in enumerate(starts)]
+    result = []
+    for start, block in blocks:
+        text = "\n".join(block)
+        head = block[0]
+        if head.startswith("del "):
+            sets = re.findall(ID, head[4:])
+        else:
+            match = re.match(rf"def\s+({ID})", head) or re.match(rf"({ID})(?:\.{ID})?\s*=(?!=)", head)
+            sets = [match[1]] if match else []
+        try:
+            names = {t.string for t in tokenize.generate_tokens(io.StringIO(text + "\n").readline)
+                     if t.type == tokenize.NAME}
+        except (tokenize.TokenError, IndentationError, SyntaxError):
+            names = set(re.findall(rf"\b{ID}\b", re.sub(r"(\"[^\"\n]*\"|'[^'\n]*')", "", text)))
+        uses = sorted(names - set(sets) - set(keyword.kwlist))
+        result.append(dict(line=start, end=start + len(block) - 1, text=text, sets=sets, uses=uses))
+    return result
 
 
 def parse_graph_edit(source, shared=None):

@@ -58,8 +58,12 @@ test("an assignment creates an operator whose call arguments become its input ed
   expect(rewired.changes.map(change => change.operation).sort()).toEqual(["create_edge", "delete_edge"]);
   const same = await edit(state, 'totals = aggregate(delivered, by=["unit"], amount=sum("amount"))');
   expect(same.changes).toEqual([]);
-  await expect(edit(state, 'totals = aggregate(totals, by=["unit"], n=count())')).rejects.toThrow("cannot be its own input");
-  await expect(edit(state, "copy = totals")).rejects.toThrow("only renames");
+  // A table defined from itself inserts a step after its earlier definition.
+  const inserted = await edit(state, 'totals = aggregate(totals, by=["unit"], n=count())');
+  expect(inspectGraph(state.getWorkflowContent()).edges.sort()).toEqual(["delivered.out -> totals_v1.in", "orders2.out -> delivered.in", "totals_v1.out -> totals.in"]);
+  expect(inserted.notes?.join(" ")).toContain("continues as totals_v1");
+  await expect(edit(state, "copy = totals")).rejects.toThrow("`copy` does not exist yet");
+  await edit(state, "del totals_v1");
   // A rejected call shows a saved reference as written, never its placeholder.
   await expect(edit(state, "top = limit(filter(orders@1, lambda row: True, doc=\"All\"), 1)")).rejects.toThrow(
     "got filter(orders@1, "
@@ -78,7 +82,7 @@ test("a shared function is an operator with settings, and redefining it updates 
   expect(scores.properties.doc).toBe("Units with at least 1 orders, scored with delivery weight 0.5.");
   expect(state.getOperator("strict")!.nativeOp!.properties.params).toEqual({ minimum: 3 });
   expect(state.getOperator("strict")!.nativeOp!.properties.doc).toContain("at least 3 orders");
-  expect(state.getOperator("strict")!.nativeOp!.source).toBe("score(minimum=3)");
+  expect(state.getOperator("strict")!.nativeOp!.source).toBe("score(weight=0.5, minimum=3)");
   // A later edit can call the function without restating it.
   await edit(state, "loose = score(orders, weight=0.2)");
   expect(state.getOperator("loose")!.nativeOp!.properties.code).toContain("def score(orders, weight=0.5, minimum=1):");

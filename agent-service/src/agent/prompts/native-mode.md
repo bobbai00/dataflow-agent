@@ -66,9 +66,8 @@ Batch known edits, execute and retrieve. Make decisions that depend on a
 returned observation in the next call. Select needed `columns` on the first retrieval
 so wide tables do not obscure requested values.
 
-Each edit is atomic: its statements are checked together, and one invalid
-statement rejects the entire edit. Earlier successful edits in the same call
-remain applied if a later action fails.
+An edit with a held statement counts as a failed action, and edits that
+applied earlier in the same call stay applied.
 
 An action failure skips later actions, with one exception: after a failed
 execution, inspect and retrieve can still read independent completed results.
@@ -99,6 +98,7 @@ and may follow execute. Use `content` for explanations or unsupported shapes;
 ```text
 name = operator(input, ..., parameter=value)    create name, or replace its definition and inputs
 name = function(input, ..., setting=value)      call a shared function as an operator
+name.setting = value                            change one setting of a shared-function call
 del name, ...                                   delete operators and their edges
 def function(table, ..., setting=default):      define or redefine a shared function
 ```
@@ -109,12 +109,16 @@ two or more for a union. They become the operator's incoming edges. Assigning
 an existing name replaces its whole definition and its inputs, so restate the
 call with the change you need. Changing a definition or an input invalidates
 that operator's result and every result downstream of it. Names use letters,
-digits and underscores and cannot start with a digit, and an operator is
-never its own input.
+digits and underscores and cannot start with a digit.
 
-An edit is checked as a whole: an unknown operator or input, an invalid
-parameter or a cycle rejects every statement in it. A statement may name an
-operator that a later statement of the same edit assigns.
+A call that reads its own name inserts a step, as in Python: `orders =
+filter(orders, ...)` keeps the earlier `orders` as `orders_v1` and puts the
+filter after it, so every table that read `orders` reads the filtered rows.
+
+A failing statement is held back with its error, and so is every statement
+that uses what it defines; the rest of the edit applies. Resend only the held
+statements, corrected. A statement may name an operator that a later
+statement of the same edit assigns.
 
 When the layouts are known, build the graph in one edit. This graph sums
 transactions by region, checks that the budget lookup is unique, and keeps
@@ -158,7 +162,7 @@ report two of them:
 
 ```dataflow
 def median_deviation(readings, min_readings=1):
-    """One row per sensor with unscaled median absolute deviation mad and count n of non-null readings; mad is null when n < {min_readings}."""
+    """One row per sensor: median absolute deviation mad of its n readings, null when n < {min_readings}."""
     rows = []
     for sensor, group in readings.groupby("sensor", sort=False, dropna=False):
         values = group["reading"].dropna()
@@ -171,36 +175,40 @@ top_sensors = limit(dispersion, 2, by=[("mad", "desc"), "sensor"])
 
 The parameters without defaults are the input tables, one pandas DataFrame
 each, in call order. The parameters with defaults are settings: a call passes
-them by name as literals (numbers, strings, booleans, lists or dicts), and
-the operator's definition shows them, as in `median_deviation(min_readings=3)`.
-The docstring is one sentence stating the table each call returns: its row
-grain, the calculation actually implemented, exclusions and null handling.
-`{setting}` names in it are filled in per call. "Analyze sensor data" is too
-vague; the docstring above says what the table holds and how it treats
-missing readings. The function returns one DataFrame with unique string
-column names, one scalar type per column and timezone-aware datetimes;
-serialize nested or mixed values as text. `pd` and `np` are available, and
-other packages are imported inside the function. Other `def`s at the margin
-can be helpers that functions call.
+them by name as literals (numbers, strings, booleans, lists or dicts), or
+keeps the default. A setting belongs to the calling operator:
+`dispersion.min_readings = 3` changes it for `dispersion` only, and the
+definition shows every setting's value, as in
+`median_deviation(min_readings=3)`. The docstring is one short sentence: the
+row grain of the table each call returns and its rule, with `{setting}` names
+filled in per call; later tasks read it next to the definition. The function returns one DataFrame with unique string column
+names, one scalar type per column and timezone-aware datetimes; serialize
+nested or mixed values as text. `pd` and `np` are available, and other
+packages are imported inside the function. Other `def`s at the margin can be
+helpers that functions call.
 
-Give each function one rule, and make the parts of it that a later request
-may change into settings: a threshold, a weight, a window, a column choice.
-Use catalog operators for loading supported files, ordinary filters, joins,
+Every number or choice the request states for a rule is a setting with the
+stated value as its default: weights, thresholds, cutoffs, windows, column
+choices. Changing one later is then a one-line edit, never a rewrite.
+Constants outside the rule, such as 100 for a percentage, stay in the code.
+Give each function one rule. Use
+catalog operators for loading supported files, ordinary filters, joins,
 aggregation and limits, and connect their tables as the function's inputs.
 Keep the table a function returns complete, with the raw columns its rule
 reads, and cut reports downstream with `limit`. A different cut is then one
-new `limit`, a variant is one new call with another setting, and a change to
-the rule itself is one redefinition of the `def`, which updates every call.
-Write a function once and call it again rather than copying it; a receipt
-notes when a new function mostly repeats an existing one.
+new `limit`, and a change to the rule itself is one redefinition of the
+`def`, which every call follows. Write a function once and call it again
+rather than copying it; a receipt notes when a new function mostly repeats an
+existing one.
 
 Retrieve displays the returned table; return diagnostics as columns when you
 need to read them. Check an unfamiliar library's API before using it, and let
 failures surface so they can be repaired.
 
 `dispersion` keeps every sensor, including sensors with no non-null readings,
-and `top_sensors` is the report. A later request can raise `min_readings`,
-take another cut or revise the statistic without rebuilding the rest. Batch
+and `top_sensors` is the report. A later request can raise
+`dispersion.min_readings`, take another cut or revise the statistic without
+rebuilding the rest. Batch
 these known edits in one call, then execute and retrieve the results needed
 for the current request.
 

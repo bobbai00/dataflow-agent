@@ -97,6 +97,8 @@ export const REPAIR_HINTS: Record<string, string> = {
   DIFF_KEYS: "Provide explicit entity key columns that are unique, non-null and compatible on both inputs; cast mismatched types.",
   DIFF_COLUMNS: "Name existing value columns separately from entity keys; diff compares their saved and current values.",
   DIFF_ARGUMENT: "include_same must be True or False; key= and columns= are explicit nonempty lists.",
+  RANK_KEYS: "Name key columns that identify each item once, are non-null in both tables, and have the same type on both sides.",
+  RANK_ARGUMENT: 'by= ranks on value columns, such as [("score", "desc")]; n= is an integer of at least 1; key, by and columns name different columns.',
   UNION_ARGUMENT: 'schema is "strict" (identical columns) or "align" (absent columns become null).',
   DISTINCT_ARGUMENT: 'keep is "first" or "last"; columns lists the key columns, or omit it for whole-row distinct.',
   SORT_ARGUMENT: 'by lists column names or (column, "asc"|"desc") pairs; nulls is "first" or "last".',

@@ -103,19 +103,20 @@ describe("saved-versions sessions after the 2026-10-06 audit", () => {
     expect(s.agent.getWorkflowState().getOperator("source")).toBeDefined();
   });
 
-  test("the boundary receipt lists what the task saved and whether retention worked", async () => {
+  test("the boundary receipt records what the task saved and says whether retention worked", async () => {
     const s = session([
       [{ type: "edit", changes: 'create operator source: scan("a.csv")\ncreate operator pending: scan("b.csv")' }, { type: "execute", operator_ids: ["source"] }],
       [{ type: "answer", content: "Saved the source.", operator_ids: ["source"] }],
     ]);
     await s.agent.sendMessage("Build the baseline.");
     const receipt = renderDataflowActionsResult(s.outcomes[1]);
-    expect(receipt).toContain("saved as `source@1`");
-    expect(receipt).toMatch(/Saved versions: `source@1`/);
+    // Every table is readable as name@1 later; the receipt names the answer's
+    // source and no longer lists a saved handle per operator.
+    expect(receipt).toContain("Answer sources: `source`");
+    expect(receipt).not.toContain("saved as");
     // The mock session has no engine: the receipt must say so rather than
     // promising a materialization that was never retained.
     expect(receipt).toContain("Retention: RETENTION_UNAVAILABLE");
-    expect(receipt).toContain("saved: no completed result");
     expect(s.agent.getTaskHistory()[0].saved_versions).toEqual(["source"]);
   });
 

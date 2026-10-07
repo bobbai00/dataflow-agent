@@ -60,7 +60,8 @@ function labelColumns(before: OperatorInfo, after: OperatorInfo): string[] {
 export function effectLine(
   address: string,
   before: OperatorInfo | undefined,
-  after: OperatorInfo | undefined
+  after: OperatorInfo | undefined,
+  relation = "changed since"
 ): string | undefined {
   const ready = (info?: OperatorInfo) =>
     !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state);
@@ -68,7 +69,7 @@ export function effectLine(
   if (before!.resultVersion?.id && before!.resultVersion.id === after!.resultVersion?.id) return undefined;
   const rowsBefore = before!.totalRowCount ?? before!.outputTuples;
   const rowsAfter = after!.totalRowCount ?? after!.outputTuples;
-  const head = `changed since ${address}: ${rowsBefore} → ${rowsAfter} rows`;
+  const head = `${relation} ${address}: ${rowsBefore} → ${rowsAfter} rows`;
   if (!complete(before!) || !complete(after!) || Math.max(rowsBefore, rowsAfter) > COMPLETE_LIMIT) return `${head}.`;
   const columns = labelColumns(before!, after!);
   const all = [...new Set([...(before!.resultSchema ?? []).map(c => c.name)])].filter(name =>

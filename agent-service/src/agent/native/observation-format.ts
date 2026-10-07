@@ -487,6 +487,8 @@ export interface OperatorBlock {
   kind: string;
   state: string;
   definition?: string;
+  /** A shared-function call's rendered docstring. */
+  doc?: string;
   signature?: string;
   answerSource?: boolean;
   functions?: string;
@@ -503,6 +505,7 @@ export function operatorBlock(block: OperatorBlock): string {
   return [
     `- **${block.id}** (${block.kind}, ${block.state})${block.answerSource ? " — answer source" : ""}`,
     ...(block.definition ? [`  - definition: ${inlineCode(block.definition)}`] : []),
+    ...(block.doc ? [`  - doc: ${block.doc}`] : []),
     ...(block.signature ? [`  - signature: ${inlineCode(block.signature)}`] : []),
     ...(block.functions
       ? (() => {
@@ -603,6 +606,9 @@ export function describeOperator(
     kind: view ? nativeOperatorName(view.type) : op.operatorType,
     state,
     ...(options.definition !== false && definition ? { definition } : {}),
+    ...(options.definition !== false && view?.properties.shared === true && typeof view.properties.doc === "string" && view.properties.doc
+      ? { doc: view.properties.doc }
+      : {}),
     ...(functions ? { functions } : {}),
     inputs,
     ...(options.origin ? { origin: options.origin } : {}),
@@ -638,6 +644,9 @@ export function boundResultNotes(info: OperatorInfo | undefined): string[] {
   if (diff && ["keys", "added", "removed", "changed", "same"].every(k => Number.isSafeInteger(diff[k]) && Number(diff[k]) >= 0) &&
       Number(diff.keys) === ["added", "removed", "changed", "same"].reduce((n,k) => n + Number(diff[k]),0))
     return [`diff: ${diff.keys} keys; ${diff.added} added, ${diff.removed} removed, ${diff.changed} changed, ${diff.same} same.`];
+  const ranks = native?.operatorType === "RankChange" ? native.operations?.rankChange as Record<string, unknown> | undefined : undefined;
+  if (ranks && ["n", "entered", "left", "stayed"].every(k => Number.isSafeInteger(ranks[k]) && Number(ranks[k]) >= 0))
+    return [`rank change: ${ranks.entered} entered, ${ranks.left} left, ${ranks.stayed} stayed in the top ${ranks.n}.`];
   return [];
 }
 

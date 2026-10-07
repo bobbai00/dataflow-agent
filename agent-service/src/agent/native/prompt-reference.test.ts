@@ -31,12 +31,12 @@ test("on-demand prompt retains execution and state contracts with a smaller init
   expect(buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "full" } as any)).toBe(full);
   const lean = buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "on_demand" } as any);
   expect(lean.length).toBeLessThan(full.length);
-  expect(lean).not.toContain("Task 6 returns to the first report's rule");
-  expect(full).toContain("Task 6 returns to the first report's rule");
+  expect(lean).not.toContain("Task 7 returns to the scores as they were before refunds counted");
+  expect(full).toContain("Task 7 returns to the scores as they were before refunds counted");
   for (const contract of [
     "## Role and objective",
     "## Actions and their effects",
-    "Each edit is atomic",
+    "A failing statement is held back",
     "Input tables come first",
     "### Understanding observations",
     "sample_stats",

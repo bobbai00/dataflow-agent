@@ -190,6 +190,7 @@ ROW_EFFECTS = {
     "Aggregate": "collapse",
     "Join": "multiply",
     "Diff": "unknown",
+    "RankChange": "unknown",
     "Union": "add",
     "Distinct": "drop",
     "Sort": "none",
@@ -213,7 +214,7 @@ def validate_native(spec):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
     if len(set(inputs)) != len(inputs) and kind not in ("Join", "Diff") and not spec.get("graph"):
         raise _error(spec, "INPUT_PORTS", "Only Join or Diff may reference the same input twice.", stage="validate")
-    expected = 0 if kind == "Scan" else 2 if kind in ("Join", "Diff") else None if kind in ("Union", "Process") else 1
+    expected = 0 if kind == "Scan" else 2 if kind in ("Join", "Diff", "RankChange") else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
         raise _error(spec, "INPUT_PORTS", f"{kind} requires {expected} input ports.", stage="validate")
     if kind == "Union" and len(inputs) < 2:
@@ -257,6 +258,25 @@ def validate_native(spec):
         names_list(props.get("columns"), "DIFF_COLUMNS", "columns")
         if not isinstance(props.get("includeSame", props.get("include_same", False)), bool):
             raise _error(spec, "DIFF_ARGUMENT", "include_same must be boolean.", stage="validate")
+    elif kind == "RankChange":
+        names_list(props.get("key"), "RANK_KEYS", "key")
+        by = props.get("by")
+        if not isinstance(by, list) or not by:
+            raise _error(spec, "RANK_ARGUMENT", "by needs at least one ranking column.", stage="validate", field="by")
+        for i, item in enumerate(by):
+            if not isinstance(item, dict) or not isinstance(item.get("col"), str) or not item["col"]:
+                raise _error(spec, "RANK_ARGUMENT", "Each by key names a column.", stage="validate", field=f"by[{i}]")
+            if "desc" in item and not isinstance(item["desc"], bool):
+                raise _error(spec, "RANK_ARGUMENT", "Ranking direction is asc or desc.", stage="validate", field=f"by[{i}]")
+        n = props.get("n")
+        if type(n) is not int or n < 1:
+            raise _error(spec, "RANK_ARGUMENT", f"n must be an integer >= 1, got {n!r}.", stage="validate", field="n")
+        if props.get("columns") is not None:
+            names_list(props["columns"], "RANK_ARGUMENT", "columns")
+        ranked = [item["col"] for item in by]
+        if set(props["key"]) & set(ranked + list(props.get("columns") or [])):
+            raise _error(spec, "RANK_ARGUMENT", "Rank and report value columns separately from the key columns.",
+                         stage="validate", field="by")
     elif kind == "Cast":
         choice(props.get("errors", "raise"), ("raise", "null"), "CAST_OPTIONS", "errors")
     elif kind == "Distinct":
@@ -837,6 +857,63 @@ def _join_keys(spec):
     if len(set(left)) != len(left) or len(set(right)) != len(right):
         raise _error(spec, "JOIN_KEYS", "Join keys on each port must be distinct.", stage="validate", field="on")
     return left, right
+
+
+def _rank_change(spec, before, after, operations):
+    """Which items entered, left or stayed in the top n between two versions of
+    a ranked table, with their ranks and values on both sides."""
+    props = spec["properties"]
+    keys, by, n = props["key"], props["by"], props["n"]
+    values = list(dict.fromkeys([item["col"] for item in by] + list(props.get("columns") or [])))
+    output_columns = [*keys, "status", "rank_before", "rank_after"]
+    for column in values:
+        output_columns.extend(f"{column}_{suffix}" for suffix in ("before", "after", "change"))
+    if len(set(output_columns)) != len(output_columns):
+        raise _error(spec, "COLUMN_COLLISION", "rank_change keys and generated column names collide.")
+    for frame in (before, after):
+        _columns(spec, frame, [*keys, *values], "key/by/columns")
+        if frame[keys].isna().any().any() or frame.duplicated(keys).any():
+            raise _error(spec, "RANK_KEYS", "rank_change keys must be unique and non-null in both tables.")
+    for key in keys:
+        types = {_logical_dtype(before[key]), _logical_dtype(after[key])} - {None}
+        if len(types) > 1:
+            raise _error(spec, "RANK_KEYS", f"Key {key!r} has incompatible types; cast explicitly.")
+
+    def ranks(frame):
+        # The order limit(by=...) uses, with the keys breaking any remaining tie.
+        ordered = frame[[*keys, *values]]
+        for item in [*reversed([{"col": key} for key in keys]), *reversed(by)]:
+            ordered = ordered.sort_values(item["col"], ascending=not item.get("desc", False),
+                                          na_position="last", kind="stable")
+        return ordered.assign(_rank=range(1, len(ordered) + 1))
+
+    old, new = ranks(before), ranks(after)
+    merged = old.rename(columns={c: f"{c}_before" for c in values}).rename(columns={"_rank": "rank_before"}).merge(
+        new.rename(columns={c: f"{c}_after" for c in values}).rename(columns={"_rank": "rank_after"}),
+        on=keys, how="outer", sort=False, validate="one_to_one")
+    top_before = merged["rank_before"].le(n).fillna(False).astype(bool)
+    top_after = merged["rank_after"].le(n).fillna(False).astype(bool)
+    output = merged[top_before | top_after].copy()
+    output["status"] = "stayed"
+    output.loc[top_after & ~top_before, "status"] = "entered"
+    output.loc[top_before & ~top_after, "status"] = "left"
+    for side in ("rank_before", "rank_after"):
+        output[side] = output[side].astype("Int64")
+    for column in values:
+        a, b = output[f"{column}_before"], output[f"{column}_after"]
+        numeric = all(pd.api.types.is_numeric_dtype(frame[column]) and not pd.api.types.is_bool_dtype(frame[column])
+                      for frame in (before, after))
+        output[f"{column}_change"] = (b - a).where(a.notna() & b.notna()) if numeric else None
+    left = output["status"].eq("left")
+    output["_order"] = output["rank_after"].where(~left, output["rank_before"]).astype("float64")
+    output = output.sort_values(["_order"], kind="stable")
+    output = pd.concat([output[~output["status"].eq("left")], output[output["status"].eq("left")]])
+    output = output[output_columns].reset_index(drop=True)
+    operations["rankChange"] = {
+        "n": n,
+        **{status: int(output["status"].eq(status).sum()) for status in ("entered", "left", "stayed")},
+    }
+    return output
 
 
 def _diff(spec, left, right, operations):
@@ -2464,6 +2541,8 @@ def execute_native(spec, inputs):
         output = _join(spec, inputs[0], inputs[1], operations)
     elif kind == "Diff":
         output = _diff(spec, inputs[0], inputs[1], operations)
+    elif kind == "RankChange":
+        output = _rank_change(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
         output = _union(spec, inputs, operations)
     elif kind == "Window":
@@ -2534,7 +2613,11 @@ if __name__ == "__main__":
     import sys
 
     request = json.load(sys.stdin)
-    if isinstance(request, dict) and "changes" in request:
+    if isinstance(request, dict) and "edit_blocks" in request:
+        from graph_parser import edit_blocks
+
+        print(json.dumps(edit_blocks(request["edit_blocks"]), ensure_ascii=True))
+    elif isinstance(request, dict) and "changes" in request:
         from graph_parser import parse_graph_edit
 
         print(json.dumps(parse_graph_edit(request["changes"], request.get("shared")), ensure_ascii=True))

@@ -41,9 +41,8 @@ Batch known edits, execute and retrieve. Make decisions that depend on a
 returned observation in the next call. Select needed `columns` on the first retrieval
 so wide tables do not obscure requested values.
 
-Each edit is atomic: its statements are checked together, and one invalid
-statement rejects the entire edit. Earlier successful edits in the same call
-remain applied if a later action fails.
+An edit with a held statement counts as a failed action, and edits that
+applied earlier in the same call stay applied.
 
 An action failure skips later actions, with one exception: after a failed
 execution, inspect and retrieve can still read independent completed results.
@@ -67,6 +66,7 @@ and may follow execute. Use `content` for explanations or unsupported shapes;
 ```text
 name = operator(input, ..., parameter=value)    create name, or replace its definition and inputs
 name = function(input, ..., setting=value)      call a shared function as an operator
+name.setting = value                            change one setting of a shared-function call
 del name, ...                                   delete operators and their edges
 def function(table, ..., setting=default):      define or redefine a shared function
 ```
@@ -77,12 +77,16 @@ two or more for a union. They become the operator's incoming edges. Assigning
 an existing name replaces its whole definition and its inputs, so restate the
 call with the change you need. Changing a definition or an input invalidates
 that operator's result and every result downstream of it. Names use letters,
-digits and underscores and cannot start with a digit, and an operator is
-never its own input.
+digits and underscores and cannot start with a digit.
 
-An edit is checked as a whole: an unknown operator or input, an invalid
-parameter or a cycle rejects every statement in it. A statement may name an
-operator that a later statement of the same edit assigns.
+A call that reads its own name inserts a step, as in Python: `orders =
+filter(orders, ...)` keeps the earlier `orders` as `orders_v1` and puts the
+filter after it, so every table that read `orders` reads the filtered rows.
+
+A failing statement is held back with its error, and so is every statement
+that uses what it defines; the rest of the edit applies. Resend only the held
+statements, corrected. A statement may name an operator that a later
+statement of the same edit assigns.
 
 When the layouts are known, build the graph in one edit. This graph sums
 transactions by region, checks that the budget lookup is unique, and keeps
@@ -141,6 +145,10 @@ diff(L, R, key, columns, include_same=False)
     Inputs: earlier table, then later table.
     Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.
 
+rank_change(before, after, key, by, n, columns=None)
+    Inputs: earlier table, then later table.
+    Top-n membership between two versions of a ranked table: entered, left or stayed, with ranks and values on both sides.
+
 union(T1, T2, ..., schema="strict")
     Inputs: two or more input tables, in order.
     Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.
@@ -188,7 +196,7 @@ report two of them:
 
 ```dataflow
 def median_deviation(readings, min_readings=1):
-    """One row per sensor with unscaled median absolute deviation mad and count n of non-null readings; mad is null when n < {min_readings}."""
+    """One row per sensor: median absolute deviation mad of its n readings, null when n < {min_readings}."""
     rows = []
     for sensor, group in readings.groupby("sensor", sort=False, dropna=False):
         values = group["reading"].dropna()
@@ -201,36 +209,40 @@ top_sensors = limit(dispersion, 2, by=[("mad", "desc"), "sensor"])
 
 The parameters without defaults are the input tables, one pandas DataFrame
 each, in call order. The parameters with defaults are settings: a call passes
-them by name as literals (numbers, strings, booleans, lists or dicts), and
-the operator's definition shows them, as in `median_deviation(min_readings=3)`.
-The docstring is one sentence stating the table each call returns: its row
-grain, the calculation actually implemented, exclusions and null handling.
-`{setting}` names in it are filled in per call. "Analyze sensor data" is too
-vague; the docstring above says what the table holds and how it treats
-missing readings. The function returns one DataFrame with unique string
-column names, one scalar type per column and timezone-aware datetimes;
-serialize nested or mixed values as text. `pd` and `np` are available, and
-other packages are imported inside the function. Other `def`s at the margin
-can be helpers that functions call.
+them by name as literals (numbers, strings, booleans, lists or dicts), or
+keeps the default. A setting belongs to the calling operator:
+`dispersion.min_readings = 3` changes it for `dispersion` only, and the
+definition shows every setting's value, as in
+`median_deviation(min_readings=3)`. The docstring is one short sentence: the
+row grain of the table each call returns and its rule, with `{setting}` names
+filled in per call; later tasks read it next to the definition. The function returns one DataFrame with unique string column
+names, one scalar type per column and timezone-aware datetimes; serialize
+nested or mixed values as text. `pd` and `np` are available, and other
+packages are imported inside the function. Other `def`s at the margin can be
+helpers that functions call.
 
-Give each function one rule, and make the parts of it that a later request
-may change into settings: a threshold, a weight, a window, a column choice.
-Use catalog operators for loading supported files, ordinary filters, joins,
+Every number or choice the request states for a rule is a setting with the
+stated value as its default: weights, thresholds, cutoffs, windows, column
+choices. Changing one later is then a one-line edit, never a rewrite.
+Constants outside the rule, such as 100 for a percentage, stay in the code.
+Give each function one rule. Use
+catalog operators for loading supported files, ordinary filters, joins,
 aggregation and limits, and connect their tables as the function's inputs.
 Keep the table a function returns complete, with the raw columns its rule
 reads, and cut reports downstream with `limit`. A different cut is then one
-new `limit`, a variant is one new call with another setting, and a change to
-the rule itself is one redefinition of the `def`, which updates every call.
-Write a function once and call it again rather than copying it; a receipt
-notes when a new function mostly repeats an existing one.
+new `limit`, and a change to the rule itself is one redefinition of the
+`def`, which every call follows. Write a function once and call it again
+rather than copying it; a receipt notes when a new function mostly repeats an
+existing one.
 
 Retrieve displays the returned table; return diagnostics as columns when you
 need to read them. Check an unfamiliar library's API before using it, and let
 failures surface so they can be repaired.
 
 `dispersion` keeps every sensor, including sensors with no non-null readings,
-and `top_sensors` is the report. A later request can raise `min_readings`,
-take another cut or revise the statistic without rebuilding the rest. Batch
+and `top_sensors` is the report. A later request can raise
+`dispersion.min_readings`, take another cut or revise the statistic without
+rebuilding the rest. Batch
 these known edits in one call, then execute and retrieve the results needed
 for the current request.
 
@@ -709,12 +721,11 @@ Enabling stateHistory adds the following instructions and historical actions:
 When you answer, the dataflow as it stands is saved under that task's number:
 every operator with a completed result becomes a version you can refer to
 later as `name@N`, together with the shared functions its definition calls.
-The receipt of your answer lists what was saved. Saved definitions and
-results never change; task 9 can return to task 3, and task 12 to task 9. A
-saved result can become unavailable after cleanup or eviction: the action
-then fails with HISTORICAL_RESULT_UNAVAILABLE. The engine
-never substitutes a newer table and never reruns the old definition on today's
-files.
+Saved definitions and results never change; task 9 can return to task 3, and
+task 12 to task 9. A saved result can become unavailable after cleanup or
+eviction: the action then fails with HISTORICAL_RESULT_UNAVAILABLE. The
+engine never substitutes a newer table and never reruns the old definition on
+today's files.
 
 `scores` names the current operator. `scores@2` names the version saved at
 the end of task 2: its definition, its inputs as they were then, and its
@@ -724,7 +735,7 @@ version never executes anything by itself and never changes the current
 graph.
 
 Earlier tasks appear either as sealed entries under # Prior Tasks or in full
-above, each ending with the receipt that lists what it saved. Entries show the
+above, each ending with its answer receipt. Entries show the
 operators a task created or modified in first-edit order with their final
 definitions, direct inputs, output shape and columns; deletions are separate.
 All working tables are included, even those outside that task's answer
@@ -755,13 +766,13 @@ What you can do with a version:
   the next execute. If the shared function it calls changed since task 2,
   the restored operator keeps the task-2 code under the name
   `function_t2`, while the function keeps its current definition.
-- **Copy it.** `variant = scores@2` creates one editable operator from the
+- **Copy it.** `copy = scores@2` creates one editable operator from the
   task-2 definition with its saved direct inputs; adjust it or its inputs.
 
-An in-place change keeps the earlier version. After `scores = score(orders,
-minimum=3)` and an execute, `scores@1` still names the first result, and the
-execute receipt compares each recomputed table with the version the last
-task saved, for example
+An in-place change keeps the earlier version. After `scores.minimum = 3` and
+an execute, `scores@1` still names the first result, and the execute receipt
+compares each recomputed table with the version the last task saved, for
+example
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
 That line often answers what a change did; read the tables when the request
 needs their values.
@@ -773,8 +784,12 @@ version of the rule? When the request concerns the reported selection, keep
 it; when it concerns every row, use the table before the cut. When an earlier
 task was wrong, correct the rule in place rather than trusting the old answer.
 
-`diff(earlier, later, key=["entity"], columns=["score"])` compares two tables.
-Entity keys must be explicit, unique and non-null, and compared columns are
+`rank_change(scores@2, scores, key=["entity"], by=[("score", "desc")], n=5)`
+compares two versions of a ranking: every entity in either top five, marked
+entered, left or stayed, with its rank and score in both.
+
+`diff(earlier, later, key=["entity"], columns=["score"])` compares two tables
+row by row. Entity keys must be explicit, unique and non-null, and compared columns are
 separate from keys. Each output row carries status (added, removed, changed;
 same with include_same=True) and each column's _left, _right, _delta and
 _abs_delta. Deltas are later minus earlier; missing values and non-numeric
