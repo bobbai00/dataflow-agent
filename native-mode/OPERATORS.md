@@ -23,22 +23,22 @@ Create requires a new identifier. Update replaces the definition and preserves i
 
 | Operator | Ports | Meaning |
 |---|---|---|
-| `scan` | no inputs -> out | Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source. |
-| `project` | in -> out | Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged. |
-| `cast` | in -> out | Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone. |
-| `filter` | in -> out | fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns. |
-| `map` | in -> out | fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values. |
-| `aggregate` | in -> out | One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation. |
-| `join` | left, right -> out | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified. |
-| `diff` | in[0], in[1] -> out | Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred. |
-| `union` | in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255) | Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first. |
-| `distinct` | in -> out | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
-| `sort` | in -> out | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
-| `limit` | in -> out | Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys. |
-| `window` | in -> out | Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order. |
-| `unpivot` | in -> out | Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types. |
-| `pivot` | in -> out | Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names. |
-| `process` | in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader | One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators. |
+| `scan` | no input tables | Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source. |
+| `project` | one input table, first | Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged. |
+| `cast` | one input table, first | Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone. |
+| `filter` | one input table, first | fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns. |
+| `map` | one input table, first | fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values. |
+| `aggregate` | one input table, first | One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation. |
+| `join` | left table, then right table | on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified. |
+| `diff` | earlier table, then later table | Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred. |
+| `union` | two or more input tables, in order | Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first. |
+| `distinct` | one input table, first | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
+| `sort` | one input table, first | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
+| `limit` | one input table, first | Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys. |
+| `window` | one input table, first | Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order. |
+| `unpivot` | one input table, first | Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types. |
+| `pivot` | one input table, first | Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names. |
+| `process` | the function's table parameters, in order | One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators. |
 
 ## Parameters and contracts
 
@@ -46,68 +46,68 @@ Operator expressions contain parameters only. No upstream table identifiers appe
 
 ```text
 scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)
-    Ports: no inputs -> out.
+    Inputs: no input tables.
     Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source.
 
-project(keep=None, drop=None, rename=None)
-    Ports: in -> out.
+project(T, keep=None, drop=None, rename=None)
+    Inputs: one input table, first.
     Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged.
 
-cast(column=dtype, ..., errors="raise")
-    Ports: in -> out.
+cast(T, column=dtype, ..., errors="raise")
+    Inputs: one input table, first.
     Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.
 
-filter(fn, doc="what the predicate keeps")
-    Ports: in -> out.
+filter(T, fn, doc="what the predicate keeps")
+    Inputs: one input table, first.
     fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns.
 
-map(fn, doc="what the new row holds")
-    Ports: in -> out.
+map(T, fn, doc="what the new row holds")
+    Inputs: one input table, first.
     fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values.
 
-aggregate(by=[], name=reducer("col"), ...)
-    Ports: in -> out.
+aggregate(T, by=[], name=reducer("col"), ...)
+    Inputs: one input table, first.
     One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.
 
-join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
-    Ports: left, right -> out.
+join(L, R, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
+    Inputs: left table, then right table.
     on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.
 
-diff(key, columns, include_same=False)
-    Ports: in[0], in[1] -> out.
+diff(L, R, key, columns, include_same=False)
+    Inputs: earlier table, then later table.
     Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.
 
-union(schema="strict")
-    Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).
+union(T1, T2, ..., schema="strict")
+    Inputs: two or more input tables, in order.
     Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.
 
-distinct(columns=None, keep="first")
-    Ports: in -> out.
+distinct(T, columns=None, keep="first")
+    Inputs: one input table, first.
     Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order.
 
-sort(by, nulls="last")
-    Ports: in -> out.
+sort(T, by, nulls="last")
+    Inputs: one input table, first.
     Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last".
 
-limit(n, by=[...], offset=0)
-    Ports: in -> out.
+limit(T, n, by=[...], offset=0)
+    Inputs: one input table, first.
     Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys.
 
-window(partition_by=[], order_by=[...], name=fn, ...)
-    Ports: in -> out.
+window(T, partition_by=[], order_by=[...], name=fn, ...)
+    Inputs: one input table, first.
     Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.
 
-unpivot(columns, name="variable", value="value")
-    Ports: in -> out.
+unpivot(T, columns, name="variable", value="value")
+    Inputs: one input table, first.
     Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.
 
-pivot(index, columns, values)
-    Ports: in -> out.
+pivot(T, index, columns, values)
+    Inputs: one input table, first.
     Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.
 
-process(fn=function, doc="what it does")
-    Ports: in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader.
-    One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators.
+name(T1, ..., setting=value)
+    Inputs: the function's table parameters, in order.
+    A shared function you define at the margin of an edit with `def name(table, ..., setting=default):` and a one-sentence docstring, then call by name like an operator; see "Custom Python".
 ```
 
 ## Python implementations

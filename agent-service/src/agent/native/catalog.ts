@@ -977,20 +977,24 @@ export function nativeCatalogText(compact = false): string {
 }
 
 /** Graph authoring keeps table connections out of the parameter expression. */
+/** The call as an edit writes it: input tables first, then parameters. Custom
+ * Python is a shared function the edit defines and calls by name. */
 export function graphOperatorSignature(def: NativeOperatorDef): string {
-  if (def.name === "process") return 'process(fn=function, doc="what it does")';
-  if (def.name === "union") return 'union(schema="strict")';
-  return def.signature.replace(/\(T, /, "(").replace(/\(L, R, /, "(");
+  if (def.name === "process") return "name(T1, ..., setting=value)";
+  return def.signature;
 }
 
 export function graphOperatorPorts(def: NativeOperatorDef): string {
-  if (def.inputs === 0) return "no inputs -> out";
-  if (def.inputs === 1) return "in -> out";
-  if (def.inputs === 2) return def.name === "diff" ? "in[0], in[1] -> out" : "left, right -> out";
+  if (def.inputs === 0) return "no input tables";
+  if (def.inputs === 1) return "one input table, first";
+  if (def.inputs === 2) return def.name === "diff" ? "earlier table, then later table" : "left table, then right table";
   return def.name === "union"
-    ? "in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255)"
-    : "in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader";
+    ? "two or more input tables, in order"
+    : "the function's table parameters, in order";
 }
+
+const SHARED_FUNCTION_BRIEF =
+  'A shared function you define at the margin of an edit with `def name(table, ..., setting=default):` and a one-sentence docstring, then call by name like an operator; see "Custom Python".';
 
 export function graphCatalogText(names?: readonly string[]): string {
   const selected = names
@@ -1001,11 +1005,14 @@ export function graphCatalogText(names?: readonly string[]): string {
       })
     : NATIVE_OPERATORS;
   return selected
-    .map(def => `${graphOperatorSignature(def)}\n    Ports: ${graphOperatorPorts(def)}.\n    ${def.brief}`)
+    .map(
+      def =>
+        `${graphOperatorSignature(def)}\n    Inputs: ${graphOperatorPorts(def)}.\n    ${def.name === "process" ? SHARED_FUNCTION_BRIEF : def.brief}`
+    )
     .join("\n\n");
 }
 
-/** Signatures and ports stay visible when contracts are retrieved on demand. */
+/** Signatures and inputs stay visible when contracts are retrieved on demand. */
 export function graphCatalogIndexText(): string {
   return NATIVE_OPERATORS.map(def => `${graphOperatorSignature(def)} — ${graphOperatorPorts(def)}`).join("\n");
 }

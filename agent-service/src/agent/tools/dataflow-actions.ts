@@ -166,12 +166,12 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "edit",
-          'Apply operator create/update/delete commands and edge create/delete commands in changes, with type="edit". Atomic; does not execute.',
+          'Apply the statements in changes, with type="edit": assignments that create or replace operators, shared-function definitions, and del. Atomic; does not execute.',
           {
             changes: {
               ...text,
               description:
-                "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes.",
+                "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name; `name = function(input, ..., setting=value)` calls a shared function as an operator; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. Python indented under an assignment belongs to that operator only. A failed edit applies no changes.",
             },
           }
         ),
@@ -271,7 +271,7 @@ for (const entry of SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf) {
   entry.description = entry.description.replace("retrieve tables separately", "read tables separately");
   if (entry.properties.type.const === "edit" && "changes" in entry.properties)
     (entry.properties as unknown as { changes: { description: string } }).changes.description =
-      "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port; update operator id from id@N (the definition saved at the end of task N becomes current on today's inputs); create operator new from id@N (an editable copy with its saved direct inputs). A saved result is an edge source as id@N.out. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed edit applies no changes.";
+      "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name; `name = function(input, ..., setting=value)` calls a shared function as an operator; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. A saved version `name@N` can be an input table; `name = name@N` makes the definition saved at the end of task N current again on today's inputs, and `copy = name@N` copies it with its saved direct inputs. Python indented under an assignment belongs to that operator only. A failed edit applies no changes.";
 }
 SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action("read", "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns.", {
@@ -303,8 +303,7 @@ function validationMessage(input: any, stateHistory: boolean, savedVersions = fa
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
       if (!candidates.length) {
         if (["create", "update", "modify", "delete"].includes(item?.type)) {
-          const verb = item.type === "modify" ? "update" : item.type;
-          const changes = `${verb} operator <id>${verb === "delete" ? "" : ": <expression>"}`;
+          const changes = item.type === "delete" ? "del <name>" : "<name> = <operator>(<input>, ...)";
           return `Action ${index + 1}: ${JSON.stringify(item.type)} is a graph command. Put it inside an edit action: ${JSON.stringify({ type: "edit", changes })}. No actions ran.`;
         }
         return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use ${savedVersions ? "edit, execute, read, or answer" : "inspect, edit, execute, retrieve, or answer"}. Operators such as scan, process and aggregate belong inside an edit.`;
@@ -329,7 +328,7 @@ function validationMessage(input: any, stateHistory: boolean, savedVersions = fa
 
 export const DATAFLOW_ACTIONS_DESCRIPTION =
   "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
-  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. " +
+  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of statements such as `totals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))`. " +
   "Edits do not run the graph; retrieval reads existing results. " +
   "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
   "After an execution failure, inspect and retrieve may still read independent completed results. " +
@@ -475,7 +474,7 @@ export function createDataflowTool(
   return tool({
     description:
       stateHistory
-        ? "Use ordered edit, execute, read, and answer actions. Each answered task saves immutable versions addressed as ID@task. Read a saved definition or result, connect a saved result as an edge source, or answer from it. Historical reads never execute or fall back to current data. `update operator X from X@N` applies the old definition to current inputs; `create operator variant from X@N` creates an editable definition with saved direct inputs. Sources are required for content answers; [] declares that no table was used. Edits are atomic; a failed action skips later actions while earlier edits remain."
+        ? "Use ordered edit, execute, read, and answer actions. Each answered task saves immutable versions addressed as name@N. Read a saved definition or result, use it as an input table, or answer from it; historical reads never execute or fall back to current data. A rule that changes from here on is changed in place (restate the call or redefine the shared function), and the execute receipt compares recomputed tables with the version the last task saved. `name = name@N` makes an old definition current again on today's inputs; `copy = name@N` copies it with its saved direct inputs. Sources are required for content answers; [] declares that no table was used. Edits are atomic; a failed action skips later actions while earlier edits remain."
         : DATAFLOW_ACTIONS_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

@@ -17,24 +17,28 @@
   under the License.
 -->
 
-### Example: inspect and reuse an earlier result
+### Example: change a rule in place and use an earlier version
 
-The task asks for a temporary alternative to an earlier rule. First check
-that rule and its table coverage:
+Keep each rule in one shared function whose likely changes are settings, and
+cut reports with `limit(table, n, by=[...])`. When a request changes the rule
+from here on, change it in place: restate the call with the new setting
+(`scores = unit_scores(orders, delivered_only=True)`) or redefine the `def`.
+Everything built on it recomputes on the next execute, and the execute
+receipt compares each recomputed table with the version the last task saved
+(`changed since top3@1: 3 → 3 rows; entered (1): south; left (1): east`).
+For a question-only alternative, make one new call with the other setting
+and leave the main operators unchanged.
+
+An earlier version is one reference away: read `scores@2`, use it as an input
+(`moves = diff(scores@2, scores, key=["unit"], columns=["score"])`), answer
+from it, restore it in place with `scores = scores@2`, or copy it with
+`variant = scores@2`. Saved values are never recomputed from current files;
+if one is unavailable, the action fails clearly. For the complete worked
+example, inspect reference with topic=example and example=history.
+
 ```json
-{"reasoning":"Inspect the earlier computation before choosing what to reuse.","actions":[{"type":"read","operator_ids":["scores@2"],"view":"sample_stats","columns":null,"include_implementation":true}]}
+{"reasoning":"Check the earlier rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@2"],"view":"sample_stats","columns":null,"include_implementation":true}]}
 ```
-For an exact earlier table, connect `scores@2` directly. To change the old
-computation for this task only, use `create operator variant from scores@2`,
-then edit the variant. Its direct inputs remain saved references; explicitly
-rewire them if the question needs today's data. Execute `["variant"]` and
-answer from it. Keep the default operators unchanged.
-
-For a permanent return to that rule, `update operator scores from scores@2`
-keeps today's inputs and changes the default definition. Execute scores.
-Saved values are never recomputed from current files. If unavailable, the
-read fails clearly. For complete worked examples, inspect reference with
-topic=example and example=history.
 
 ```json
 {"reasoning":"Read the complete saved-version example.","actions":[{"type":"inspect","target":"reference","topic":"example","example":"history"}]}

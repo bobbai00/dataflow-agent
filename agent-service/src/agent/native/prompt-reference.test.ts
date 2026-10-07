@@ -31,13 +31,13 @@ test("on-demand prompt retains execution and state contracts with a smaller init
   expect(buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "full" } as any)).toBe(full);
   const lean = buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "on_demand" } as any);
   expect(lean.length).toBeLessThan(full.length);
-  expect(lean).not.toContain("Task 5 adopts");
-  expect(full).toContain("Task 5 adopts");
+  expect(lean).not.toContain("Task 6 returns to the first report's rule");
+  expect(full).toContain("Task 6 returns to the first report's rule");
   for (const contract of [
     "## Role and objective",
     "## Actions and their effects",
     "Each edit is atomic",
-    "occupied",
+    "Input tables come first",
     "### Understanding observations",
     "sample_stats",
     "scores@2",
@@ -113,7 +113,9 @@ test("prompt detail updates are validated atomically and rebuild the prompt", ()
 test("reference lookup returns only selected contracts and uses the canonical catalog", () => {
   const text = nativeReferenceText({ topic: "operators", operator_names: ["join", "process"] }, {});
   expect(text).toBe(graphCatalogText(["join", "process"]));
-  for (const name of ["join", "process"]) expect(text).toContain(NATIVE_OPERATORS.find(o => o.name === name)!.brief);
+  expect(text).toContain(NATIVE_OPERATORS.find(o => o.name === "join")!.brief);
+  // Custom Python is a shared function called by name, not process(fn=...).
+  expect(text).toContain("name(T1, ..., setting=value)");
   expect(text).not.toContain("pivot(");
   expect(() => nativeReferenceText({ topic: "operators", operator_names: ["made_up"] }, {})).toThrow();
 });

@@ -29,7 +29,7 @@ import { planGraphEdit } from "./tools/graph-edits";
 
 function examples(view: "full" | "sample" | "sample_stats" = "sample") {
   const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-  const section = prompt.split("### Example: default rules, a temporary branch and an earlier result")[1] ?? "";
+  const section = prompt.split("### Example: one session whose rules change")[1] ?? "";
   const calls = Array.from(section.matchAll(/```json\n([\s\S]*?)\n```/g), m => JSON.parse(m[1]));
   return { prompt, section, calls };
 }
@@ -61,7 +61,7 @@ test("computed answers prefer runtime composition and narrow the first retrieval
 test("history guidance explains complete delta blocks and exact references without correctness or cache guarantees", () => {
   for (const nativePromptDetail of ["full", "on_demand"] as const) {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, nativePromptDetail });
-    for (const text of ["first-edit order", "Process bodies", "Statistics and catalog records are off by default",
+    for (const text of ["first-edit order", "Function bodies", "Statistics and catalog records are off by default",
       "not a correctness guarantee", "All working tables", "HISTORICAL_RESULT_UNAVAILABLE",
       "never substitutes a newer table", "saved direct inputs", "exploratory reads do not become answer roots"])
       expect(prompt).toContain(text);
@@ -89,8 +89,8 @@ test("scope and repair guidance is general and works in ordinary ReAct without a
 
 test("multi-task saved versions use references while ordinary sessions keep their public vocabulary", () => {
   const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
-  for (const text of ["scores@2", "update operator scores from scores@2", "create operator variant from scores@2",
-    "matching completed", "current inputs", "historical", "top 5 by score"])
+  for (const text of ["scores@2", "scores = scores@2", "variant = scores@2", "diff(scores@2, scores",
+    "matching completed", "today's inputs", "historical", "top 5 by score", "changed since"])
     expect(history.toLowerCase()).toContain(text.toLowerCase());
   expect(history).not.toContain('"type": "fork"');
   expect(history).not.toContain('"target": "state"');

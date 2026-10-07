@@ -28,7 +28,7 @@ is cut to the requested count:
 {
   "reasoning": "Compute every unit's delivered-order score and rank a separate answer table.",
   "actions": [
-    {"type": "edit", "changes": "create operator orders: scan(\"data/unit_orders.csv\")\ncreate operator eligible: filter(lambda row: row[\"status\"] == \"delivered\", doc=\"Delivered orders\")\ncreate operator score: aggregate(by=[\"unit\"], score=sum(\"amount\"))\ncreate operator ranked: sort(by=[(\"score\", \"desc\"), \"unit\"])\ncreate operator report: limit(3)\ncreate edge orders.out -> eligible.in\ncreate edge eligible.out -> score.in\ncreate edge score.out -> ranked.in\ncreate edge ranked.out -> report.in"},
+    {"type": "edit", "changes": "orders = scan(\"data/unit_orders.csv\")\neligible = filter(orders, lambda row: row[\"status\"] == \"delivered\", doc=\"Delivered orders\")\nscore = aggregate(eligible, by=[\"unit\"], score=sum(\"amount\"))\nreport = limit(score, 3, by=[(\"score\", \"desc\"), \"unit\"])"},
     {"type": "execute", "operator_ids": ["report"]},
     {"type": "retrieve", "operator_id": "score", "view": "full"},
     {"type": "retrieve", "operator_id": "report", "view": "full"}
@@ -54,7 +54,7 @@ filtered `eligible` table, and connect the complete `score`, not `report`:
 {
   "reasoning": "Apply coverage measured on all orders while retaining every eligible unit score for later tasks.",
   "actions": [
-    {"type": "edit", "changes": "create operator unit_counts: aggregate(by=[\"unit\"], order_count=count())\ncreate operator counted_scores: join(on=\"unit\", how=\"left\", validate=\"one_to_one\")\ncreate operator covered_scores: filter(lambda row: row[\"order_count\"] >= 3, doc=\"Units with at least three source orders\")\ncreate edge orders.out -> unit_counts.in\ncreate edge score.out -> counted_scores.left\ncreate edge unit_counts.out -> counted_scores.right\ncreate edge counted_scores.out -> covered_scores.in\ndelete edge score.out -> ranked.in\ncreate edge covered_scores.out -> ranked.in\nupdate operator report: limit(5)"},
+    {"type": "edit", "changes": "unit_counts = aggregate(orders, by=[\"unit\"], order_count=count())\ncounted_scores = join(score, unit_counts, on=\"unit\", how=\"left\", validate=\"one_to_one\")\ncovered_scores = filter(counted_scores, lambda row: row[\"order_count\"] >= 3, doc=\"Units with at least three source orders\")\nreport = limit(covered_scores, 5, by=[(\"score\", \"desc\"), \"unit\"])"},
     {"type": "execute", "operator_ids": ["report"]},
     {"type": "retrieve", "operator_id": "covered_scores", "view": "full"},
     {"type": "retrieve", "operator_id": "report", "view": "full"}
@@ -82,8 +82,8 @@ report, so later tasks can locate the full working table.
 ### Example: repair an aggregate that reads a limited report
 
 A later request asks for the average score across every covered unit.
-Suppose `mean_score = aggregate(by=[], average_score=mean("score"))` was
-connected to the five-row `report`. Execution succeeds, but retrieving or
+Suppose `mean_score = aggregate(report, by=[], average_score=mean("score"))`
+reads the five-row `report`. Execution succeeds, but retrieving or
 inspecting `mean_score` includes this structural fact:
 
 ```text
@@ -91,19 +91,19 @@ inspecting `mean_score` includes this structural fact:
 - **mean_score** (aggregate, executed)
   - inputs: `report`
   - result: 1 row × 1 column
-  - scope: limit "report": n=5, offset=0; input "ranked" (8 rows); output 5 rows.
+  - scope: limit "report": n=5, offset=0; input "covered_scores" (8 rows); output 5 rows.
 ```
 
 The aggregate's single row can be displayed completely while its input covers
-only five units. The request concerns all eight covered units, so reconnect
-the aggregate to `covered_scores`, preserving the coverage rule and the
+only five units. The request concerns all eight covered units, so restate
+the aggregate on `covered_scores`, preserving the coverage rule and the
 earlier top-five answer:
 
 ```json
 {
   "reasoning": "Average every covered unit rather than only the previous report's selected units.",
   "actions": [
-    {"type": "edit", "changes": "delete edge report.out -> mean_score.in\ncreate edge covered_scores.out -> mean_score.in"},
+    {"type": "edit", "changes": "mean_score = aggregate(covered_scores, by=[], average_score=mean(\"score\"))"},
     {"type": "execute", "operator_ids": ["mean_score"]},
     {"type": "retrieve", "operator_id": "mean_score", "view": "full"}
   ]

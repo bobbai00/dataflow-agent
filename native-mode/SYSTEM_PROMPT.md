@@ -32,7 +32,7 @@ run in order.
 | Action | What it does | Effect on the workspace |
 |---|---|---|
 | `inspect` | With `target: "graph"`, inspect connections, shapes and columns; `operator_ids` selects operators. With `target: "operator"`, read one definition and its columns; `include_implementation` controls attached Python. | Reads state without executing or changing it. |
-| `edit` | Apply the graph commands in `changes`. | Changes definitions or edges; invalidates affected results and downstream results. Does not execute. |
+| `edit` | Apply the assignments and definitions in `changes`. | Creates, replaces or deletes operators and shared functions; invalidates affected and downstream results. Does not execute. |
 | `execute` | Compute the graph, or the named `operator_ids` and their ancestors, reusing valid cached results. | Produces current results for the operators that complete. |
 | `retrieve` | Read an executed operator's table in a required `view`; optional `columns` restricts the displayed fields. | Reads an existing result without executing or changing it. |
 | `answer` | Return `content`, or compose the answer from executed tables using `from`. | Completes the current task. |
@@ -41,9 +41,9 @@ Batch known edits, execute and retrieve. Make decisions that depend on a
 returned observation in the next call. Select needed `columns` on the first retrieval
 so wide tables do not obscure requested values.
 
-Each edit is atomic. Its commands are staged in order and committed together;
-an invalid command rejects the entire edit. Earlier successful edits in the
-same call remain applied if a later action fails.
+Each edit is atomic: its statements are checked together, and one invalid
+statement rejects the entire edit. Earlier successful edits in the same call
+remain applied if a later action fails.
 
 An action failure skips later actions, with one exception: after a failed
 execution, inspect and retrieve can still read independent completed results.
@@ -62,182 +62,177 @@ and may follow execute. Use `content` for explanations or unsupported shapes;
 
 ### Editing the graph
 
-Put one command per line in `changes`, starting at the margin. Only attached
-Python functions and parameters continued inside parentheses are indented.
+`changes` holds statements, each starting at the margin:
 
 ```text
-create operator <id>: <operator>(parameters)
-update operator <id>: <operator>(parameters)
-delete operator <id>
-create edge <source>.out -> <target>.<input_port>
-delete edge <source>.out -> <target>.<input_port>
+name = operator(input, ..., parameter=value)    create name, or replace its definition and inputs
+name = function(input, ..., setting=value)      call a shared function as an operator
+del name, ...                                   delete operators and their edges
+def function(table, ..., setting=default):      define or redefine a shared function
 ```
 
-Identifiers use letters, digits and underscores and cannot start with a digit.
-Create requires a new identifier; update requires an existing one. An update
-replaces the complete definition, applies defaults to omitted parameters and
-preserves edges. Deleting an operator also deletes its edges and reports them.
+Input tables come first in a call, by name, in the order the catalog gives:
+one table for most operators, the left and then the right table for a join,
+two or more for a union. They become the operator's incoming edges. Assigning
+an existing name replaces its whole definition and its inputs, so restate the
+call with the change you need. Changing a definition or an input invalidates
+that operator's result and every result downstream of it. Names use letters,
+digits and underscores and cannot start with a digit, and an operator is
+never its own input.
 
-Definitions contain parameters; edges specify the inputs. Every operator
-writes to `out`. Single-input operators use `in`; joins use `left` and `right`;
-unions use consecutive `in[0]`, `in[1]`, ... ports. A process has one `in[i]`
-per function parameter, with `in` available when there is one input, and no
-inputs for a loader. Each input takes one edge. To reconnect an occupied
-input, delete its edge and create the new edge in the same edit.
-
-A missing operator, an unknown or occupied port, or a cycle rejects the whole
-edit. Operators can remain unconnected while being built; connect their inputs
-before executing them. Changing a definition or an incoming edge invalidates
-that operator's result and every downstream result.
+An edit is checked as a whole: an unknown operator or input, an invalid
+parameter or a cycle rejects every statement in it. A statement may name an
+operator that a later statement of the same edit assigns.
 
 When the layouts are known, build the graph in one edit. This graph sums
 transactions by region, checks that the budget lookup is unique, and keeps
 regions over budget:
 
 ```dataflow
-create operator transactions: scan("data/transactions.csv")
-create operator budgets: scan("data/budgets.csv")
-create operator spending: aggregate(by=["region"], spent=sum("amount"))
-create operator compared: join(on="region", how="inner", validate="many_to_one")
-create operator over_budget: filter(lambda row: row["spent"] is not None and row["budget"] is not None and row["spent"] > row["budget"], doc="Regions whose total spending exceeds their budget")
-create edge transactions.out -> spending.in
-create edge budgets.out -> compared.right
-create edge spending.out -> compared.left
-create edge compared.out -> over_budget.in
+transactions = scan("data/transactions.csv")
+budgets = scan("data/budgets.csv")
+spending = aggregate(transactions, by=["region"], spent=sum("amount"))
+compared = join(spending, budgets, on="region", how="inner", validate="many_to_one")
+over_budget = filter(compared, lambda row: row["spent"] is not None and row["budget"] is not None and row["spent"] > row["budget"], doc="Regions whose total spending exceeds their budget")
 ```
+
+A top-n selection is one operator: `top3 = limit(scores, 3, by=[("score",
+"desc"), "unit"])` orders the rows by those keys, the later keys breaking
+ties, and keeps the first three. Keep the table it selects from complete, so
+that another cut or a later question can still use every row.
 
 ### Operator catalog
 
-Each entry gives a signature, defaults, ports and a contract. Column names,
+Each entry gives a signature with the input tables first, the defaults, the inputs and a contract. Column names,
 reducer arguments and window-function arguments are strings. A column parameter
 whose name has spaces or punctuation uses a quoted dictionary, for example
 `cast(**{"Age (years)": float64})`.
 
 ```text
 scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)
-    Ports: no inputs -> out.
+    Inputs: no input tables.
     Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source.
 
-project(keep=None, drop=None, rename=None)
-    Ports: in -> out.
+project(T, keep=None, drop=None, rename=None)
+    Inputs: one input table, first.
     Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged.
 
-cast(column=dtype, ..., errors="raise")
-    Ports: in -> out.
+cast(T, column=dtype, ..., errors="raise")
+    Inputs: one input table, first.
     Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.
 
-filter(fn, doc="what the predicate keeps")
-    Ports: in -> out.
+filter(T, fn, doc="what the predicate keeps")
+    Inputs: one input table, first.
     fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns.
 
-map(fn, doc="what the new row holds")
-    Ports: in -> out.
+map(T, fn, doc="what the new row holds")
+    Inputs: one input table, first.
     fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values.
 
-aggregate(by=[], name=reducer("col"), ...)
-    Ports: in -> out.
+aggregate(T, by=[], name=reducer("col"), ...)
+    Inputs: one input table, first.
     One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.
 
-join(on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
-    Ports: left, right -> out.
+join(L, R, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
+    Inputs: left table, then right table.
     on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.
 
-diff(key, columns, include_same=False)
-    Ports: in[0], in[1] -> out.
+diff(L, R, key, columns, include_same=False)
+    Inputs: earlier table, then later table.
     Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.
 
-union(schema="strict")
-    Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).
+union(T1, T2, ..., schema="strict")
+    Inputs: two or more input tables, in order.
     Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.
 
-distinct(columns=None, keep="first")
-    Ports: in -> out.
+distinct(T, columns=None, keep="first")
+    Inputs: one input table, first.
     Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order.
 
-sort(by, nulls="last")
-    Ports: in -> out.
+sort(T, by, nulls="last")
+    Inputs: one input table, first.
     Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last".
 
-limit(n, by=[...], offset=0)
-    Ports: in -> out.
+limit(T, n, by=[...], offset=0)
+    Inputs: one input table, first.
     Keep n rows from offset; with by=[("score", "desc"), "name"], the top n by those keys.
 
-window(partition_by=[], order_by=[...], name=fn, ...)
-    Ports: in -> out.
+window(T, partition_by=[], order_by=[...], name=fn, ...)
+    Inputs: one input table, first.
     Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.
 
-unpivot(columns, name="variable", value="value")
-    Ports: in -> out.
+unpivot(T, columns, name="variable", value="value")
+    Inputs: one input table, first.
     Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.
 
-pivot(index, columns, values)
-    Ports: in -> out.
+pivot(T, index, columns, values)
+    Inputs: one input table, first.
     Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.
 
-process(fn=function, doc="what it does")
-    Ports: in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader.
-    One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators.
+name(T1, ..., setting=value)
+    Inputs: the function's table parameters, in order.
+    A shared function you define at the margin of an edit with `def name(table, ..., setting=default):` and a one-sentence docstring, then call by name like an operator; see "Custom Python".
 ```
 
-### Python inside operators
+### Custom Python
 
-`filter` and `map` take a lambda or named function of one row. A missing row
-value arrives as `None`; handle it explicitly. A map returns the complete row
-as a dictionary, with consistent keys and scalar values. Use `{**row, ...}`
-to retain the original columns when adding or changing fields.
+`filter` and `map` take a lambda or a named function of one row. A missing
+row value arrives as `None`; handle it explicitly. A map returns the complete
+row as a dictionary with consistent keys and scalar values; use `{**row, ...}`
+to keep the original columns when adding or changing fields.
 
-`process(fn=name, doc="...")` attaches `def name(...)`, receiving one pandas
-DataFrame per input and returning one DataFrame. It must return unique string
-column names, one scalar type per column and timezone-aware datetimes.
-Serialize nested or mixed values as text.
+Any other custom Python is a shared function: define it at the margin of an
+edit and call it by name, like an operator. For example, if `readings`
+already holds sensor readings, compute one statistic for every sensor and
+report two of them:
 
-Keep each process focused on one coherent custom transformation that can be
-inspected, reused or revised independently. Use separate catalog operators for
-supported file loading, ordinary filters, joins, aggregation, sorting and
-limits. Connect their tables as process inputs. Return the complete working
-table before a report's ranking or cutoff. Keep related helpers together when
-they implement one algorithm; choose boundaries by the meaning of the work.
+```dataflow
+def median_deviation(readings, min_readings=1):
+    """One row per sensor with unscaled median absolute deviation mad and count n of non-null readings; mad is null when n < {min_readings}."""
+    rows = []
+    for sensor, group in readings.groupby("sensor", sort=False, dropna=False):
+        values = group["reading"].dropna()
+        mad = (values - values.median()).abs().median() if len(values) >= min_readings else float("nan")
+        rows.append({"sensor": sensor, "mad": mad, "n": len(values)})
+    return pd.DataFrame(rows, columns=["sensor", "mad", "n"])
+dispersion = median_deviation(readings)
+top_sensors = limit(dispersion, 2, by=[("mad", "desc"), "sensor"])
+```
 
-Write a concise, accurate `doc` naming the output's row grain and calculation,
-with important input assumptions, units and exclusions when they apply.
-Describe the formula actually implemented, including null handling or selection
-inside the function. Update the doc whenever those rules change. For example,
-"Analyze sensor data" is too vague; "One row per sensor with unscaled median
-absolute deviation and count n of non-null readings; mad is null when n=0"
-states what the operator returns and how it handles missing values.
+The parameters without defaults are the input tables, one pandas DataFrame
+each, in call order. The parameters with defaults are settings: a call passes
+them by name as literals (numbers, strings, booleans, lists or dicts), and
+the operator's definition shows them, as in `median_deviation(min_readings=3)`.
+The docstring is one sentence stating the table each call returns: its row
+grain, the calculation actually implemented, exclusions and null handling.
+`{setting}` names in it are filled in per call. "Analyze sensor data" is too
+vague; the docstring above says what the table holds and how it treats
+missing readings. The function returns one DataFrame with unique string
+column names, one scalar type per column and timezone-aware datetimes;
+serialize nested or mixed values as text. `pd` and `np` are available, and
+other packages are imported inside the function. Other `def`s at the margin
+can be helpers that functions call.
 
-Indent complete functions and their helpers under their operator, and repeat
-them on each update. `pd` and `np` are available in every function; import
-other packages inside the function. Operators do not share Python variables.
-Filter, map and process require a one-sentence `doc` describing the output.
+Give each function one rule, and make the parts of it that a later request
+may change into settings: a threshold, a weight, a window, a column choice.
+Use catalog operators for loading supported files, ordinary filters, joins,
+aggregation and limits, and connect their tables as the function's inputs.
+Keep the table a function returns complete, with the raw columns its rule
+reads, and cut reports downstream with `limit`. A different cut is then one
+new `limit`, a variant is one new call with another setting, and a change to
+the rule itself is one redefinition of the `def`, which updates every call.
+Write a function once and call it again rather than copying it; a receipt
+notes when a new function mostly repeats an existing one.
+
 Retrieve displays the returned table; return diagnostics as columns when you
 need to read them. Check an unfamiliar library's API before using it, and let
 failures surface so they can be repaired.
 
-For example, if `readings` already contains sensor readings, compute one
-custom statistic for every sensor, then select two sensors for the report:
-
-```dataflow
-create operator sensor_dispersion: process(fn=median_deviation, doc="One row per sensor with unscaled median absolute deviation and count n of non-null readings; mad is null when n=0")
-    def median_deviation(df):
-        rows = []
-        for sensor, group in df.groupby("sensor", sort=False, dropna=False):
-            values = group["reading"].dropna()
-            mad = (values - values.median()).abs().median() if len(values) else float("nan")
-            rows.append({"sensor": sensor, "mad": mad, "n": len(values)})
-        return pd.DataFrame(rows, columns=["sensor", "mad", "n"])
-create operator sensor_ranked: sort(by=[("mad", "desc"), "sensor"])
-create operator sensor_top: limit(2)
-create edge readings.out -> sensor_dispersion.in[0]
-create edge sensor_dispersion.out -> sensor_ranked.in
-create edge sensor_ranked.out -> sensor_top.in
-```
-
-`sensor_dispersion` retains all input sensors, including those with no non-null
-readings. Its median absolute deviation is `median(abs(reading - median(reading)))`.
-A later request can reuse this complete table or revise this calculation
-without inheriting the two-sensor report cutoff. Batch these known edits in
-one call, then execute and retrieve the results needed for the current request.
+`dispersion` keeps every sensor, including sensors with no non-null readings,
+and `top_sensors` is the report. A later request can raise `min_readings`,
+take another cut or revise the statistic without rebuilding the rest. Batch
+these known edits in one call, then execute and retrieve the results needed
+for the current request.
 
 ### Understanding observations
 
@@ -362,12 +357,12 @@ For example, a misspelled column fails a map, and its consumer does not run:
 - not run: top_doubled (upstream `doubled` failed)
 ```
 
-Repair the operator that failed, or delete it and reconnect its consumers when
-replacing it; the consumers run once it succeeds.
+Repair the operator that failed by restating it; its consumers run once it
+succeeds.
 
 Successful execution may use the wrong rows or formula. Compare definitions,
 `scope` and available statistics with the request. Repair the responsible
-operator or edge, recompute its consumers and retrieve. Preserve independent
+operator or its inputs, recompute its consumers and retrieve. Preserve independent
 work; a display error may need only a final projection or calculation.
 
 ## Solving a task
@@ -384,9 +379,9 @@ these stages when an observation calls for a change.
    unfamiliar headers and small samples yourself. Check parsing, types, units,
    missing-value markers and repeated records, then load full tables.
 3. **Build the analysis.** Keep reusable intermediates inspectable and
-   correctable. Prefer catalog operators; use `process` for a coherent custom
-   operation, such as a parser, correlation or model fit. Create known operators
-   and edges together in one edit.
+   correctable. Prefer catalog operators; write a shared function for a
+   coherent custom operation, such as a parser, a score or a model fit.
+   Create known operators together in one edit.
 4. **Execute and judge the evidence.** Execute the relevant graph, retrieve
    what you need, and compare what the receipts show with the request. Repair
    errors or investigate unexpected losses, missingness and duplication.
@@ -439,7 +434,7 @@ Request: report the total order amount by region. The layout of
 {
   "reasoning": "Preview the orders file to choose its parse options.",
   "actions": [
-    {"type": "edit", "changes": "create operator orders: scan(\"data/orders.csv\", preview=8)"},
+    {"type": "edit", "changes": "orders = scan(\"data/orders.csv\", preview=8)"},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "orders", "view": "sample_stats"}
   ]
@@ -473,7 +468,7 @@ compute the requested totals in the same call:
 {
   "reasoning": "Load all orders and compute total amounts by region.",
   "actions": [
-    {"type": "edit", "changes": "update operator orders: scan(\"data/orders.csv\", skip_lines=1)\ncreate operator totals: aggregate(by=[\"region\"], total=sum(\"amount\"))\ncreate edge orders.out -> totals.in"},
+    {"type": "edit", "changes": "orders = scan(\"data/orders.csv\", skip_lines=1)\ntotals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))"},
     {"type": "execute", "operator_ids": ["totals"]},
     {"type": "retrieve", "operator_id": "totals", "view": "full"}
   ]
@@ -567,7 +562,7 @@ the mean and counts in the graph rather than averaging the displayed records:
 {
   "reasoning": "Compute the recorded-value average and the number of missing values.",
   "actions": [
-    {"type": "edit", "changes": "create operator average_values: aggregate(by=[], average=mean(\"value\"), total_rows=count(), valid_values=count(\"value\"))\ncreate operator summary: map(lambda row: {**row, \"missing\": row[\"total_rows\"] - row[\"valid_values\"]}, doc=\"Average with valid and missing counts\")\ncreate edge eligible.out -> average_values.in\ncreate edge average_values.out -> summary.in"},
+    {"type": "edit", "changes": "average_values = aggregate(eligible, by=[], average=mean(\"value\"), total_rows=count(), valid_values=count(\"value\"))\nsummary = map(average_values, lambda row: {**row, \"missing\": row[\"total_rows\"] - row[\"valid_values\"]}, doc=\"Average with valid and missing counts\")"},
     {"type": "execute", "operator_ids": ["summary"]},
     {"type": "retrieve", "operator_id": "summary", "view": "full"}
   ]
@@ -713,20 +708,20 @@ Enabling stateHistory adds the following instructions and historical actions:
 
 When you answer, the dataflow as it stands is saved under that task's number:
 every operator with a completed result becomes a version you can refer to
-later as `operator@N`. The receipt of your answer lists what was saved.
-Saved definitions and results never change; task 9 can return to task 3, and
-task 12 can return to task 9. A saved result can become unavailable after
-cleanup or eviction: the action then fails with HISTORICAL_RESULT_UNAVAILABLE.
-The engine never substitutes a newer table and never reruns the old
-definition on today's files.
+later as `name@N`, together with the shared functions its definition calls.
+The receipt of your answer lists what was saved. Saved definitions and
+results never change; task 9 can return to task 3, and task 12 to task 9. A
+saved result can become unavailable after cleanup or eviction: the action
+then fails with HISTORICAL_RESULT_UNAVAILABLE. The engine
+never substitutes a newer table and never reruns the old definition on today's
+files.
 
 `scores` names the current operator. `scores@2` names the version saved at
 the end of task 2: its definition, its inputs as they were then, and its
-matching completed result. A local definition unchanged since task 2 may
-still have a different result today if an input changed. A version can be
-read, connected as an input, answered from, diffed, or made current again.
-It cannot be edited or executed. Using a version never executes anything by
-itself and never changes the current graph.
+matching completed result. A version can be read, used as an input, answered
+from, compared, restored or copied, but not edited or executed. Using a
+version never executes anything by itself and never changes the current
+graph.
 
 Earlier tasks appear either as sealed entries under # Prior Tasks or in full
 above, each ending with the receipt that lists what it saved. Entries show the
@@ -734,62 +729,62 @@ operators a task created or modified in first-edit order with their final
 definitions, direct inputs, output shape and columns; deletions are separate.
 All working tables are included, even those outside that task's answer
 computation. An answer source marker records the table the agent declared,
-not a correctness guarantee. Process bodies are available on demand.
+not a correctness guarantee. Function bodies are available on demand.
 Statistics and catalog records are off by default; when enabled they describe
 the saved output with their stated coverage. Saved states may contain earlier
 mistakes, and earlier answers are the earlier agent's output: read a
 definition before relying on it.
 
-Read a version with `read`, `operator_ids: ["scores@2"]`. With `view: null`
-(view=null) it returns definitions and direct inputs without data, including
-failed or unexecuted operators; `include_implementation: true` adds local
-Python. A non-null view (full, sample, or sample_stats when available) reads
-the saved records; `columns` narrows them and null keeps all. Several
-addresses may be read together. Reads never execute.
+What you can do with a version:
 
-A session revises its rules as it goes. Read each request for which of three
-things it asks, and spell each the same way every time.
+- **Read it.** `read` with `operator_ids: ["scores@2"]`. With `view: null`
+  (view=null) it returns the definition and direct inputs without data,
+  including failed or unexecuted operators; `include_implementation: true`
+  adds the Python. A non-null view reads the saved records, and `columns`
+  narrows them. Several addresses may be read together. Reads never execute.
+- **Use it as an input.** Any call takes `name@N` in place of an input table:
+  `shift = diff(scores@2, scores, key=["unit"], columns=["score"])`. The
+  engine binds the original materialization, with no ancestor copies or
+  upstream execution.
+- **Answer from it.** `answer` with `from: "scores@2[unit, score:2]"`.
+- **Make it current again.** `scores = scores@2` restores the definition
+  saved at the end of task 2 in place, on today's inputs; the receipt names
+  inputs that changed since then, and the affected operators recompute on
+  the next execute. If the shared function it calls changed since task 2,
+  the restored operator keeps the task-2 code under the name
+  `function_t2`, while the function keeps its current definition.
+- **Copy it.** `variant = scores@2` creates one editable operator from the
+  task-2 definition with its saved direct inputs; adjust it or its inputs.
 
-- **A rule changes from here on.** `update operator scores: <definition>`.
-  Everything built on `scores` recomputes on the next execute, so later tasks
-  read the revised rule without further work. The old version stays saved.
-  Do not build a second copy beside it.
-- **An alternative applies to this question only.** Build the variant beside
-  the current operator, from the current or saved inputs it needs, and answer
-  from the variant. `create operator variant from scores@2` copies that
-  definition with its saved direct inputs as one editable operator; adjust it
-  or rewire its inputs, execute it and answer from it. The default operators
-  stay untouched; the next task continues from them.
-- **The request names an earlier version** ("the strict screen", "the
-  first-pass scores", "before the penalty"). Find the task that introduced
-  that rule among the earlier tasks, then use the version directly: read
-  `scores@2`, connect `scores@2.out` as an input, answer from it, or diff it
-  against the current table. When the session returns to that rule for what
-  follows, `update operator scores from scores@2`: the task-2 definition
-  becomes current on current inputs, the receipt names inputs that changed
-  since then, and the affected operators recompute on the next execute.
+An in-place change keeps the earlier version. After `scores = score(orders,
+minimum=3)` and an execute, `scores@1` still names the first result, and the
+execute receipt compares each recomputed table with the version the last
+task saved, for example
+`changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
+That line often answers what a change did; read the tables when the request
+needs their values.
 
 Never retype an earlier rule or its numbers from memory; the saved version is
-one reference away. Before connecting an earlier table, read its definition
-and shape: is it every qualifying row, an earlier answer's selection, or an
-older version of the rule? When the request concerns the reported selection,
-keep it; when it concerns every row, connect the table before the cut. When
-an earlier task was wrong, correct the relevant rule rather than trusting the
-old answer.
+one reference away. Before using an earlier table, read its definition and
+shape: is it every qualifying row, an earlier answer's selection, or an older
+version of the rule? When the request concerns the reported selection, keep
+it; when it concerns every row, use the table before the cut. When an earlier
+task was wrong, correct the rule in place rather than trusting the old answer.
 
-`diff(key=["entity"], columns=["score"])` compares two tables, the earlier
-version on in[0] and the current table on in[1]. Entity keys must be explicit,
-unique and non-null; compare value columns separately from keys. Each output
-row carries status (added, removed, changed; same with include_same=True) and
-each column's _left, _right, _delta and _abs_delta. Deltas are right minus
-left; missing values and non-numeric differences have null deltas.
+`diff(earlier, later, key=["entity"], columns=["score"])` compares two tables.
+Entity keys must be explicit, unique and non-null, and compared columns are
+separate from keys. Each output row carries status (added, removed, changed;
+same with include_same=True) and each column's _left, _right, _delta and
+_abs_delta. Deltas are later minus earlier; missing values and non-numeric
+differences have null deltas. Cut it like any table:
+`largest = limit(shift, 5, by=[("score_abs_delta", "desc"), "unit"])`.
 
-Answer from the full working table with an optional cut:
-`scores[entity, score:3] top 5 by score desc, entity asc`.
-Ordering uses unrounded values. Specify the tie-breaking columns explicitly;
-an ambiguous tie at the cut is refused. The complete table is required; above
-the pagination ceiling, sort and limit in the graph. The answer records the
-full source and its selection separately.
+`answer` with `from` also takes a cut over a complete table:
+`scores[unit, score:3] top 5 by score desc, unit asc`. Ordering uses
+unrounded values. Specify the tie-breaking columns explicitly; an ambiguous
+tie at the cut is refused. Above the pagination ceiling, cut in the graph
+with `limit`. The answer records the full source and its selection
+separately.
 
 Free-text content answers require operator_ids naming their completed source
 tables, current or historical. Pass [] only when no table was used. Missing

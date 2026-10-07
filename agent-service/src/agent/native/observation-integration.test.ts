@@ -244,7 +244,7 @@ test("every prompt capability combination matches its schema and keeps the commo
             expect(prompt.includes("#### Data statistics")).toBe(data);
             expect(prompt.includes("#### Flow statistics")).toBe(flow);
             expect(prompt.includes("### Earlier tasks in the session")).toBe(history);
-            expect(prompt.includes("### Example: default rules, a temporary branch and an earlier result")).toBe(history);
+            expect(prompt.includes("### Example: one session whose rules change")).toBe(history);
             expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
             // Every fence closes, and example receipts carry only enabled statistics and this table syntax.
             expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
@@ -255,7 +255,7 @@ test("every prompt capability combination matches its schema and keeps the commo
             // As in the renderer, an execute receipt's blocks all have something to report.
             for (const section of receipts.split(/^(?=### )/m).filter(text => /^### \d+\. execute\b/.test(text)))
               for (const block of section.split(/^(?=- \*\*)/m).slice(1))
-                expect(block).toMatch(/^ {2}- (error|note|check|flow|scope)\b/m);
+                expect(block).toMatch(/^ {2}- (error|note|check|flow|scope|changed)\b/m);
             for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
               expect(prepareDataflowActions(JSON.parse(json), views, history, history).status).toBe("pending");
             expect(JSON.stringify(dataflowActionsSchema(history))).not.toContain('"const":"fork"');

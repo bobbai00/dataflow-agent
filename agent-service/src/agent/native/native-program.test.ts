@@ -715,10 +715,10 @@ describe("native prompt", () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const view of ["full", "sample", "sample_stats"] as const) {
       const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
-      const section = prompt.split("### Example: default rules, a temporary branch and an earlier result")[1]!;
+      const section = prompt.split("### Example: one session whose rules change")[1]!;
       const calls = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
       const read = calls.flatMap(call => call.actions).find((a: any) => a.type === "read" && a.view === null);
-      expect(read).toMatchObject({ operator_ids: ["scores@1", "eligible@1"], view: null });
+      expect(read).toMatchObject({ operator_ids: ["scores@1"], view: null });
       for (const call of calls) {
         expect(prepareDataflowActions(call, [view], true, true).status).toBe("pending");
         for (const item of call.actions) if (item.type === "read" && item.view !== null) expect(item.view).toBe(view);
@@ -742,7 +742,7 @@ describe("native prompt", () => {
     expect(prompt).toContain("Failed-value");
     expect(prompt).toContain("unmatched-key examples");
     expect(prompt).toContain("window boundary");
-    expect(prompt).toContain("reconnect it and recompute");
+    expect(prompt).toContain("restate the join on the normalized orders and recompute");
     for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
       expect(prepareDataflowActions(JSON.parse(json), ["full", "sample", "sample_stats"]).error).toBeUndefined();
     const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
@@ -767,7 +767,7 @@ describe("native prompt", () => {
     const examples = nativeRetrievalExamples({ retrievalViews: ["sample_stats"], flowEvidence: true });
     const repair = [...examples.matchAll(/```json\n([\s\S]*?)\n```/g)]
       .map(([, json]) => JSON.parse(json))
-      .find(e => e.actions.some((a: any) => a.type === "edit" && a.changes.includes("update operator typed")));
+      .find(e => e.actions.some((a: any) => a.type === "edit" && a.changes.includes("typed = cast(")));
     const directory = mkdtempSync(join(tmpdir(), "native-evidence-prompt-"));
     try {
       const path = join(directory, "values.csv");
@@ -778,11 +778,9 @@ describe("native prompt", () => {
       const initial = await planGraphEdit(
         state.getWorkflowContent(),
         `
-create operator source: scan(${JSON.stringify(path)}, all_text=True)
-create operator typed: cast(value=int64, errors="null")
-create operator total: aggregate(average=mean("value"))
-create edge source.out -> typed.in
-create edge typed.out -> total.in
+measurements = scan(${JSON.stringify(path)}, all_text=True)
+typed = cast(measurements, value=int64, errors="null")
+total = aggregate(typed, average=mean("value"))
 `,
         { metadataStore }
       );
@@ -805,7 +803,7 @@ create edge typed.out -> total.in
     expect(prompt).toContain("A complete view of a scan preview");
     expect(prompt).toContain("not a random sample");
     expect(prompt).toContain("Statistics are collected independently of the displayed sample records");
-    expect(prompt).toContain("window(partition_by=");
+    expect(prompt).toContain("window(T, partition_by=");
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
@@ -883,7 +881,7 @@ create edge typed.out -> total.in
   test("the native calculation example executes as separate connected stages in one edit", async () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
     const example = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].find(([, changes]) =>
-      changes.includes("create operator over_budget:")
+      changes.includes("over_budget = filter(")
     )?.[1];
     expect(example).toBeDefined();
 
@@ -930,25 +928,25 @@ create edge typed.out -> total.in
             stateHistory: multiTask,
           });
           const example = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].find(([, changes]) =>
-            changes.includes("create operator sensor_dispersion:")
+            changes.includes("dispersion = median_deviation(readings)")
           )?.[1];
           expect(example).toBeDefined();
           const { state } = nativeTestTools();
           const metadataStore = new WorkflowSystemMetadata();
           metadataStore.seedCodeModeDefaults();
-          const changes = `create operator readings: scan(${JSON.stringify(readings)})\n${example!}`;
+          const changes = `readings = scan(${JSON.stringify(readings)})\n${example!}`;
           const plan = await planGraphEdit(state.getWorkflowContent(), changes, { metadataStore });
           state.setWorkflowContent(plan.workflow);
           expect(missingGraphInputs(plan.workflow)).toEqual([]);
-          expect(state.getOperator("sensor_dispersion")!.nativeOp!.inputs).toEqual(["readings"]);
-          const results = execute(state, ["sensor_dispersion", "sensor_top"]);
-          expect(results.sensor_dispersion).toEqual([
+          expect(state.getOperator("dispersion")!.nativeOp!.inputs).toEqual(["readings"]);
+          const results = execute(state, ["dispersion", "top_sensors"]);
+          expect(results.dispersion).toEqual([
             { sensor: "A", mad: 2, n: 3 },
             { sensor: "B", mad: 0, n: 2 },
             { sensor: "C", mad: null, n: 0 },
             { sensor: "D", mad: 10, n: 2 },
           ]);
-          expect(results.sensor_top).toEqual([
+          expect(results.top_sensors).toEqual([
             { sensor: "D", mad: 10, n: 2 },
             { sensor: "A", mad: 2, n: 3 },
           ]);

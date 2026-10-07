@@ -309,7 +309,7 @@ describe("ordered dataflow actions", () => {
     expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
       asSchema(createDataflowTool(["full", "sample", "sample_stats"], true).inputSchema).jsonSchema
     );
-    expect(s.agent.getSettings().systemPrompt).toContain("create operator variant from scores@2");
+    expect(s.agent.getSettings().systemPrompt).toContain("variant = scores@2");
   });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
@@ -436,7 +436,7 @@ describe("ordered dataflow actions", () => {
     for (const type of ["create", "update", "modify", "delete"]) {
       const result = prepareDataflowActions({ reasoning: "Change the graph.", actions: [{ type }] });
       expect(result.error).toContain('"type":"edit"');
-      expect(result.error).toContain(`"changes":"${type === "modify" ? "update" : type} operator`);
+      expect(result.error).toContain(type === "delete" ? '"changes":"del <name>"' : '"changes":"<name> = <operator>(<input>, ...)"');
       expect(result.actions).toEqual([]);
     }
   });

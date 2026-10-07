@@ -6,7 +6,7 @@ Native mode exposes one dataflow tool with a brief rationale and an ordered acti
 
 ## `dataflow`
 
-Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.
+Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of statements such as `totals = aggregate(orders, by=["region"], total=sum("amount"))`. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. An answer with content must be the only action in its call; an answer with from (composed from an executed table) is the last action of its call.
 
 ```json
 {
@@ -200,14 +200,14 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed Edit applies no changes."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name; `name = function(input, ..., setting=value)` calls a shared function as an operator; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. Python indented under an assignment belongs to that operator only. A failed edit applies no changes."
               }
             },
             "required": [
               "type",
               "changes"
             ],
-            "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
+            "description": "Apply the statements in changes, with type=\"edit\": assignments that create or replace operators, shared-function definitions, and del. Atomic; does not execute."
           },
           {
             "type": "object",
@@ -496,14 +496,14 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; update operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port; update operator id from id@N (the definition saved at the end of task N becomes current on today's inputs); create operator new from id@N (an editable copy with its saved direct inputs). A saved result is an edge source as id@N.out. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Update supplies the complete definition and preserves connections. Deleting an operator automatically deletes its incident edges. Edges cannot be updated. A failed edit applies no changes."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, with the input tables first, by name; `name = function(input, ..., setting=value)` calls a shared function as an operator; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines a shared function, and redefining it updates every call; `del name, ...` deletes operators and their edges. A saved version `name@N` can be an input table; `name = name@N` makes the definition saved at the end of task N current again on today's inputs, and `copy = name@N` copies it with its saved direct inputs. Python indented under an assignment belongs to that operator only. A failed edit applies no changes."
               }
             },
             "required": [
               "type",
               "changes"
             ],
-            "description": "Apply operator create/update/delete commands and edge create/delete commands in changes, with type=\"edit\". Atomic; does not execute."
+            "description": "Apply the statements in changes, with type=\"edit\": assignments that create or replace operators, shared-function definitions, and del. Atomic; does not execute."
           },
           {
             "type": "object",
