@@ -608,6 +608,29 @@ export async function executeDataflowActionBatch(
       );
       const versions = plan.versions?.map(version => version.command) ?? [];
       const versionNotes = [...(plan.versions?.map(version => version.note) ?? []), ...(plan.notes ?? [])];
+      // A saved version used as an input never follows later changes. When it
+      // is the same table as the current one, the name is the input to use.
+      const frozen = new Set<string>();
+      for (const change of plan.changes) {
+        if (change.operation !== "create_edge" || !change.edge) continue;
+        const source = change.edge.split(" -> ")[0].replace(/\.out$/, "");
+        const ref = parseOperatorReference(source);
+        if (ref.taskId === undefined || frozen.has(source)) continue;
+        try {
+          const saved = resolveSavedOperator(storage, runtime.historicalTasks ?? [], source, true);
+          const now = current(ref.operatorId);
+          if (now && !now.error && saved.info?.resultVersion?.id && saved.info.resultVersion.id === now.resultVersion?.id)
+            frozen.add(source);
+        } catch {
+          // An unavailable version fails or is reported where it is used.
+        }
+      }
+      for (const source of frozen) {
+        const name = source.split("@")[0];
+        versionNotes.push(
+          `${source} is the same table as the current ${name}. ${name} follows later changes to it and ${source} never does; use ${name} unless the request needs the table as it was then.`
+        );
+      }
       const restoredIds = new Map<string, string>();
       for (const fork of plan.forks ?? [])
         for (const id of Object.values(fork.mapping)) restoredIds.set(id, `forked from task ${fork.task_id}`);

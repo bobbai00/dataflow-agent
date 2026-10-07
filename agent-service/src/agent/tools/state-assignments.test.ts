@@ -121,10 +121,27 @@ describe("state across tasks in assignment edits", () => {
     ]);
     await s.agent.sendMessage("From now on, weight the scores by -1. Which units are on top now?");
     const receipt = renderDataflowActionsResult(s.outcomes[2]);
+    expect(receipt).not.toContain("is the same table as the current");
     expect(receipt).toContain("results invalidated: scores, top");
     expect(receipt).toContain("changed since top@1: 2 → 2 rows; entered (1): c; left (1): a; 1 kept with new values (rows matched on unit).");
     expect(receipt).not.toContain("changed since orders@1");
     expect(receipt).toContain("changed since scores@1: 3 → 3 rows; 3 kept with new values (rows matched on unit).");
+  });
+
+  test("a saved input that equals the current table gets a note to use the name", async () => {
+    const s = session([
+      [{ type: "edit", changes: TASK_1 }, { type: "execute", operator_ids: ["top"] }],
+      [{ type: "answer", content: "done", operator_ids: ["top"] }],
+    ]);
+    await s.agent.sendMessage("Task 1.");
+    s.replace([
+      [{ type: "edit", changes: "again = score(orders@1, weight=2)" }, { type: "execute", operator_ids: ["again"] }],
+      [{ type: "answer", content: "done", operator_ids: ["again"] }],
+    ]);
+    await s.agent.sendMessage("Task 2.");
+    expect(renderDataflowActionsResult(s.outcomes[2])).toContain(
+      "orders@1 is the same table as the current orders. orders follows later changes to it and orders@1 never does"
+    );
   });
 
   test("saved versions are inputs, copies and in-place restores", async () => {
