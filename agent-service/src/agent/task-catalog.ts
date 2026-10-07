@@ -23,7 +23,7 @@ import { pyLiteral } from "./tools/shared-functions";
 import { isDeepStrictEqual } from "node:util";
 import type { TaskHistory, TaskRecord } from "./task-history";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import type { DataflowActionsResult } from "./tools/dataflow-actions";
+import { editApplied, type DataflowActionsResult } from "./tools/dataflow-actions";
 import type { GraphChangeReceipt, GraphForkReceipt } from "./tools/graph-edits";
 import {
   columnsFromInput,
@@ -67,7 +67,7 @@ export function collectTaskEdits(storage: WorkflowSnapshotStorage, task: TaskHis
       const receipt = tool.output as DataflowActionsResult | undefined;
       if (receipt?.kind !== "dataflow-actions") continue;
       for (const item of receipt.actions) {
-        if (item.status !== "ok" || !["edit", "fork"].includes(item.action.type)) continue;
+        if (!(item.status === "ok" && item.action.type === "fork") && !editApplied(item)) continue;
         const output = item.output as
           | {
               changes?: GraphChangeReceipt[];

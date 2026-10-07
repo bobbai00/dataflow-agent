@@ -482,6 +482,15 @@ export function createDataflowTool(
   });
 }
 
+/** An edit changed the graph: it succeeded, or it applied the statements
+ * around a held one (the action then reports an error so the call stops). */
+export function editApplied(item: DataflowActionsResult["actions"][number]): boolean {
+  if (item.action.type !== "edit") return false;
+  if (item.status === "ok") return true;
+  const output = item.output as { held?: unknown[]; applied?: number } | undefined;
+  return item.status === "error" && !!output?.held?.length && (output.applied ?? 0) > 0;
+}
+
 export function asDataflowActionsResult(output: unknown): DataflowActionsResult | undefined {
   if (!output || typeof output !== "object") return undefined;
   const r = output as DataflowActionsResult;

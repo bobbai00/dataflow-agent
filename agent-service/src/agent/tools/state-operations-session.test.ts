@@ -183,3 +183,19 @@ test("an entry lists columns where a chain starts and only the change after that
   expect(entry).not.toContain("signature:");
   expect(entry).not.toContain("scope:");
 });
+
+test("an entry keeps what an edit with a held statement applied", async () => {
+  const s = session([
+    [{ type: "edit", changes: `${TASK_1}\nview = scores` }, { type: "execute", operator_ids: ["top2"] }],
+    [{ type: "edit", changes: 'view = limit(scores, 3, by=[("score", "desc"), "unit"])' }, { type: "execute", operator_ids: ["top2", "view"] }],
+    [{ type: "answer", content: "done", operator_ids: ["top2"] }],
+  ]);
+  await s.agent.sendMessage("Task 1.");
+  expect(s.outcomes[0].actions[0].status).toBe("error");
+  const entry = renderDataflowActionsResult(s.outcomes[2]);
+  const order = ["orders", "scores", "top2", "view"].map(id => entry.indexOf(`> - **${id}** (`));
+  expect(order.every(i => i >= 0)).toBe(true);
+  expect([...order].sort((a, b) => a - b)).toEqual(order);
+  expect(entry).toContain("> - **scores** (process, created)");
+  expect(entry).not.toContain("(process, updated)");
+});

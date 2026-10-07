@@ -127,7 +127,7 @@ import {
   shouldNudge,
 } from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
-import { createDataflowTool, asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
+import { createDataflowTool, asDataflowActionsResult, editApplied, type DataflowActionsResult } from "./tools/dataflow-actions";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
@@ -2656,7 +2656,9 @@ export class TexeraAgent {
                   );
                   this.workflowState.setWorkflowContent(plan.workflow);
                 } else if (item.action.type === "edit" && "changes" in item.action) {
-                  if (item.status === "ok") {
+                  // An edit with held statements applied the rest; replaying it
+                  // holds the same statements again.
+                  if (editApplied(item)) {
                     if ((item.output as { ordered_versions?: boolean } | undefined)?.ordered_versions) {
                       const plan = await planVersionedGraphEdit(
                         this.workflowState.getWorkflowContent(),
@@ -3107,7 +3109,7 @@ export class TexeraAgent {
               .flatMap(step =>
                 (step.toolResults ?? []).flatMap(result =>
                   (asDataflowActionsResult(result.output)?.actions ?? [])
-                    .filter(action => action.status === "ok" && action.action.type === "edit")
+                    .filter(editApplied)
                     .flatMap(action =>
                       (
                         (action.output as { operator_blocks?: Array<{ id: string; state: string }> })
