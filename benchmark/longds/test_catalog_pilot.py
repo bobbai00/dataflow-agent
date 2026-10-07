@@ -19,7 +19,7 @@ import unittest
 import json
 from pathlib import Path
 import tempfile
-from catalog_pilot import task_index, Kernel, assemble_messages
+from catalog_pilot import task_entry, Kernel, assemble_messages
 
 
 class ContextContractTest(unittest.TestCase):
@@ -27,7 +27,7 @@ class ContextContractTest(unittest.TestCase):
         answer = json.dumps({'rows': ['complete_answer'] * 200})
         task = {'turn_id': 1, 'completed': True, 'context': '', 'question': 'First',
                 'answer': answer, 'sources': [], 'scripts': []}
-        self.assertIn('Answer: ' + answer, task_index([task]))
+        self.assertIn('Answer: ' + answer, task_entry(task))
 
     def test_trajectory_reuses_only_each_tasks_own_frames_and_boundary(self):
         task = {'turn_id': 1, 'completed': True, 'context': '', 'question': 'First',
@@ -43,15 +43,31 @@ class ContextContractTest(unittest.TestCase):
         self.assertEqual(task['trajectory_messages'][0]['content'], 'First')
 
     def test_prior_task_keeps_its_complete_request_but_not_code(self):
+        request = '[Task 1]\nKeep four decimals and rank all eligible markets.\nQuestion: Build the working tables.'
         task = {'turn_id': 1, 'completed': True, 'context': 'Keep four decimals and rank all eligible markets.',
-                'question': 'Build the working tables.', 'answer': '{"count":2}', 'sources': ['table'],
+                'question': 'Build the working tables.', 'request': request, 'answer': '{"count":2}', 'sources': ['table'],
                 'scripts': [{'script_id': 't1_s1', 'success': True, 'writes': ['table'],
                              'references': [], 'source': 'private old ReAct code'}]}
-        rendered = task_index([task])
-        self.assertIn(task['context'], rendered)
-        self.assertIn(task['question'], rendered)
-        self.assertNotIn('private old ReAct code', rendered)
-        self.assertNotIn('Task 2', rendered)
+        messages = assemble_messages('system', 'files', 'Second', [task], 'catalog')
+        # The request stays as it was sent; the entry after it gives the outcome only.
+        self.assertEqual(messages[3], {'role': 'user', 'content': request})
+        self.assertEqual(messages[4], {'role': 'assistant', 'content': task_entry(task)})
+        self.assertNotIn(task['question'], task_entry(task))
+        self.assertNotIn('private old ReAct code', json.dumps(messages))
+
+    def test_each_tasks_first_call_extends_the_previous_tasks_first_call(self):
+        tasks = [{'turn_id': n, 'completed': True, 'context': f'Rule {n}.', 'question': f'Question {n}?',
+                  'request': f'[Task {n}]\nRule {n}.\nQuestion: Question {n}?', 'answer': '{}', 'sources': [],
+                  'scripts': []} for n in (1, 2, 3)]
+        first_calls = [assemble_messages('system', 'files', task['request'], tasks[:i], 'catalog')
+                       for i, task in enumerate(tasks)]
+        # Task 2 adds the one Prior Tasks header; from then on each first call
+        # is the previous one plus that task's entry and the new request.
+        for earlier, later in zip(first_calls[1:], first_calls[2:]):
+            self.assertEqual(later[:len(earlier)], earlier)
+        self.assertEqual(first_calls[2][len(first_calls[1]):],
+                         [{'role': 'assistant', 'content': task_entry(tasks[1])},
+                          {'role': 'user', 'content': tasks[2]['request']}])
 
     def test_task_catalog_has_saved_statistics_without_code_or_sample_records(self):
         task = {'turn_id': 1, 'completed': True, 'context': '', 'question': 'Build tables.',
@@ -59,7 +75,7 @@ class ContextContractTest(unittest.TestCase):
                     'script_id': 't1_s1', 'success': True, 'writes': ['table'], 'references': [],
                     'source': 'PRIVATE_SCRIPT', 'output': 'PRIVATE_SAMPLE',
                     'written_bindings': {'table': {'summary': '100 rows × 2 columns; stats full; amount:float64(null=0/100)'}}}]}
-        rendered = task_index([task])
+        rendered = task_entry(task)
         self.assertIn('table: 100 rows × 2 columns', rendered)
         self.assertNotIn('PRIVATE_SCRIPT', rendered)
         self.assertNotIn('PRIVATE_SAMPLE', rendered)

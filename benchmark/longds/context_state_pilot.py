@@ -173,6 +173,8 @@ def freeze(root, spend_limit, cases_spec=None, models=MODELS, contexts=CONTEXTS,
         'native_settings': {c: native_settings(c) for c in contexts},
         'baseline': 'Ordinary persistent Python with script catalog or exact trajectory; retention freely chosen.',
         'python_answer_receipt': 'Immutable task/script catalog boundary in both policies.',
+        'python_context_layout': 'Append-only, as in the dataflow arm: each earlier request in place, then its entry.',
+        'python_gateway': os.environ.get('LITELLM_BASE_URL', 'http://localhost:4000'),
         'task_prompt_policy': 'Identical question and first-request analysis instructions; framework system/tools differ.',
         'solver_attempt_policy': 'Every question in each natural prefix; no replay, injected gold, retries or scaling.',
         'spend_guard_usd': spend_limit,
@@ -402,7 +404,9 @@ def run_job(job, protocol, folder, guard, spend_file=None, resume_from=None):
                               complete_observer_tables=True)
         else:
             instance = Kernel(manifest, output)
-            client = OpenAI(base_url='http://localhost:4000/v1', api_key=os.environ['LITELLM_MASTER_KEY'],
+            # The same gateway as the dataflow service, so both arms use one key and one cache.
+            client = OpenAI(base_url=os.environ.get('LITELLM_BASE_URL', 'http://localhost:4000').rstrip('/') + '/v1',
+                            api_key=os.environ['LITELLM_MASTER_KEY'],
                             max_retries=0, timeout=protocol.get('completion', {}).get('transport_timeout_seconds', 180))
         if resume_from:
             prefix = completed_prefix(resume_from)

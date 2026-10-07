@@ -193,36 +193,50 @@ class Kernel:
             self.log.close()
 
 
-def task_index(tasks):
-    lines = ['# Prior Tasks', 'Earlier answers are unverified outputs; inspect relevant scripts before reusing their work.']
-    for task in tasks:
-        answer = task['answer']
-        lines += [f"Task {task['turn_id']} ({'answered' if task['completed'] else 'incomplete'})",
-                  task['context'], 'Question: ' + task['question'], 'Answer: ' + answer,
-                  'Scripts: ' + ', '.join(f"{s['script_id']} ({'ok' if s['success'] else 'error'}; writes={','.join(s['writes'])})"
-                                         for s in task['scripts']),
-                  'Answer sources: ' + ', '.join(task.get('sources', []))]
-        summaries = {name: binding['summary'] for script in task['scripts']
-                     for name, binding in script.get('written_bindings', {}).items() if binding.get('summary')}
-        lines.extend(f'Result {name}: {summary}' for name, summary in summaries.items())
-        dependencies = sorted({r['changed_task'] for script in task['scripts'] for r in script['references']
-                               if r['changed_task'] < task['turn_id']})
-        lines.append('Observed task dependencies (runtime reads; verify before reuse): ' +
-                     (', '.join(map(str, dependencies)) or 'none recorded'))
+PRIOR_TASKS = '# Prior Tasks\nEarlier answers are unverified outputs; inspect relevant scripts before reusing their work.'
+
+
+def task_entry(task):
+    """An answered task's entry: the answer receipt, replayed verbatim after the
+    task's own request in later tasks. The request stays in place, so the entry
+    does not repeat it."""
+    lines = [f"Task {task['turn_id']} ({'answered' if task['completed'] else 'incomplete'})",
+             'Answer: ' + task['answer'],
+             'Scripts: ' + ', '.join(f"{s['script_id']} ({'ok' if s['success'] else 'error'}; writes={','.join(s['writes'])})"
+                                    for s in task['scripts']),
+             'Answer sources: ' + ', '.join(task.get('sources', []))]
+    summaries = {name: binding['summary'] for script in task['scripts']
+                 for name, binding in script.get('written_bindings', {}).items() if binding.get('summary')}
+    lines.extend(f'Result {name}: {summary}' for name, summary in summaries.items())
+    dependencies = sorted({r['changed_task'] for script in task['scripts'] for r in script['references']
+                           if r['changed_task'] < task['turn_id']})
+    lines.append('Observed task dependencies (runtime reads; verify before reuse): ' +
+                 (', '.join(map(str, dependencies)) or 'none recorded'))
     return '\n'.join(lines)
+
+
+def request_of(task):
+    """The request message the task was solved under, exactly as sent."""
+    return task.get('request') or task['trajectory_messages'][0]['content']
 
 
 def assemble_messages(system, inputs, current, previous, context_policy):
     if context_policy not in {'catalog', 'trajectory'}:
         raise ValueError('Context policy must be catalog or trajectory')
+    # Append-only: each task's request stays where it was sent, followed by its
+    # entry, so a task's first call extends the previous task's first call and
+    # the provider can reuse it as a cached prefix.
     messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': inputs}]
+    if context_policy == 'catalog' and previous:
+        messages.append({'role': 'user', 'content': PRIOR_TASKS})
     for entry in previous:
         if context_policy == 'trajectory':
             if 'trajectory_messages' not in entry:
                 raise ValueError('Earlier task lacks its exact trajectory frames')
             messages.extend(entry['trajectory_messages'])
         else:
-            messages.append({'role': 'user', 'content': task_index([entry])})
+            messages += [{'role': 'user', 'content': request_of(entry)},
+                         {'role': 'assistant', 'content': task_entry(entry)}]
     messages.append({'role': 'user', 'content': current})
     return messages
 
@@ -295,8 +309,8 @@ def solve(kernel, client, model, policy, manifest, turn, previous, output, max_c
                         raise ValueError('Answer sources must name available current variables')
                     source_bindings = {s: bindings[s] for s in args['sources']}
                     answer, sources, completed = args['content'], args['sources'], True
-                    result = task_index([{**turn, 'answer': answer, 'sources': sources,
-                                          'completed': True, 'scripts': scripts}])
+                    result = task_entry({**turn, 'answer': answer, 'sources': sources,
+                                         'completed': True, 'scripts': scripts})
                 else:
                     raise ValueError('Unknown tool')
             except Exception as exc:
@@ -311,7 +325,7 @@ def solve(kernel, client, model, policy, manifest, turn, previous, output, max_c
              for key in ('input_tokens','output_tokens','cached_tokens','cache_write_tokens')}
     total.update(cost_usd=cost_of(total, pilot_rates(model)), llm_calls=len(calls), elapsed_seconds=time.monotonic()-started)
     record = {'turn_id': turn['turn_id'], 'context': turn['context'], 'question': turn['question'],
-              'answer': answer, 'completed': completed, 'error': error, 'sources': sources,
+              'request': current, 'answer': answer, 'completed': completed, 'error': error, 'sources': sources,
               'source_bindings': source_bindings,
               'scripts': scripts, 'inspections': inspections, 'stats': total, 'model': model, 'policy': policy,
               'context_policy': context_policy, 'trajectory_messages': messages[current_start:]}
@@ -333,7 +347,7 @@ def main():
     ap.add_argument('--turn', type=int, choices=[8,14,24,28])
     ap.add_argument('--limit', type=int, default=27)
     ap.add_argument('--spend-limit', type=float, default=12)
-    ap.add_argument('--api-base', default='http://localhost:4000/v1')
+    ap.add_argument('--api-base', default=os.environ.get('LITELLM_BASE_URL', 'http://localhost:4000').rstrip('/') + '/v1')
     args = ap.parse_args()
     if args.output.exists():
         raise FileExistsError(args.output)
