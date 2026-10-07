@@ -60,6 +60,10 @@ test("an assignment creates an operator whose call arguments become its input ed
   expect(same.changes).toEqual([]);
   await expect(edit(state, 'totals = aggregate(totals, by=["unit"], n=count())')).rejects.toThrow("cannot be its own input");
   await expect(edit(state, "copy = totals")).rejects.toThrow("only renames");
+  // A rejected call shows a saved reference as written, never its placeholder.
+  await expect(edit(state, "top = limit(filter(orders@1, lambda row: True, doc=\"All\"), 1)")).rejects.toThrow(
+    "got filter(orders@1, "
+  );
   await edit(state, "del totals, orders");
   expect(state.getOperator("totals")).toBeUndefined();
   expect(state.getOperator("orders")).toBeUndefined();
@@ -96,10 +100,14 @@ test("shared-function calls are checked against the signature, and unused or cop
   await expect(edit(state, 'bad = score(orders, weight="x" + "y")')).rejects.toThrow();
   await expect(edit(state, 'def helper(t):\n    """Unused."""\n    return t')).rejects.toThrow("defined but never used");
   await expect(edit(state, 'def nodoc(t):\n    return t\nx = nodoc(orders)')).rejects.toThrow("docstring");
-  // A table may share its function's name; the two never collide.
-  await edit(state, "score = score(orders, minimum=2)");
+  // A table may share its function's name; the two never collide, and the
+  // table is an input like any other, in the same edit or a later one.
+  await edit(state, 'score = score(orders, minimum=2)\nbest = limit(score, 1, by=[("score", "desc")])');
   expect(state.getOperator("score")!.nativeOp!.properties).toMatchObject({ entry: "score", params: { minimum: 2 } });
-  await edit(state, "del score");
+  expect(inspectGraph(state.getWorkflowContent()).edges).toContain("score.out -> best.in");
+  await edit(state, 'kept = filter(score, lambda row: row["orders"] > 2, doc="Busy units")');
+  expect(inspectGraph(state.getWorkflowContent()).edges).toContain("score.out -> kept.in");
+  await edit(state, "del kept, best, score");
   const copied = await edit(state, `${SCORE.replace("def score(", "def score_copy(").replace("weight", "w")}\nother = score_copy(orders)`);
   expect(copied.notes?.join(" ")).toContain("score_copy repeats score");
   // Helpers at the margin travel with the functions that call them.

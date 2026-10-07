@@ -73,3 +73,12 @@ def test_limit_by_needs_named_keys():
     with pytest.raises(runtime.NativeError) as failure:
         runtime.execute_native(spec("Limit", n=1, by=[{"desc": True}]), [frame()])
     assert failure.value.diagnostic["code"] == "LIMIT_ARGUMENT"
+
+
+def test_an_unclosed_bracket_or_string_names_the_line_where_it_opens():
+    from graph_parser import parse_graph_edit
+    bracket = parse_graph_edit('x = scan("a.csv")\ny = limit(x, 3,\n    by=[("a", "desc")]\nz = limit(y, 1)\n')
+    assert bracket == {"ok": False, "error": "Line 2: this bracket is never closed, so the edit ends inside "
+                       "the statement; close every (, [ and { before the next statement."}
+    docstring = parse_graph_edit('def f(t):\n    """Rows kept.\n    return t\nx = f(y)\n')
+    assert docstring["error"].startswith("Line 2: this string is never closed")

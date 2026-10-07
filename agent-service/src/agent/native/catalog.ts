@@ -1018,15 +1018,17 @@ export function graphCatalogIndexText(): string {
 }
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.
- * For "many"-input operators, every leading name that is not a program function
- * is a table. */
+ * A name is a table unless it names only a program function; `tables` lists
+ * the names known to be tables, which may share a function's name. For
+ * "many"-input operators, every leading table name is an input. */
 export function splitInputs(
   def: NativeOperatorDef,
   args: ParsedValue[],
-  functions: Record<string, ParsedFunction>
+  functions: Record<string, ParsedFunction>,
+  tables?: ReadonlySet<string>
 ): { inputs: string[]; rest: ParsedValue[] } {
   const isTable = (value: ParsedValue | undefined): value is Extract<ParsedValue, { kind: "name" }> =>
-    !!value && value.kind === "name" && !(value.name in functions);
+    !!value && value.kind === "name" && (!(value.name in functions) || !!tables?.has(value.name));
   if (def.inputs === 0) return { inputs: [], rest: args };
   if (def.inputs === "many") {
     let n = 0;

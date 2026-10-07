@@ -114,7 +114,7 @@ function attemptedView(statement: ParsedStatement, type: string, inputs: string[
 export function normalizeStatement(
   statement: ParsedStatement,
   functions: Record<string, ParsedFunction>,
-  options: { profileCollection?: boolean; explicitInputs?: string[] } = {}
+  options: { profileCollection?: boolean; explicitInputs?: string[]; tables?: ReadonlySet<string> } = {}
 ): ProgramStatement {
   const base = { id: statement.id, op: statement.op, line: statement.line, source: statement.source };
   const def = NATIVE_BY_NAME.get(statement.op);
@@ -137,7 +137,7 @@ export function normalizeStatement(
   try {
     const split = options.explicitInputs
       ? { inputs: options.explicitInputs, rest: statement.args }
-      : splitInputs(def, statement.args, functions);
+      : splitInputs(def, statement.args, functions, options.tables);
     inputs = split.inputs;
     const used = new Map<string, string>();
     const context = {

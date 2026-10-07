@@ -48,6 +48,32 @@ LEGACY = re.compile(r"^(create|update|modify|delete|fork) (operator|edge)\b")
 SAVED = "__saved_"
 
 
+def _unclosed(source):
+    """The line of the innermost bracket still open when the edit ends."""
+    opened = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.OP and token.string in "([{":
+                opened.append(token.start[0])
+            elif token.type == tokenize.OP and token.string in ")]}" and opened:
+                opened.pop()
+    except (tokenize.TokenError, SyntaxError):
+        pass
+    return opened[-1] if opened else None
+
+
+def _parse_error(error, source):
+    """A parse failure as one sentence that names the line to fix."""
+    if isinstance(error, tokenize.TokenError) and len(error.args) == 2:
+        message, (line, _) = error.args
+        if "string" in message:
+            return f"Line {line}: this string is never closed; end it with the quote that opened it."
+        opened = _unclosed(source)
+        return (f"Line {opened or line}: this bracket is never closed, so the edit ends inside the "
+                "statement; close every (, [ and { before the next statement.")
+    return str(error)
+
+
 def _margin_blocks(source):
     """(first line, lines) per statement: a block starts at every margin token
     outside brackets, and indented lines belong to the block above."""
@@ -213,7 +239,7 @@ def parse_graph_edit(source, shared=None):
                 commands.extend(_assignment_block(start, block))
         return dict(ok=True, commands=commands, syntax="assignments", shared_functions=meta)
     except (ValueError, SyntaxError, tokenize.TokenError, IndentationError) as error:
-        return dict(ok=False, error=str(error))
+        return dict(ok=False, error=_parse_error(error, source))
 
 
 def parse_graph_changes(source):
@@ -313,4 +339,4 @@ def parse_graph_changes(source):
                 )
         return dict(ok=True, commands=commands)
     except (ValueError, SyntaxError, tokenize.TokenError, IndentationError) as error:
-        return dict(ok=False, error=str(error))
+        return dict(ok=False, error=_parse_error(error, source))

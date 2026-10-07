@@ -290,6 +290,10 @@ export async function planGraphEdit(
       defined.set(command.id, command as unknown as SharedFunction);
     }
     const commands = [...parsed.commands!];
+    // Every name this edit assigns is a table, even one that shares a function's name.
+    const assigned = commands
+      .filter(command => command.operation === "assign_operator" || command.operation === "assign_version")
+      .map(command => command.id);
     for (let [index, command] of commands.entries()) {
       location = `Change ${index + 1} (line ${command.line}): `;
       // Functions and operators have separate names: `screen = screen(water)` is fine.
@@ -309,7 +313,10 @@ export async function planGraphEdit(
         const profileCollection = existing?.profileCollection ?? context.settings?.nativeProfileCollection;
         let view: NativeOpView;
         if (NATIVE_BY_NAME.has(op)) {
-          const normalized = normalizeStatement(command.statement, functions, { profileCollection });
+          const normalized = normalizeStatement(command.statement, functions, {
+            profileCollection,
+            tables: new Set([...nodes.keys(), ...assigned]),
+          });
           if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
           view = normalized.view;
           // Inputs live on edges; the stored definition names only the parameters.
@@ -707,7 +714,10 @@ export async function planGraphEdit(
     };
   } catch (error) {
     throw new Error(
-      `${location}${(error instanceof Error ? error.message : String(error)).replace(/\bprogram\b/gi, "operator definition")} No changes were applied.`
+      `${location}${(error instanceof Error ? error.message : String(error))
+        .replace(/\bprogram\b/gi, "operator definition")
+        // Saved references are parsed as placeholders; show them as written.
+        .replace(/\b__saved_(\w+?)__(\d+)\b/g, "$1@$2")} No changes were applied.`
     );
   }
 }
