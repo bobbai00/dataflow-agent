@@ -81,7 +81,7 @@ lines in the task entries, the habit disappeared.
 
 | Run | Model | Setting changes | Variants | Commits | Restores | Inserted steps | rank_change | Held statements |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| Smoke, 4 questions | Luna | 0 | 1 | 0 | 0 | 2 | 1 | 5 |
+| Smoke, 4 questions | Luna | 0 | 1 | 0 | 0 | 2 | 1 | 8 |
 | First | Luna | 0 | 0 | 0 | 0 | 2 | 7 | 6 |
 | First | Terra | 0 | 0 | 0 | 0 | 4 | 0 | 6 |
 | Final | Luna | 0 | 1 | 0 | 0 | 0 | 0 | 7 |
