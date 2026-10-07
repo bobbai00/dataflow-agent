@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate } from "../types/workflow";
 import { pyLiteral } from "./tools/shared-functions";
 import { isDeepStrictEqual } from "node:util";
@@ -25,7 +26,9 @@ import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import type { DataflowActionsResult } from "./tools/dataflow-actions";
 import type { GraphChangeReceipt, GraphForkReceipt } from "./tools/graph-edits";
 import {
+  columnsFromInput,
   describeOperator,
+  observationFormat,
   restrictRecords,
   topologicalOperators,
   type OperatorBlock,
@@ -33,7 +36,6 @@ import {
 import { nativeOperatorName } from "./native/catalog";
 import { workflowFingerprints } from "./native/result-versions";
 import { catalogResultSummary } from "./native/catalog-summary";
-import { resultScope } from "./native/result-scope";
 import { readForkResult } from "./state-history";
 import { splitVersionCommands } from "./state-ledger";
 
@@ -321,6 +323,16 @@ export function taskOperatorCatalog(
   const workflow = storage.getWorkflow(task.stepId);
   const byId = new Map(workflow.operators.map(op => [op.operatorID, op]));
   const proofs = workflowFingerprints(workflow);
+  const completed = (info: OperatorInfo | undefined) =>
+    !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state);
+  const resultOf = (id: string) => {
+    const handle = byId.get(id)?.savedResult;
+    return (
+      storage.getOperatorResult(task.stepId, id) ??
+      readForkResult(workflow, storage, id, task.stepId)?.info ??
+      (handle ? storage.getOperatorResult(handle.stepId, handle.operatorId) : undefined)
+    );
+  };
   const firstSnapshotStep = task.steps.find(step => storage.hasSnapshotFor(step.id));
   const firstSnapshot = firstSnapshotStep ? storage.getAssociatedSnapshot(firstSnapshotStep.id) : undefined;
   const before = firstSnapshot?.parentId ? storage.getSnapshotById(firstSnapshot.parentId) : undefined;
@@ -391,18 +403,6 @@ export function taskOperatorCatalog(
       implementation: false,
       stale: !info && !!previous && !previous.error && ["Completed", "CompletedFromCache"].includes(previous.state),
       ...(saved ? { savedBy: saved.taskId } : {}),
-      // Process opacity is explained once in the shared prompt. Keep concrete
-      // structural facts (filters, limits and previews) in task catalog blocks.
-      scope:
-        op.nativeOp?.type === "Process"
-          ? undefined
-          : resultScope(
-              op,
-              workflow,
-              id => storage.getOperatorResult(task.stepId, id),
-              id => id,
-              false
-            ),
     });
     // Label an earlier address only when both its graph and materialization
     // match. Identical rules alone cannot establish that data are unchanged.
@@ -427,12 +427,18 @@ export function taskOperatorCatalog(
       });
       if (savedInput) input.taskId = savedInput.taskId;
     }
-    if (op.nativeOp?.type === "Process") {
-      const signatures = Object.values(op.nativeOp.functions ?? {}).flatMap(body => {
-        const signature = body.match(/^\s*(?:async\s+)?def\s+(\w+\s*\([\s\S]*?\))(?:\s*->[^:\n]+)?:/m)?.[1];
-        return signature ? [signature.replace(/\s+/g, " ")] : [];
-      });
-      if (signatures.length) block.signature = signatures.join("; ");
+    // Columns are listed where a chain starts; a later step says how its
+    // columns differ from its first input's.
+    const first = op.nativeOp?.inputs[0];
+    const inputInfo = first ? resultOf(first) : undefined;
+    if (completed(info) && completed(inputInfo) && block.inputs?.[0]) {
+      const relative = columnsFromInput(
+        info!.resultSchema ?? [],
+        inputInfo!.resultSchema ?? [],
+        block.inputs[0].id,
+        observationFormat(format).columnsShown
+      );
+      if (relative) block.columnsFromInput = relative;
     }
     if (info?.error)
       block.result =

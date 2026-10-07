@@ -482,6 +482,39 @@ export function columnEntries(
   return [...shown.map(entry => entry.text), ...(more ? [`… +${more} more`] : [])];
 }
 
+/** A table's columns as a change to its first input's, for a listing that
+ * also shows the input: `same as `orders``, then what the table retypes,
+ * drops and adds. Undefined when a plain list is clearer: the kept columns
+ * change order, a new column comes before a kept one, or the change is no
+ * shorter than the list. */
+export function columnsFromInput(
+  fields: readonly { name: string; type?: string }[],
+  input: readonly { name: string; type?: string }[],
+  inputName: string,
+  limit = 16
+): string | undefined {
+  const types = new Map(input.map(field => [field.name, field.type]));
+  const names = new Set(fields.map(field => field.name));
+  const kept = fields.filter(field => types.has(field.name));
+  const order = input.filter(field => names.has(field.name));
+  const firstAdded = fields.findIndex(field => !types.has(field.name));
+  if (
+    kept.some((field, i) => field.name !== order[i].name) ||
+    (firstAdded >= 0 && fields.slice(firstAdded).some(field => types.has(field.name)))
+  )
+    return undefined;
+  const retyped = kept.filter(field => field.type !== types.get(field.name));
+  const dropped = input.filter(field => !names.has(field.name));
+  const added = fields.filter(field => !types.has(field.name));
+  const text = [
+    `same as ${inlineCode(inputName)}`,
+    ...(retyped.length ? [`retyped ${columnEntries(retyped, limit).join(", ")}`] : []),
+    ...(dropped.length ? [`without ${columnEntries(dropped, limit, false).join(", ")}`] : []),
+    ...(added.length ? [`plus ${columnEntries(added, limit).join(", ")}`] : []),
+  ].join("; ");
+  return text.length < columnEntries(fields, limit).join(", ").length ? text : undefined;
+}
+
 export interface OperatorBlock {
   id: string;
   kind: string;
@@ -489,13 +522,14 @@ export interface OperatorBlock {
   definition?: string;
   /** A shared-function call's rendered docstring. */
   doc?: string;
-  signature?: string;
   answerSource?: boolean;
   functions?: string;
   inputs?: Array<{ port?: string; id: string; taskId?: number }>;
   origin?: string;
   result?: string;
   columns?: readonly string[];
+  /** The columns as a change to the first input's; shown in place of the list. */
+  columnsFromInput?: string;
   usedBy?: readonly string[];
   /** Bounded structural facts from the graph and results of this observation. */
   scope?: readonly string[];
@@ -506,7 +540,6 @@ export function operatorBlock(block: OperatorBlock): string {
     `- **${block.id}** (${block.kind}, ${block.state})${block.answerSource ? " — answer source" : ""}`,
     ...(block.definition ? [`  - definition: ${inlineCode(block.definition)}`] : []),
     ...(block.doc ? [`  - doc: ${block.doc}`] : []),
-    ...(block.signature ? [`  - signature: ${inlineCode(block.signature)}`] : []),
     ...(block.functions
       ? (() => {
           const fence = "`".repeat(Math.max(3, ...(block.functions.match(/`+/g) ?? []).map(run => run.length + 1)));
@@ -525,7 +558,11 @@ export function operatorBlock(block: OperatorBlock): string {
       : []),
     ...(block.origin ? [`  - origin: ${block.origin}`] : []),
     ...(block.result ? [`  - result: ${block.result}`] : []),
-    ...(block.columns?.length ? [`  - columns: ${block.columns.join(", ")}`] : []),
+    ...(block.columnsFromInput
+      ? [`  - columns: ${block.columnsFromInput}`]
+      : block.columns?.length
+        ? [`  - columns: ${block.columns.join(", ")}`]
+        : []),
     ...(block.usedBy?.length ? [`  - used by: ${block.usedBy.map(inlineCode).join(", ")}`] : []),
     ...(block.scope ?? []).map(line => `  - scope: ${line}`),
     // An issue's own detail lines (`- at:`, `- fix:`) nest under it.

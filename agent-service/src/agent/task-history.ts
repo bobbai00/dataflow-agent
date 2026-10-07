@@ -377,7 +377,7 @@ const clip = (text: string, limit: number) =>
   text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
 
 const TASK_HISTORY_INTRO =
-  "# Prior Tasks\n\nEach entry lists the operators that task created or changed, with their definitions as it left them, and its answer. Earlier answers are unverified outputs, and dependencies record computation and reads, not correctness. Every table's result at the end of task N stays readable as name@N; read a definition (view=null) before relying on it, and include_implementation for a function's body.";
+  "# Prior Tasks\n\nEach entry lists the operators that task created or changed, as it left them, and its answer. Dependencies record computation and reads, not correctness.";
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;

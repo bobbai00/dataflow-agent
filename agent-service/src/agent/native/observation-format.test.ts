@@ -41,6 +41,7 @@ import {
   topologicalOperators,
   observationFormat,
   boundResultNotes,
+  columnsFromInput,
 } from "./observation-format";
 
 const info = (rows: Record<string, unknown>[], overrides: Partial<OperatorInfo> = {}): OperatorInfo => ({
@@ -285,4 +286,27 @@ test("wrapped engine diagnostics never expose their JSON envelope in action erro
     observationErrors: [],
   });
   expect(text).not.toContain("NATIVE_ERROR_V2");
+});
+
+test("a step's columns are described by how they differ from its first input's", () => {
+  const loans = [
+    { name: "id", type: "int64" },
+    { name: "country", type: "string" },
+    { name: "amount", type: "string" },
+    { name: "term", type: "double" },
+  ];
+  expect(columnsFromInput(loans, loans, "loans")).toBe("same as `loans`");
+  expect(columnsFromInput([...loans, { name: "share", type: "double" }], loans, "loans")).toBe(
+    "same as `loans`; plus share float64"
+  );
+  expect(columnsFromInput(loans.filter(field => field.name !== "term"), loans, "loans")).toBe(
+    "same as `loans`; without term"
+  );
+  const cast = loans.map(field => (field.name === "amount" ? { ...field, type: "double" } : field));
+  expect(columnsFromInput(cast, loans, "loans")).toBe("same as `loans`; retyped amount float64");
+  // A plain list is clearer when kept columns move, a new one comes first,
+  // or the change is longer than the list.
+  expect(columnsFromInput([loans[1], loans[0], loans[2], loans[3]], loans, "loans")).toBeUndefined();
+  expect(columnsFromInput([{ name: "rank", type: "int64" }, ...loans], loans, "loans")).toBeUndefined();
+  expect(columnsFromInput([loans[1], { name: "n", type: "int64" }], loans, "loans")).toBeUndefined();
 });

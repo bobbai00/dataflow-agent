@@ -236,7 +236,8 @@ test("catalog blocks keep declarations and edit order with process bodies on dem
   ];
   const text = renderTaskIndex(buildTaskGraph(storage, [second]));
   expect(text).toContain('process(fn=score_rows, doc="Complete working scores")');
-  expect(text).toContain("score_rows(df)");
+  // The definition names the function; its signature and body are read on demand.
+  expect(text).not.toContain("signature:");
   expect(text).not.toContain("return df.assign(score=df.x * 2)");
   expect(text).toContain("inputs: `source`");
   expect(text).toContain("inputs: `scores`");
@@ -450,7 +451,9 @@ create edge prepared.out -> selected.in`,
   expect(text).toContain("- **selected** (limit, created)");
   expect(text).not.toContain("row selection inside Python is unknown");
   expect(text).not.toMatch(/^- \*\*.*version at end of task/m);
-  expect(text).toContain('limit "selected": n=2');
+  // A limit's definition already says what it selects; entries carry no scope lines.
+  expect(text).toContain("definition: `limit(2)`");
+  expect(text).not.toContain("scope:");
   // General inspection still exposes Python's opaque selection boundary.
   const prepared = plan.workflow.operators.find(op => op.operatorID === "prepared")!;
   expect(

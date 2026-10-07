@@ -164,3 +164,22 @@ test("each task's entry says what it did to the tables it changed", async () => 
   expect(receipt).toContain("> - **scores** (process, updated: restored task 1's version)");
   expect(receipt).toContain("  - doc: One row per unit: amount minus 0 times refunds.");
 });
+
+test("an entry lists columns where a chain starts and only the change after that", async () => {
+  const s = session([
+    [{ type: "edit", changes: TASK_1 }, { type: "execute", operator_ids: ["top2"] }],
+    [{ type: "answer", content: "done", operator_ids: ["top2"] }],
+  ]);
+  await s.agent.sendMessage("Task 1.");
+  const entry = renderDataflowActionsResult(s.outcomes[1]);
+  expect(entry).toContain("> - **orders** (scan, created)");
+  expect(entry).toContain(">   - columns: unit str, amount float64, refund float64");
+  // A different set of columns is listed; the cut keeps its input's.
+  expect(entry).toContain(">   - columns: unit str, score float64");
+  expect(entry).toContain(">   - columns: same as `scores`");
+  // The definition shows every setting, so the entry needs no signature, and
+  // a limit's definition already says what it selects.
+  expect(entry).toContain(">   - definition: `score(refund_weight=0)`");
+  expect(entry).not.toContain("signature:");
+  expect(entry).not.toContain("scope:");
+});
