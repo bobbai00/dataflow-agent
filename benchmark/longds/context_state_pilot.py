@@ -26,6 +26,7 @@ import argparse
 import ast
 import errno
 import fcntl
+import filecmp
 import gzip
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -346,6 +347,21 @@ def copy_checkpoint_file(source, target):
     return shutil.copy2(source, target)
 
 
+def share_unchanged_tables(observer, earlier):
+    """A Python observer table whose bytes match the previous question's is a hard
+    link to it, so a long session stores each table version once. The export
+    rewrites every binding each question; for Kiva that was about 1 GB per question."""
+    if not earlier.is_dir():
+        return
+    for path in observer.glob('*.pkl'):
+        before = earlier / path.name
+        if (before.exists() and not os.path.samefile(before, path)
+                and before.stat().st_size == path.stat().st_size and filecmp.cmp(before, path, shallow=False)):
+            link = path.with_name(path.name + '.link')
+            os.link(before, link)
+            os.replace(link, path)
+
+
 def replay_prefix(instance, job, previous, records, output):
     """Rebuild only agent-authored state. Verify the checkpoint before any paid continuation."""
     started = time.monotonic()
@@ -427,6 +443,7 @@ def run_job(job, protocol, folder, guard, spend_file=None, resume_from=None):
             else:
                 record = solve(instance, client, job['model'], 'ordinary', manifest, turn, records,
                                directory, context_policy=job['context'], current_prompt=prompts[turn['turn_id']])
+                share_unchanged_tables(directory / 'observer', output / f"t{turn['turn_id'] - 1:02d}" / 'observer')
             records.append(record)
             save(directory / 'record.json', record)
             save(output / 'records.json', records)

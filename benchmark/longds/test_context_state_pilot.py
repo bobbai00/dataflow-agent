@@ -25,6 +25,20 @@ from context_state_pilot import validate_case, SpendGuard, native_settings, atte
 
 
 class PilotContractTest(unittest.TestCase):
+    def test_an_unchanged_observer_table_is_stored_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            earlier, current = Path(temporary) / 't01/observer', Path(temporary) / 't02/observer'
+            earlier.mkdir(parents=True); current.mkdir(parents=True)
+            (earlier / 'same.pkl').write_bytes(b'table bytes')
+            (current / 'same.pkl').write_bytes(b'table bytes')
+            (earlier / 'changed.pkl').write_bytes(b'old rows')
+            (current / 'changed.pkl').write_bytes(b'new rows')
+            context_state_pilot.share_unchanged_tables(current, earlier)
+            self.assertTrue((current / 'same.pkl').samefile(earlier / 'same.pkl'))
+            self.assertFalse((current / 'changed.pkl').samefile(earlier / 'changed.pkl'))
+            self.assertEqual((current / 'changed.pkl').read_bytes(), b'new rows')
+            self.assertEqual(sorted(p.name for p in current.iterdir()), ['changed.pkl', 'same.pkl'])
+
     def test_resume_preserves_an_answer_saved_before_the_observer_failed(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = Path(temporary)
