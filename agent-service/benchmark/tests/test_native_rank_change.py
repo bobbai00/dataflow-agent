@@ -55,7 +55,18 @@ def test_ties_are_broken_by_the_key_and_extra_columns_are_reported():
     assert result.loc[0, "region_before"] == "s" and result["region_change"].isna().all()
 
 
-def test_keys_must_identify_items_and_stay_apart_from_ranked_columns():
+def test_key_columns_in_by_break_ties_and_a_later_table_can_rank_on_its_own_column():
+    old = pd.DataFrame({"store": ["a", "b", "c"], "early": [3.0, 2.0, 1.0]})
+    new = pd.DataFrame({"store": ["a", "b", "c"], "revised": [1.0, 2.0, 3.0], "early": [3.0, 2.0, 1.0]})
+    result = ranks(old, new, key=["store"], by=[{"col": "early", "desc": True}, {"col": "store"}],
+                   afterBy=[{"col": "revised", "desc": True}], n=1, columns=["early", "revised"])
+    assert list(result["store"]) == ["c", "a"] and list(result["status"]) == ["entered", "left"]
+    rows = result.set_index("store")
+    assert pd.isna(rows.loc["a", "revised_before"]) and rows.loc["c", "revised_after"] == 3.0
+    assert "store_before" not in result.columns
+
+
+def test_keys_must_identify_items_and_rankings_need_a_value_column():
     duplicated = pd.DataFrame({"store": ["a", "a"], "score": [1.0, 2.0]})
     with pytest.raises(runtime.NativeError, match="RANK_KEYS"):
         ranks(duplicated, duplicated, key=["store"], by=[{"col": "score"}], n=1)

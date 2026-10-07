@@ -145,7 +145,7 @@ diff(L, R, key, columns, include_same=False)
     Inputs: earlier table, then later table.
     Compare two tables by explicit unique, non-null entity keys. Returns added, removed and changed rows with old/new values and right-minus-left numeric deltas. include_same=True keeps unchanged rows. Keys are never inferred.
 
-rank_change(before, after, key, by, n, columns=None)
+rank_change(before, after, key, by, n, after_by=None, columns=None)
     Inputs: earlier table, then later table.
     Top-n membership between two versions of a ranked table: entered, left or stayed, with ranks and values on both sides.
 

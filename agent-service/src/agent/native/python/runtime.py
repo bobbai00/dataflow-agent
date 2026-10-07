@@ -260,23 +260,25 @@ def validate_native(spec):
             raise _error(spec, "DIFF_ARGUMENT", "include_same must be boolean.", stage="validate")
     elif kind == "RankChange":
         names_list(props.get("key"), "RANK_KEYS", "key")
-        by = props.get("by")
-        if not isinstance(by, list) or not by:
-            raise _error(spec, "RANK_ARGUMENT", "by needs at least one ranking column.", stage="validate", field="by")
-        for i, item in enumerate(by):
-            if not isinstance(item, dict) or not isinstance(item.get("col"), str) or not item["col"]:
-                raise _error(spec, "RANK_ARGUMENT", "Each by key names a column.", stage="validate", field=f"by[{i}]")
-            if "desc" in item and not isinstance(item["desc"], bool):
-                raise _error(spec, "RANK_ARGUMENT", "Ranking direction is asc or desc.", stage="validate", field=f"by[{i}]")
+        for field in ("by", "afterBy"):
+            order = props.get(field)
+            if field == "afterBy" and order is None:
+                continue
+            if not isinstance(order, list) or not order:
+                raise _error(spec, "RANK_ARGUMENT", f"{field} needs at least one ranking column.", stage="validate", field=field)
+            for i, item in enumerate(order):
+                if not isinstance(item, dict) or not isinstance(item.get("col"), str) or not item["col"]:
+                    raise _error(spec, "RANK_ARGUMENT", "Each ranking key names a column.", stage="validate", field=f"{field}[{i}]")
+                if "desc" in item and not isinstance(item["desc"], bool):
+                    raise _error(spec, "RANK_ARGUMENT", "Ranking direction is asc or desc.", stage="validate", field=f"{field}[{i}]")
+            if all(item["col"] in props["key"] for item in order):
+                raise _error(spec, "RANK_ARGUMENT", f"{field} ranks on the key columns only; rank on a value such as a score.",
+                             stage="validate", field=field)
         n = props.get("n")
         if type(n) is not int or n < 1:
             raise _error(spec, "RANK_ARGUMENT", f"n must be an integer >= 1, got {n!r}.", stage="validate", field="n")
         if props.get("columns") is not None:
             names_list(props["columns"], "RANK_ARGUMENT", "columns")
-        ranked = [item["col"] for item in by]
-        if set(props["key"]) & set(ranked + list(props.get("columns") or [])):
-            raise _error(spec, "RANK_ARGUMENT", "Rank and report value columns separately from the key columns.",
-                         stage="validate", field="by")
     elif kind == "Cast":
         choice(props.get("errors", "raise"), ("raise", "null"), "CAST_OPTIONS", "errors")
     elif kind == "Distinct":
@@ -863,15 +865,23 @@ def _rank_change(spec, before, after, operations):
     """Which items entered, left or stayed in the top n between two versions of
     a ranked table, with their ranks and values on both sides."""
     props = spec["properties"]
-    keys, by, n = props["key"], props["by"], props["n"]
-    values = list(dict.fromkeys([item["col"] for item in by] + list(props.get("columns") or [])))
+    keys, n = props["key"], props["n"]
+    by_before = props["by"]
+    by_after = props.get("afterBy") or by_before
+    # Key columns in a ranking only break ties; every other named column is a value.
+    values = [c for c in dict.fromkeys([item["col"] for item in [*by_before, *by_after]] + list(props.get("columns") or []))
+              if c not in keys]
     output_columns = [*keys, "status", "rank_before", "rank_after"]
     for column in values:
         output_columns.extend(f"{column}_{suffix}" for suffix in ("before", "after", "change"))
     if len(set(output_columns)) != len(output_columns):
         raise _error(spec, "COLUMN_COLLISION", "rank_change keys and generated column names collide.")
+    _columns(spec, before, list(dict.fromkeys([*keys, *[item["col"] for item in by_before]])), "key/by")
+    _columns(spec, after, list(dict.fromkeys([*keys, *[item["col"] for item in by_after]])), "key/after_by")
+    missing = [c for c in values if c not in before.columns and c not in after.columns]
+    if missing:
+        _columns(spec, before, missing, "columns")
     for frame in (before, after):
-        _columns(spec, frame, [*keys, *values], "key/by/columns")
         if frame[keys].isna().any().any() or frame.duplicated(keys).any():
             raise _error(spec, "RANK_KEYS", "rank_change keys must be unique and non-null in both tables.")
     for key in keys:
@@ -879,15 +889,19 @@ def _rank_change(spec, before, after, operations):
         if len(types) > 1:
             raise _error(spec, "RANK_KEYS", f"Key {key!r} has incompatible types; cast explicitly.")
 
-    def ranks(frame):
+    def ranks(frame, by):
         # The order limit(by=...) uses, with the keys breaking any remaining tie.
-        ordered = frame[[*keys, *values]]
+        ordered = frame[[*keys, *[c for c in values if c in frame.columns]]]
         for item in [*reversed([{"col": key} for key in keys]), *reversed(by)]:
             ordered = ordered.sort_values(item["col"], ascending=not item.get("desc", False),
                                           na_position="last", kind="stable")
-        return ordered.assign(_rank=range(1, len(ordered) + 1))
+        ordered = ordered.assign(_rank=range(1, len(ordered) + 1))
+        for column in values:
+            if column not in ordered.columns:
+                ordered[column] = None
+        return ordered
 
-    old, new = ranks(before), ranks(after)
+    old, new = ranks(before, by_before), ranks(after, by_after)
     merged = old.rename(columns={c: f"{c}_before" for c in values}).rename(columns={"_rank": "rank_before"}).merge(
         new.rename(columns={c: f"{c}_after" for c in values}).rename(columns={"_rank": "rank_after"}),
         on=keys, how="outer", sort=False, validate="one_to_one")
@@ -901,8 +915,8 @@ def _rank_change(spec, before, after, operations):
         output[side] = output[side].astype("Int64")
     for column in values:
         a, b = output[f"{column}_before"], output[f"{column}_after"]
-        numeric = all(pd.api.types.is_numeric_dtype(frame[column]) and not pd.api.types.is_bool_dtype(frame[column])
-                      for frame in (before, after))
+        numeric = all(column in frame.columns and pd.api.types.is_numeric_dtype(frame[column])
+                      and not pd.api.types.is_bool_dtype(frame[column]) for frame in (before, after))
         output[f"{column}_change"] = (b - a).where(a.notna() & b.notna()) if numeric else None
     left = output["status"].eq("left")
     output["_order"] = output["rank_after"].where(~left, output["rank_before"]).astype("float64")

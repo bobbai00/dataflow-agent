@@ -155,3 +155,33 @@ test("a failing statement and the statements that use it are held back; the rest
   // Nothing applies when every statement fails.
   await expect(edit(state, "bad = limit(scores, 0)\nworse = limit(bad, 0)")).rejects.toThrow("No changes were applied");
 });
+
+test("redefining a variant's name drops its copies, and a setting set on a variant joins its changes", async () => {
+  const state = new WorkflowState();
+  await edit(state, `${SESSION}\nheavy = variant(top10, scores={"rating_weight": 0.6})`);
+  await edit(state, 'heavy = limit(scores, 3, by=[("score", "desc"), "store"])');
+  expect(state.getOperator("heavy__scores")).toBeUndefined();
+  expect(view(state, "heavy").variant).toBeUndefined();
+  await edit(state, 'light = variant(scores, scores={"rating_weight": 0.1})');
+  await edit(state, "light.sales_weight = 0.5");
+  expect(view(state, "light").variant!.changes).toEqual([{ step: "scores", settings: { rating_weight: 0.1, sales_weight: 0.5 } }]);
+  await edit(state, "scores = light");
+  expect(view(state, "scores").properties.params).toEqual({ rating_weight: 0.1, sales_weight: 0.5 });
+  expect(state.getOperator("light")).toBeUndefined();
+});
+
+test("rebinding a name within one edit builds a chain, as in Python", async () => {
+  const state = new WorkflowState();
+  await edit(
+    state,
+    `${SESSION}\nshort = map(scores, lambda row: {**row, "gap": row["score"] - 1}, doc="Scores with their gap")\nshort = filter(short, lambda row: row["gap"] > 0, doc="Positive gaps")\nshort = sort(short, by=[("gap", "desc"), "store"])`
+  );
+  expect(inspectGraph(state.getWorkflowContent()).edges).toEqual(
+    expect.arrayContaining(["scores.out -> short_v1.in", "short_v1.out -> short_v2.in", "short_v2.out -> short.in"])
+  );
+  expect([view(state, "short_v1").type, view(state, "short_v2").type, view(state, "short").type]).toEqual(["Map", "Filter", "Sort"]);
+  // A plain second assignment is still a mistake: it is held back, the first applies.
+  const twice = await edit(state, 'x = limit(scores, 1)\nx = limit(scores, 2)');
+  expect(twice.held).toEqual([{ line: 2, statement: "x = limit(scores, 2)", reason: expect.stringContaining("assigned twice in this edit") }]);
+  expect(view(state, "x").properties).toEqual({ n: 1 });
+});

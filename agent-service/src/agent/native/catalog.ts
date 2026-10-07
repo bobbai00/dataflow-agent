@@ -767,12 +767,13 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "RankChange",
     inputs: 2,
     rowEffect: "unknown",
-    signature: "rank_change(before, after, key, by, n, columns=None)",
-    doc: 'Ranks each table by by=, exactly as limit does, with key= breaking any remaining tie, and reports every item in either top n. status is entered (in the top n only after), left (only before) or stayed; rank_before and rank_after count over the full tables and are null where the item is missing. Each by= and columns= column appears as _before, _after and, for numbers, _change (after minus before). Pass the full tables rather than top-n cuts, so items that left still have their new values: `moves = rank_change(scores@4, scores, key=["store"], by=[("score", "desc")], n=10)`. Rows come in rank_after order, with items that left last, in rank_before order.',
+    signature: "rank_change(before, after, key, by, n, after_by=None, columns=None)",
+    doc: 'Ranks each table by by=, exactly as limit does, and reports every item in either top n; key columns in by= break ties, and key= breaks any tie left. When the later table ranks on a differently named column, give its ranking as after_by=. status is entered (in the top n only after), left (only before) or stayed; rank_before and rank_after count over the full tables and are null where the item is missing. Each ranked and columns= value appears as _before, _after and, for numbers in both, _change (after minus before); a column one table lacks is null on that side. Pass the full tables rather than top-n cuts, so items that left still have their new values: `moves = rank_change(scores@4, scores, key=["store"], by=[("score", "desc")], n=10)`. Rows come in rank_after order, with items that left last, in rank_before order.',
     schema: object(
       {
         key: NONEMPTY_NAMES,
         by: list(object({ col: S, desc: { type: "boolean" } }, ["col"])),
+        afterBy: list(object({ col: S, desc: { type: "boolean" } }, ["col"])),
         n: { type: "integer", minimum: 1 },
         columns: NONEMPTY_NAMES,
       },
@@ -780,12 +781,13 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     ),
     normalize(rest, kwargs) {
       noPositional("rank_change", rest, "the before and after tables followed by key=, by= and n=");
-      keywords("rank_change", kwargs, ["key", "by", "n", "columns"]);
+      keywords("rank_change", kwargs, ["key", "by", "n", "after_by", "columns"]);
       if (!kwargs.key || !kwargs.by || !kwargs.n) fail("rank_change requires key=, by= and n=.");
       return {
         key: strList(kwargs.key, "key", 1),
         by: sortKeys(kwargs.by, "by"),
         n: int(kwargs.n, "n", 1),
+        ...(kwargs.after_by ? { afterBy: sortKeys(kwargs.after_by, "after_by") } : {}),
         ...(kwargs.columns ? { columns: strList(kwargs.columns, "columns", 1) } : {}),
       };
     },

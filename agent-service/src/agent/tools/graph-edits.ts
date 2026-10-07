@@ -441,6 +441,11 @@ async function planGraphEditOnce(
         changed.add(moved.target);
       }
     };
+    /** A variant table being redefined or replaced loses its hidden copies. */
+    const dropCopies = (id: string) => {
+      if (nodes.get(id)?.variant?.name !== id) return;
+      for (const [part, view] of [...nodes]) if (part !== id && view.variant?.name === id) removeNode(part);
+    };
     /** Readers of `from` read `to` instead. */
     const repoint = (from: string, to: string) =>
       moveEdges([...edges.values()].filter(edge => edge.source === from), { source: to });
@@ -702,6 +707,7 @@ async function planGraphEditOnce(
         for (const [part, view] of [...nodes]) if (view.variant?.name === other) removeNode(part);
         note = `${table} now has ${other}'s changes (${applied.join("; ")}); everything built on them recomputes on the next execute.`;
       } else if (ancestors(other).has(table)) {
+        dropCopies(table);
         const kept = keepEarlier(table);
         const chain = new Set([...ancestors(other), other]);
         moveEdges([...edges.values()].filter(edge => edge.source === table && chain.has(edge.target)), { source: kept });
@@ -715,6 +721,7 @@ async function planGraphEditOnce(
         note = `${table} now applies ${other}'s steps to the earlier ${table}, which continues as ${kept}; everything that read ${table} sees the new table.`;
       } else {
         // Not built on table, so nothing it reads can read table: no cycle.
+        dropCopies(table);
         for (const edge of incoming(table)) edges.delete(edgeText(edge));
         nodes.set(table, structuredClone(nodes.get(other)!));
         for (const edge of incoming(other)) {
@@ -766,6 +773,15 @@ async function planGraphEditOnce(
           graph: view.graph,
         };
         if (definitionKey(rebuilt) === definitionKey(view)) continue;
+        // On a variant whose copied step is this call, the change becomes part of the variant.
+        if (view.variant?.name === id && view.variant.of) {
+          const step = view.variant.step;
+          const changes = [...(view.variant.changes ?? [])];
+          const at = changes.findIndex(change => change.step === step && change.settings);
+          if (at >= 0) changes[at] = { step, settings: { ...changes[at].settings, [setting]: command.value } };
+          else changes.push({ step, settings: { [setting]: command.value } });
+          rebuilt.variant = { ...view.variant, changes };
+        }
         nodes.set(id, rebuilt);
         changed.add(id);
         outcomes.push({ id, op: kind, status: "modified", message: `updated \`${id}\`: ${setting} ${pyLiteral(before)} to ${pyLiteral(command.value)}` });
@@ -775,12 +791,13 @@ async function planGraphEditOnce(
       if (operation === "assign_operator") {
         notPart(id);
         if (templates.get(id)?.savedResult) throw new Error("Historical result handles are read-only.");
-        if (pendingInputs.has(id)) throw new Error(`${id} is assigned twice in this edit; write one definition.`);
         if (command.statement.op === "variant") {
           deferred.push({ command, index });
           continue;
         }
+        dropCopies(id);
         const existing = nodes.get(id);
+        if (existing?.variant) delete existing.variant;
         const references = command.references ?? {};
         const profileCollection = existing?.profileCollection ?? context.settings?.nativeProfileCollection;
         const { view, inputs } = callView(id, command.statement, command.functions, references, profileCollection, {
@@ -788,17 +805,28 @@ async function planGraphEditOnce(
           keywords: command.keywords ?? [],
         });
         const inserted = inputs.includes(id);
+        const again = pendingInputs.has(id);
+        if (again && !inserted)
+          throw new Error(
+            `${id} is assigned twice in this edit; write one definition, or build on the first with \`${id} = operator(${id}, ...)\`.`
+          );
         if (inserted) {
           // `x = f(x)` inserts a step: the earlier x continues under a new
-          // name, and everything that read x reads the new step.
+          // name, and everything that read x reads the new step. Within one
+          // edit it builds on the statement that assigned x before.
           if (!existing) throw new Error(`${id} cannot read itself before it exists; build it first.`);
           const kept = keepEarlier(id);
+          if (again) {
+            pendingInputs.set(kept, pendingInputs.get(id)!);
+            pendingInputs.delete(id);
+          }
           inputs.forEach((name, i) => {
             if (name === id) inputs[i] = kept;
           });
-          notes.push(
-            `${id} now applies ${command.statement.op} to the earlier ${id}, which continues as ${kept}; everything that read ${id} sees the new table. The previous ${id} stays readable as ${id}@N.`
-          );
+          if (templates.has(id))
+            notes.push(
+              `${id} now applies ${command.statement.op} to the earlier ${id}, which continues as ${kept}; everything that read ${id} sees the new table. The previous ${id} stays readable as ${id}@N.`
+            );
         }
         const portNames = portsFor(view, inputs.length);
         const draftView: NativeOpView = { ...view, inputs: portNames.map(() => ""), graph: { inputPorts: portNames } };

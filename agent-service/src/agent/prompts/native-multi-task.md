@@ -60,7 +60,8 @@ Most comparisons between two versions are rankings. `moves =
 rank_change(scores, strict_scores, key=["unit"], by=[("score", "desc")],
 n=10)` lists every unit in either top ten as entered, left or stayed, with
 its rank and score in each version. Give it the full tables rather than the
-cut ones, so that units which left still have their new values.
+cut ones, so that units which left still have their new values; when the
+later version names its score differently, rank it with `after_by=`.
 {{#history}}
 
 Each task starts with the current state: every table by name with its
