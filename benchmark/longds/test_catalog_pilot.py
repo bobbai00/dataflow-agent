@@ -92,6 +92,7 @@ class ContextContractTest(unittest.TestCase):
             return ''
         kernel.execute = execute
         kernel.setup = lambda: executed.append('SETUP')
+        kernel.catalog_alive = lambda: False
         with self.assertRaises(RuntimeError) as raised:
             kernel.code(3, 'slow()')
         self.assertIn('earlier scripts were run again', str(raised.exception))
@@ -100,6 +101,27 @@ class ContextContractTest(unittest.TestCase):
         self.assertIn("execute(1, 'a = 1')", replay[0])
         self.assertIn("execute(2, 'b = a + 1')", replay[1])
         self.assertEqual(kernel.scripts, [(1, 'a = 1'), (2, 'b = a + 1')])
+
+    def test_a_kernel_restart_is_detected_however_the_executor_reports_it(self):
+        for message in ('KernelError: Kernel not ready', 'TimeoutError: Execution timed out after 240 seconds'):
+            kernel = Kernel.__new__(Kernel)
+            kernel.scripts = [(1, 'a = 1')]
+            restored = []
+            def execute(code, message=message):
+                raise RuntimeError(message)
+            kernel.execute = execute
+            kernel.catalog_alive = lambda: False
+            kernel.restore = lambda: restored.append(True)
+            with self.assertRaises(RuntimeError) as raised:
+                kernel.code(2, 'slow()')
+            self.assertEqual(restored, [True])
+            self.assertTrue(str(raised.exception).startswith(message))
+        # A kernel that kept its catalog is not rebuilt.
+        kernel.catalog_alive = lambda: True
+        restored.clear()
+        with self.assertRaises(RuntimeError):
+            kernel.code(2, 'other()')
+        self.assertEqual(restored, [])
 
     def test_observer_export_does_not_parse_large_kernel_stdout(self):
         with tempfile.TemporaryDirectory() as tmp:

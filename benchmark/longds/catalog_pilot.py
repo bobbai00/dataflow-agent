@@ -140,11 +140,13 @@ class Kernel:
                          '_pilot_written = _pilot_module["Path"]("pilot-current-receipt.json").write_text('
                          '_pilot_module["json"].dumps(_pilot_receipt))')
         except RuntimeError as exc:
-            if not str(exc).startswith('TimeoutError'):
+            # The catalog records a script's own errors, so an error here comes
+            # from the kernel: a timeout restarts it (reported as a TimeoutError
+            # or "Kernel not ready"), which clears every variable and the
+            # catalog. Rebuild both from this session's scripts, so only the
+            # interrupted script is lost.
+            if self.catalog_alive():
                 raise
-            # The executor restarts a kernel whose execution timed out, which
-            # clears every variable and the catalog. Rebuild both from this
-            # session's scripts, so only the timed-out script is lost.
             self.restore()
             raise RuntimeError(f'{exc}. The kernel restarted; its {len(self.scripts)} earlier scripts '
                                'were run again, so variables are as they were before this script.') from None
@@ -155,6 +157,14 @@ class Kernel:
             path.unlink(missing_ok=True)
         self.scripts.append((task_id, source))
         return receipt
+
+    def catalog_alive(self):
+        for _ in range(10):
+            try:
+                return self.execute("print('_pilot_catalog' in globals())").strip() == 'True'
+            except RuntimeError:
+                time.sleep(3)
+        return False
 
     def restore(self):
         self.setup()
