@@ -24,8 +24,10 @@
 The state operations work end to end with Luna and Terra: every question of
 both sessions completed, and the final build keeps the prompt cache at 95 to
 96%. On the final run Terra wrote 23% less output per question than the
-previous build and its cost fell below Python's, while answering 18 of 37
-against Python's 23. Luna had its best dataflow session on Kiva, 13 of the 35
+previous build, about as much as Python, while answering 18 of 37 against
+Python's 23. Python's recorded cost is not comparable: its baseline breaks
+the prompt cache at every task boundary (see below), and with that fixed
+Python would cost less than dataflow. Luna had its best dataflow session on Kiva, 13 of the 35
 questions Python answered against Python's 10. The agents themselves still
 rarely reach for the new operations; most of the saving comes from shorter
 code, shorter docstrings and fewer rejected edits.
@@ -40,6 +42,23 @@ Terra (21 and 18), so accuracy differences of that size are noise.
 | State operations, first run (cad0936c5) | 9 | $0.49 | 21 | $4.80 |
 | State operations, final run (8503423d1) | 13 | $0.33 | 18 | $2.29 |
 | Python | 10 of 35 | $0.38 | 23 | $3.16 |
+
+The Python costs come from the 2026-10-06 baseline, whose catalog turns each
+finished request into a new message, so every task's first call is 0%
+cached; the fix recommended in `saved-versions-lite-run-20261006.md` was
+never applied. Repricing the same recorded tokens at the campaign rates,
+with each first call cached like the later calls, gives a fairer view:
+
+| Kiva | Arm | First calls cached | Recorded cost | First calls cached like later calls |
+|---|---|---:|---:|---:|
+| Terra | Python | 0% | $3.16 | $1.93 |
+| Terra | Dataflow, final run | 95% | $2.29 | $2.25 |
+| Luna | Python | 0% | $0.38 | $0.25 |
+| Luna | Dataflow, final run | 95% | $0.32 | $0.31 |
+
+With fair caching, dataflow costs about 17% more than Python on Terra and 25%
+more on Luna. Output tokens do not depend on caching. A real comparison needs
+the Python baseline rerun with an append-only layout.
 
 Terra, per question:
 
