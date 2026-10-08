@@ -17,233 +17,264 @@
   under the License.
 -->
 
-# Native dataflow statements and registered Python functions
+# Native dataflow statements and shared Python operators
 
-Design decision, 2026-10-08. Implementation and measured rollout remain pending.
+Design decision, updated 2026-10-08. Implementation and measured rollout remain pending.
 
-Native mode will keep one `dataflow(reasoning, actions)` tool. An edit contains
-two strings: `changes` for graph statements and `python` for an ordinary Python
-module. Graph statements use `set id: operator(inputs=[...], key=value, ...)`
-and `delete id`. Python functions are registered by name and selected through
-`fn`; their named settings can be overridden in the operator statement.
+Native mode keeps one `dataflow(reasoning, actions)` tool. An edit contains
+`python` for ordinary Python definitions and `changes` for graph statements:
 
-This contract replaces the coupling between graph statements and indented
-Python functions. It retains the existing operator catalog, explicit execution,
-result retrieval, and versioned results. The prompt will contain a compact
-contract, short catalog signatures, and one complete worked batch. Detailed
-operator documentation and additional examples are available on demand.
+```text
+set operator_id: operator_type(input1, input2, parameter=value, doc="Optional summary")
+delete operator_id
+```
 
-This file records the proposed contract and exact prompt content. It does not
-change the running service or reinterpret recorded benchmark attempts.
+The operator type is either a predefined constructor or a named Python function.
+Table inputs are positional; settings are keywords. Custom operators have no
+`process` wrapper or `fn=` selector. There is one session-wide Python namespace:
+later definitions see earlier definitions and can replace them. A namespace
+update automatically recomputes its existing custom users and their downstream
+results, with a conservative refresh rule described below.
+
+This contract supersedes the earlier `inputs=[...]`, `params={...}`, immutable
+per-operator function bindings, and future-sets-only behavior in this design.
+Historical runs and sessions retain their recorded protocol. No running service
+or benchmark result is changed by this documentation update.
+
 The [standalone proposed system prompt](native-registered-python-system-prompt.txt)
-assembles the default data-statistics variant with its complete example, for
-direct review. Flow guidance remains a conditional addition.
+contains the exact default data-statistics variant and a complete batch example.
+The implementation plan separates protocol qualification from prompt trimming.
 
 ## 1. Decisions to freeze
 
 | Area | Contract |
 | --- | --- |
-| Tool | One `dataflow` tool with a brief `reasoning` string and ordered `actions`. |
-| Graph edits | `set id: operator(inputs=[...], ...)` creates or replaces a complete definition; `delete id` removes one operator. |
-| Connections | Ordered `inputs` define incoming edges. There are no edge insertion or deletion commands. |
-| Python | `edit.python` is a complete ordinary module. Graph statements contain no Python function bodies. |
-| Function selection | `fn=name` selects a registered, named, top-level synchronous function. |
-| Configuration | Direct literal keywords override function settings. `params={...}` handles names that collide with graph controls or are not identifiers. |
-| Function lifetime | Registrations persist in the workflow/session. Each operator pins the exact module version, function entry, and supplied settings when it is set. |
-| Edit transaction | Module registration and all graph statements in one edit commit together or roll back together. |
-| Graph validity | Validate the final graph after the whole edit. Retained operators must have their required connections. |
-| Execution | Only `execute` computes results. `retrieve` reads current materialized results. |
-| Answer | Preserve the existing expression answer contracts. Teach retrieval and verification before answering. |
-| Prompt | One syntax, one compact default example, generated signatures, and references selected on demand. |
+| Tool | One static `dataflow` definition with brief `reasoning` and ordered `actions`; no provider schema per Python function. |
+| Graph | `set id: operator_type(input1, input2, key=value, ...)` replaces a complete definition; `delete id` removes it. |
+| Connections | Positional bare operator IDs define incoming edges and port order. No explicit edge commands. |
+| Custom operator | The call head is a public, top-level synchronous Python function. Inputs are DataFrames; output is one DataFrame. |
+| Settings | Direct `key=value` configuration; Python defaults apply. No generic parameter escape mapping or embedded Python bodies. |
+| Namespace | One cumulative logical namespace per session; imports, constants, helpers, and definitions survive later cells. |
+| Documentation | Optional universal `doc=` metadata overrides a custom function's docstring or a generated built-in description. Never forwarded as a function setting. |
+| Atomic validation | Stage Python registration and the final DAG together. Syntax, initialization, binding, graph, or cancellation failure commits neither. |
+| Ordinary execution | Initial construction and graph/settings-only edits require explicit `execute`. `retrieve` never executes. |
+| Python refresh | A semantic namespace change with existing custom users commits the validated state, then automatically executes the refresh set and awaits its receipt. |
+| History | Whole-session checkpoints retain ordered source cells, graph, settings, namespace identity, and version-bound captured results; the live session uses latest names. |
+| Failure after commit | An automatic execution failure leaves the new definitions live; failed/blocked outputs are unavailable or stale. Earlier results remain historical. |
+| Prompt | One syntax, a generated short catalog, one complete example, and feature guidance only for enabled views/evidence. |
 
-Do not advertise the older assignment, `del`, create/update, explicit-edge,
-indented-function, or typed-JSON operator syntax in a session using this
-contract. Historical sessions keep their recorded protocol and revision.
-Store a protocol identifier with new sessions and snapshots; this is an
-internal compatibility boundary, not a revival of retired catalog settings.
+Store a protocol identifier with sessions, snapshots, and traces. Do not present
+legacy assignment, `del`, create/update, explicit-edge, indented-function,
+callback-wrapper, or typed-JSON operator syntax in this protocol.
 
 ## 2. Tool and action contract
 
-The model-facing envelope remains JSON. Expression statements and Python are
-string values within that envelope. They are separate parsers and namespaces.
-
-The new edit shape is:
+The provider envelope is JSON; `python` and `changes` are strings within it.
+The graph language is parsed locally, not evaluated as Python. For an existing
+operator `raw`, an edit can register a custom type and use it immediately:
 
 ```json
 {
   "type": "edit",
-  "python": "def plus(table, *, opt1=1, opt2=2):\n    return table.assign(value=table['value'] + opt1 + opt2)\n",
-  "changes": "set adjusted: process(inputs=[raw], fn=plus, opt1=10)"
+  "python": "def plus(table, *, opt1=1, opt2=2):\n    \"\"\"Add two configured constants to the value column.\"\"\"\n    return table.assign(value=table['value'] + opt1 + opt2)\n",
+  "changes": "set adjusted: plus(raw, opt1=10, doc='Add the requested fixed adjustment to each value.')"
 }
 ```
 
-`raw` is an existing operator in this illustration. Both strings are present
-in the provider schema, and an unused string is `""`. This gives strict
-providers one edit shape without duplicating schema branches. Reject an edit
-when both strings are empty. A nonempty `python` with empty `changes` registers
-functions without changing the graph; a nonempty `changes` with empty `python`
-uses existing registrations and built-in operators.
+Both strings are present in the static schema; unused strings are `""`. Reject
+an edit with both empty. Python-only edits update the namespace. Graph-only edits
+use existing definitions and built-ins. A Python-only replacement can therefore
+run existing operators automatically; it is not merely passive registration.
 
-No JSON schema or Vercel tool definition is generated for individual registered
-functions. The static tool schema describes the action envelope; local
-validation checks statements, operator contracts, and Python argument binding.
-Provider tool definitions contribute to model input even though they are sent
-separately from the system-message text. Track both components.
+No Vercel/provider tool is created for individual Python functions. The tool
+schema describes the envelope; the local validator resolves constructors,
+parameters, and actual Python binding. System text and the separate provider
+tool payload both contribute to model input and are measured separately.
 
 | Action | Behavior |
 | --- | --- |
-| `inspect`, `target="graph"` | Read graph definitions and current status. |
-| `inspect`, `target="operator"` | Read one definition; `include_implementation` requests its pinned Python source. |
-| `inspect`, `target="reference"` | Read selected operator contracts or an enabled example. No computation or workflow mutation. |
-| `edit` | Validate and atomically register modules and apply graph statements. Never execute authored Python or compute tables. |
-| `execute`, optional `operator_ids` | Compute selected operators and their ancestors; reuse valid cached results. Omitted IDs select the whole graph. |
-| `retrieve`, `operator_id`, `view`, optional `columns` | Read a current result in an enabled view. Never execute. |
-| `answer`, `content` | Finish with prose or an answer shape composed by the model. Must be the sole action in its call. |
-| `answer`, `from` | Finish using the existing table projection and precision syntax. Must be the final action in its call. |
+| `inspect`, `target="graph"` | Read current definitions, summaries, and result status. |
+| `inspect`, `target="operator"` | Read a definition and its current function signature; `include_implementation` requests relevant current namespace source. |
+| `inspect`, `target="reference"` | Read selected built-in/custom contracts or an enabled example. No computation. |
+| `edit` | Stage namespace and graph, initialize definitions in isolation, validate, and atomically commit. When a namespace change affects existing custom users, await their automatic refresh. |
+| `execute`, optional `operator_ids` | Compute selected nodes and ancestors, reusing valid cached results. Omitted IDs select the whole DAG. |
+| `retrieve`, `operator_id`, `view`, optional `columns` | Read only a current materialized result in an enabled view. No execution. |
+| `answer`, `content` | Finish with prose or a requested envelope; sole action in its call. |
+| `answer`, `from` | Finish with the existing projection/precision syntax; final action in its call. |
 
-Actions run in order. An edit is atomic; an entire call containing several
-edits and executions is not one transaction. Earlier successful edits remain
-committed when a later action fails. A returned observation cannot change
-arguments already submitted in that call; observation-dependent decisions
-belong in the next call.
+First-time registration plus graph construction still uses `edit → execute →
+retrieve`. An update that refreshes existing custom users can use `edit →
+retrieve` because the edit waits for refresh completion. A later explicit
+`execute` is permitted and reuses already current results; do not teach it as
+necessary after every successful automatic refresh.
 
-Keep the expression executor's existing exception for inspection and retrieval
-of independent completed results after an execution failure. A requested failed
-or blocked result receives its upstream cause and no table. Improve diagnostic
-attribution so that this read failure is counted separately from its underlying
-execution failure. All later writes, executions, and answers are skipped after
-an action failure.
+Actions are ordered. Each edit's state commit is atomic; the entire action list
+is not one transaction. A later action failure does not undo earlier completed
+edits. Observation-dependent decisions belong in the next model call.
 
-The preferred model behavior is one call containing a batch. As a separate
-runtime cleanup, generalize the existing ordered-call adapter to accept multiple
-returned calls deterministically rather than rejecting an entire response by
-call count. Preserve call boundaries, transaction boundaries, skipped receipts,
-and answer termination. Do not deduplicate calls implicitly. Qualify this
-behavior before enabling it, and report it as a separate experiment treatment.
+Keep the expression executor's exception allowing inspection/retrieval of
+independent completed branches after execution failure, including automatic
+refresh failure. Report the failed target's cause rather than an old table.
+Skip later writes, executions, and answers after failure. An automatic refresh
+receipt explicitly distinguishes committed state from execution outcome.
+
+Prefer one tool call containing a batch. Generalizing the ordered-call adapter
+to accept multiple returned calls is a separate qualified runtime treatment:
+preserve call/transaction boundaries, skipped receipts, and answer termination.
+Do not deduplicate returned calls implicitly.
 
 ## 3. Graph statement grammar
 
 ```text
-set <operator_id>: <operator_name>(inputs=[<operator_id>, ...], <key>=<value>, ...)
+set <operator_id>: <operator_type>(<input_id>, ..., <key>=<value>, ...)
 delete <operator_id>
 ```
 
-Statements begin at the margin. A constructor may span lines inside its
-parentheses. Comments and blank lines are allowed. IDs use the existing ASCII
-identifier rules and cannot be Python keywords. A command is parsed as a graph
-statement; it is never executed as Python.
+Statements start at the margin. Parenthesized calls can span lines; comments
+and blank lines are allowed. Operator IDs and custom type names use ASCII Python
+identifier spelling and cannot be keywords.
 
-`inputs` is required, including `inputs=[]` for sources. Its entries are bare
-graph IDs. Their order identifies ports: a join's first input is left and its
-second input is right. Repeated IDs are valid, including a self-join with two
-ports fed by one source. A node cannot be its own upstream input.
+All positional arguments are bare graph IDs. Configuration is keyword-only
+in graph statements, even if a Python function would accept positional settings.
+A source has no positional arguments: `scan(files="data/orders.csv")` or
+`load_summary(filename="data/summary.xlsx")`. Join input 0 is left and input 1
+is right; `union(january, february, march, schema="strict")` accepts repeated
+table ports. A self-join can reference one source twice; a node cannot reference
+itself as an input.
 
-Use keyword arguments for all remaining constructor parameters. Values use
-Python literal spelling: `True`, `False`, and `None`. Column names are strings;
-dtype names such as `float64` and catalog reducer/window calls remain catalog
-expressions. Module constants and helpers do not evaluate graph parameters.
+Resolve syntax roles directly: the call head is a type, positional names are
+graph IDs, and keyword names are settings/metadata. A function and a graph node
+may share a name, as in `set normalize: normalize(raw)`. Never classify an input
+by whether the same name appears in the function registry.
 
-### 3.1 Complete replacement and connections
+### 3.1 Replacement, deletion, and final-graph validation
 
-`set` creates a missing ID or replaces the existing operator's type, parameters,
-function binding, and incoming connections. Omitted optional parameters reset
-to documented defaults, including omitted function overrides. Existing outgoing
-connections remain because their consumers define them. Restating an identical
-resolved definition is a no-op.
+A `set` replaces the type, settings, incoming edges, and explicit documentation
+override. Omitted settings reset to defaults; omitted `doc` resets to inherited/
+generated documentation. Outgoing connections remain defined by consumers.
+An identical resolved definition is a no-op.
 
-An operator is written at most once in an edit. Reject repeated `set` or
-`delete`, and a mixture of both for the same ID. Resolve forward references
-against the final draft. Validate existence, input counts, parameters, function
-binding, and cycles before committing any registry or graph mutation.
+Write each graph ID at most once per edit. Reject repeated sets/deletes or both
+for one ID. Resolve forward references against the final draft; check input
+existence/counts, constructor contracts, Python binding, and cycles before commit.
 
-Deleting an operator removes its incident edges. If retained consumers still
-need that source, reject the edit and identify the consumers. Rewire or delete
-them in the same edit. There is no cascade deletion or inferred replacement.
-This strengthens the current editable-draft behavior, which permits disconnected
-consumers and rejects them only at execution. Keep old replay behavior intact.
+Deletion removes incident edges. Rewire or delete retained consumers in the
+same edit; otherwise reject the final graph. There is no cascade deletion.
+Historical editable-draft replay retains its older disconnected-consumer policy.
 
-For example, when `replacement` already exists:
+For an existing replacement source:
 
 ```text
-set totals: aggregate(inputs=[replacement], by=["region"], total=sum("amount"))
+set totals: aggregate(replacement, by=["region"], outputs={"total": sum("amount")})
 delete obsolete
 ```
 
-This is valid when `totals` was the only consumer of `obsolete`. Intermediate
-statement order does not matter; the final graph does.
+This is valid if `totals` was the only consumer of `obsolete`. Intermediate
+statement order does not invalidate a valid final graph.
 
-### 3.2 Parameter names and the escape mapping
+### 3.2 Settings and structured values
 
-`inputs` and `params` are graph controls. For `filter`, `map`, and `process`,
-`fn` and `doc` are also controls. Remaining direct keywords go to the built-in
-operator or selected callback. The optional `params` mapping supplies additional
-operator parameters after graph controls have been separated:
+Every setting uses `key=value`. Custom settings are finite, faithfully
+representable literals: strings, numbers, booleans, `None`, lists, and dictionaries
+with string keys. Collections are configuration data, not nested Python code.
+There is no graph-level constant evaluation, arbitrary function invocation,
+Python `**` unpacking, lambda, or nested operator call.
+
+Built-ins additionally accept closed catalog descriptors: dtype names and
+documented dtype/reducer/window constructors. For example, `sum("amount")` is
+parsed as an aggregation specification; it does not call Python's `sum` or a
+function from the shared namespace. These descriptors are valid only in their
+declared parameter positions.
+
+Use fixed mapping parameters where column names are data:
 
 ```text
-set typed: cast(inputs=[raw], params={"Unit Price": float64, "inputs": str})
-set counts: aggregate(inputs=[typed], params={"inputs": count()})
-set custom: process(inputs=[typed], fn=compute, params={"fn": "setting-value"})
+set typed: cast(raw, columns={"Unit Price": float64, "doc": str})
+set counts: aggregate(typed, outputs={"inputs": count(), "doc": count("Unit Price")})
+set previous: window(daily, order_by=["date"], outputs={"previous value": lag("value")})
 ```
 
-The first statement casts two columns. The second names its count output
-`inputs`. The third forwards a Python setting named `fn` while keeping
-`fn=compute` as the function selector.
+`columns=` and `outputs=` are actual built-in settings, not generic parameter
+wrappers. They support spaces, reserved metadata names, and catalog-option names
+without treating column names as keyword identifiers. Use one spelling per
+built-in: no parallel dynamic-column keyword form in the new protocol.
 
-Reject a parameter present both directly and in `params`. Mapping keys must
-be constant strings. Callback setting values must be finite, faithfully
-representable JSON-compatible literals; built-ins additionally accept their
-documented dtype/reducer/window expressions. Never silently round unsafe
-integers through JavaScript. Preserve exact supported values or report the
-representation limit explicitly.
+`doc` is the one universal metadata keyword and is removed before parameter
+validation/invocation. A custom setting cannot be exposed under this reserved
+name; use a domain name such as `description` instead. The names `inputs`,
+`params`, and `fn` have no graph-control meaning in this protocol and may be
+ordinary settings when a custom function explicitly accepts them.
 
-The escape resolves graph-control collisions. A built-in's own documented
-option names still retain their catalog meaning: for example, aggregate `by`
-selects grouping columns. Use a later `project` rename for an output that
-collides with such a native option. No general expression evaluation, nested
-operator calls, or Python `**` unpacking is needed in graph statements.
+Reject duplicate keywords and unsafe literal values. Never silently round
+integers through JavaScript: preserve exact supported values or report the
+representation limit. Built-in parameter defaults/validation come from one
+catalog metadata source.
 
-## 4. Python modules and function binding
+## 4. Shared Python namespace and custom operators
 
-### 4.1 Ordinary Python source
+### 4.1 Definition cells and exports
 
-`python` accepts a complete module with imports, constants, helpers, classes,
-and ordinary Python constructs. Selected callbacks are named, top-level
-synchronous functions. Helpers may use lambdas and nested functions; graph
-statements use named `fn` references so there is one callback registration path.
+`edit.python` is ordinary Python source appended as a definition cell to the
+session. Later cells see earlier imports, constants, classes, helpers, and
+functions, and may overwrite names. Functions resolve global helper/constant
+names from the latest namespace at call time, following Python rules.
 
-Each submission carries the imports and helpers its functions require. A new
-module does not extend the runtime globals of older modules. A helper named
-`sum` is an ordinary Python name inside that module; `sum("amount")` in an
-aggregate statement remains the catalog reducer.
+Public top-level synchronous `def` names are eligible custom operator types.
+Names starting with `_` are helpers; imports/constants/classes remain usable
+Python names but are not automatically graph constructors. Async entries and
+selected non-callables are rejected. Helpers may contain lambdas, nested
+functions, and normal Python constructs.
 
-Parse with Python AST and compile without executing imports, decorators,
-default expressions, annotations, or function bodies. Reject syntax errors,
-duplicate exported function definitions, missing selected entries, and
-asynchronous entries. Module initialization, callable checks, and actual
-binding also run in the worker before invoking the selected function.
+Predefined constructor names are reserved against Python redefinition, including
+the retired `process`, `filter`, and `map` wrapper names. Reject collisions with
+a clear error and allow a different custom name. Dispatch must never silently
+switch a built-in into an authored function.
 
-Python retains its normal scope rules. A function can reference a helper or
-constant in its module. Table inputs arrive only as function arguments;
-operator IDs do not become Python globals. Printed output is not a result
-table; return diagnostics as table columns when they are needed.
+AST parsing and compile-only preflight execute no authored imports, decorators,
+defaults, or bodies. Then an isolated, bounded registration worker reconstructs
+the prior definition cells and applies the candidate cell before validating
+resolved callables and bindings. Initialization failure, timeout, cancellation,
+or a non-callable replacement used by the graph prevents the state commit. Compilation alone is not
+sufficient when a decorator changes the actual callable.
 
-### 4.2 Inputs and configuration
+The namespace is shared logically, not as a mutable heap across engine workers.
+Persist ordered authored cells and rebuild a coherent namespace revision in each
+worker; every operator in one execution sees that same definition revision.
+Table inputs arrive as arguments, not globals. Use graph edges for durable data.
+Mutation during an operator invocation is worker-local and does not publish a
+new namespace definition.
 
-The call is exactly:
+Definition cells are for imports and deterministic definitions/constants.
+Authored top-level reads of task data, clock/random-dependent initialization,
+network writes, open handles, or mutable execution state are not durable
+namespace state; put data-dependent computation inside functions with explicit
+inputs/settings. Initialization is sandboxed so rejected transactions cannot
+publish external writes. Pin packages/runtime and input artifacts for replay.
+Source checkpoints preserve definitions and captured results, not arbitrary
+initialized Python objects or external service state.
+
+Preserve Python's distinction between defaults captured when a definition cell
+runs and globals looked up when a function is called. Ordered deterministic
+cell replay preserves the former; do not rewrite an earlier function's defaults
+when a later constant changes. Prefer immutable literal settings defaults. Append every submitted definition
+cell in order, including repeated source: re-running a definition can recapture
+a changed default. Storage may deduplicate source bytes, not cell events.
+
+### 4.2 Inputs and keyword settings
+
+The runtime call is:
 
 ```python
-selected_function(*ordered_input_values, **configuration_overrides)
+selected_function(*ordered_input_dataframes, **configuration_overrides)
 ```
 
-For process, each input value is a DataFrame. Filter and map receive one row
-mapping. A process with no graph inputs is a loader or another zero-input
-computation, and it can still accept named settings.
-
-Recommend required positional table arguments followed by keyword-only settings:
+Strip `doc` before binding. Recommend required table inputs followed by
+keyword-only settings:
 
 ```python
 def plus(table, *, opt1=1, opt2=2):
-    ...
+    """Add configured constants to the value column."""
+    return table.assign(value=table["value"] + opt1 + opt2)
 
 def compare(left, right, *, threshold=0.05):
     ...
@@ -252,172 +283,230 @@ def load(*, filename, sheet="Summary"):
     ...
 ```
 
-Accept other normal Python signatures when the actual planned call binds,
-including defaults, positional-only inputs, variadic inputs, and keyword-only
-arguments supplied by settings. `def plus(table, opt1=1, opt2=2)` also accepts
-one table and keyword overrides. Settings already occupied by positional
-inputs normally cause a duplicate binding when supplied a second time. Follow
-Python's actual binding rules: for `def f(table, /, **options)`, the keyword
-`table="metadata"` legitimately enters `options` while the positional-only
-`table` receives the input. Do not reject keys just by matching input names.
+Accept normal Python signatures when the actual planned call binds: defaults,
+positional-only inputs, varargs, and supplied required keyword-only settings.
+For `def f(table, /, **options)`, `table="metadata"` can legally enter `options`;
+do not reject settings merely because a positional input has the same name.
+Unknown keywords are permitted by `**kwargs`; explicit named settings give
+better typo diagnostics.
 
-Build signature metadata from AST and check placeholder positional inputs plus
-the supplied settings. Use a default-present sentinel rather than evaluating
-default expressions. Runtime binding uses the callable after module
-initialization, accounting for decorators and overwritten names. Do not infer
-setting types by executing annotations or generate provider schemas from them.
+AST signature metadata uses a default-present sentinel without evaluating
+expressions. The registration worker and invocation worker validate the actual
+resolved callable after initialization/decorators. Do not evaluate annotations
+to invent setting types or per-function provider schemas.
 
-Examples of precise edit errors:
+Validate all retained custom operators against the candidate namespace, not
+just newly written nodes. A replacement that removes a function, changes it
+to a non-callable, or makes an existing configured call unbindable rejects
+the whole edit. Users can fix all affected node definitions in that same edit.
 
 ```text
-FUNCTION_NOT_FOUND: adjusted selects plus; available functions: normalize, keep.
+CUSTOM_TYPE_NOT_FOUND: adjusted selects plus; available types: normalize, compare.
 FUNCTION_BINDING: plus got unknown setting optl; accepted settings: opt1, opt2.
 FUNCTION_BINDING: plus parameter table is already supplied by input 0.
-FUNCTION_BINDING: compare requires 2 positional inputs; this operator supplies 1.
+FUNCTION_BINDING: compare requires another input; supplied inputs: [left].
 GRAPH_INPUT: totals refers to missing operator parsed.
-GRAPH_DELETE: orders is still required by totals at input 0; rewire or delete totals in this edit.
+GRAPH_DELETE: orders is required by totals; rewire or delete totals in this edit.
 ```
 
-For `**kwargs`, unknown configuration keys are valid Python. Prefer explicit
-named settings when typo detection is useful. Errors distinguish envelope,
-statement, graph, module syntax, binding, module initialization, callback,
-and table-output failures.
+Distinguish envelope, statement, graph, compile, initialization, binding,
+invocation, table-output, and automatic-refresh failures.
 
-### 4.3 Output contracts and documentation
+### 4.3 Table output and row transformations
 
-| Operator | Input | Output |
-| --- | --- | --- |
-| `filter` | One read-only row mapping; missing scalar values arrive as `None`. | `True` keeps the row; `False` or `None` drops it. Other values fail the contract. |
-| `map` | One read-only row mapping. | One replacement dictionary per input row, with consistent keys and scalar values. `{**row, ...}` retains existing fields. |
-| `process` | One DataFrame per graph input, in order. | One DataFrame with unique string column names, scalar cells, supported consistent column types, and finite numeric values or missing values. |
+Every direct custom operator receives zero or more DataFrames and returns one
+DataFrame with unique string column names, scalar cells, supported consistent
+column types, and finite numeric values or missing values. Runtime input isolation
+must preserve stored parent results even if custom code mutates a received table;
+prefer copying before modification. Zero-input functions
+can load specialized formats. Bool/dictionary-returning row helpers are not
+implicit graph operators.
 
-Preserve existing table and datetime policies for the initial syntax treatment.
-Timezone-aware timestamps retain the engine's existing normalization. A civil
-date or time without a justified timezone can be returned as explicit ISO text.
-Changing automatic handling of naive datetimes is a separately recorded
-runtime treatment, since the current JSON candidate and legacy expression arm
-already differ on this behavior.
+For custom filtering/mapping, write table-returning functions and call them
+directly. Retire the model-facing `filter(..., fn=...)`, `map(..., fn=...)`,
+and `process(..., fn=...)` forms in this protocol. The engine may reuse its
+generic Python execution machinery internally. Function names/docstrings do
+not grant measured row-preservation or filtering semantics.
 
-An optional operator `doc` overrides the selected function's docstring. Otherwise
-use that docstring, then a generic operator description. Do not require an
-extra prose string to make an otherwise valid callback executable. Function
-registration and a docstring do not prove the transformation's correctness.
+Preserve the initial runtime's existing datetime policy. Return civil dates
+without a justified timezone as explicit ISO text; timezone-aware timestamps
+follow existing normalization. Automatic naive-date conversion is a separate
+recorded treatment, not silently bundled into prompt trimming.
 
-### 4.4 Registration versions and reproducibility
+### 4.4 Operator summaries
 
-Store immutable modules by a hash of their authored source and protocol/runtime
-identity. Registration publishes top-level function aliases to a module and
-entry. Repeating identical source reuses its module record. Aliases persist
-inside the workflow/session and are part of versioned state.
+Description precedence is explicit node `doc=` → current custom function
+docstring → generated description from type/settings. Built-ins normally use
+their generated description. Store the optional explicit override separately
+from the effective rendered summary.
 
-`set` resolves `fn=name` after that edit's registration and pins the entire
-module, entry, and literal settings to the operator. Preserve imports, constants,
-helpers, and default expressions together. Avoid dependency extraction by
-matching function names in text.
+The prompt asks the model to write a concise custom-function docstring about
+the transformation/output, and use `doc=` for task-specific population, units,
+or statistical meaning. Do not require redundant prose for every scan/sort or
+reject executable edits for missing documentation.
 
-Registering a replacement updates aliases for future `set` statements. Existing
-operators and their cached results retain their pinned source. Explicitly
-re-setting an operator adopts the current alias and invalidates that operator
-and its descendants when semantics change. Registry-only registration does not
-invalidate already pinned operators. Whole-module versioning is conservative:
-a changed helper or unrelated definition changes the module version adopted by
-newly bound operators.
+```text
+set adjusted: plus(orders, opt1=10, doc="Add the fixed adjustment to each order value.")
+set enriched: join(orders, customers, on="customer_id", how="left",
+    validate="many_to_one", doc="Attach customer metadata, retaining unmatched orders.")
+```
 
-Snapshots, checkout, persistence, import/export, and resume must preserve module
-records and alias bindings. Restoring one historical operator restores its
-pinned module without rewinding today's registry aliases. Clearing conversational
-history while retaining a graph must also retain the definitions that graph uses.
+A new `set` resets an omitted override. Function replacement refreshes inherited
+summaries; explicit node overrides remain attached and should be revised by the
+model when the operation's meaning changes. A documentation-only change updates
+summaries without invalidating numeric results; compare executable semantics
+separately from descriptions. If semantic equivalence cannot be proved, use the
+conservative execution rule.
 
-Optional model-facing history uses the existing dedicated `fork` action to copy
-a saved branch and its pinned bindings. Full checkout uses the existing session
-API and restores graph plus registry together. Do not introduce the legacy
-`at(...)` assignment syntax into the new `changes` grammar.
+Descriptions are authored intent, not evidence. Keep them distinct from measured
+statistics. A custom operator's internals remain opaque even when its summary
+says it preserves all rows or applies a specific eligibility rule.
 
-Shared source does not create shared mutable Python state. Execute each
-operator's pinned module in its own worker execution namespace. Preserve parent
-result immutability when passing DataFrames. Global variables are not durable
-workflow state; pass tables through graph inputs.
+### 4.5 Automatic refresh and receipts
+
+Operators store the custom type name and settings, and resolve that name in the
+current session namespace. There are no user-visible per-function versions or
+older pinned live bindings.
+
+Redefining `plus` refreshes every existing node using `plus` and its descendants.
+It does not force fresh computation of unchanged ancestors. A shared helper or
+constant can affect other functions without changing their source. Initially, if custom nodes existed before the edit,
+every semantically changing Python definition cell conservatively refreshes
+**all retained custom nodes in the final draft and their descendants**, including
+newly set custom nodes. Adding an unused function is not an exemption because
+existing code can inspect the namespace.
+This avoids unsafe regex dependency extraction. Pure documentation changes are
+exempt when proven; optimize other refresh selection later under equivalent
+tests, without changing the public rule that affected users always refresh.
+
+The refresh set is computed against the final draft, so deletions/rewiring in
+the same edit are respected. Force fresh execution of invalidated nodes; reuse
+unaffected current ancestors, or execute missing/stale ancestors as required.
+New graph-only nodes outside the refresh set remain unexecuted. If the edit began without custom nodes, it performs no automatic refresh even
+when it constructs the first custom nodes; explicit execute is required. An empty
+graph has nothing to refresh.
+
+Validation/initialization completes before graph+namespace commit. After commit,
+the edit awaits automatic execution. A runtime failure does not roll back the
+new definitions; mark failures and blocked outputs, and retain successful
+independent branches. Old results and evidence remain historical, never current.
+
+For a DAG `orders/customers → matched → adjusted → report` and a separate custom
+node `other_adjustment` using `plus`, a `plus` replacement refreshes `adjusted`,
+`report`, and `other_adjustment`. Current `orders`, `customers`, and `matched`
+results are reused. Other custom functions may refresh under the initial
+conservative policy, and the receipt names that reason.
+
+An illustrative receipt is:
+
+```json
+{
+  "action": "edit",
+  "state_committed": true,
+  "namespace_revision": "ns-7",
+  "refresh_reason": "namespace_changed_conservative",
+  "refresh_roots": ["adjusted", "other_adjustment"],
+  "invalidated": ["adjusted", "report", "other_adjustment"],
+  "completed": ["adjusted", "report", "other_adjustment"],
+  "failed": [],
+  "blocked": [],
+  "reused_ancestors": ["orders", "customers", "matched"]
+}
+```
+
+Field names are the proposed receipt contract; the identifiers are illustrative.
+Record actual executions, cache reuse, timings, and diagnostics separately from
+the planned refresh set. An error receipt retains `state_committed=true` when
+execution failed after commit, plus causes for failed/blocked nodes. Flow
+evidence can appear on these edit receipts because they performed execution.
+
+### 4.6 Checkpoints and reproducibility
+
+A saved version is a whole-session history checkpoint: ordered Python cells,
+namespace/source identity, graph, settings, and captured version-bound results.
+It does not select a function version for the live model. `plus` always means
+the latest active definition.
+
+Checkout restores the whole checkpoint together. Historical inspection reads
+its definitions/results without changing the active namespace. A fork creates
+an independent session/branch namespace from a checkpoint; it does not mix old
+operators into today's namespace. Do not restore one old custom node with an
+invisible older function binding.
+
+Persist this state through workflow save/load, snapshots, import/export,
+checkout, resume, and protocol-aware trace replay. Namespace-only updates are
+checkpointed even when the graph is empty. Clearing conversation history while
+retaining a graph retains its namespace. Rerunning a checkpoint requires its
+recorded input artifacts, runtime, and packages; source history alone cannot
+freeze mutable external data. Captured historical results remain available
+according to the existing result-retention policy.
 
 ## 5. Built-in operators
 
-All fifteen existing catalog operators remain available. Their data semantics
-and parameter names remain the source of truth; the new wrapper makes inputs
-explicit and parameters keyword-based.
+The new catalog exposes twelve predefined table operators. The old
+`filter`/`map` callback adapters and `process` wrapper are replaced by direct
+named custom operators. The retained operators keep their data semantics;
+`cast`, `aggregate`, and `window` normalize column/output specifications into
+fixed keyword mappings.
 
-| Operator | Inputs | Common parameters and role |
+| Operator | Positional inputs | Common settings and role |
 | --- | --- | --- |
-| `scan` | `[]` | `files`, `format`, `sheet`, `header`, `names`, `skip_lines`, `all_text`, `preview`. Read a source. |
-| `project` | `[t]` | `keep`, `drop`, `rename`. Select and rename columns. |
-| `cast` | `[t]` | `column=dtype`, `errors`; use `params` for unusual column names. Convert types. |
-| `filter` | `[t]` | Registered `fn` and its settings. Select rows. |
-| `map` | `[t]` | Registered `fn` and its settings. Replace each row. |
-| `aggregate` | `[t]` | `by`, `output=reducer(...)`. Group and summarize. |
-| `join` | `[left, right]` | `on`, `how`, `validate`, `nulls_equal`, `suffix`. Combine on explicit keys. |
-| `union` | Two or more inputs | `schema="strict"` or `"align"`. Stack rows without deduplication. |
-| `distinct` | `[t]` | `columns`, `keep`. Keep one whole row per key. |
-| `sort` | `[t]` | `by`, `nulls`. Stable ordering. |
-| `limit` | `[t]` | `n`, `offset`. Select a bounded ordered result. |
-| `window` | `[t]` | `partition_by`, `order_by`, `output=window_function(...)`. Ordered calculations. |
-| `unpivot` | `[t]` | `columns`, `name`, `value`. Wide to long. |
-| `pivot` | `[t]` | `index`, `columns`, `values`. Long to wide. |
-| `process` | Zero or more inputs | Registered `fn` and its settings. One operation outside the built-in vocabulary. |
+| `scan` | None | `files`, `format`, `sheet`, `header`, `names`, `skip_lines`, `all_text`, `preview`. Read a source. |
+| `project` | `t` | `keep`, `drop`, `rename`. Select/rename columns. |
+| `cast` | `t` | `columns={name: dtype}`, `errors`. Convert types. |
+| `aggregate` | `t` | `by`, `outputs={name: reducer}`. Group and summarize. |
+| `join` | `left, right` | `on`, `how`, `validate`, `nulls_equal`, `suffix`. Combine by keys. |
+| `union` | Two or more | `schema="strict"` or `"align"`. Stack without deduplication. |
+| `distinct` | `t` | `columns`, `keep`. Keep a whole row per key. |
+| `sort` | `t` | `by`, `nulls`. Stable ordering. |
+| `limit` | `t` | `n`, `offset`. Select a bounded ordered result. |
+| `window` | `t` | `partition_by`, `order_by`, `outputs={name: window_spec}`. Ordered calculations. |
+| `unpivot` | `t` | `columns`, `name`, `value`. Wide to long. |
+| `pivot` | `t` | `index`, `columns`, `values`. Long to wide. |
 
-Use built-ins for ordinary grouping, joining, ordering, and selection. A custom
-process is appropriate for a specialized parser, statistical computation,
-model fit, or another operation the catalog cannot express. Prefer row map or
-filter for row-local transformations.
+All accept optional `doc=` metadata. Prefer built-ins for ordinary joins,
+grouping, ordering, and column selection; custom operators cover parsing,
+filtering, feature derivation, statistical tests, model fits, and specialized
+loaders.
 
 ### 5.1 Join examples and checks
 
-Preserving every left-side order while attaching a customer region:
-
 ```text
-set enriched: join(inputs=[orders, customers], on="customer_id", how="left", validate="many_to_one")
+set enriched: join(orders, customers, on="customer_id", how="left", validate="many_to_one")
+set differently_named: join(orders, customers, on=[("customer_id", "id")], how="left", validate="many_to_one")
+set eligible: join(people, membership, on=["community", "name"], how="semi")
+set missing: join(people, membership, on=["community", "name"], how="anti")
 ```
 
-Using different key names:
-
-```text
-set enriched: join(inputs=[orders, customers], on=[("customer_id", "id")], how="left", validate="many_to_one")
-```
-
-Selecting people by a composite membership key without multiplying rows:
-
-```text
-set eligible: join(inputs=[people, membership], on=["community", "name"], how="semi")
-set missing: join(inputs=[people, membership], on=["community", "name"], how="anti")
-```
-
-The default join is inner with `validate="many_to_many"`; choose explicit
-semantics where population or cardinality matters. Null keys do not match by
-default. Inspect reported suffix renames when right-side columns collide.
-Join output has no promised order; sort before top-k selection or ordered output.
-Use a row-count, distinct-key, or unmatched-row check when a join's interpretation
-remains uncertain. Do not build these checks for every simple join automatically.
+The default is inner with `validate="many_to_many"`. Choose explicit population
+and cardinality where relevant. Null keys do not match by default. Inspect
+suffix renames for colliding right-side columns. Sort before top-k or ordered
+output. Add a count/distinct-key/unmatched check when a material ambiguity
+remains, not automatically for every join.
 
 ### 5.2 Other built-in statements
 
 ```text
-set cleaned: project(inputs=[raw], keep=["customer_id", "amount"], rename={"amount": "total"})
-set numeric: cast(inputs=[cleaned], total=float64)
-set grouped: aggregate(inputs=[numeric], by=["customer_id"], total=sum("total"), rows=count(), measured=count("total"))
-set ranked: sort(inputs=[grouped], by=[("total", "desc"), "customer_id"])
-set top: limit(inputs=[ranked], n=10)
-set stacked: union(inputs=[january, february], schema="strict")
-set previous: window(inputs=[daily], partition_by=["station"], order_by=["date"], previous=lag("value"), position=row_number())
+set cleaned: project(raw, keep=["customer_id", "amount"], rename={"amount": "total"})
+set numeric: cast(cleaned, columns={"total": float64})
+set grouped: aggregate(numeric, by=["customer_id"], outputs={"total": sum("total"), "rows": count(), "measured": count("total")})
+set ranked: sort(grouped, by=[("total", "desc"), "customer_id"])
+set top: limit(ranked, n=10)
+set stacked: union(january, february, schema="strict")
+set previous: window(daily, partition_by=["station"], order_by=["date"], outputs={"previous": lag("value"), "position": row_number()})
 ```
 
-`count()` counts rows, `count("column")` counts non-null measurements, and
-`count_distinct("column")` counts distinct non-null values. These are different
-questions. Numeric reducers require numeric columns. Catalog reducers remain
-simple calls; put a conditional transformation in a named map/filter function
-before aggregation.
+`count()` counts rows, `count("column")` non-null measurements, and
+`count_distinct("column")` distinct non-null values. Numeric reducers require
+numeric inputs. Put conditional transformations inside a named custom table
+function before aggregation, not inside a reducer specification.
 
-Before publishing the generated index, reconcile advertised optional defaults
-with normalizers. In the current catalog, `distinct(columns=None)` is advertised
-but explicitly supplying `None` is rejected; omission already means all columns.
-Add a regression and make explicit `None` match the advertised omission before
-shipping this index. This is a compatibility fix, not a new data transformation.
+Reconcile advertised defaults with normalizers before shipping the generated
+index. In the current catalog, explicit `distinct(columns=None)` is rejected
+although omission means all columns; make those forms consistent with a
+regression test. Historical benchmark arms retain their recorded normalizers.
+
+
 
 ## 6. Complete batched DAG example
 
@@ -428,7 +517,7 @@ percentiles across all orders, then return totals and order counts by region
 in alphabetical order, with amounts rounded to two decimals.
 
 The known schemas and requested rule allow the complete computation to be
-submitted together. The example uses a custom process for a global quantile
+submitted together. The example uses a custom operator for a global quantile
 transformation and built-ins for the join, grouping, and ordering.
 
 ```mermaid
@@ -443,7 +532,7 @@ flowchart LR
 
 ### 6.1 Register and construct the DAG in one edit
 
-The Python module is:
+The first Python definition cell is:
 
 ```python
 import pandas as pd
@@ -461,13 +550,13 @@ def winsorize(table, *, column="amount", q=0.05):
 The statements are:
 
 ```text
-set orders: scan(inputs=[], files="data/orders.csv")
-set customers: scan(inputs=[], files="data/customers.csv")
-set enriched: join(inputs=[orders, customers], on="customer_id", how="left", validate="many_to_one")
-set clipped: process(inputs=[enriched], fn=winsorize, column="amount", q=0.05)
-set totals: aggregate(inputs=[clipped], by=["region"], total=sum("amount"), n=count())
-set report: sort(inputs=[totals], by=["region"])
-set checks: aggregate(inputs=[enriched], rows=count(), customers=count_distinct("customer_id"), measured=count("amount"))
+set orders: scan(files='data/orders.csv')
+set customers: scan(files='data/customers.csv')
+set enriched: join(orders, customers, on='customer_id', how='left', validate='many_to_one')
+set clipped: winsorize(enriched, column='amount', q=0.05)
+set totals: aggregate(clipped, by=['region'], outputs={'total': sum('amount'), 'n': count()})
+set report: sort(totals, by=['region'])
+set checks: aggregate(enriched, outputs={'rows': count(), 'customers': count_distinct('customer_id'), 'measured': count('amount')})
 ```
 
 The actual tool arguments, including execution and retrieval, are valid JSON:
@@ -479,11 +568,25 @@ The actual tool arguments, including execution and retrieval, are valid JSON:
     {
       "type": "edit",
       "python": "import pandas as pd\n\ndef winsorize(table, *, column='amount', q=0.05):\n    \"\"\"Clip a numeric column at the q and 1-q quantiles.\"\"\"\n    if not 0 <= q < 0.5:\n        raise ValueError('q must be between 0 and 0.5')\n    result = table.copy()\n    values = pd.to_numeric(result[column], errors='raise')\n    result[column] = values.clip(values.quantile(q), values.quantile(1 - q))\n    return result\n",
-      "changes": "set orders: scan(inputs=[], files='data/orders.csv')\nset customers: scan(inputs=[], files='data/customers.csv')\nset enriched: join(inputs=[orders, customers], on='customer_id', how='left', validate='many_to_one')\nset clipped: process(inputs=[enriched], fn=winsorize, column='amount', q=0.05)\nset totals: aggregate(inputs=[clipped], by=['region'], total=sum('amount'), n=count())\nset report: sort(inputs=[totals], by=['region'])\nset checks: aggregate(inputs=[enriched], rows=count(), customers=count_distinct('customer_id'), measured=count('amount'))"
+      "changes": "set orders: scan(files='data/orders.csv')\nset customers: scan(files='data/customers.csv')\nset enriched: join(orders, customers, on='customer_id', how='left', validate='many_to_one')\nset clipped: winsorize(enriched, column='amount', q=0.05)\nset totals: aggregate(clipped, by=['region'], outputs={'total': sum('amount'), 'n': count()})\nset report: sort(totals, by=['region'])\nset checks: aggregate(enriched, outputs={'rows': count(), 'customers': count_distinct('customer_id'), 'measured': count('amount')})"
     },
-    { "type": "execute", "operator_ids": ["report", "checks"] },
-    { "type": "retrieve", "operator_id": "report", "view": "full" },
-    { "type": "retrieve", "operator_id": "checks", "view": "full" }
+    {
+      "type": "execute",
+      "operator_ids": [
+        "report",
+        "checks"
+      ]
+    },
+    {
+      "type": "retrieve",
+      "operator_id": "report",
+      "view": "full"
+    },
+    {
+      "type": "retrieve",
+      "operator_id": "checks",
+      "view": "full"
+    }
   ]
 }
 ```
@@ -519,7 +622,10 @@ After checking the observations, finish in a separate call:
 {
   "reasoning": "The complete report and population check support the requested totals.",
   "actions": [
-    { "type": "answer", "from": "report[region,total:2,n]" }
+    {
+      "type": "answer",
+      "from": "report[region,total:2,n]"
+    }
   ]
 }
 ```
@@ -546,22 +652,22 @@ import pandas as pd
 
 KWH = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*kwh", re.I)
 
-def parse_kwh(value):
+def _parse_kwh(value):
     match = KWH.search(str(value))
     return float(match.group(1)) if match else None
 
 def parse_readings(table, *, column="Reading", scale=1.0):
     """Extract numeric kWh readings and apply the requested unit scale."""
-    values = table[column].map(parse_kwh)
+    values = table[column].map(_parse_kwh)
     return pd.DataFrame({"energy": values * scale})
 ```
 
-Register that module once and use its defaults or overrides:
+Submit that definition cell once and use its defaults or overrides:
 
 ```text
-set parsed: process(inputs=[raw], fn=parse_readings)
-set mwh: process(inputs=[raw], fn=parse_readings, column="Reading", scale=0.001)
-set summary: aggregate(inputs=[mwh], mean_energy=mean("energy"), measured=count("energy"), rows=count())
+set parsed: parse_readings(raw)
+set mwh: parse_readings(raw, column='Reading', scale=0.001)
+set summary: aggregate(mwh, outputs={'mean_energy': mean('energy'), 'measured': count('energy'), 'rows': count()})
 ```
 
 Execute `summary`, then retrieve it. If the source really uses `Usage text`
@@ -569,7 +675,7 @@ instead of `Reading`, an observed column error is repaired by inspecting the
 actual schema and submitting a new edit with `python=""`:
 
 ```text
-set mwh: process(inputs=[raw], fn=parse_readings, column="Usage text", scale=0.001)
+set mwh: parse_readings(raw, column='Usage text', scale=0.001)
 ```
 
 Then execute `summary` and retrieve its new result. The unchanged function is
@@ -577,35 +683,60 @@ reused, the changed settings are recorded, and the prior summary is stale.
 Since `set` replaces the whole definition, include every override to retain.
 Changing only `column` while omitting `scale` resets scale to its default.
 
-### 7.2 Row callbacks and composite eligibility
+
+### 7.2 Custom filtering, feature derivation, and composite eligibility
 
 ```python
-ELIGIBLE = {"adult", "senior"}
+import pandas as pd
 
-def keep_group(row, *, column="category"):
-    """Keep rows in the declared eligible categories."""
-    return row[column] in ELIGIBLE
+ELIGIBLE = frozenset({"adult", "senior"})
 
-def add_unit_price(row, *, amount="amount", quantity="quantity"):
-    """Add unit_price while preserving the existing row fields."""
-    count = row[quantity]
-    price = None if count in (None, 0) or row[amount] is None else row[amount] / count
-    return {**row, "unit_price": price}
+def keep_group(table, *, column="category"):
+    """Keep records in the declared eligible categories."""
+    return table.loc[table[column].isin(ELIGIBLE)].copy()
+
+def add_unit_price(table, *, amount="amount", quantity="quantity"):
+    """Add unit_price without dropping records or existing columns."""
+    result = table.copy()
+    amounts = pd.to_numeric(result[amount], errors="raise")
+    quantities = pd.to_numeric(result[quantity], errors="raise")
+    result["unit_price"] = amounts.div(quantities.where(quantities.ne(0)))
+    return result
 ```
 
 ```text
-set eligible: filter(inputs=[orders], fn=keep_group, column="category")
-set priced: map(inputs=[eligible], fn=add_unit_price)
-set included: join(inputs=[priced, membership], on=["community", "name"], how="semi")
-set total: aggregate(inputs=[included], n=count(), entities=count_distinct("entity_id"))
+set eligible: keep_group(orders, column="category",
+    doc="Keep the request's adult and senior categories.")
+set priced: add_unit_price(eligible)
+set included: join(priced, membership, on=["community", "name"], how="semi")
+set total: aggregate(included, outputs={"n": count(), "entities": count_distinct("entity_id")})
 ```
 
-The constant belongs to the Python module. A graph-level `ELIGIBLE = ...`
-assignment is invalid. A semi join uses the full membership key and preserves
-matching left rows once, avoiding name-only eligibility and multiplication.
-Inspect or compute the row/entity counts needed by the actual question.
+Both custom operations have the same table-input/table-output contract. The
+eligibility constant belongs in Python, not a graph-level assignment. The semi
+join uses the full membership key and selects left records once. The authored
+description of `keep_group` is not measured eligibility provenance; return or
+compute focused diagnostics when the requested population remains uncertain.
 
-### 7.3 Zero and multiple table inputs
+### 7.3 Redefinition, settings, and summaries
+
+For an existing `adjusted: plus(orders, opt1=10)` and its downstream `report`,
+a later Python-only edit can replace `plus`. It sees earlier imports/helpers,
+and the existing graph continues to call `plus` by name. Successful validation
+commits the replacement and automatically refreshes `adjusted` and `report`
+(and other custom branches under the initial conservative rule). The receipt
+names the actual work; current `orders` can be reused.
+
+A graph-only edit changing `opt1` does not run automatically: issue `execute`
+and then `retrieve`. A graph-only `doc` change updates the summary without a
+numeric rerun when all executable settings are restated unchanged.
+
+Inherited docstrings follow the current function; explicit overrides remain.
+If a replacement drops `opt1` from its signature, either update every affected
+configured node in the same edit or receive an atomic binding rejection.
+
+
+### 7.4 Zero and multiple table inputs
 
 A custom loader can extract a non-tabular spreadsheet layout:
 
@@ -624,7 +755,7 @@ def load_summary(*, filename, sheet="Summary"):
 ```
 
 ```text
-set summary: process(inputs=[], fn=load_summary, filename="data/summary.xlsx", sheet="Summary")
+set summary: load_summary(filename='data/summary.xlsx', sheet='Summary')
 ```
 
 Use the built-in scan for ordinary rectangular worksheets. Verify sheet names,
@@ -646,7 +777,7 @@ def compare(left, right, *, column="value", alternative="two-sided"):
 ```
 
 ```text
-set comparison: process(inputs=[treatment, control], fn=compare, column="response", alternative="greater")
+set comparison: compare(treatment, control, column='response', alternative='greater')
 ```
 
 Each example requires its imported package in the worker environment. The test
@@ -654,7 +785,7 @@ and direction must be justified by the request. Row alignment is irrelevant to
 this independent-population test; use a keyed built-in join when correspondence
 between observations matters. Execute and retrieve the result before answering.
 
-### 7.4 Uncertain sources require an observation boundary
+### 7.5 Uncertain sources require an observation boundary
 
 When a file's header or sheet layout is unknown, batch a preview execution and
 retrieval first. Decide on parsing in the next call:
@@ -663,9 +794,22 @@ retrieval first. Decide on parsing in the next call:
 {
   "reasoning": "Inspect the raw worksheet layout before choosing a reader configuration.",
   "actions": [
-    { "type": "edit", "python": "", "changes": "set preview: scan(inputs=[], files='data/readings.xlsx', sheet='Usage', preview=8)" },
-    { "type": "execute", "operator_ids": ["preview"] },
-    { "type": "retrieve", "operator_id": "preview", "view": "full" }
+    {
+      "type": "edit",
+      "python": "",
+      "changes": "set preview: scan(files='data/readings.xlsx', sheet='Usage', preview=8)"
+    },
+    {
+      "type": "execute",
+      "operator_ids": [
+        "preview"
+      ]
+    },
+    {
+      "type": "retrieve",
+      "operator_id": "preview",
+      "view": "full"
+    }
   ]
 }
 ```
@@ -678,7 +822,7 @@ because the displayed first sheet does not contain the desired values.
 
 ## 8. Exact proposed default system prompt
 
-The production renderer assembles the following core text, the example call
+The planned production renderer assembles the following core text, the example call
 from section 6.1, and its separate verified-answer call from section 6.2.
 The examples retain the request's short schema description so that direct
 computation is justified. The common catalog index is generated from the same
@@ -694,53 +838,50 @@ for this rendering, and the flow paragraph only when flow exposure is enabled.
 ```text
 You answer data-analysis requests by building, executing, and checking a directed graph of table-producing operators. Match the requested population, unit of analysis, eligibility, keys, formula, units, ordering, precision, and answer format. Use supplied schemas directly; resolve uncertain files, sheets, headers, or columns with a focused observation.
 
-Use dataflow(reasoning, actions), with one brief objective and an ordered JSON action list. Batch operations whose arguments are known in one call. A decision that needs a returned observation belongs in the next call. Earlier observations describe their own graph versions; later edits may make their results stale.
+Use dataflow(reasoning, actions), with one brief objective and an ordered JSON action list. Batch operations whose arguments are known in one call. Observation-dependent decisions belong in the next call. Earlier observations belong to their recorded graph/namespace versions; edits can make them stale.
 
 Actions:
 inspect reads graph/operator state or selected reference documentation; it never executes.
-edit takes python and changes strings; use an empty string when either is unused. It registers Python and edits the graph atomically, without executing.
-execute computes operator_ids and their ancestors, reusing valid cached results; omit IDs to run the whole graph.
+edit takes python and changes strings; use "" when either is unused. It validates and commits namespace+graph atomically. Initial construction requires execute. A semantic Python update with existing custom nodes automatically refreshes all custom nodes and their descendants, awaiting completion and naming them in its receipt; valid ancestors are reused.
+execute computes operator_ids and their ancestors, reusing valid results; omit IDs to run the whole graph.
 retrieve reads one current result using an enabled view and optional columns; it never executes.
-answer finishes the task. After checking results, use content for prose or a requested envelope, or from for a table projection. A content answer is its call's sole action; a from answer is the final action.
+answer finishes the task after checking results. content is its call's sole action; from is the final action.
 
 Graph statements in changes:
-set id: operator(inputs=[upstream_ids], key=value, ...)
+set id: operator_type(input1, input2, key=value, ...)
 delete id
-Each statement starts at the margin; calls may span lines inside parentheses. Use bare operator IDs in ordered inputs, including [] for sources. For join, input 0 is left and input 1 is right. A set creates or replaces the entire definition and its incoming edges; omitted options reset to defaults and consumers remain. Use one statement per ID. References resolve after the entire edit. No nested operator calls, self-inputs, or cycles. Deletion removes incident edges; rewire or delete affected consumers in the same edit. Invalid edits apply nothing.
+The type is a predefined constructor or registered Python function. Positional arguments are bare upstream IDs; all settings are keywords. Sources have no positional inputs. Join's first input is left and second is right. Calls may span lines. A set replaces the entire definition, incoming edges, and explicit doc override; omitted settings reset to defaults and consumers remain. Write each ID once per edit. References resolve in the final graph. No nested operator calls, self-inputs, or cycles. Rewire/delete consumers of a deleted node in the same edit. Invalid validation commits nothing.
 
-Use Python literals in parameters, quoted column names, and unquoted dtype names. params={...} supplies parameters with unusual names or names colliding with graph controls; a parameter cannot be supplied twice. Built-ins retain their documented parameter contracts.
+Custom settings use Python literals, including lists/dictionaries. Built-ins additionally accept documented dtype/reducer/window descriptors, parsed locally rather than executed as Python. Column names are strings. columns= and outputs= specify named built-in columns.
 
-Python belongs in python as a complete ordinary module: imports, constants, helpers, and named synchronous functions. fn=name selects a registered function. For process/filter/map, inputs, params, fn, and doc control the operator; other literal keywords are function settings. Inputs bind positionally and settings by keyword, with Python defaults for omitted settings. Prefer keyword-only settings after *. Each set pins the selected source version; later registration affects future sets. Resend Python only when defining or changing a module. Each operator has its own execution namespace. A function docstring supplies its description; doc is an optional override.
+Python belongs in python as ordinary definition cells: imports, deterministic constants, classes, helpers, and named functions. Later cells see earlier definitions and can replace them. Public top-level synchronous functions are custom operator types; _helpers remain Python helpers. Imported callables are not automatically operators. Built-in names are reserved. Resend source only to define/change it. Each custom call receives one DataFrame per positional input plus keyword settings and returns one DataFrame; zero inputs support loaders. Prefer keyword-only settings after *. Defaults follow Python binding; globals/helpers use the current namespace. Use table-returning functions for custom filtering/mapping. Keep durable data in graph inputs.
 
-filter calls fn(row, **settings): True keeps a row; False or None drops it. Missing row values are None.
-map calls fn(row, **settings) and returns the entire replacement row dictionary; {**row, ...} retains fields. Return consistent keys and scalar cells.
-process calls fn(*input_dataframes, **settings) and returns one DataFrame; [] supports loaders. Return unique string columns, scalar cells, consistent supported column types, and finite numbers or missing values. Use justified timezones for timestamps and explicit ISO text for civil dates without a timezone. Return useful diagnostics as columns. Prefer built-ins for ordinary joins, grouping, selection, and ordering.
+Give custom functions a concise docstring about their transformation/output. Optional doc= adds task-specific meaning to any node; it is metadata, never passed to the function. Description defaults to the current custom docstring or generated built-in summary. Documentation is optional. Descriptions state intent, not measured correctness.
 
-Operator index; optional keyword arguments may be omitted:
-scan(inputs=[], files=..., format="auto", sheet=None, header=True, names=None, skip_lines=0, all_text=False, preview=None)
-project(inputs=[t], keep=None, drop=None, rename=None)
-cast(inputs=[t], column=dtype, ..., errors="raise")
-filter(inputs=[t], fn=name, ...settings)
-map(inputs=[t], fn=name, ...settings)
-aggregate(inputs=[t], by=[], output=reducer(...), ...)
-join(inputs=[left,right], on=None, how="inner", validate="many_to_many", nulls_equal=False, suffix="_right")
-union(inputs=[a,b,...], schema="strict")
-distinct(inputs=[t], columns=None, keep="first")
-sort(inputs=[t], by=[...], nulls="last")
-limit(inputs=[t], n=..., offset=0)
-window(inputs=[t], partition_by=[], order_by=[...], output=window_function(...), ...)
-unpivot(inputs=[t], columns=[...], name="variable", value="value")
-pivot(inputs=[t], index=[...], columns="...", values="...")
-process(inputs=[...], fn=name, ...settings)
-Reducers: count(), count("col"), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Other reducers take a column name. Window functions: lag, lead, row_number(), rank(), dense_rank(). Dtypes: str, int64, float64, bool, datetime.
+Return unique string columns, scalar cells, consistent supported types, and finite numbers or missing values. Use justified timezones for timestamps and explicit ISO text for civil dates without one. Return needed diagnostics as columns. Prefer built-ins for ordinary joins, grouping, selection, and ordering.
 
-Choose join keys and cardinality that preserve the intended population. Inner joins can drop rows; nonunique keys can multiply them. Composite keys may be necessary. semi/anti select matching/unmatched left rows once. Null keys do not match by default. Sort before top-k or ordered output. Resolve numeric text before numeric reductions.
+Operator index; optional settings may be omitted; all accept doc=:
+scan(files=..., format="auto", sheet=None, header=True, names=None, skip_lines=0, all_text=False, preview=None)
+project(t, keep=None, drop=None, rename=None)
+cast(t, columns={"column": dtype}, errors="raise")
+aggregate(t, by=[], outputs={"output": reducer(...)})
+join(left, right, on=None, how="inner", validate="many_to_many", nulls_equal=False, suffix="_right")
+union(a, b, ..., schema="strict")
+distinct(t, columns=None, keep="first")
+sort(t, by=[...], nulls="last")
+limit(t, n=..., offset=0)
+window(t, partition_by=[], order_by=[...], outputs={"output": window_spec(...)})
+unpivot(t, columns=[...], name="variable", value="value")
+pivot(t, index=[...], columns="...", values="...")
+Reducers: count(), count("col"), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Other reducers take a column name. Window specs: lag, lead, row_number(), rank(), dense_rank(). Dtypes: str, int64, float64, bool, datetime.
 
-Inspect target="reference", topic="operators", operator_names=[...] for needed options and detailed semantics. Reuse reference material already in context. Built-in names are constructors inside edit changes, not action types.
+Choose join keys/cardinality that preserve the intended population. Inner joins can drop rows; nonunique keys can multiply them. Composite keys may be necessary. semi/anti select matching/unmatched left rows once. Null keys do not match by default. Sort before top-k or ordered output. Resolve numeric text before numeric reductions.
 
-Read results with sample_stats or full. sample_stats shows a bounded sample and available data statistics; full is bounded too. Check coverage and clipping. A sample is a subset, not the full population or a random sample. A scan preview is only a source preview; reload without preview for computation. Compute counts, searches, rankings, and summaries over the intended data in the graph, then retrieve the small result. Successful execution and complete display do not prove the selected population or formula is correct.
+Inspect target="reference", topic="operators", operator_names=[...] for needed contracts; reuse material already in context. Operator names belong in changes, not action types.
 
-If execution fails, repair its reported cause and re-execute the affected ancestry before retrieving that target. Independent completed results can still be read. Preserve calculations at full precision and round only final presentation as requested. After focused checks resolve material uncertainty, finish. For tabular answers, from="report[region,total:2,n]" selects columns and rounds total to two decimals; :full retains computed precision. Use content when the required answer shape differs from the table serializer.
+Read results with sample_stats or full. sample_stats includes a bounded sample and available data statistics; full is bounded too. Check coverage/clipping. A sample is not the full population or a random sample. A scan preview is only a source preview; reload without preview for computation. Compute searches, rankings, and summaries over the intended data in the graph, then retrieve the small result. Successful execution and complete display do not prove the population or formula.
+
+After a successful automatic refresh, retrieve current results without another required execute. If refresh fails after commit, the new namespace remains live and affected failed/stale results are unavailable; independent completed branches remain readable. Repair the cause; retrieve after successful automatic refresh, or execute the affected target when needed. Preserve full calculation precision and round only final presentation as requested. Finish once focused checks settle material uncertainty. from="report[region,total:2,n]" projects columns and rounds total to two decimals; :full retains precision. Use content for other envelopes.
 ```
 
 ### 8.1 Feature paragraphs
@@ -752,7 +893,7 @@ Keep optional features as small generated additions rather than a second prompt:
 | LATEST context | Replace the context-version sentence with a statement that current definitions/results are shown and older execution receipts may be collapsed. |
 | `sample_stats` enabled | Add that this view includes available data statistics with their stated coverage; samples/statistics describe the computed selection. |
 | Flow evidence enabled | Describe its scope/coverage and the distinction between measured metadata and the correctness of custom selection. |
-| History enabled | Add the enabled task inspection/fork rules and pinned function-version behavior; full session checkout restores graph and registry together. |
+| History enabled | Add enabled checkpoint inspection/fork rules; checkout restores the whole graph and ordered namespace cells together. |
 | Alternative record layout | Explain the actual table/record notation briefly only when needed to interpret records. |
 
 Do not copy implementation details, full telemetry definitions, optional-tool
@@ -772,8 +913,9 @@ required exception before running. Serialize tool examples compactly from their
 fixtures; the readable JSON formatting in this document is not a required
 prompt cost.
 
-The assembled review prompt is 8,977 UTF-8 bytes with data guidance, and 9,583
-with the flow paragraph also appended. These counts include the example prose
+The assembled core and examples use 8,325 UTF-8 bytes.
+The review prompt uses 8,941 with data guidance and
+9,555 with flow guidance also appended. These counts include the example prose
 and compact JSON. They are not provider token counts and exclude the separate
 tool payload. The combined setup-token gate remains an implementation/pilot
 measurement.
@@ -796,7 +938,7 @@ Derive data guidance from the actual view enum, not just the legacy
 `availableRetrievalViews()` defaults to `sample_stats` and `full`, and choosing
 `sample_stats` requests data evidence. Explicit `retrievalViews` can remove it.
 Flow exposure independently follows `flowEvidence`, including operation lines
-on execute receipts and selected producing ancestors on retrieval. An enabled
+on explicit execute and automatic-refresh receipts and selected producing ancestors on retrieval. An enabled
 view or channel does not guarantee a valid profile or every possible fact.
 
 | Available exposure | Model behavior | Prompt addition |
@@ -820,7 +962,7 @@ Data statistics: sample_stats adds available column profiles independently of di
 Append this exact paragraph when flow evidence is enabled:
 
 ```text
-Flow statistics: available lines describe source parsing, conversions, filter retention, join matching/duplication, grouping denominators, and other operation effects. Distinguish contract statements from measured counts and read their scope. Investigate unexpected changes relevant to the request; intended exclusions may be correct. Examples are bounded, and absent lines mean unknown. Producing-ancestor evidence can be trimmed or stop at process; custom internals are opaque. Return or compute focused diagnostics when needed. Counts and successful execution do not certify the population or formula.
+Flow statistics: available counters describe built-in source parsing, conversions, selection, joins, grouping and window effects. Contract lines state enforced built-in behavior; measured counts describe this execution. Custom Python functions are opaque regardless of name or docstring: shapes and profiles do not prove filtering, row identity or formula. Follow edit refresh receipts and use only current-version evidence. Bounded examples are not exhaustive; absent or trimmed facts are unknown. Check unexpected loss, duplication or denominator changes against the requested population before changing logic.
 ```
 
 Both together remain under the additional 1,400-byte budget. They replace the
@@ -844,13 +986,22 @@ another provider call.
 
 Suppose the request asks for mean order amount by region, and the model needs
 to verify measurement completeness and customer matching. After a successful
-scoped execute, when `sample_stats` is available:
+scoped execute or automatic refresh, when `sample_stats` is available:
 
 ```json
 {
   "reasoning": "Check amount coverage and customer matching before calculating the regional means.",
   "actions": [
-    { "type": "retrieve", "operator_id": "enriched", "view": "sample_stats", "columns": ["customer_id", "region", "amount"] }
+    {
+      "type": "retrieve",
+      "operator_id": "enriched",
+      "view": "sample_stats",
+      "columns": [
+        "customer_id",
+        "region",
+        "amount"
+      ]
+    }
   ]
 }
 ```
@@ -875,9 +1026,22 @@ branch:
 {
   "reasoning": "Compute the requested regional means over valid amounts, retaining denominator counts.",
   "actions": [
-    { "type": "edit", "python": "", "changes": "set means: aggregate(inputs=[enriched], by=['region'], average=mean('amount'), rows=count(), measured=count('amount'))" },
-    { "type": "execute", "operator_ids": ["means"] },
-    { "type": "retrieve", "operator_id": "means", "view": "full" }
+    {
+      "type": "edit",
+      "python": "",
+      "changes": "set means: aggregate(enriched, by=['region'], outputs={'average': mean('amount'), 'rows': count(), 'measured': count('amount')})"
+    },
+    {
+      "type": "execute",
+      "operator_ids": [
+        "means"
+      ]
+    },
+    {
+      "type": "retrieve",
+      "operator_id": "means",
+      "view": "full"
+    }
   ]
 }
 ```
@@ -892,10 +1056,10 @@ use targeted aggregates, casts, or anti joins to resolve the needed checks.
 The profiler does not supply exact quantiles, correlations, histograms, or
 within-row associations. In the winsorization example, calculate the fifth and
 ninety-fifth quantiles from the input DataFrame; a reported range is not a
-substitute. The generic process boundary can report input/output shape, output
+substitute. An opaque custom-function boundary can report input/output shape, output
 profiles, and the function description, but cannot prove what the custom code
 selected or changed internally. If those internals need verification, return a
-small diagnostic result in a separately justified process or compare focused
+small diagnostic result in a separately justified custom operator or compare focused
 before/after quantities; do not create one diagnostic row per input by default.
 
 Add coverage/version tests for all four exposure combinations: enabled view
@@ -916,9 +1080,9 @@ do not add them into a single failure total. The original campaign and fresh
 | --- | --- | --- |
 | Replace | Indented functions, imports inside functions, repeated Python beneath every operator. | Original campaign: 18 of DeepSeek's 23 failed edit actions received the house-indentation error, across 30 native attempts. Seventeen attached imports before a function; one placed a function before its operator. All 18 extracted modules pass compile-only parsing when separated. This establishes layout coverage, not 18 recovered answers. |
 | Replace | Exact positional-arity bans on defaults and variadic arguments. | Three original Sonnet tool receipts hit signature restrictions. Check actual call binding; do not forbid ordinary signatures through prompt prose. |
-| Remove | Required extra `doc` prose and repeated implementation summaries. | Derive documentation from the function docstring. Built-ins have different keyword semantics: aggregate `doc="..."` is interpreted as an invalid reducer output, not callback metadata. |
+| Remove | Required extra `doc` prose and repeated implementation summaries. | Use optional universal metadata and function docstrings. In the recorded catalog, aggregate `doc="..."` was treated as an invalid reducer output; the new `outputs=` mapping separates output names from node metadata. |
 | Keep compact | Legal actions and the distinction between constructors and actions. | Original Qwen traces contained 48 unsupported `scan` action entries concentrated in two biomedical attempts. A constructor belongs in `changes`. |
-| Keep compact | Explicit inputs, separate statements, and no nested operator calls. | DeepSeek's other failed edits included nested constructors, an unsupported reducer expression, a graph constant, and genuine syntax errors. Registration does not repair these graph statements automatically. |
+| Keep compact | Positional graph inputs, separate statements, and no nested operator calls. | DeepSeek's other failed edits included nested constructors, an unsupported reducer expression, a graph constant, and genuine syntax errors. Registration does not repair these graph statements automatically. |
 | Keep with an example | Batch known operations; defer observation-dependent choices. | Batching was already instructed. A fresh Qwen task still used eight standalone set/read pairs. A complete batch demonstrates the boundary better than repeated slogans. |
 | Keep | Repair execution before retrieving the failed target. | Of 26 original missing/unrun-result receipts, 24 followed failed execution in the same batch. These are usually consequences of upstream errors, not evidence that execute was forgotten. |
 | Keep | Verify population, entity grain, composite keys, join cardinality, and formulas. | Selected original environment traces differed between name-only and community-plus-name eligibility, including 267 versus 268 counts. Successful execution did not resolve these semantic differences. |
@@ -940,210 +1104,355 @@ expanding it once per operator in assembled context.
 
 ## 10. Refactor plan and implementation boundaries
 
-Implement the contract in stages with one shared graph planner and runtime.
-Do not translate registered modules back through the old graph program parser.
+Implement one graph planner, one cumulative logical Python namespace, and one
+execution path. The new graph statement is
+`set id: operator_type(input1, input2, key=value, doc=...)`; custom function
+names are constructors directly. There are no `process`, `fn`, `inputs`, or
+`params` controls in this protocol. Every positional argument is an operator
+ID. Custom keyword values are literals, including literal collections. The
+catalog's closed dtype, reducer, and window descriptors are declared graph DSL
+values, parsed without evaluating Python.
+
+The new catalog retains twelve built-ins. Reserve the retired `filter`, `map`,
+and `process` names and return an obsolete-syntax error; custom table functions
+replace their uses in new sessions. Direct custom calls receive pandas
+DataFrames in input order and return one DataFrame. Do not infer row callbacks
+from names, signatures, or return values. Historical sessions retain their
+recorded catalog, callback behavior, protocol, and revision.
 
 | Stage | Files and responsibility | Required gate |
 | --- | --- | --- |
-| 1. Protocol and parsing | `types/agent.ts`, `server.ts`, protocol selection in `texera-agent.ts`, `tools/dataflow-actions.ts`, `native/python/graph_parser.py`, `native/program.ts`, `native/codegen.ts`. Wire the protocol identity and edit strings; parse set/delete and explicit inputs; handle params before catalog normalization. Update API/client metadata types where exposed. | New grammar and envelope fixtures, duplicate/unknown/arity/cycle checks, and no mutations on failure. |
-| 2. Module registration and binding | Extend `native/python/function_parser.py`; add a pure registry module and AST signature metadata. Update `native/catalog.ts` to resolve entries and settings. | Imports/constants/helpers preserved, no authored execution in preflight, correct default/keyword/variadic binding, precise errors. |
-| 3. Atomic state and snapshots | `tools/graph-edits.ts`, `types/workflow.ts`, `workflow-state.ts`, `workflow-snapshot-storage.ts`, and restore/import paths in `texera-agent.ts`. Store versioned module records/aliases and pinned operator bindings. | Graph and registry rollback together; checkout/import/resume/replay and registry-only snapshots work; old snapshots stay readable. |
-| 4. Execution and cache identity | `native/python/runtime.py`, `native/codegen.ts`, `native/result-versions.ts`. Invoke with kwargs, check actual runtime callable, and hash module/entry/settings into operator semantics. | Real worker execution without provider calls; changed settings invalidate descendants and preserve independent cache. |
-| 5. Context and observations | Native context/snapshot rendering, `native/action-observations.ts`, `util/context-utils.ts`. Deduplicate authored modules by version and expose function signatures/bindings briefly. | Shared source appears once per assembled request, old/current versions stay distinct, errors keep original source locations. |
-| 6. Prompt and references | `prompts.ts`, active `prompts/native-mode-single.md` and feature fragments, `scripts/render-native-reference.ts`, `native-mode/`, and active expression documentation. | Every fixture is accepted by the new parser; enabled-view examples match schema; generated references pass drift checks and setup-size gates. |
-| 7. Metrics and harness | `benchmark/dsbench/native_integrity.ts`, metrics/run modules, experiment manifest and retrieval harness. Record protocol and UDF attribution using existing transport/resource ledgers. | Complete or explicitly unknown metrics, comparable boundaries, frozen source/config/runtime manifests. |
+| 1. Protocol and catalog | `agent-service/src/types/agent.ts`, `agent-service/src/server.ts`, `agent-service/src/api/agent-service-api.ts`, protocol selection and `getNativeProtocol` in `texera-agent.ts`, `tools/dataflow-actions.ts`, `native/python/graph_parser.py`, `native/program.ts`, and `native/catalog.ts`. Wire a distinct protocol identity and static action schema; parse direct set/delete calls; normalize the twelve built-ins and universal `doc` metadata. | Grammar/envelope fixtures, reserved-name errors, fixed keyword-map examples, source/schema/prompt hashes, and unchanged legacy fixtures. No per-function provider tools. |
+| 2. Python namespace and binding | Extend the local candidate `native/python/function_parser.py`; add a focused namespace-state helper and a bounded isolated namespace-initialization worker. Return exports, signature metadata, ordered source-cell provenance, and an immutable namespace revision. | Public synchronous definitions export; helpers/imports/classes/constants remain available; deterministic definition initialization succeeds; actual callable binding accepts the submitted tables and settings. Initialization failure does not publish state. |
+| 3. Atomic edit and history | `tools/graph-edits.ts`, `agent-service/src/types/workflow.ts`, `workflow-state.ts`, `workflow-snapshot-storage.ts`, and checkout/import/resume/replay paths in `texera-agent.ts`. Stage Python cells, graph changes, existing-user rebinding, descriptions, and invalidation together. | All bindings and the final graph validate before commit. Cancellation, initialization failure, incompatible existing signatures, or a changed head rolls back the complete candidate. Whole-session checkpoints preserve source cells, graph, settings, and results. |
+| 4. Refresh and cache identity | `native/python/runtime.py`, `native/codegen.ts`, `native/result-versions.ts`, and `tools/workflow-execution-tools.ts`. Invoke custom entries with table arguments and literal kwargs; hash the effective namespace and call settings into executable semantics; await required automatic refresh. | If custom nodes existed before the edit, a semantic Python revision refreshes all retained custom nodes in the final draft, including newly set ones, and their descendants. Unaffected ancestors remain cached. Runtime failure after commit leaves the new state live and affected outputs stale or failed, with explicit receipts. |
+| 5. Context and observations | Native context/snapshot renderers, `native/action-observations.ts`, and `util/context-utils.ts`. Render source cells once when needed, plus concise exports, signatures, settings, descriptions, and result versions. | No per-operator repetition of the same Python source; history ordering and source locations remain recoverable; automatic execution is visible without replaying private runtime payloads. |
+| 6. Prompt and references | `prompts.ts`, active prompt fragments, `agent-service/scripts/render-native-reference.ts`, generated root `native-mode/`, and active documentation. Generate common signatures and references from the same catalog metadata. | All advertised examples pass the actual parser/planner/runtime; generated references pass drift checks; examples and setup-size gates match enabled views and evidence. |
+| 7. Metrics and harness | `benchmark/dsbench/native_integrity.ts`, `benchmark/dsbench/native_job.ts`, `benchmark/dsbench/metrics.py`, `benchmark/dsbench/run.py`, `benchmark/experiment_matrix.py`, and existing `benchmark/runtime` accounting/resource helpers. Record protocol, namespace revisions, commit outcomes, and refresh attribution. | Complete or explicitly unknown metrics; comparable full attempt boundaries; frozen source/config/runtime manifests; automatic refresh executions counted separately from requested execute actions. |
 
-Use `rg` to locate actual workflow-state and context paths during implementation;
-the table names responsibilities rather than authorizing a separate state store.
+Unprefixed implementation paths in the table are relative to
+`agent-service/src/agent/`; new namespace helpers are planned files, not
+existing implementation. The local
+function parser and candidate runtime changes are outside this documentation
+commit. Reuse the current atomic graph planner and resource/transport ledgers
+instead of creating independent state stores or measurement frameworks.
 
-### 10.1 Current components to reuse
+### 10.1 Namespace, binding, and transaction semantics
 
-The local candidate `agent-service/src/agent/native/python/function_parser.py`
-already parses and compiles source without executing it. This file is not part
-of the documentation commit. Extend it to return
-the module exports and signature metadata; keep it independent of graph grammar.
-The existing [atomic graph planner](../agent-service/src/agent/tools/graph-edits.ts)
-already resolves final graph references and detects cycles. Stage registry
-changes beside its draft and commit both only after validation and cancellation/
-current-head checks. The [revision hashing](../agent-service/src/agent/native/codegen.ts)
-and result-version machinery already support source-dependent invalidation.
+The current `functionSlot`/`functionClosure` machinery extracts definitions by
+text references and can discard ordinary module state. Replace it for the new
+protocol. Resolve the constructor in the callable namespace and every
+positional argument in the graph; do not reuse the table-versus-function-name
+heuristic. Export named public top-level synchronous definitions. Keep
+`_helpers`, imports, classes, and constants in the cumulative Python namespace
+without advertising them as graph constructors. Built-in and retired
+constructor names remain reserved.
 
-The current `functionSlot`/`functionClosure` path extracts definitions and can
-discard ordinary module state. Replace it for the new protocol. Explicit inputs
-must also bypass the old table-versus-function-name heuristic.
+Keep ordered authored definition cells and their source history. New cells
+extend the logical namespace; later definitions replace the named bindings.
+Replay preserves ordinary Python definition-time default capture and call-time
+global lookup. Every submitted definition cell is appended in order, including
+repeated identical source: redefinition can recapture a changed default. Storage
+may deduplicate content bytes, but cannot remove registration events or reorder
+cells. Equal function text alone is not proof that registration is a no-op.
+Prefer literal or deterministic immutable defaults. Authored nondeterministic,
+import-time data loading, and I/O initialization cannot serve as durable state;
+perform data operations inside functions. Ordinary imports and deterministic
+definition cells remain supported. Source checkpoints do not clone arbitrary
+initialized Python objects or provide a shared mutable worker heap.
 
-The runtime's current callable check only handles positional inputs and
-rejects required keyword-only arguments even when supplied configuration could
-satisfy them. The callback invoker currently forwards positional arguments only.
-Both must change; accepting module syntax alone is insufficient.
+Compile syntax first, then initialize the candidate namespace in a bounded
+isolated worker before commit. This is authored initialization, not the current
+compile-only preflight. Extend the isolation wrapper through an explicit owned
+entry point; do not run initialization in the agent process or bypass the
+sandbox. Confine initialization writes and resources, and enforce the
+deterministic-source policy: sandboxing alone does not establish deterministic
+replay. Reproducibility remains conditional on frozen dependencies and inputs.
+Session-state rollback cannot undo arbitrary external side effects.
 
-Workflow serialization currently reconstructs known fields and has no registry.
-Carry the registry through `get/set`, snapshots, checkout, imports, and saved
-trace replay. Freeze registry-only snapshots even when the graph has no native
-operators. Clearing history while retaining current operators must not discard
-their registrations. These are state correctness requirements, not prompt rules.
+Bind each existing and new custom call to its actual exported callable using
+the ordered table arguments plus literal settings. Required keyword-only
+settings, defaults, positional-only parameters, and variadic signatures follow
+normal Python binding. Reject missing settings, duplicate binding, unknown
+keywords without `**kwargs`, and nonliteral custom settings. Module decorators
+or definitions can change the resolved callable, so validate the initialized
+callable as well as AST metadata. Never execute the table function during
+binding validation.
 
-### 10.2 Prompt ownership and cleanup
+`doc` is universal optional metadata, removed before catalog normalization or
+custom argument binding. Resolve an explicit override, otherwise the current
+function docstring, otherwise a generated description. A complete `set`
+replaces all supplied settings and its description override; omitted overrides
+reset to inheritance. Inherited descriptions refresh after redefinition.
+Description overrides do not change computations. Changing Python docstrings
+still belongs to namespace revision policy because Python can inspect them.
+Fixed `columns` and `outputs` maps allow arbitrary column/output names,
+including `doc`, without a generic parameter escape wrapper:
 
-Keep one catalog metadata source for constructor names, arity, common signatures,
-full contracts, and defaults. Generate the index and on-demand reference from
-that source. Keep one action contract for schema and action descriptions.
-Maintain example fixtures as structured data and serialize their tool arguments
-with real newlines; avoid manually maintained copies of escaped Python.
+```text
+set typed: cast(raw, columns={'Unit Price': float64}, errors='raise')
+set totals: aggregate(typed, by=[], outputs={'total': sum('amount'), 'doc': count()})
+set previous: window(typed, partition_by=[], order_by=['date'], outputs={'previous': lag('value')})
+```
 
-Replace obsolete syntax throughout active single-task and history examples,
-tool descriptions, rendering scripts, and documentation at rollout. Regenerate
-`native-mode` using the existing reference script; never hand-edit its output.
-Remove contradictory import/signature/doc requirements in the new protocol's
-path. Keep historical implementation branches isolated only where required for
-recorded runs and replay; do not present several syntax families to one model.
+Initially, if custom nodes existed before the edit, any semantically changing
+Python namespace revision conservatively rebinds and invalidates every retained
+custom node in the final draft, including newly set nodes, and their descendants.
+Adding an apparently unused function still triggers this rule: global lookup
+or namespace reflection can make new names observable. There is no additive
+exemption in the initial version. A docstring-only change may be excluded only
+when a sound comparison proves it computation-neutral, including default
+recapture effects; otherwise apply the conservative rule. This avoids stale
+results from helper, constant, import, or dynamic global lookup changes; do not
+claim precise dependencies from regex extraction. Precise dependency tracking
+is a separate later optimization. Revalidate the retained existing call settings
+before commit, so an incompatible signature rolls back the edit instead of
+publishing a partially rebound graph.
 
-Runtime internals, generated engine Python, full registry payloads, and telemetry
-schemas stay out of ordinary model observations. Privately persisted workflows
-and traces retain complete source and provenance. Default context shows module
-versions/signatures, operator references, settings, and available results. When
-source is included, group it once by module version across operators and history.
+After commit, await required automatic refresh and report its executions and
+outcomes. Initial registration has no automatic refresh when there were no
+custom nodes before the edit, even if that edit creates the first custom nodes;
+those results require an explicit execute. Graph edits without a semantic Python
+change also require explicit execute. New graph-only built-ins outside a refresh
+cone are not executed implicitly. Refresh failure, cancellation, or timeout
+after commit does not restore the old namespace: retain the new graph/source
+state, mark affected outputs stale or failed, and return precise partial results.
+Preserve unaffected cached ancestors and independent results where valid. Make
+commit success and refresh success separate receipt fields.
+
+Workflow serialization currently reconstructs known fields. Carry the whole
+namespace checkpoint through get/set, snapshots, checkout, export/import,
+resume, and trace replay, including registration-only snapshots with no graph.
+Clearing conversation history while retaining a graph retains its namespace.
+Full checkout restores the entire historical session namespace and graph;
+there are no per-operator function-source pins or alias checkouts. A definition
+restored into today's graph binds against today's namespace and must validate;
+it cannot silently bring back a historical function version.
+
+### 10.2 Prompt ownership and context cleanup
+
+Keep one catalog metadata source for constructor names, arity, keyword maps,
+closed descriptors, contracts, defaults, and generated descriptions. Generate
+the index and on-demand references from it. Keep one static action envelope;
+new function registrations never create provider tool definitions. Examples
+are structured fixtures serialized with actual newlines, not separate escaped
+Python copies maintained by hand.
+
+Replace old syntax throughout the new protocol's single-task and history
+examples, tool descriptions, and renderers. Regenerate `native-mode/` with the
+existing script. Keep historical branches only for recorded sessions and
+replay; do not advertise multiple syntax families to one model. Preserve the
+declared closed dtype/reducer/window syntax instead of permitting arbitrary
+Python evaluation in graph settings.
+
+Ordinary success receipts show export names, signatures, namespace revisions,
+resolved settings, descriptions, and refresh/result status. They do not echo
+full authored source for every operator. When source is included, render each
+needed cell once in its namespace/history context. Preserve complete source
+and provenance privately. Cumulative cell history and default-capture ordering
+may require older source; do not discard it merely because a function name was
+redefined. Measure growth and any future compaction separately.
 
 ### 10.3 Meaningful regression and integration cases
 
 Write failing tests before implementation for:
 
-1. The 18 historical rejected Python layouts, plus constants, helper order,
-   multiline strings/comments, and a graph-level constant rejected with a fix.
-2. Defaults, keyword-only settings, required settings supplied explicitly,
-   positional-only inputs, zero/two inputs, varargs, duplicate binding, and
-   unknown keys with and without `**kwargs`, including a legal positional-only
-   input name also appearing inside `**kwargs`.
-3. `params` collisions for a column/output called `inputs` and a setting called
-   `fn`; reject duplicate direct/escaped parameters and unsafe literal values.
-4. Registration-only followed by next-turn reuse; a failed graph, Python compile,
-   cancellation, or head change leaves registry and graph unchanged.
-5. Function v1 used by two operators; registration v2 leaves both unchanged;
-   explicitly setting one adopts v2 and invalidates only its affected branch.
-6. Checkout/import/export/resume preserve exact aliases and pinned sources;
-   restoring one old operator does not replace today's global alias bindings.
-7. Forward references, repeated source ports, valid rewiring/deletion, and
-   rejection of a deletion that leaves consumers disconnected.
-8. Preflight does not execute a module that raises or performs a side effect;
-   execute reports initialization, binding, callback, and output errors distinctly.
-9. One module reused by multiple operators and turns appears once per context
-   request; include two source versions when both are actually needed.
-10. One owned-stack integration with no LLM: register, set, execute, retrieve,
-    retrieve cached data, change settings, re-execute, restore, and clean up.
-11. All four data/flow exposure combinations produce matching prompt/view
-    contracts; incomplete and unavailable profiles never become full-table
-    claims, and process internals remain opaque.
+1. Unified built-in/custom calls, positional operator IDs, forward/repeated
+   inputs, complete replacements, cycles, deletion validity, and rejection of
+   nested operator calls or Python evaluation in custom settings.
+2. The twelve built-in contracts and fixed keyword maps, including arbitrary
+   column/output names and an output named `doc`; reserved retired names give
+   explicit migration errors without changing legacy protocol fixtures.
+3. The eighteen historical rejected Python layouts as separately authored
+   source, imports/classes/constants/helpers, multiline strings, zero/multiple
+   table inputs, and DataFrame output validation. Parser acceptance is not an
+   assertion that historical tasks would now answer correctly.
+4. Actual default/keyword/variadic binding; required settings; positional-only
+   inputs; legal positional-only names inside `**kwargs`; duplicate and unknown
+   settings; `doc` removed before binding with a clear error for a required
+   custom setting named `doc`; explicit override removal on `set`.
+5. Definition-time default capture versus changed globals/helper lookup,
+   repeated definitions after a constant changes, ordinary imports, and
+   rejection of forbidden nondeterministic/data-I/O initialization. Isolated
+   initialization failure or timeout leaves the previous session untouched.
+6. Registration-only then later reuse; invalid graph, incompatible existing
+   signatures, cancellation, or head change rolls back namespace and graph.
+   Registration and candidate initialization do not invoke table operators.
+7. Redefining a function used by two operators refreshes all retained custom
+   nodes and their descendants; unaffected ancestors remain cached. Helper,
+   constant, or unused-function additions trigger the same conservative rule.
+   Initial registration with no prior custom nodes does not refresh even when
+   the edit creates the first ones. A later namespace edit refreshes newly set
+   custom nodes too, while graph-only built-ins outside its cone stay unrun.
+8. Automatic refresh execution failure after a successful commit retains the
+   new state, stale/failed output markers, independent valid results, and
+   separate commit/refresh receipts. A later explicit execute can recover.
+9. Whole-session checkout/import/export/resume/replay preserves ordered source
+   cells, graph, settings, and results; registration-only snapshots work;
+   clearing history does not discard a retained graph's namespace.
+10. Shared authored source appears once per assembled request; signatures and
+    inherited descriptions refresh without per-operator source repetition.
+11. One owned-stack integration with no LLM: register, set, explicitly execute,
+    retrieve/cache-read, redefine and await automatic refresh, inspect its
+    receipts, exercise a refresh failure, checkout, and clean up owned resources.
+12. All four data/flow exposure combinations match prompt/view contracts;
+    unavailable/partial profiles never become full-table claims; opaque custom
+    stages do not manufacture column or population evidence.
 
-Run focused tests, the required Bun tests/typecheck, and native reference drift
-checks after implementation. Exercise all advertised examples through the real
-parser, planner, and worker. A zero-provider integration gate comes before any
-paid model pilot. This documentation change itself only needs example and link
-validation.
+Run focused tests, the full relevant Bun suite/typecheck, and generated-reference
+drift checks after implementation. Exercise every advertised example through
+the actual parser, planner, initialized namespace, and isolated engine worker.
+A zero-provider owned-stack gate comes before any paid compatibility check or
+model pilot. This documentation update authorizes no implementation or runs;
+validate only its examples, references, and internal consistency now.
 
 ## 11. Experimental plan and complete metrics
 
-Keep the syntax stable during evaluation. Attribute outcomes to separate
-treatments rather than repeatedly changing the grammar after each small pilot.
+Freeze the syntax and namespace/refresh policy during each evaluation. Keep
+first attempts, record bundled changes honestly, and do not revise the grammar
+after each task failure within a running cohort.
 
 ### 11.1 Staged comparisons
 
 | Arm | Purpose |
 | --- | --- |
-| A. Frozen expression control | Its recorded grammar, prompt, runtime policies, and source revision. |
-| B. Registered statements with complete migrated guidance | Qualify the new protocol while retaining equivalent analysis guidance. |
-| C. Registered statements with section 8 compact prompt | Measure prompt trimming against B with the same parser/runtime/visibility. |
-| D. Frozen JSON candidate, where useful | Contextual comparison with its recorded read/answer/calendar semantics; do not treat this as a syntax-only ablation. |
-| Script and smolagents controls | Matched model/data/runtime-resource boundaries for the external accuracy/cost goal. |
+| A. Frozen expression control | Fresh runs of its exact recorded grammar, prompt, runtime policies, and source revision. Historical archived results remain unchanged. |
+| B. Unified constructors and cumulative Python with complete migrated guidance | Qualify the new protocol, twelve-built-in catalog, binding, descriptions, session state, conservative invalidation/automatic refresh, and context representation while retaining equivalent analysis guidance. |
+| C. Same registered protocol with the section 8 compact prompt | Isolate prompt trimming against B with identical parser, runtime, namespace/refresh policy, schema, context visibility/budgets, and evidence. |
+| D. Frozen JSON candidate, where useful | Contextual comparison with its recorded read/answer/calendar/strictness semantics; it is not a syntax-only ablation. |
+| Script and custom smolagents controls | Matched models, data, budgets, deadlines, dependency versions, cache policy, and measured computation boundaries for the external accuracy/cost target. |
 
-A versus B is a bundled protocol, registration, binding, state, and context
-migration, including the stricter deletion invariant. It is not a syntax-only
-ablation. B versus C isolates prompt trimming with those mechanics held fixed.
+A versus B is a bundled migration, including removal of row adapters, function
+reuse and redefinition, automatic refresh, metadata, and graph validity rules.
+Do not attribute its outcome solely to syntax or Python source deduplication.
+B versus C isolates prompt trimming. Hold the four data/flow exposure policies
+fixed for both, then evaluate statistics policies separately after qualification.
+Keep answer/calendar policy and ordered-multicall experiments separate from the
+prompt comparison. A later invalidation optimization also needs a separately
+frozen treatment; do not mix it with the initial conservative policy.
 
-First replay parser and graph fixtures offline. Then use a small, preregistered
-matched pilot covering a built-in DAG, custom import/helper UDF, settings reuse,
-zero/multiple inputs, joins with composite eligibility, unknown parsing, and
-focused failure recovery. Include KramaBench and DSBench; use separate LongDS
-tasks for multi-turn registration/version qualification.
+Replay parser/state fixtures offline first. Use no-LLM mechanism fixtures for
+same-function multiple operators, helper/default changes, repeated edits,
+automatic refresh, rollback, checkout, and cumulative namespace growth. Include
+separate LongDS tasks for multi-turn qualification. Then preregister a small
+paired KB/DS pilot, model routes, task selection, adjacent balanced pair order,
+grading, pass thresholds, budgets, failure handling, and full denominators.
+Include built-in DAGs, import/helper/custom functions, settings reuse, joins
+with composite eligibility, uncertain parsing, and focused recovery; use a
+fixed holdout for generalization instead of selecting tasks after outcomes.
 
-Pair models, tasks, data, budgets, available views, evidence, prompt-cache
-policy, provider strictness/parallel flags, timeouts, concurrency, and dependency
-versions. Record declarations separately from actual observed enforcement. Use the exact recorded
-routes for Sonnet, Qwen, DeepSeek, and any added model. Fix grading and pass
-thresholds before execution; report binary passes, official scores, completed
-runs, and unknowns separately. Use diagnostic tasks for mechanism coverage and
-a fixed holdout for generalization. Preserve first attempts and preregister any
-recovery rounds symmetrically. Full KramaBench campaign comparisons include the
-same two recovery rounds before freezing each arm.
+Pair models/tasks/data, operator evidence, available views, response/output and
+step budgets, model-call deadlines, retries, task watchdogs, concurrency, hardware,
+required dependencies, and warm-service policy. Preserve the exact attested
+routes and generation profiles for Sonnet, Qwen, DeepSeek, and any added model.
+Record provider strictness and parallel-call declarations separately from
+observed enforcement; equal step budgets are not proof of equal request caps.
+Predeclare absolute deadline methods, not merely equal numeric SDK timeouts.
 
-Report per-model totals and paired differences, including both-pass cost pairs
-and accuracy flips. Do not extrapolate six-task results into a universal model
-preference. Keep date-policy, answer-policy, and ordered-multicall experiments
-separate from the B-versus-C prompt comparison.
+Register cache exposure before compatibility checks: setup can prime one format
+or namespace prefix. Keep its requests and cost separate from cohort totals,
+and record first-request cache classes. Balanced order does not remove setup
+priming. Report observed warm/cache-discounted cost separately from any cold
+cost claim; never infer cache causation from token counts alone.
 
-### 11.2 Token and cost ledger
+Report per-model totals, all-attempt official scores/passes, completions,
+accuracy flips, paired differences, and unknown coverage. Both-pass cost pairs
+and matched complete-cost pairs are secondary subsets with named denominators.
+Do not omit failed or timed-out attempts. Preregister recovery symmetrically;
+full KB comparisons use the same two recovery rounds for each arm, retaining
+first-attempt results and reporting total recovery cost separately. Six-task
+pilots are exploratory, not proof of broad accuracy superiority. No provider
+calls or recovery rounds are authorized by this document.
 
-Every attempted provider request needs durable timing, status, route/model,
-raw usage, normalized usage, and its cache-aware cost calculation:
+### 11.2 Token, execution, and cost ledgers
+
+Reuse `benchmark/runtime/metrics.py` and `native_accounting.py`, the durable
+model request journal, and captured transport receipts. Every actual attempted
+provider request needs stable identity, route/model, timing, status, raw usage,
+normalized usage, and applicable price provenance:
 
 - Total input, cache-read input, cache-write input where reported, and uncached
   input under the provider's documented accounting convention.
-- Total output and reasoning output, noting whether reasoning is included in
-  reported output; do not add overlapping categories.
-- Cached output if a provider exposes it. Otherwise use `null` with an explicit
-  unsupported/unreported reason, rather than manufacturing a cached-output zero.
-- Provider-reported cost and a pricing-versioned estimate, with known subtotal
-  and full totals only with complete coverage: estimates need all billable
-  classes and applicable prices; provider totals need a reported charge for
-  every attempted request. Complete token usage alone cannot establish either.
+- Total output and optional reasoning output, recording whether reasoning is
+  already included rather than adding overlapping counts.
+- Cached output only when a provider reports that class; otherwise `null` plus
+  an unsupported/unreported reason. Input cache writes are not cached output.
+- Provider-reported charge separately from the pricing-versioned estimate.
+  Retain known subtotals. A full estimate needs complete billable classes and
+  applicable prices; a full reported charge needs reported cost for every
+  attempted request. Unknown failed-request billing leaves the full total null.
 
-Do not subtract cache-write categories blindly across providers. A timed-out
-request can still incur unknown provider usage; retain that unknown rather than
-declaring a cheap completed run. Cached input remains input even when discounted.
+Keep input accounting cache-aware without subtracting write categories blindly
+across providers. Cached input still contributes to total input. A timeout is
+not a free request; incomplete token totals are observed subtotals, not complete
+run usage. Judge and setup costs remain separate from agent-attempt costs.
 
-Inventory system text, actual provider tool definitions, initial task, current
-observations, earlier authored Python, new authored Python, and conversation
-history per request. Character/UTF-8 byte attribution is exact; token attribution
-requires the applicable tokenizer or provider usage and must be labeled as an
-estimate when unavailable. Record model turns, returned calls, valid actions,
-edit statements, `executeWorkflowAndPersist` helper invocations, cache hits,
-registrations, binding reuse, and error stages as different units. Count backend
-submissions/partitions or engine-history executions separately where observed;
-a helper invocation is not proof of one independently counted backend execution.
+Inventory system text, actual provider tool definitions, initial task,
+observations, new Python cells, prior Python cells, and history per request.
+Report exact Unicode characters and UTF-8 bytes separately. Provider usage is
+the authoritative token count; component tokenizer attribution is an estimate
+unless validated for that model/transport. Track cumulative source/history
+growth, registration/redefinition events, namespace revisions, custom binding
+reuse, inherited description refresh, and source echoes. Do not promise token
+or cache savings from bytes or offline parser acceptance.
 
-### 11.3 Memory and timing comparison
+Keep requested actions, returned calls, syntax/schema validation, edit
+statements, initialization/binding errors, commit outcomes, and execution
+outcomes as separate units. Distinguish explicit execute requests from
+automatic refresh. Record affected custom users, invalidated descendants,
+preserved ancestors, refresh helper invocations, duration, cache reuse, and
+success/failure. The existing `executeWorkflowAndPersist` count is a helper
+invocation count; backend partition submissions and engine-history records are
+separate where observed. One helper invocation can submit several independent
+backend workflows. Do not double-count automatic execution as an additional
+model-requested action or add tool errors to nested action failures.
 
-Keep the harness's existing resource collector and record its measurement
-method and scope. The primary local computation comparison includes the worker
-and required execution services for dataflow, and the corresponding interpreter/
-sandbox for script and smolagents. Record task-driver and gateway resources
-separately. Report broad system totals only when the same components are in
-scope for every arm. Remote provider CPU/memory is not observable local compute.
+### 11.3 Memory, CPU, wall time, and completeness
+
+Reuse `benchmark/runtime/resources.py`, `components.py`, `_supervisor.py`, and
+the existing native scope helpers. Preserve the same measurement algorithms
+across arms. Primary local computation includes the dataflow agent/worker and
+required execution services, or the corresponding script/smolagents worker and
+sandbox. Name those components rather than asserting identical implementations.
+Record task-driver and gateway resources separately when scopes allow it;
+report broad system totals only for explicitly comparable component sets.
+Remote provider CPU/memory is not observable local computation.
 
 | Metric | Required meaning |
 | --- | --- |
-| CPU time | Report user CPU, system CPU, and collected total independently, with process-tree/cgroup scope and units. Cgroup v1 scheduler-runtime totals and tick-estimated user/system counters need not sum. CPU time is distinct from wall time. |
-| Memory | Absolute kernel/cgroup charged peak in bytes, baseline bytes, and sampling/method metadata. Do not label charged memory RSS. Report peak RSS separately if collected. |
-| Wall time | Monotonic task start/end, plus setup, solve, artifact capture, and cleanup phases. Include model wait in solve; record local execution intervals separately. |
-| Execution scope | Required warm services, fresh worker boundaries, concurrency, cold/warm/cache policy, and shared-service treatment. |
-| Completeness | Coverage status and reason for each unavailable measurement; aggregate known subtotals without presenting them as complete totals. |
+| CPU | User seconds, system seconds, and collected total independently, with counter source, scope, units, resolution, and completeness. Cgroup v1 scheduler-runtime total and tick-estimated user/system counters need not sum. |
+| Memory | Absolute kernel/cgroup charged peak bytes, baseline bytes, cgroup version, reset/freshness proof, and sampling method. Charged memory is not RSS; report sampled peak RSS separately when available. Do not sum per-run peaks or label peak-minus-baseline an exact allocation increment. |
+| Wall | Monotonic full-attempt measurement boundary plus setup, solve, artifact capture, and cleanup phases. Solve includes model waiting, isolated namespace initialization, automatic refresh, and explicit executions. Record local execution/refresh intervals separately. |
+| Scope | Owned services/process trees, required warm services, worker freshness, concurrency, hardware, cache policy, and shared-component treatment. Parent/child scopes must not double-count CPU or race peak resets. |
+| Completeness | Separate token/billing, measured resource-window, lifecycle, action/refresh, and provenance coverage. Preserve observed subtotals/windows; full totals and pair deltas remain null where the relevant coverage is incomplete. |
 
-Collect every run's full metrics while keeping the model's ordinary tool
-observations compact. Full raw traces and ledgers are stored as artifacts,
-not replayed into the prompt at each step.
+Namespace initialization and automatic refresh belong to the attempt's actual
+wall/CPU/memory window even when hidden inside edit handling. Retain raw counters
+and lifecycle/cleanup receipts for failed initialization, committed-but-failed
+refresh, provider errors, timeouts, and stopped runs. Campaign elapsed wall time
+and summed attempt wall time are different quantities, especially with parallel
+execution. Use recorded UTC only for actual boundaries; never reconstruct dates
+from receipt construction timestamps.
+
+Full raw telemetry remains an artifact, not routine prompt content. Source-cell
+reuse may reduce output repetition while increasing retained namespace/history
+memory, initialization, and refresh work. Measure those tradeoffs rather than
+treating reuse or conservative invalidation as free.
 
 ### 11.4 Acceptance gates
 
-The rollout requires passing parser/runtime/state qualification and a
-non-regressing paired accuracy result under the preregistered criterion. The
-compact prompt must satisfy its setup-size gate and reduce measured cost or
-input exposure without trading away correctness. Report uncertainty when the
-pilot is too small to establish that result; expand the fixed evaluation rather
-than changing syntax to fit individual tasks.
+Qualify parser/catalog, actual binding, isolated initialization, transaction,
+namespace/history, invalidation, and refresh behavior before paid experiments.
+Require the preregistered paired accuracy criterion without task-specific syntax
+changes. The compact prompt must satisfy its setup-size gate and reduce measured
+cost or input exposure without sacrificing correctness; uncertainty in a small
+pilot requires expanding the fixed evaluation, not claiming superiority.
 
-The longer-term target remains accuracy above the script/smolagents comparator
-at comparable token cost. Publish full denominators and resource boundaries so
-that a token reduction, cache discount, missing usage, or excluded warm service
-cannot be mistaken for that outcome.
+The long-term target remains accuracy above script/custom smolagents at
+comparable token cost. Publish denominators, unknown billing, provider charges
+versus registry estimates, cache exposure, automatic refresh work, and full
+resource boundaries. Keep the studied revision and historical raw evidence
+separate from later implementation or documentation changes.
 
 ## 12. Evidence and current implementation references
 
@@ -1185,11 +1494,15 @@ definition, and Sonnet astronomy-hard-10's zero-input `load(*args)` rejection.
 Their layout/signature mechanisms motivate registration and actual binding;
 their downstream answers still require execution and semantic verification.
 
-Documentation validation on 2026-10-08 parsed all six JSON examples, compiled
-all seven Python blocks and embedded edit modules, checked illustrative graph
-headers through AST translation, and resolved the relative links. A local
-synthetic pandas calculation verified the example's regional totals of 415
-and 585, population counts, argument binding, and unchanged parent data. The
-standalone prompt matches the specified core, data paragraph, and example
-fixtures. The new service parser and worker contract are still implementation
-gates; these checks do not claim engine qualification or a measured model win.
+Documentation validation on 2026-10-08 parsed seven JSON examples, compiled
+seven Python blocks and two embedded edit modules, checked 16 illustrative graph
+fixtures containing 47 operator statements by AST translation and contract checks,
+and resolved all nine relative links against the documentation review branch.
+Local pandas fixtures verified the example totals of 415 and 585, population
+counts, parent immutability, custom parsing/filtering, and keyword binding.
+Ordered-cell fixtures verified global updates, captured defaults, repeated-source
+recapture, and independent historical reconstruction. The standalone prompt
+matches the specified core, data paragraph, and example payloads and passes the
+byte budgets. These checks validate documentation fixtures; the new service
+parser, initialized namespace, and engine worker remain implementation gates.
+No provider calls or engine runs were performed for this update.
