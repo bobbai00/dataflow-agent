@@ -1,0 +1,107 @@
+DA-Code prompt-refactor subset — 2026-10-08 UTC
+
+Eight file-based tasks cover insight, manipulation, wrangling,
+classification, clustering, regression, statistical analysis, and plotting.
+Four native data/flow evidence combinations and custom smolagents each
+attempted all eight tasks once. All 40 attempts completed and graded; no
+provider failures, deadlines, grading exceptions, or outcome-based retries.
+This is a bounded feasibility comparison rather than a full-benchmark or
+causal prompt ablation.
+
+Configuration           Mean official score   Score=1   Calls   Agent USD
+Data off / flow off             0.869490        6/8       29    $0.019613
+Data on  / flow off             0.867907        5/8       34    $0.025064
+Data off / flow on              0.744490        5/8       39    $0.026146
+Data on  / flow on              0.869490        6/8       33    $0.023887
+Custom smolagents               0.633639        4/8       17    $0.023732
+
+Total agent cost: $0.118443. Costs use frozen cache-aware token rates,
+include reasoning in output usage, and exclude runtime infrastructure.
+Scoring required no model calls. ML metrics are normalized continuously;
+Score=1 is a strict full-score count, not a conventional accuracy rate.
+
+Task                    Native00  Native10  Native01  Native11  Smolagents
+di-text-001              1.000000  1.000000  0.000000  1.000000   1.000000
+dm-csv-006               0.000000  0.000000  0.000000  0.000000   0.000000
+data-wrangling-006       1.000000  1.000000  1.000000  1.000000   0.000000
+ml-binary-005            0.955923  0.955923  0.955923  0.955923   0.955923
+ml-cluster-001           1.000000  0.987336  1.000000  1.000000   1.000000
+ml-regression-011        1.000000  1.000000  1.000000  1.000000   0.113186
+data-sa-001              1.000000  1.000000  1.000000  1.000000   1.000000
+plot-bar-004             1.000000  1.000000  1.000000  1.000000   1.000000
+
+Native00 and Native11 achieved the highest mean here. This eight-task,
+single-attempt subset does not establish a data/flow statistics benefit.
+Native00 was cheapest. Smolagents used fewer calls, but generated more
+output: 16,343 tokens versus Native00's 9,341. Its longer code and reasoning
+made the overall cost comparable to native configurations.
+
+Six reviewed mechanisms and limitations:
+
+- Wrangling: native configurations read the actual YAML target layout and
+  melt/split the complete Ebola data. Smolagents loaded YAML inside a
+  generic program, guessed rename/cast rules, and exported unchanged wide
+  data. Conditional inspection of an unfamiliar target schema was useful.
+- Manipulation: all configurations missed aggregation across repeated
+  product names. There are 321 product IDs and 291 names. Reaggregating
+  SKU-pair counts by named pairs reproduces the reference counts 35/34.
+  Native11 attached names after counting and selected top pairs too early.
+- Insight: Native01 cast seven valid comma-formatted densities to null,
+  mean-imputed them, and selected Palestinian National Authority instead
+  of Monaco. Flow captions explicitly reported seven conversion failures.
+  Relevant telemetry was available and ignored.
+- Plotting: native runs recovered from real engine file-I/O restrictions.
+  Explicit open(...).write(...) is rejected in Python UDFs; supported CSV,
+  savefig, and capture routes work. Native10 omitted writing analysis.py
+  after that error. The official image metric checks the image and actual
+  figure metadata, not the updated analysis.py file.
+- Statistics: the request and README omit the FIFA-only/since-2002 scope
+  used by the published p-value 0.0051066. Full-data tests in these runs
+  give p-values near zero; the unchanged metric's absolute 0.01 tolerance
+  accepts them. Supplementary complete-record checks flag the differing
+  p-values. Treat this as source/method ambiguity and metric tolerance,
+  rather than clear evidence of wrong answers or exact reproduction.
+- Regression: supplied engineered columns Total_Animals and
+  Biogas_per_Animal multiply to all 74 reference targets to about 1e-10.
+  Native validates and applies that relationship; smolagents fits tree
+  estimators. This measures source interpretation and export more strongly
+  than difficult predictive ML fitting.
+
+All classification outputs have normalized F1 score 0.955923, corresponding
+to raw F1 about 0.982369. Clustering uses silhouette on submitted processed
+features and labels with a fixed normalization bound; the published
+reference itself scores 0.983938. Neither metric is exact gold matching.
+
+Comparison protocol:
+
+All arms use Luna gpt-5.6-luna at medium reasoning effort, the same original
+task text and input bytes, 25 steps, an 8,192-token completion ceiling,
+5,000-character full-result/print caps, and a 900-second deadline. Native
+sampling and each evidence kind have separate 2,000-character budgets.
+Profiles are collected identically in all native arms. Explicit session
+views are sample/full without data stats and sample_stats/full with them.
+
+The native system prompt includes SINGLE_TASK_ANALYSIS_PRINCIPLES once.
+Smolagents 1.23.0 receives that exact text via CodeAgent instructions= and
+uses its built-in structured-output protocol plus stock LocalPythonExecutor
+in a credential-free, isolated worker. Local execution/context mechanics
+and step units differ. Native workers retain network access for the engine;
+smolagents Python has no network. Model-written code cannot read gold,
+reports, credentials, or repository history through its mounted task data.
+
+The upstream DA-Code revision is b211daf51fdc9b52d5087c9df28ac50191bcabed.
+Official CSV, text, image, and ML functions/options are unchanged. CSV
+complete-record checks preserve named-column associations and use
+six-decimal numeric rounding; they are separately labeled diagnostics.
+
+All 32 native wire groups and eight smol provider traces reconcile token
+usage, calls, settings, and costs. Frozen source/adapter hashes were checked
+before archival; all workflows, computing units, and executors were cleaned
+up. The committed manifest and scores are sanitized exports of those checks.
+They retain content hashes and numeric results without raw conversations,
+machine-specific endpoints/directories, credentials, datasets, or gold files.
+
+Files in this folder:
+  manifest.json      Frozen protocol, task metadata, software/content hashes.
+  scores.json        Aggregates, 40 compact attempt rows, validation summary.
+  manual-audit.json  Six manually reviewed trace mechanisms and caveats.

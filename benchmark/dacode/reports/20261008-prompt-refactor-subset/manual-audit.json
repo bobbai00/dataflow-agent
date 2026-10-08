@@ -1,0 +1,257 @@
+{
+  "cases": [
+    {
+      "task_id": "data-wrangling-006",
+      "pair": [
+        "native_00",
+        "smolagents"
+      ],
+      "scores": {
+        "native_00": 1.0,
+        "smolagents": 0.0
+      },
+      "cost_usd": {
+        "native_00": 0.00282502,
+        "smolagents": 0.00298158
+      },
+      "primary_reason": "wrong_transform",
+      "first_divergence": "Native reads actual YAML column descriptions and performs melt/split; smol loads YAML only inside a generic guessing program, then exports unchanged wide rows.",
+      "evidence": [
+        {
+          "system": "native_00",
+          "artifact": "react_steps.json",
+          "step": 2,
+          "summary": "Repairs YAML reader to format=lines, retrieves full target specification."
+        },
+        {
+          "system": "native_00",
+          "artifact": "react_steps.json",
+          "step": 3,
+          "summary": "Melt to 1952 rows and derive counts/type/country/string-split fields; full-record gold check passes."
+        },
+        {
+          "system": "smolagents",
+          "artifact": "full-memory.json",
+          "step": 1,
+          "summary": "Generic find_column_defs supports name/type scalar fields but misses nested transform structure, writes original 18-column wide source."
+        }
+      ],
+      "counterfactual": "Inspect unfamiliar YAML target content before choosing the reshape, rather than treating successful file export as task success.",
+      "confidence": "high",
+      "labels_authority": "Unchanged pinned official metric outputs; mechanism audited manually from saved traces."
+    },
+    {
+      "task_id": "ml-regression-011",
+      "pair": [
+        "native_10",
+        "smolagents"
+      ],
+      "scores": {
+        "native_10": 1.0,
+        "smolagents": 0.11318571097975794
+      },
+      "cost_usd": {
+        "native_10": 0.00409546,
+        "smolagents": 0.0059266
+      },
+      "primary_reason": "wrong_transform",
+      "first_divergence": "Native reads source documentation and verifies engineered deterministic target relationship; smol trains tree-model candidates without inspecting README.",
+      "evidence": [
+        {
+          "system": "native_10",
+          "artifact": "react_steps.json",
+          "step": 1,
+          "summary": "Loads README plus full train/test."
+        },
+        {
+          "system": "native_10",
+          "artifact": "react_steps.json",
+          "step": 3,
+          "summary": "Validates training residual and writes 74 predictions as Total_Animals × Biogas_per_Animal."
+        },
+        {
+          "system": "smolagents",
+          "artifact": "full-memory.json",
+          "step": 2,
+          "summary": "Attempts ExtraTrees/RandomForest cross-validation; stock interpreter rejects undefined object built-in."
+        },
+        {
+          "system": "smolagents",
+          "artifact": "full-memory.json",
+          "step": 3,
+          "summary": "Repairs dtype test, fits selected tree model and writes predictions; normalized R² score 0.113186."
+        }
+      ],
+      "counterfactual": "Inspect supplied README and test whether stated source relationships exactly explain the training target; this task is weak evidence for difficult ML fitting.",
+      "confidence": "high",
+      "labels_authority": "Unchanged pinned official metric outputs; mechanism audited manually from saved traces."
+    },
+    {
+      "task_id": "di-text-001",
+      "pair": [
+        "native_00",
+        "native_01"
+      ],
+      "scores": {
+        "native_00": 1.0,
+        "native_01": 0.0
+      },
+      "cost_usd": {
+        "native_00": 0.00144748,
+        "native_01": 0.00270888
+      },
+      "primary_reason": "wrong_transform",
+      "first_divergence": "Flow-only run uses cast(errors=null) on comma-formatted densities, replacing valid high densities with means despite explicit diagnostics.",
+      "evidence": [
+        {
+          "system": "native_01",
+          "artifact": "react_steps.json",
+          "step": 2,
+          "summary": "Duplicate operator assignment edit fails atomically; repair changes names but retains unsafe cast."
+        },
+        {
+          "system": "native_01",
+          "artifact": "react_steps.json",
+          "step": 3,
+          "summary": "Flow captions report 7/195 conversion failures; model still uses mean 188/195 and ranks imputed data."
+        },
+        {
+          "system": "native_01",
+          "artifact": "response.txt",
+          "step": null,
+          "summary": "Highest country Palestinian National Authority rather than Monaco; lowest Mongolia matches."
+        }
+      ],
+      "counterfactual": "Investigate conversion failures and normalize commas before cast/imputation; available flow evidence already identifies relevant unresolved errors.",
+      "confidence": "high",
+      "labels_authority": "Unchanged pinned official metric outputs; mechanism audited manually from saved traces."
+    },
+    {
+      "task_id": "dm-csv-006",
+      "pair": [
+        "native_11",
+        "smolagents"
+      ],
+      "scores": {
+        "native_11": 0.0,
+        "smolagents": 0.0
+      },
+      "cost_usd": {
+        "native_11": 0.0025731599999999997,
+        "smolagents": 0.00255758
+      },
+      "primary_reason": "wrong_transform",
+      "first_divergence": "All modes miss benchmark aggregation over named pairs from distinct SKU pairs; native 11 attaches names after counting without regrouping.",
+      "evidence": [
+        {
+          "system": "native_11",
+          "artifact": "react_steps.json",
+          "step": 3,
+          "summary": "Count combinations of product IDs per order, attach product_name and sort top 2; no final group by names."
+        },
+        {
+          "system": "native_11",
+          "artifact": "outputs/result.csv",
+          "step": null,
+          "summary": "Top counts 15/14 versus published 35/34."
+        },
+        {
+          "system": "all",
+          "artifact": "source/products.csv",
+          "step": null,
+          "summary": "Read-only diagnostic:321 IDs but 291 names; summing SKU-pair counts by sorted named pair reproduces 35/34."
+        }
+      ],
+      "counterfactual": "Resolve final aggregation grain and repeated product names before choosing top pairs. Statistics can reveal repeated names but models must apply that information.",
+      "confidence": "high",
+      "labels_authority": "Unchanged pinned official metric outputs; mechanism audited manually from saved traces."
+    },
+    {
+      "task_id": "plot-bar-004",
+      "pair": [
+        "native_10",
+        "smolagents"
+      ],
+      "scores": {
+        "native_10": 1.0,
+        "smolagents": 1.0
+      },
+      "cost_usd": {
+        "native_10": 0.0056101,
+        "smolagents": 0.00382646
+      },
+      "primary_reason": "tool_error_recovery",
+      "first_divergence": "Native attempts explicit script writing, hits actual engine UDF file-I/O restriction, removes it and creates the officially graded chart; smol uses stock executor.",
+      "evidence": [
+        {
+          "system": "native_10",
+          "artifact": "react_steps.json",
+          "step": 4,
+          "summary": "Execution error: open()/.write() prohibited in Python UDF."
+        },
+        {
+          "system": "native_10",
+          "artifact": "react_steps.json",
+          "step": 5,
+          "summary": "Removes explicit script-writing code while retaining savefig and actual-figure metadata capture."
+        },
+        {
+          "system": "native_10",
+          "artifact": "evaluation.json",
+          "step": null,
+          "summary": "Official image score 1.0;7calls vs smol 4; analysis.py is not part of official graded artifact set."
+        }
+      ],
+      "counterfactual": "Keep a compact statement of real engine file-writing constraints and supported export routes; removing behavioral preview rules does not remove execution constraints.",
+      "confidence": "high",
+      "labels_authority": "Unchanged pinned official metric outputs; mechanism audited manually from saved traces."
+    },
+    {
+      "task_id": "data-sa-001",
+      "pair": [
+        "native_11",
+        "smolagents"
+      ],
+      "scores": {
+        "native_11": 1.0,
+        "smolagents": 1.0
+      },
+      "cost_usd": {
+        "native_11": 0.0022623599999999997,
+        "smolagents": 0.0016903999999999999
+      },
+      "primary_reason": "other",
+      "first_divergence": "Both correctly produce a hypothesis decision for their chosen full-data tests, but published gold uses a source population/method absent from task instructions and loose tolerance hides differing p-values.",
+      "evidence": [
+        {
+          "system": "native_11",
+          "artifact": "react_steps.json",
+          "step": 2,
+          "summary": "Full-data two-sided Welch test; p≈1.255e-78, reject."
+        },
+        {
+          "system": "smolagents",
+          "artifact": "outputs/result.csv",
+          "step": null,
+          "summary": "Same full-data Welch p≈1.255e-78, reject."
+        },
+        {
+          "system": "reference",
+          "artifact": "gold/data-sa-001/result.csv",
+          "step": null,
+          "summary": "p 0.0051066; separate audit reproduces it with one-sided greater MannWhitney/FIFA/since 2002, not specified in request/README."
+        },
+        {
+          "system": "official metric",
+          "artifact": "metrics/table.py",
+          "step": null,
+          "summary": "Absolute 0.01 numeric tolerance accepts near-zero p versus reference 0.0051; supplementary complete-record check flags mismatch."
+        }
+      ],
+      "counterfactual": "Clarify intended population/test in benchmark task source before interpreting exact numeric accuracy; keep unchanged official scores for this run.",
+      "confidence": "medium",
+      "labels_authority": "Unchanged pinned official metric outputs; mechanism audited manually from saved traces."
+    }
+  ],
+  "scope": "Six task mechanisms directly reviewed; no LLM judge/model calls used to assign success labels."
+}

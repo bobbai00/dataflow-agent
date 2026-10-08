@@ -1,0 +1,895 @@
+{
+  "schema_version": 1,
+  "campaign_id": "20261008-prompt-refactor-subset",
+  "created_at": "2026-10-08T01:17:40.884381+00:00",
+  "purpose": "Bounded prompt-refactor subset: official scoring and cache-aware agent cost across evidence modes and custom smolagents.",
+  "selection": "One file-based task per eight catalog categories, chosen before model calls for bounded CPU/data size and grading coverage. Wrangling 006 had earlier pilot runs; remaining seven have no previous model runs in this workspace. Selection does not use this campaign outcomes.",
+  "upstream": {
+    "url": "https://github.com/yiyihum/da-code",
+    "revision": "b211daf51fdc9b52d5087c9df28ac50191bcabed",
+    "metric_sha256": {
+      "da_agent/evaluators/metrics/general.py": "09e69e2988193f86ea7794449c8e754e26c2ad4c83b4a7d8073e962785c45944",
+      "da_agent/evaluators/metrics/ml.py": "2bf425d7eb35175ce3f9be7d98dc1608cf1aa4d3de8e9a0d3943f1b0aac1f7e0",
+      "da_agent/evaluators/metrics/utils.py": "8cdcf262e921ca463cc3ec191c0806d4529e01b5493ca51a59af41f2377fc088",
+      "da_agent/evaluators/metrics/text_outdated.py": "00a8b71ccd487af0ed3e27b52fa36d9c564d507456d0f7becac2de5ec2b2f28f",
+      "da_agent/evaluators/metrics/table.py": "f0744c718797510f0353feee4ada52a45a33d667c2bf6d99fa1f49cbba872f9c",
+      "da_agent/evaluators/metrics/dbt.py": "5c6c25fc36a5dfe0225b861ec0688394f805d1ae458f87a70ee91dfa1948c796",
+      "da_agent/evaluators/metrics/text.py": "3ddaf9a3257bb423ceb5181869f5928bc6ba1afeb2ff00ca8096b453a8cf4844",
+      "da_agent/evaluators/metrics/__init__.py": "2c75576e50b4440d16fb3d00015f648967a4451a1115ac4a264595a410b781b9",
+      "da_agent/evaluators/metrics/image.py": "29e6acdba8ea52cc3bb0acb29080db86a4ef78791a5d53bd89af59eff15af047",
+      "da_agent/evaluators/metrics/script/derector.py": "e2b008d773f85aee170d822a9fbaa2d79c07dc7a002ed8f8826da06869dd56ed",
+      "da_agent/evaluators/metrics/script/ml_script.py": "688609d5b7d3cf38e57b42eca6ac1aab5872d810a253c05b07d0e5ae3d82e8e8",
+      "da_agent/evaluators/metrics/script/params_process.py": "49443d2846b00f4006fc8103e45279043cd49fe3bdeba93d6422ab6321d754d5",
+      "da_agent/evaluators/metrics/script/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "dataflow_source": {
+    "base_revision": "8d3378ce450621f0edb8c98c0f1ceb552a3ad38b",
+    "worktree_sha256": {
+      "agent-service/src/agent/prompts.ts": "2bc9ef0932743caf01ec66cb7960ce4a398c5ebecfc9463541774c33718c0741",
+      "agent-service/src/agent/tools/dataflow-actions.ts": "a38d825d662bccaaf0587a6548dce12488d96ed98135d23db00f217e7df5a538",
+      "benchmark/dacode/plot_capture.py": "c7db76fa7ae57209c7f9e06036356cd3f7c22e3be7e571fc3b7fb2b8f610907f",
+      "benchmark/Kramabench/code_agent.py": "3b1af0ada30b0573dd590c5ff6488032caf69c5d376fca6516b18b7edd03caf2",
+      "agent-service/src/agent/prompts/code-mode.md": "2fa519a5180d991cd9aaefb03445a224468fb0c9dd41538230557683c40154f2",
+      "agent-service/src/agent/prompts/compaction.delta.md": "78f37436e016b6a85c3f1978ddfb4119a0d3d0ff6bdd6d7fee3074149b2c07cd",
+      "agent-service/src/agent/prompts/context-format.delta.md": "a303b1f168a0b99b7a1ec31b243f53977f805024a08817c70f45c4a489004192",
+      "agent-service/src/agent/prompts/context-format.latest.code.md": "bf623cf8d224e99956ea4961a5ebbc2d3ce34e8be36bc43e1b1d68f5d557227b",
+      "agent-service/src/agent/prompts/context-format.latest.md": "6b14da8452e1ad899ea072284d3bf84178cf98d1e340bd92b598437282a159ae",
+      "agent-service/src/agent/prompts/example.delta.md": "87920da57e1a283e80c44b4767348c75c6ce46ae12bc9bcab67514a31b981da5",
+      "agent-service/src/agent/prompts/example.delta.render-prefs.md": "2b53d31bf0ab59054a666488f593590a2128a5e4a5b096d0db20f080c73e3d82",
+      "agent-service/src/agent/prompts/example.latest.code.md": "9b2c63172b62a45635d2126d73f661aaa0ce76153e428386c646c73e10705d02",
+      "agent-service/src/agent/prompts/example.latest.md": "64182bcf80697a0da15b09d59abc9470d08e2d548666bd88d850ed1ec470fa7e",
+      "agent-service/src/agent/prompts/example.latest.render-prefs.md": "9cdd44d505852818613772a4120dcccd9fea3ca98ce39cfcd8abc4175b829e4e",
+      "agent-service/src/agent/prompts/local-qwen-tools.txt": "dc0d2cf42d3eff7866ad91064ece73054160073c592e403661d6fea0f567eaed",
+      "agent-service/src/agent/prompts/local-react.txt": "034b6dea7265b801b999a1ebe7c6d866a01bd1d5b5525438509c7408b787a822",
+      "agent-service/src/agent/prompts/native-compact.md": "20893def103ffcfa56991d96ba9de1066d34febef042856e5534fbe3589f37e9",
+      "agent-service/src/agent/prompts/native-data-statistics-compact.md": "b676152e56baeb3d6e513b9b53addb1cb6ee84e903ceda57c97ce17485564961",
+      "agent-service/src/agent/prompts/native-data-statistics.md": "6c15096e969ead86a722689deb3bfc80e23dc7b5ec640377b4e238aa2af381f2",
+      "agent-service/src/agent/prompts/native-example-data.md": "3dcf7f91a3d037cdef31fab0fc31fb3091665aaef2ce1f764a7a97f273b80eda",
+      "agent-service/src/agent/prompts/native-example-flow.md": "3e0fc1b02c36033b5058dfe1985a1297a3871634ea1c4f6bbf59d9ebdf28ee85",
+      "agent-service/src/agent/prompts/native-example-history.md": "931dde1f2fd37beca98c0041f2ef2a885ca3dde08d0e6b0de08a0ba62a433e62",
+      "agent-service/src/agent/prompts/native-example-lean.md": "e0dacb61c69897f3de82067147876fb7e7b84a82cad7facbd889d2908e83db9e",
+      "agent-service/src/agent/prompts/native-example-revise.md": "9e49489e9c81d4a480377ae1411069961305662e0f93328340fc0893bb5cafd7",
+      "agent-service/src/agent/prompts/native-example-single-compact.md": "e1f4a88d2a82a21476f58c16d8e0f267c5e482a754bd838457c320b16db6b826",
+      "agent-service/src/agent/prompts/native-example-single.md": "d3b6e43f0adea717d25e256a0cc4bc0a7bbcf2b4931e2c44625d977528217096",
+      "agent-service/src/agent/prompts/native-example-tasks.md": "34f4225086703b7a5243705b5504218dfac8a038eb6dab33f795a5eba114495b",
+      "agent-service/src/agent/prompts/native-flow-statistics-compact.md": "1c26417ecde229e53f76e401230a317f3392ca67f09fbda17172fc69c20e251c",
+      "agent-service/src/agent/prompts/native-flow-statistics.md": "4cb9185474c0ce7095294b6c8542b1a91b9e08dc86cc04c1fd48e0007b3d1a23",
+      "agent-service/src/agent/prompts/native-mode-single.md": "ffdc5e1342a1fe05752da834f626c376a154fa6c8f1f1c1c626ecfec1eca3510",
+      "agent-service/src/agent/prompts/native-mode.md": "a3f38a4db00f4a66777bf53cad8f6e03208de8bece39360118f30664c1b52bd8",
+      "agent-service/src/agent/prompts/native-multi-task.md": "efde0b1086d59e0d89b5061dd4b2caa7c9e80968cedf92255185edfeba5f9fc3",
+      "agent-service/src/agent/prompts/native-recall.md": "1d612c316ef027425131c235cd4c4766f30e1794fef149381f18b948f7cef0e9",
+      "agent-service/src/agent/prompts/native-resume.md": "bed4d0a4415ee2dfbb22714156ce6f05545a1401afe8d9f4883a15c510aa4f47",
+      "agent-service/src/agent/prompts/native-state-history.md": "876d142d915b82f9d2623e3a948a6e22dd7e91cdc11b2cf6199ecdd62f0d3ef9",
+      "agent-service/src/agent/prompts/native-task-catalog.md": "12b70bac8336b6eb86b0e8c60277ab26e8961394baa83477c5fde38b8afde3a2",
+      "agent-service/src/agent/prompts/principles.code-blind.md": "65d70b423b6ba19fa839e9f64f9f7551b8c953e15dfe26b04382b98a22d64e99",
+      "agent-service/src/agent/prompts/principles.code-visible.md": "0108c2db24618084685793c0eff1316e2f92293d07be576e17ad0344b20fdca8",
+      "agent-service/src/agent/prompts/recall.md": "640b12f1b7518557343b45dfc775c1eba96eb06b21ea805e57772a41d938a8e7",
+      "agent-service/src/agent/prompts/render-prefs.md": "df7f1c76f03063647cb3aa22a97593b10cf1c3a2fb3f65d77636ea53e4cd20b5",
+      "agent-service/src/agent/prompts/resume.md": "80ac6cbf3e78ac098a2ed47307803857cd5882b4755007e66828560d124030c2",
+      "agent-service/src/agent/prompts/session.md": "e0fdbcbca075b77804afaeae89bb14b587d83a6c8b6a0e7efbd57e1b260a98d4",
+      "agent-service/src/agent/prompts/single-task-principles.md": "ae5cf8ce7335e8ba5f0354a12b5610b3c6c6966abdd17f87d7d1f96847810680",
+      "agent-service/src/agent/prompts/versioned-oprecall-principles.md": "c5bc20fc52f2f7326e8187c42fb599e2841c6e508c58d535a621c1fa49b199f4",
+      "agent-service/src/agent/prompts/versioned-oprecall.md": "14650baf038b55c8d0d289a7c861be980ae48c5c172b058c761ab30b3f7d4412",
+      "agent-service/src/agent/prompts/versioned.md": "97155b3fb1ebd72d4a3f9e9cba555ee893ed768c15a36c8f6d246601b38cfd5a"
+    },
+    "revision_note": "Campaign ran a modified worktree; base revision alone does not identify the executed prompt. File hashes identify source contents."
+  },
+  "engine_revision_note": "Already-running branch-specific stack; binary revision not independently verified.",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "max_completion_tokens": 8192,
+  "sdk_retries": 0,
+  "workers": 2,
+  "repetitions": 1,
+  "task_timeout_seconds": 900,
+  "attempt_policy": "One frozen attempt per task/arm in fixed shuffled order. All attempts retained, no outcome-selected retries.",
+  "native_settings": {
+    "agentMode": "native",
+    "contextMode": "delta",
+    "nativeProfileCollection": true,
+    "nativeProfileScope": "prefix",
+    "maxSteps": 25,
+    "maxOperatorResultCharLimit": 2000,
+    "maxResultRows": 5,
+    "fullResultCharLimit": 5000,
+    "dataEvidenceCharLimit": 2000,
+    "flowEvidenceCharLimit": 2000,
+    "thoughtReplay": false,
+    "enableCodeInSnapshot": false,
+    "taskContext": "trajectory",
+    "multiTask": false,
+    "nativePromptDetail": "full"
+  },
+  "arms": {
+    "native_00": {
+      "retrievalViews": [
+        "sample",
+        "full"
+      ],
+      "dataEvidence": false,
+      "flowEvidence": false
+    },
+    "native_10": {
+      "retrievalViews": [
+        "sample_stats",
+        "full"
+      ],
+      "dataEvidence": true,
+      "flowEvidence": false
+    },
+    "native_01": {
+      "retrievalViews": [
+        "sample",
+        "full"
+      ],
+      "dataEvidence": false,
+      "flowEvidence": true
+    },
+    "native_11": {
+      "retrievalViews": [
+        "sample_stats",
+        "full"
+      ],
+      "dataEvidence": true,
+      "flowEvidence": true
+    },
+    "smolagents": {
+      "kind": "python_CodeAgent"
+    }
+  },
+  "smolagents": {
+    "version": "1.23.0",
+    "settings": {
+      "authorized_imports": [
+        "numpy.*",
+        "pandas.*",
+        "scipy.*",
+        "sklearn.*",
+        "matplotlib.*",
+        "openpyxl.*",
+        "lxml.*",
+        "bs4.*",
+        "geopandas.*",
+        "shapely.*",
+        "pyproj.*",
+        "cdflib.*",
+        "json",
+        "csv",
+        "os",
+        "glob",
+        "math",
+        "statistics",
+        "random",
+        "re",
+        "datetime",
+        "itertools",
+        "time",
+        "unicodedata",
+        "queue",
+        "stat",
+        "textwrap",
+        "string",
+        "io",
+        "pathlib",
+        "functools",
+        "operator",
+        "collections.*",
+        "xml.*",
+        "urllib.*",
+        "html.*",
+        "posixpath",
+        "ntpath",
+        "genericpath",
+        "typing",
+        "copy",
+        "decimal",
+        "fractions",
+        "struct",
+        "hashlib",
+        "base64",
+        "logging",
+        "warnings",
+        "bisect",
+        "heapq",
+        "yaml",
+        "runpy",
+        "seaborn.*",
+        "statsmodels.*"
+      ],
+      "max_steps": 25,
+      "max_print_outputs_length": 5000,
+      "use_structured_outputs_internally": true
+    },
+    "custom_instructions_enabled": true,
+    "executor": "Stock LocalPythonExecutor over credential-free bubblewrap RPC"
+  },
+  "shared_prompt": {
+    "source": "agent-service/src/agent/prompts/single-task-principles.md",
+    "export": "SINGLE_TASK_ANALYSIS_PRINCIPLES from agent-service/src/agent/prompts.ts",
+    "sha256": "e14577ac43cf8419a356d383adbc93d8396777d18a29874f1ddc008321c014bd",
+    "placement": "Included by the native system-prompt builder; exact text in smolagents instructions= system-prompt slot. Separate execution instructions."
+  },
+  "pricing": {
+    "version": 1,
+    "kind": "token_estimate",
+    "model": "gpt-5.6-luna",
+    "source": {
+      "table": "litellm.model_cost",
+      "model_key": "gpt-5.6-luna",
+      "cache_read_default_ratio": null,
+      "cache_creation_default_ratio": null
+    },
+    "currency": "USD",
+    "unit": "per_token",
+    "rates": {
+      "input": 2e-07,
+      "output": 1.2e-06,
+      "cache_read": 2e-08,
+      "cache_creation": 2.5e-07
+    },
+    "input_includes_cached": true,
+    "output_includes_reasoning": true
+  },
+  "full_score_threshold": 1.0,
+  "comparison_note": "Same model, effort, inputs, task text, shared principles, 25 steps, 8192 output ceiling, 5000 full/print char caps, and 900 seconds. Native sample/data/flow observations have separate 2000-char budgets. Step units and execution/context mechanics differ. Native workers require local engine network; smol executor network is disabled. Gold and repository files are not exposed to model-written code.",
+  "scoring": "Pinned unchanged upstream CSV/text/image/ML functions and task options. Raw artifact and completion-gated official scores reported separately. Missing outputs score zero. Grader exceptions and infrastructure failures tracked separately. CSV all-row association checks are supplementary. ML is scaled continuous score, not accuracy percentage.",
+  "tasks": [
+    {
+      "id": "di-text-001",
+      "category": "Data Insight",
+      "hardness": "Medium",
+      "instruction_sha256": "cd9698584ec0ca3f800b533fd7cdf6de1c464d000fb012e86612edee2f1b1bf2",
+      "inputs": [
+        {
+          "name": "README.md",
+          "bytes": 3357,
+          "sha256": "4bcf275daaa9db61db5b7c2756a7c6dcad4a077b7f19baad52773b86f1237e9d"
+        },
+        {
+          "name": "world-data-2023.csv",
+          "bytes": 49209,
+          "sha256": "215e9cfc28a7593bd33cdd33eab654e9c3838179979e422ce923ce4add0d1258"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_text"
+        ],
+        "config": {
+          "task": "data insight",
+          "type": "text",
+          "hardness": "Medium"
+        },
+        "options": [
+          {}
+        ]
+      },
+      "expected_artifacts": []
+    },
+    {
+      "id": "dm-csv-006",
+      "category": "Data Manipulation",
+      "hardness": "Medium",
+      "instruction_sha256": "11e9db326df9d94d89708d9610f4b7e2321ef2741be8e2240c9e4756e20f11c4",
+      "inputs": [
+        {
+          "name": "README.md",
+          "bytes": 499,
+          "sha256": "90278e2665ddb28b6a56bcba26b96c3936c0537e94920ad1a112323b828e77b3"
+        },
+        {
+          "name": "brands.csv",
+          "bytes": 120,
+          "sha256": "d259593f655c76850ae121cea7010e2802f847daabc08080d1e00793fddbbc2e"
+        },
+        {
+          "name": "categories.csv",
+          "bytes": 162,
+          "sha256": "c5584d686e910e7709d474223c1db562426b32bd57e9780a21241e1870e2f7bc"
+        },
+        {
+          "name": "customers.csv",
+          "bytes": 127671,
+          "sha256": "e1431dec458bbebed6d778134a837caa37b142cc80f5e0ab8dceff4737532e6d"
+        },
+        {
+          "name": "order_items.csv",
+          "bytes": 112937,
+          "sha256": "5df5c49ea195fd18a2c03d9f153e16594b41ab2bad4186f93835bbb1509b4381"
+        },
+        {
+          "name": "orders.csv",
+          "bytes": 77286,
+          "sha256": "5b9c0c9468a57e3c2d3d11e6d94a6c4036c0922793f64e20090dee54aa6d9dee"
+        },
+        {
+          "name": "products.csv",
+          "bytes": 17390,
+          "sha256": "112630ab4c07f6c8220bef31de3d0e71138d4f006605e28beeb72acc78d11458"
+        },
+        {
+          "name": "sample.txt",
+          "bytes": 109,
+          "sha256": "32dfa12238ac197a2e727a1cc49734f0967905b2c85dc6fa24ef87370625cb8f"
+        },
+        {
+          "name": "sql.png",
+          "bytes": 285801,
+          "sha256": "6e53daa8b26683968430379579a30e5c31a4651a00e46ec0bbff59d23b61ca86"
+        },
+        {
+          "name": "staffs.csv",
+          "bytes": 726,
+          "sha256": "0670781a1aff34b723362577a68cf761fbe7e36d0283508c5392c5be57b3f81c"
+        },
+        {
+          "name": "stocks.csv",
+          "bytes": 8773,
+          "sha256": "337d4b486c3c65aeda9a1e5070ee437778919789d134365130a81d98154f7d67"
+        },
+        {
+          "name": "stores.csv",
+          "bytes": 330,
+          "sha256": "394b5f1f8752fe6fb75d2246450f27013a31ddd7040287abcc51b9ca9e7ae8ad"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_csv"
+        ],
+        "config": {
+          "task": "data manipulation",
+          "type": "csv",
+          "hardness": "Medium"
+        },
+        "options": [
+          {
+            "ignore_order": true
+          }
+        ]
+      },
+      "expected_artifacts": [
+        "result.csv"
+      ]
+    },
+    {
+      "id": "data-wrangling-006",
+      "category": "Data Wrangling",
+      "hardness": "Medium",
+      "instruction_sha256": "80760070652292c8680bfd9a36ff33186f0e2d0dfdbef9d845366f5adb93c724",
+      "inputs": [
+        {
+          "name": "after_transformation.yml",
+          "bytes": 1020,
+          "sha256": "783652cbfdb59909a1518be62d3c71dd061f76f8e43ff2c6d60139e2c0d13ffb"
+        },
+        {
+          "name": "before_transformation.yml",
+          "bytes": 2679,
+          "sha256": "4a2ec6c15d5e73b924c67a71a930c62fd1e28f97f39bb8cd00f13dfc72709224"
+        },
+        {
+          "name": "ebola.csv",
+          "bytes": 5674,
+          "sha256": "fda0a9972ec3bc827c7ccdae688acb85dc7c36581efee261c4bb439605d96be4"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_csv"
+        ],
+        "config": {
+          "task": "data wrangling",
+          "hardness": "Medium"
+        },
+        "options": [
+          {
+            "ignore_order": true
+          }
+        ]
+      },
+      "expected_artifacts": [
+        "cleaned_ebola.csv"
+      ]
+    },
+    {
+      "id": "ml-binary-005",
+      "category": "ML Classification",
+      "hardness": "Hard",
+      "instruction_sha256": "c280bca4c13bf330498126abbcc51756bbedcdd3e807949a9b6eb42ecc85c582",
+      "inputs": [
+        {
+          "name": "README.md",
+          "bytes": 573,
+          "sha256": "5fb399d04232b890256394e11829f9126bf764e1509169c69ea2487dbf50e0c7"
+        },
+        {
+          "name": "test.csv",
+          "bytes": 25478,
+          "sha256": "7d245c27fa99e6b2c82ab21e248e48b38b810e353ce5622eba645e3f7b74eed6"
+        },
+        {
+          "name": "train.csv",
+          "bytes": 101491,
+          "sha256": "df1f4d453255558ebfb85773ebf1bd8d3320ec5a27b2bf7a13133038c0692142"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_ml"
+        ],
+        "config": {
+          "task": "machine learning",
+          "type": "binary classification",
+          "metric": "f1",
+          "upper_bound": 1.0,
+          "lower_bound": 0.6,
+          "hardness": "Hard"
+        },
+        "options": [
+          {
+            "target_column": "result"
+          }
+        ]
+      },
+      "expected_artifacts": [
+        "label.csv"
+      ]
+    },
+    {
+      "id": "ml-cluster-001",
+      "category": "ML Clustering",
+      "hardness": "Easy",
+      "instruction_sha256": "a6b714368e42050317be83b65d7c3ea45591a55ecc93e7fa024bd4afce1f6c45",
+      "inputs": [
+        {
+          "name": "Mall_Customers.csv",
+          "bytes": 4286,
+          "sha256": "293887b3a8de822afa42629d01c2679006adcc8269890b19eba1ff8ab4a49075"
+        },
+        {
+          "name": "onlinefoods.csv",
+          "bytes": 35806,
+          "sha256": "7d89df81f8f303ae7c025aa5c593d1c86eea0f5e8857312cbd76d659e6241340"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_ml"
+        ],
+        "config": {
+          "task": "machine learning",
+          "type": "cluster",
+          "metric": "silhouette",
+          "upper_bound": 0.574,
+          "lower_bound": 0.0,
+          "hardness": "Easy"
+        },
+        "options": [
+          {
+            "target_column": "Cluster"
+          }
+        ]
+      },
+      "expected_artifacts": [
+        "cluster.csv"
+      ]
+    },
+    {
+      "id": "ml-regression-011",
+      "category": "ML Regression",
+      "hardness": "Hard",
+      "instruction_sha256": "be39edaa29e610e6a1ebddeee2d211e7aa4fe50653cf3891f664e7acba8f2e84",
+      "inputs": [
+        {
+          "name": "README.md",
+          "bytes": 3016,
+          "sha256": "6451696044fd82da4dfa7e5e27d4ae86b9afe90b296363802e726c788bf2021a"
+        },
+        {
+          "name": "test.csv",
+          "bytes": 21761,
+          "sha256": "63fae7b142a715152673f08822b2a69f5f437d385435ec5d6a1bbf0322dca318"
+        },
+        {
+          "name": "veri_seti_son_2.csv",
+          "bytes": 123560,
+          "sha256": "a466ea2ed8eccb4cbb00a50da7ced6f6da2cff661340a64237926f8b8aa2d61e"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_ml"
+        ],
+        "config": {
+          "task": "machine learning",
+          "type": "regression",
+          "metric": "r2",
+          "upper_bound": 0.9,
+          "lower_bound": 0.5,
+          "hardness": "Hard"
+        },
+        "options": [
+          {}
+        ]
+      },
+      "expected_artifacts": [
+        "result.csv"
+      ]
+    },
+    {
+      "id": "data-sa-001",
+      "category": "Statistical Analysis",
+      "hardness": "Hard",
+      "instruction_sha256": "fe7ac361ad44ad8c33d6cef8d27f4f70bd4d3db4dd869170fce0d07298e21b4f",
+      "inputs": [
+        {
+          "name": "README.md",
+          "bytes": 260,
+          "sha256": "8612a30d872900fbba129d32ba2cfb924eadd597524e4a39d7cca6021c549751"
+        },
+        {
+          "name": "men_results.csv",
+          "bytes": 2522773,
+          "sha256": "5ab79eecbc1d53e609ba7fe01583bddc8ed379a3b30dbf84377c0b791ae08392"
+        },
+        {
+          "name": "sample_result.csv",
+          "bytes": 24,
+          "sha256": "c1b82a578f24d9f9486ad7f60ac95cdd3245ba2907b12486830366269fadcff5"
+        },
+        {
+          "name": "women_results.csv",
+          "bytes": 285207,
+          "sha256": "34aae6c33c2fe7937fce89b1fa314f87adce94c30c1edd27cdb400073c0c6b23"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_csv"
+        ],
+        "config": {
+          "task": "statistical analysis",
+          "type": "csv",
+          "hardness": "Hard"
+        },
+        "options": [
+          {}
+        ]
+      },
+      "expected_artifacts": [
+        "result.csv"
+      ]
+    },
+    {
+      "id": "plot-bar-004",
+      "category": "Data Visualization",
+      "hardness": "Hard",
+      "instruction_sha256": "1695e245c5379975502364df74e6d8bbc0d617a93ed31ac79664dacf6ef728af",
+      "inputs": [
+        {
+          "name": "README.md",
+          "bytes": 298,
+          "sha256": "ee92d90df75ba9e40ce813d392e34eabb7941a89cc24f513f4676737e29e6188"
+        },
+        {
+          "name": "analysis.py",
+          "bytes": 411,
+          "sha256": "61e90a804c880511b322fb99cedea861008f3e8a7d5ce81356de68d6f665a846"
+        },
+        {
+          "name": "plot.yaml",
+          "bytes": 195,
+          "sha256": "21cfe6b24e9dae9d26dd26a614649f45104e805741217bbe51777f413c62e0d1"
+        },
+        {
+          "name": "train.csv",
+          "bytes": 61194,
+          "sha256": "7d118fef8b6ccf7f81111877bc388536f7b1e498a655e3d649d19aaa010e9f6f"
+        }
+      ],
+      "official_metric": {
+        "functions": [
+          "compare_image"
+        ],
+        "config": {
+          "task": "data visualization",
+          "type": "bar",
+          "metric": "",
+          "threshold": 0.0,
+          "hardness": "Hard"
+        },
+        "options": [
+          {
+            "keys": [
+              "figsize",
+              "graph_title",
+              "x_label",
+              "y_label",
+              "legend_title",
+              "labels",
+              "xtick_labels"
+            ]
+          }
+        ]
+      },
+      "expected_artifacts": [
+        "result.png",
+        "dabench/plot.json",
+        "dabench/result.npy"
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "task": "ml-binary-005",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "ml-cluster-001",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "data-wrangling-006",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "plot-bar-004",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "data-sa-001",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "plot-bar-004",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "ml-regression-011",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "data-sa-001",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "data-sa-001",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "ml-regression-011",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "di-text-001",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "dm-csv-006",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "di-text-001",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "data-sa-001",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "ml-regression-011",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "plot-bar-004",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "plot-bar-004",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "ml-cluster-001",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "dm-csv-006",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "data-wrangling-006",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "data-wrangling-006",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "di-text-001",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "data-wrangling-006",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "ml-cluster-001",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "plot-bar-004",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "di-text-001",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "data-sa-001",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "dm-csv-006",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "ml-cluster-001",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "ml-cluster-001",
+      "arm": "native_10",
+      "repetition": 1
+    },
+    {
+      "task": "ml-regression-011",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "ml-binary-005",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "data-wrangling-006",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "dm-csv-006",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "ml-binary-005",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "dm-csv-006",
+      "arm": "smolagents",
+      "repetition": 1
+    },
+    {
+      "task": "ml-binary-005",
+      "arm": "native_00",
+      "repetition": 1
+    },
+    {
+      "task": "ml-regression-011",
+      "arm": "native_11",
+      "repetition": 1
+    },
+    {
+      "task": "di-text-001",
+      "arm": "native_01",
+      "repetition": 1
+    },
+    {
+      "task": "ml-binary-005",
+      "arm": "native_11",
+      "repetition": 1
+    }
+  ],
+  "adapter_sha256": {
+    "prepare.py": "cfd9f87ee0bcaa69ef89c6b51f3eff9e31f1bc2ea30ec7a46d204797c8fac7a5",
+    "native_job.ts": "a82fb417fd0f376754cd5402007bee063ad62ec639a1938123519b723a26d2c4",
+    "smol_job.py": "0193ee5e03cd535e5ab6f19e998751e2398035d1871c8d0d0a0be1779e718bbd",
+    "smol_executor.py": "fb39b9b29e5acee454481a8fd468a02e3209117f26ed7f738d02766ef6a77ccb",
+    "smol_worker.py": "fd94ff97bcc36703c86ba5478aece9683091c2c3310ebd3d6507c7589b5ec3a7",
+    "run.py": "49e32c0ba7ee490f10a0c8ddb56761e7ec1308d37c39af03df09e16d243f8617",
+    "score.py": "23a2a2401c1bb2a332aeb81c83046a584765046c2144e789456eb78816274b88"
+  },
+  "plot_capture": {
+    "adapter_sha256": "c7db76fa7ae57209c7f9e06036356cd3f7c22e3be7e571fc3b7fb2b8f610907f",
+    "inspector_sha256": "d3d4bff158e8b60f6849ff24b6561bc7c3642ed1ee97d435a27c8b33f8968b4c",
+    "upstream_script_sha256": "3b5c22bc0d81724a0af8bf96515cd8415474627c7072ab20d5679c02174f5d51",
+    "note": "Inspector methods unchanged; only import-time invocation removed. No reference data exposed."
+  },
+  "input_sha256": {
+    "source/plot-bar-004/README.md": "ee92d90df75ba9e40ce813d392e34eabb7941a89cc24f513f4676737e29e6188",
+    "source/plot-bar-004/plot.yaml": "21cfe6b24e9dae9d26dd26a614649f45104e805741217bbe51777f413c62e0d1",
+    "source/plot-bar-004/train.csv": "7d118fef8b6ccf7f81111877bc388536f7b1e498a655e3d649d19aaa010e9f6f",
+    "source/plot-bar-004/analysis.py": "61e90a804c880511b322fb99cedea861008f3e8a7d5ce81356de68d6f665a846",
+    "source/ml-cluster-001/onlinefoods.csv": "7d89df81f8f303ae7c025aa5c593d1c86eea0f5e8857312cbd76d659e6241340",
+    "source/ml-cluster-001/Mall_Customers.csv": "293887b3a8de822afa42629d01c2679006adcc8269890b19eba1ff8ab4a49075",
+    "source/data-wrangling-006/after_transformation.yml": "783652cbfdb59909a1518be62d3c71dd061f76f8e43ff2c6d60139e2c0d13ffb",
+    "source/data-wrangling-006/before_transformation.yml": "4a2ec6c15d5e73b924c67a71a930c62fd1e28f97f39bb8cd00f13dfc72709224",
+    "source/data-wrangling-006/ebola.csv": "fda0a9972ec3bc827c7ccdae688acb85dc7c36581efee261c4bb439605d96be4",
+    "source/dm-csv-006/products.csv": "112630ab4c07f6c8220bef31de3d0e71138d4f006605e28beeb72acc78d11458",
+    "source/dm-csv-006/README.md": "90278e2665ddb28b6a56bcba26b96c3936c0537e94920ad1a112323b828e77b3",
+    "source/dm-csv-006/brands.csv": "d259593f655c76850ae121cea7010e2802f847daabc08080d1e00793fddbbc2e",
+    "source/dm-csv-006/orders.csv": "5b9c0c9468a57e3c2d3d11e6d94a6c4036c0922793f64e20090dee54aa6d9dee",
+    "source/dm-csv-006/staffs.csv": "0670781a1aff34b723362577a68cf761fbe7e36d0283508c5392c5be57b3f81c",
+    "source/dm-csv-006/stocks.csv": "337d4b486c3c65aeda9a1e5070ee437778919789d134365130a81d98154f7d67",
+    "source/dm-csv-006/stores.csv": "394b5f1f8752fe6fb75d2246450f27013a31ddd7040287abcc51b9ca9e7ae8ad",
+    "source/dm-csv-006/categories.csv": "c5584d686e910e7709d474223c1db562426b32bd57e9780a21241e1870e2f7bc",
+    "source/dm-csv-006/sample.txt": "32dfa12238ac197a2e727a1cc49734f0967905b2c85dc6fa24ef87370625cb8f",
+    "source/dm-csv-006/sql.png": "6e53daa8b26683968430379579a30e5c31a4651a00e46ec0bbff59d23b61ca86",
+    "source/dm-csv-006/customers.csv": "e1431dec458bbebed6d778134a837caa37b142cc80f5e0ab8dceff4737532e6d",
+    "source/dm-csv-006/order_items.csv": "5df5c49ea195fd18a2c03d9f153e16594b41ab2bad4186f93835bbb1509b4381",
+    "source/data-sa-001/README.md": "8612a30d872900fbba129d32ba2cfb924eadd597524e4a39d7cca6021c549751",
+    "source/data-sa-001/men_results.csv": "5ab79eecbc1d53e609ba7fe01583bddc8ed379a3b30dbf84377c0b791ae08392",
+    "source/data-sa-001/sample_result.csv": "c1b82a578f24d9f9486ad7f60ac95cdd3245ba2907b12486830366269fadcff5",
+    "source/data-sa-001/women_results.csv": "34aae6c33c2fe7937fce89b1fa314f87adce94c30c1edd27cdb400073c0c6b23",
+    "source/ml-regression-011/README.md": "6451696044fd82da4dfa7e5e27d4ae86b9afe90b296363802e726c788bf2021a",
+    "source/ml-regression-011/test.csv": "63fae7b142a715152673f08822b2a69f5f437d385435ec5d6a1bbf0322dca318",
+    "source/ml-regression-011/veri_seti_son_2.csv": "a466ea2ed8eccb4cbb00a50da7ced6f6da2cff661340a64237926f8b8aa2d61e",
+    "source/di-text-001/README.md": "4bcf275daaa9db61db5b7c2756a7c6dcad4a077b7f19baad52773b86f1237e9d",
+    "source/di-text-001/world-data-2023.csv": "215e9cfc28a7593bd33cdd33eab654e9c3838179979e422ce923ce4add0d1258",
+    "source/ml-binary-005/README.md": "5fb399d04232b890256394e11829f9126bf764e1509169c69ea2487dbf50e0c7",
+    "source/ml-binary-005/test.csv": "7d245c27fa99e6b2c82ab21e248e48b38b810e353ce5622eba645e3f7b74eed6",
+    "source/ml-binary-005/train.csv": "df1f4d453255558ebfb85773ebf1bd8d3320ec5a27b2bf7a13133038c0692142"
+  },
+  "gold_sha256": {
+    "gold/plot-bar-004/plot.json": "240b9355aa9ee6f6bd1fc3b06646ccf20affb891bddf17b54ebafc24dbc19cf7",
+    "gold/plot-bar-004/result.png": "44f67d2986c2f2ff9c0a06fe539ca10a12542242dea60c02cbd433610affbeea",
+    "gold/plot-bar-004/result.npy": "6eed58f7e6adda6448902a730edcc2fc7322465f790aaa4c5e37cfeae23f9343",
+    "gold/ml-cluster-001/cluster.csv": "b5ba7a68938bef6a2a7885f081df034646cd6572190d845b205b58c7aa98a48a",
+    "gold/data-wrangling-006/cleaned_ebola.csv": "9ffb8740ae47fc6f24707bfb2aa243a7b3be4eb25c4c63fd9222e784b5ab0c14",
+    "gold/dm-csv-006/result.csv": "56e80603d08753b33117b3353f981aaffbd687a5adc13702e7904200847ab2b5",
+    "gold/data-sa-001/result.csv": "eb7c6fb9263398cd34aa92927d5b21d58a1fa775df2327a4a5ba9743b9986bca",
+    "gold/ml-regression-011/result.csv": "b6a2485b07e4cb510d3aff5452bc49679b53a5a5baa576ab3899213d263bfd5a",
+    "gold/di-text-001/result.json": "91edf2f822d77794f13d0be9d3304f2ffd2d3289686b844160d02d40c1da47bc",
+    "gold/ml-binary-005/label.csv": "6c4c283c3f566ef8d8083a96158999e7e240b634cf037ead21335bf5a1149d14"
+  },
+  "archive": {
+    "kind": "Sanitized compact export, not raw run data.",
+    "original_manifest_sha256": "1255bf084c643c388c6e1c5ff7c0f7ac4cca58862d06d15978867fd1cd9b6f03",
+    "original_scores_sha256": "642316a18f6297f50f4a7d90e8ed4a17d7b2bb7c88287b315404a63fa0d0c240",
+    "original_audit_sha256": "522d77871cbc762e5045341cb7e60b65e340b4b4520cfbe3204cc1adf096b89f",
+    "omitted": "Local endpoints, usernames, directories, task prompt copies, gold contents, raw provider messages and execution traces."
+  }
+}

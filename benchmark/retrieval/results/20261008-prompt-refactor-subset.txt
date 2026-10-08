@@ -1,0 +1,35 @@
+Single-task prompt refactor and bounded benchmark comparison — 2026-10-08 UTC
+
+Implemented shorter single-task native prompt, exact shared analysis principles for custom smolagents, conditional evidence paragraphs, optional inspection/view choice and one executable batching example. Existing multi-task template/examples retained.
+
+1,404 unit tests passed; typecheck and generated-reference checks passed. All four evidence combinations additionally tested in full/on-demand and DELTA/LATEST layouts. Final trace inventory:80native runs,20 per combination;0disabled-evidence leaks,0unavailable views,0missing shared principles.
+
+System prompt text: default 5,197 -> 2,949 tokens (-43.3%); both-evidence 5,935 -> 3,039 (-48.8%). Actual subset configurations: 2,792 / 2,949 / 2,873 / 3,030 tokens; custom smolagents: 2,424. Text estimates use o200k_base and exclude tool schemas.
+
+20 tasks x 5 configurations = 100 single attempts:12 KramaBench tasks from 6 domains and 8 DA-Code tasks from 8 categories. No full benchmark, task retries, provider/deadline failures or grader exceptions.
+
+Configuration	Krama passes/12	Krama cost	DA mean score	DA full-score/8	DA cost
+Data off / flow off	7/12	$0.033327	0.869490	6/8	$0.019613
+Data on / flow off	8/12	$0.031619	0.867907	5/8	$0.025064
+Data off / flow on	6/12	$0.035847	0.744490	5/8	$0.026146
+Data on / flow on	5/12	$0.034246	0.869490	6/8	$0.023887
+Custom smolagents	4/12	$0.038611	0.633639	4/8	$0.023732
+
+Total agent token-estimate cost: $0.292093; excludes scoring and infrastructure. Costs include cached-input discounts and output/reasoning.
+
+Interpretation: Data-only produced the highest KramaBench score with the lowest KramaBench cost. DA-Code off/off tied highest native mean score and was cheapest. More statistics did not consistently improve results. Current default data-only exposure remains reasonable; this subset does not justify enabling flow by default. Smolagents used fewer calls, but higher output/reasoning on KramaBench made it more expensive there.
+
+The shortened prompt works, but no fresh old-prompt control was run. Do not infer preserved full-benchmark accuracy or causal refactor cost savings from these small one-attempt results.
+
+Fairness: same Luna medium, input lists, shared 300-token principles,25 steps,8,192 response ceiling,900 seconds,5,000 full/print characters. Native sample is 2,000 chars / 5 rows; enabled data/flow each adds 2,000 chars. Native profiling collected in every arm, prefix scope. Smol stock tool instructions plus instructions=shared principles; no stacked legacy/fine-grained/pitfalls rules. Tool and isolation behavior differs: native needs engine local network and sees source data lake; smol sees task-domain inputs with network disabled. Gold/solutions/repository code are hidden from task execution.
+
+Accuracy issues: requested entity grain and eligibility still need model interpretation. All DA co-purchase runs failed SKU-versus-product-name reaggregation. Flow-only insight ignored 7 failed conversions of valid comma-formatted densities. Smol wrangling ignored the actual YAML target layout. One KramaBench scalar became a JSON object and officially failed despite correct computation. These labels are preserved, without post-hoc score correction.
+
+DA-Code caveats: statistical task lacks the source/method restrictions inferred from reference, and loose 0.01 absolute tolerance masks p-value differences. Regression has target-derived engineered fields. Clustering uses normalized continuous silhouette, with the published reference itself below 1. The image grade validates figure properties/data, not modified analysis.py or pixel equality.
+
+Versioned summaries:
+  benchmark/retrieval/results/20261008-prompt-refactor-subset.json
+  benchmark/Kramabench/judgment_runs/single_task_prompt_subset_20261008
+  benchmark/dacode/reports/20261008-prompt-refactor-subset
+
+Raw traces and runtime manifests remain local, outside Git. Commit c9bdbe017 includes the prompt implementation and code cleanup, leaving all 32 rendered prompt/tool combinations unchanged. The post-cleanup focused suite passed 171 tests and typecheck. No additional model calls were made.

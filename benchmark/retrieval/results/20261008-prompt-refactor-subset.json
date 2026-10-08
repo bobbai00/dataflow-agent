@@ -1,0 +1,154 @@
+{
+  "scope": "Single-task native prompt refactor; diagnostic subsets, not full benchmarks. ChromaBench interpreted as repository KramaBench.",
+  "attempts": 100,
+  "tasks": 20,
+  "attempt_policy": "One attempt per task/configuration, no recovery task reruns or best-of selection. In-loop operator repairs retained.",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "fairness": "Same 300-token shared analysis principles, model, requested inputs, 25 steps, 8192 response-token ceiling, 900 seconds, 5000 full/print characters. Different tool interfaces, execution/context units and isolation; native optional data/flow each gets independent 2000-char budgets.",
+  "tests": {
+    "unit_passed": 1404,
+    "unit_failed": 0,
+    "typecheck": "passed",
+    "generated_reference_checks": "passed",
+    "focused_after_cleanup": 171,
+    "unit_validation_note": "Full 1,404-test suite passed on the refactor; 171 focused tests passed after behavior-preserving cleanup."
+  },
+  "prompt_measurements": {
+    "data1-flow1": {
+      "chars": 13776,
+      "tokens_o200k": 3030,
+      "sha256": "3b20a47f4ed92a876acdbf1b487b314c64e0eb453f43097f37393201e1d2facc"
+    },
+    "before-data-flow": {
+      "chars": 24919,
+      "tokens_o200k": 5935,
+      "sha256": "529ecf4ae5509463709df740d2d8c0e9f720a929d371b4ce57b4b6cb1b9b7e80"
+    },
+    "before-default": {
+      "chars": 21828,
+      "tokens_o200k": 5197,
+      "sha256": "753bbeb4a17f887046eb2b2fecb3108e48672df368a2724a88c6e88ee1e1a297"
+    },
+    "shared-principles": {
+      "chars": 1642,
+      "tokens_o200k": 300,
+      "sha256": "e14577ac43cf8419a356d383adbc93d8396777d18a29874f1ddc008321c014bd"
+    },
+    "data0-flow0": {
+      "chars": 12534,
+      "tokens_o200k": 2792,
+      "sha256": "dba2ce5a69b0e6624672dcc3999e7cce8469c6b5c21fe20380896a8c332b0d04"
+    },
+    "data0-flow1": {
+      "chars": 12977,
+      "tokens_o200k": 2873,
+      "sha256": "6674707c91002a08a58345c18cf21d02fd7bc9d6f4c587080ad80d6df5599248"
+    },
+    "data1-flow0": {
+      "chars": 13333,
+      "tokens_o200k": 2949,
+      "sha256": "edc4494b2a1cddff7462ec50ca98e14396cf8902fea02a0905d474b3fdc7cb20"
+    },
+    "after-SYSTEM_PROMPT.txt": {
+      "chars": 13334,
+      "tokens_o200k": 2949
+    },
+    "after-SYSTEM_PROMPT_WITH_EVIDENCE.txt": {
+      "chars": 13804,
+      "tokens_o200k": 3039
+    }
+  },
+  "arms": [
+    {
+      "configuration": "Data off / flow off",
+      "krama_full_passes": 7,
+      "krama_tasks": 12,
+      "krama_mean_official_score": 0.5833333333333334,
+      "krama_cost_usd": 0.033327,
+      "krama_model_calls": 57,
+      "dacode_mean_official_score": 0.8694903491367307,
+      "dacode_full_score_outputs": 6,
+      "dacode_tasks": 8,
+      "dacode_cost_usd": 0.01961342,
+      "dacode_model_calls": 29
+    },
+    {
+      "configuration": "Data on / flow off",
+      "krama_full_passes": 8,
+      "krama_tasks": 12,
+      "krama_mean_official_score": 0.6666666666666666,
+      "krama_cost_usd": 0.031619,
+      "krama_model_calls": 49,
+      "dacode_mean_official_score": 0.8679073449831882,
+      "dacode_full_score_outputs": 5,
+      "dacode_tasks": 8,
+      "dacode_cost_usd": 0.02506396,
+      "dacode_model_calls": 34
+    },
+    {
+      "configuration": "Data off / flow on",
+      "krama_full_passes": 6,
+      "krama_tasks": 12,
+      "krama_mean_official_score": 0.5,
+      "krama_cost_usd": 0.035847,
+      "krama_model_calls": 53,
+      "dacode_mean_official_score": 0.7444903491367307,
+      "dacode_full_score_outputs": 5,
+      "dacode_tasks": 8,
+      "dacode_cost_usd": 0.02614602,
+      "dacode_model_calls": 39
+    },
+    {
+      "configuration": "Data on / flow on",
+      "krama_full_passes": 5,
+      "krama_tasks": 12,
+      "krama_mean_official_score": 0.4166666666666667,
+      "krama_cost_usd": 0.034246,
+      "krama_model_calls": 49,
+      "dacode_mean_official_score": 0.8694903491367307,
+      "dacode_full_score_outputs": 6,
+      "dacode_tasks": 8,
+      "dacode_cost_usd": 0.023887319999999997,
+      "dacode_model_calls": 33
+    },
+    {
+      "configuration": "Custom smolagents",
+      "krama_full_passes": 4,
+      "krama_tasks": 12,
+      "krama_mean_official_score": 0.3333333333333333,
+      "krama_cost_usd": 0.038611,
+      "krama_model_calls": 43,
+      "dacode_mean_official_score": 0.6336385630092005,
+      "dacode_full_score_outputs": 4,
+      "dacode_tasks": 8,
+      "dacode_cost_usd": 0.0237322,
+      "dacode_model_calls": 17
+    }
+  ],
+  "cost_scope": "Agent API token estimate only; excludes grading and compute. Frozen fallback pricing, cached input discounted, reasoning included in output.",
+  "total_agent_cost_usd": 0.29209292,
+  "final_inventory": {
+    "native_traces": 80,
+    "statistics_off_leaks": 0,
+    "flow_off_leaks": 0,
+    "unavailable_views": 0,
+    "principles_missing": 0
+  },
+  "limitations": [
+    "No fresh old-prompt control, so accuracy retention and dollar savings caused by refactor alone are not established.",
+    "Single attempt per small preselected subset, no confidence intervals.",
+    "DA-Code statistical reference population/method restrictions are omitted from supplied question; absolute0.01 tolerance accepts materially different p-values.",
+    "DA-Code regression target is reconstructed from supplied engineered fields; this weakly tests predictive modeling.",
+    "One KramaBench correct numeric calculation returned an unsupported JSON-object shape and officially scored0; official score preserved.",
+    "Native direct Python file writes are constrained; scored plots do not verify modification of analysis.py or pixel identity."
+  ],
+  "reports": {
+    "krama": "benchmark/Kramabench/judgment_runs/single_task_prompt_subset_20261008",
+    "dacode": "benchmark/dacode/reports/20261008-prompt-refactor-subset",
+    "raw_artifacts": "Raw traces, wire payloads and runtime manifests are retained locally and intentionally not versioned."
+  },
+  "source": "agent-service/src/agent/prompts/native-mode-single.md",
+  "implementation_commit": "c9bdbe017",
+  "implementation_note": "Code cleanup preserves all 32 rendered prompt/tool combinations from the model-run implementation. No model calls were made during cleanup."
+}
