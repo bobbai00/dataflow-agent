@@ -14,6 +14,9 @@
 import unittest
 
 from benchmark.retrieval.comparison import evidence_matrix_contrasts
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_comparison import audit_script
+from script_agent_child import save_full_memory
 
 
 class ComparisonTests(unittest.TestCase):

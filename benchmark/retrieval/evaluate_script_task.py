@@ -12,19 +12,20 @@
 # limitations under the License.
 """Run the existing smolagents SUT with campaign settings and complete traces.
 
-The instrumentation records request messages and usage without changing the
-model responses, execution policy, prompt or official evaluator.
+The agent runs in the script sandbox (see script_sandbox.py). Prompt, model
+responses, execution policy and the official evaluator are the SUT's own.
 """
+import hashlib
 import json
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 import runpy
+import shutil
 import signal
 import sys
-import time
 
 from campaign import install_provider_prices
+from script_sandbox import CHILD, SandboxedScriptAgent
 
 
 def save(path, data):
@@ -32,14 +33,37 @@ def save(path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
 
 
-def save_full_memory(base, memory):
-    """Optional diagnostics must not prevent official grading of a saved answer."""
-    try:
-        save(base / "full-memory.json", memory.get_full_steps())
-    except Exception as exc:
-        save(base / "trace-export-error.json", {
-            "exception": type(exc).__name__, "message": str(exc)[:1000],
-        })
+def campaign_job(cost_utils):
+    """This process's job, with the campaign's frozen prices installed."""
+    manifest = json.loads(Path(os.environ["RETRIEVAL_MANIFEST"]).read_text())
+    job = json.loads(os.environ["RETRIEVAL_JOB"])
+    model = manifest["models"][job["model"]]
+    pricing = install_provider_prices(cost_utils, [model])
+    assert all(manifest["pricing_overrides"].get(name) == rates for name, rates in pricing.items()), "Pricing drift"
+    return manifest, job, model
+
+
+def stop_at_wall_clock(scratch):
+    """On the runner's SIGTERM, fail the task and let the evaluator score it."""
+
+    def stop(signum, frame):
+        save(scratch / "wall-clock-stop.json", {"reason": "Task wall-clock limit reached", "signal": signum})
+        # The system catches this while it waits for its agent, stops it and
+        # returns a failed response with the usage recorded so far.
+        raise SystemExit("Task wall-clock limit reached")
+
+    signal.signal(signal.SIGTERM, stop)
+
+
+def discard_workspace(workspace, scratch):
+    """Keep the names and sizes of what the agent wrote, not the files."""
+    files = [
+        {"path": str(path.relative_to(workspace)), "bytes": path.stat().st_size}
+        for path in sorted(workspace.rglob("*"))
+        if path.is_file() and not path.is_symlink()
+    ]
+    save(scratch / "workspace-files.json", files)
+    shutil.rmtree(workspace, ignore_errors=True)
 
 
 def main():
@@ -48,110 +72,55 @@ def main():
     from systems import cost_utils
     from systems.code_agent_system import CodeAgentSystem
 
-    manifest = json.loads(Path(os.environ["RETRIEVAL_MANIFEST"]).read_text())
-    job = json.loads(os.environ["RETRIEVAL_JOB"])
+    manifest, job, model = campaign_job(cost_utils)
     settings = manifest["script_settings"]
-    model = manifest["models"][job["model"]]
-    pricing = install_provider_prices(cost_utils, [model])
-    assert pricing[model] == manifest["pricing_overrides"][model]
-    stopped = False
-
-    def stop_turn(signum, frame):
-        nonlocal stopped
-        stopped = True
-        save(Path("system_scratch") / job["sut"] / job["task"] / "wall-clock-stop.json",
-             {"reason": "Task wall-clock limit reached", "signal": signum})
-        # The existing wrapper catches SystemExit and saves a failed response
-        # with accumulated usage. The official evaluator can then score it.
-        raise SystemExit("Task wall-clock limit reached")
-
-    signal.signal(signal.SIGTERM, stop_turn)
+    scratch = Path("system_scratch").resolve() / job["sut"] / job["task"]
+    workspace = Path(manifest["workspaces"]) / job["sut"] / job["task"]
+    stop_at_wall_clock(scratch)
 
     class ScriptSystem(CodeAgentSystem):
         def __init__(self, *args, **kwargs):
             super().__init__(
-                *args, model_type=model, name=job["sut"],
+                *args,
+                model_type=model,
+                name=job["sut"],
                 api_base=manifest["script_endpoint"],
                 api_key=os.environ.get("CODE_AGENT_API_KEY") or os.environ["LITELLM_MASTER_KEY"],
-                **settings, **kwargs,
+                **settings,
+                **kwargs,
             )
 
         def process_dataset(self, dataset_directory):
             super().process_dataset(dataset_directory)
-            base = Path(self.output_dir) / job["task"]
-            save(base / "settings.json", settings)
-            save(base / "provenance.json", {
-                "runner_revision": manifest["runner_revision"],
-                "harness_revision": manifest["harness_revision"], "job": job,
-                "model": model, "endpoint": manifest["script_endpoint"],
-                "smolagents_version": __import__("smolagents").__version__,
-                "adapter_sha256": __import__("hashlib").sha256(Path(__file__).read_bytes()).hexdigest(),
-            })
-            agent = self.agent._agent
-            save(base / "system-info.json", {"systemPrompt": agent.system_prompt})
-            # Reset preserves this model/client; intercept the actual normalized
-            # OpenAI-compatible request, after smolagents' role conversions.
-            original = self.agent._model.client.chat.completions.create
-            call_number = 0
-            trace_path = base / "model-request-trace.jsonl"
-
-            def append(value):
-                value["timestamp"] = datetime.now(timezone.utc).isoformat()
-                with trace_path.open("a") as stream:
-                    stream.write(json.dumps(value, ensure_ascii=False, default=str) + "\n")
-
-            # SDK retries happen inside create(). Observe their HTTP headers
-            # without reading response bodies or recording credentials.
-            def transport_request(request):
-                request.extensions["krama_trace_started"] = time.monotonic()
-                append({"phase": "transport_request", "call": call_number,
-                        "method": request.method, "path": request.url.path})
-
-            def transport_response(response):
-                started = response.request.extensions.get("krama_trace_started", time.monotonic())
-                append({"phase": "transport_headers", "call": call_number,
-                        "status": response.status_code, "seconds": time.monotonic() - started})
-
-            http_client = self.agent._model.client._client
-            http_client.event_hooks["request"].append(transport_request)
-            http_client.event_hooks["response"].append(transport_response)
-
-            def recorded_create(*args, **kwargs):
-                nonlocal call_number
-                if stopped:
-                    raise SystemExit("Task wall-clock limit reached")
-                call_number += 1
-                number = call_number
-                started = time.monotonic()
-                fields = ["model", "messages", "stop", "max_tokens", "temperature",
-                          "tools", "tool_choice", "response_format", "reasoning_effort"]
-                append({"phase": "request", "call": number,
-                        "request": {key: kwargs[key] for key in fields if key in kwargs}})
-                try:
-                    response = original(*args, **kwargs)
-                except (Exception, SystemExit) as exc:
-                    append({"phase": "error", "call": number,
-                            "exception": type(exc).__name__,
-                            "status_code": getattr(exc, "status_code", None),
-                            "seconds": time.monotonic() - started})
-                    raise
-                append({"phase": "response", "call": number,
-                        "response_model": response.model,
-                        "usage": response.usage.model_dump(),
-                        "choices": [choice.model_dump() for choice in response.choices],
-                        "seconds": time.monotonic() - started})
-                return response
-
-            self.agent._model.client.chat.completions.create = recorded_create
+            save(scratch / "settings.json", settings)
+            save(
+                scratch / "provenance.json",
+                {
+                    "runner_revision": manifest["runner_revision"],
+                    "harness_revision": manifest["harness_revision"],
+                    "job": job,
+                    "model": model,
+                    "endpoint": manifest["script_endpoint"],
+                    "smolagents_version": __import__("smolagents").__version__,
+                    "adapter_sha256": {
+                        path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__), CHILD]
+                    },
+                },
+            )
+            self.agent = SandboxedScriptAgent(
+                self.agent,
+                harness=Path.cwd(),
+                data_root=dataset_directory,
+                data_relative=os.path.relpath(dataset_directory),
+                artifacts=scratch,
+                workspace=workspace,
+            )
 
         def serve_query(self, query, query_id="default-0", subset_files=None):
-            result = super().serve_query(query, query_id, subset_files)
-            base = Path(self.output_dir) / query_id
-            # The inherited summary clips code and observations. Retain the
-            # complete memory separately for manual auditing.
-            save_full_memory(base, self.agent._agent.memory)
-            save(base / "usage-accumulator.json", self.agent._model.usage_acc)
-            return result
+            try:
+                return super().serve_query(query, query_id, subset_files)
+            finally:
+                discard_workspace(workspace, scratch)
 
     setattr(systems, job["sut"], ScriptSystem)
     runpy.run_path("evaluate.py", run_name="__main__")

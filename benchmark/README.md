@@ -117,6 +117,64 @@ forces a fresh JVM distribution; subsequent `up` commands use verified build
 stamps and rebuild when relevant sources change. Trace bodies include prompts
 and task data, so keep the trace directory private and outside Git.
 
+### Script-agent baselines
+
+Two agents that write Python against the task's files run on the same tasks,
+file lists, format hints, model gateway and official evaluator as the dataflow
+agent. They need Linux with bubblewrap (`bwrap`) and the LiteLLM gateway.
+
+| | smolagents | DSGym |
+|---|---|---|
+| Agent | `CodeAgent` (smolagents 1.23, in the KramaBench venv) with its default prompts | upstream `ReActDSAgent` ([fannie1208/DSGym](https://github.com/fannie1208/DSGym), pinned at `461a464`) with its `SYSTEM_PROMPT` and custom-task template |
+| System class | `CodeAgentSystem` (`systems/code_agent_system.py`) | `DSGymSystem` (`systems/dsgym_system.py`) |
+| Code runs in | smolagents' interpreter, inside the agent's process | a persistent Jupyter kernel behind DSGym's executor manager |
+| Answer | `final_answer(value)` | `<answer>value</answer>` |
+
+One-time setup for DSGym, which needs Python 3.12 and so its own interpreter:
+
+```bash
+git clone https://github.com/fannie1208/DSGym.git benchmark/DSGym
+git -C benchmark/DSGym checkout --detach 461a464da3e5d2bbea409462c61c8999527b4616
+uv venv --python 3.12 benchmark/DSGym/.venv
+VIRTUAL_ENV=benchmark/DSGym/.venv uv pip install -r benchmark/retrieval/dsgym-requirements.txt
+```
+
+A round of both, from `benchmark/Kramabench` with the provider keys and
+`LITELLM_MASTER_KEY` in the environment:
+
+```bash
+.venv/bin/python ../retrieval/run_baselines.py --output <new dir> --model Luna --all-tasks
+.venv/bin/python ../retrieval/baseline_report.py <dir>     # score, cost, tokens, latency
+```
+
+Use `--systems smolagents` to run that baseline without installing DSGym.
+
+`--max-steps` (25) and `--output-chars` (5,000) apply to both agents. Each task
+runs once per system in its own process and leaves, under
+`<dir>/system_scratch/<SUT>/<task>/`: the prompt, every model request and
+response with its token usage and seconds (`model-request-trace.jsonl`), every
+code execution with its seconds (`executions.jsonl`; DSGym also has the
+kernel-side `kernel-executions.jsonl`), the full conversation, `stats.json`
+and the official `evaluation.json`.
+
+Model-written code never sees the workload's answers, the reference solutions,
+other runs or the repository. Both agents run it under bubblewrap with the
+task's input directory mounted read-only at the relative path the prompt
+names, a private working directory and no network:
+
+- smolagents executes code in the agent's own process, so the whole agent runs
+  in the sandbox and reaches the gateway through a Unix socket
+  (`script_sandbox.py`).
+- DSGym's agent loop runs outside; `dsgym_executor.py` stands in for its
+  docker executor manager and starts DSGym's own `KernelExecutor` in the
+  sandbox.
+
+Two things differ from upstream DSGym, both in `systems/dsgym_runner.py`:
+token usage and seconds are recorded, and execution output is cut at
+`--output-chars`. Upstream declares that limit (`max_stdout_length=5000`) and
+never applies it. `DSGymSystem` alone works against DSGym's docker manager as
+well: pass `manager_url`.
+
 ## LongDS
 
 ```bash

@@ -135,7 +135,7 @@ def main():
         "attempt_policy": "One attempt per task and system, as requested; no recovery rounds or best-of selection.",
         "pass_threshold": 1.0, "workers": args.workers, "large_workers": 1,
         "large_input_bytes": 100000000, "task_timeout_seconds": args.timeout,
-        "input_inventory": sources, "jobs": jobs,
+        "workspaces": str(args.output.resolve() / "workspaces"), "input_inventory": sources, "jobs": jobs,
     }
     output.mkdir(parents=True)
     save(output / "manifest.json", manifest)
