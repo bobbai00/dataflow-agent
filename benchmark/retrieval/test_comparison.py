@@ -19,7 +19,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_comparison import audit_script
-from evaluate_script_task import save_full_memory
+from script_agent_child import save_full_memory
 
 
 class ScriptAuditTests(unittest.TestCase):
