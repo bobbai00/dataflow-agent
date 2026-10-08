@@ -271,7 +271,7 @@ for (const entry of SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf) {
   entry.description = entry.description.replace("retrieve tables separately", "read tables separately");
   if (entry.properties.type.const === "edit" && "changes" in entry.properties)
     (entry.properties as unknown as { changes: { description: string } }).changes.description =
-      "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. A saved version `name@N` can be an input table, and `name = name@N` makes the definition saved at the end of task N current again on today's inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies.";
+      "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. A saved version `name@N` can be an input table. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies.";
 }
 SAVED_ACTIONS_SCHEMA.properties.actions.items.anyOf.push(
   action("read", "Read current operators or immutable ID@task versions. Returns definitions, direct inputs, shape and columns; view=null reads definitions only, including failed operators. A non-null view reads saved records without execution. Request implementation only when needed; columns=null keeps all columns.", {
@@ -478,7 +478,7 @@ export function createDataflowTool(
   return tool({
     description:
       stateHistory
-        ? "Use ordered edit, execute, read and answer actions. Each answered task saves its tables as name@N: read one, use it as an input table or answer from it; saved versions never execute or fall back to current data. `name = name@N` makes an old definition current again on today's inputs. Content answers name their source tables, or [] when none was used. A held statement or a failed action skips the later actions; earlier edits remain."
+        ? "Use ordered edit, execute, read and answer actions. Each answered task saves its tables as name@N: read one, use it as an input table or answer from it; saved versions never execute or fall back to current data. Content answers name their source tables, or [] when none was used. A held statement or a failed action skips the later actions; earlier edits remain."
         : DATAFLOW_ACTIONS_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),

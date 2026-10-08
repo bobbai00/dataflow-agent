@@ -296,7 +296,7 @@ An answer ends the model loop. An answer with content must be the only action in
 
 ## Optional historical state actions
 
-With `stateHistory: true`, task inspection retrieves the saved answer roots and operators introduced or changed for that task. Earlier inputs remain versioned references that can be expanded selectively. Inspection can include Python and root results. Answer's optional `operator_ids` records its source tables; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
+With `stateHistory: true`, prior-task entries list saved answer sources and operators introduced or changed for that task. Read `name@N` to inspect its saved definition, inputs and optional Python or records. Use it directly as an input table without re-executing its ancestors. To compute a one-question alternative, call the shared function under a new operator name with different settings and build the needed downstream steps on that table. Content answers require `operator_ids` to record their source tables, or `[]` when none was used; structured Answer `from` records them automatically. [SYSTEM_PROMPT_WITH_HISTORY.txt](SYSTEM_PROMPT_WITH_HISTORY.txt) contains the complete ordinary ReAct prompt with history tools and no ledger. The complete enabled schema is:
 
 ```json
 {
@@ -328,7 +328,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. A saved version `name@N` can be an input table, and `name = name@N` makes the definition saved at the end of task N current again on today's inputs. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
+                "description": "Statements, each starting at the margin: `name = operator(input, ..., parameter=value)` creates name or replaces its definition and inputs, input tables first by name; a call that reads its own name inserts a step; `name = function(input, ..., setting=value)` calls a shared function; `def function(table, ..., setting=default):` with a one-sentence docstring defines or redefines one, and every call follows; `del name, ...` deletes operators. A saved version `name@N` can be an input table. Python indented under an assignment belongs to that operator only. A failing statement is held back with the statements that use it; the rest applies."
               }
             },
             "required": [

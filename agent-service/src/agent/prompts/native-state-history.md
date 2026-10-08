@@ -42,11 +42,6 @@ A version can be:
   current tables by their current names and use `name@N` only when the
   request needs that earlier table.
 - **answered from**: `"from": "scores@2[unit, score:2]"`.
-- **made current again**: `scores = scores@2` restores task 2's definition in
-  place, on today's inputs; the receipt names the inputs that changed since
-  then, and the affected operators recompute on the next execute. If its
-  shared function changed since task 2, the restored operator keeps the
-  task-2 code as `function_t2`, and the function keeps its current definition.
 
 An execute receipt line such as
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
@@ -61,9 +56,9 @@ inputs, shape and columns, then its deletions and its answer.
 All working tables are included, not only those its answer used. Columns are
 listed where a chain starts, and a later step gives only how its columns
 differ from its first input's, as in ``same as `scores`; plus rank int64``. An
-operator's state names what the task did to it, such as `updated: set
-min_orders 5 to 10` or `updated: restored task 3's version`; use these to find
-the table a request means and the task an earlier state refers to.
+operator's state names what the task did to it, such as
+`updated: set min_orders 5 to 10`; use these to find the table a request means
+and the task an earlier state refers to.
 Function bodies are left out; read them on demand. The answer source marker
 records the table the agent declared, not a correctness guarantee.
 Saved states may contain earlier mistakes.

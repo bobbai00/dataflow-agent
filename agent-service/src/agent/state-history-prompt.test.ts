@@ -63,7 +63,7 @@ test("history guidance explains complete delta blocks and exact references witho
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, nativePromptDetail });
     for (const text of ["first-edit order", "Function bodies", "a chain starts",
       "not a correctness guarantee", "All working tables", "HISTORICAL_RESULT_UNAVAILABLE",
-      "never substitutes a newer table", "on today's inputs", "exploratory reads do not become answer roots"])
+      "never substitutes a newer table", "used as an input", "exploratory reads do not become answer roots"])
       expect(prompt).toContain(text);
     expect(prompt).not.toMatch(/LongDS|Kiva|Netflix|Kaggle|cache hits guaranteed/i);
   }
@@ -89,9 +89,10 @@ test("scope and repair guidance is general and works in ordinary ReAct without a
 
 test("multi-task saved versions use references while ordinary sessions keep their public vocabulary", () => {
   const history = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true });
-  for (const text of ["scores@2", "scores = scores@2", "diff(scores@2, scores",
-    "matching completed", "today's inputs", "historical", "top 5 by score", "changed since"])
+  for (const text of ["scores@2", "diff(scores@2, scores",
+    "matching completed", "historical", "top 5 by score", "changed since"])
     expect(history.toLowerCase()).toContain(text.toLowerCase());
+  expect(history).not.toContain("scores = scores@2");
   expect(history).not.toContain('"type": "fork"');
   expect(history).not.toContain('"target": "state"');
   expect(history).not.toContain('"target": "task"');

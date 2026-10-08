@@ -406,8 +406,7 @@ Read each request for what it does to the state:
   again with the other setting (`strict = unit_scores(orders, min_orders=10)`)
   and build only the steps the question needs on top of it.
 - **The request refers to an earlier state.** Use the earlier table directly
-  instead of rebuilding it, as `name@N`; to continue from it, make
-  it current again with `name = name@N`.
+  instead of rebuilding it, as `name@N`.
 
 Most comparisons between two versions are rankings. `moves =
 rank_change(scores, strict, key=["unit"], by=[("score", "desc")], n=10)` lists
@@ -457,11 +456,6 @@ A version can be:
   current tables by their current names and use `name@N` only when the
   request needs that earlier table.
 - **answered from**: `"from": "scores@2[unit, score:2]"`.
-- **made current again**: `scores = scores@2` restores task 2's definition in
-  place, on today's inputs; the receipt names the inputs that changed since
-  then, and the affected operators recompute on the next execute. If its
-  shared function changed since task 2, the restored operator keeps the
-  task-2 code as `function_t2`, and the function keeps its current definition.
 
 An execute receipt line such as
 `changed since top3@1: 3 → 3 rows; entered (1): east; left (1): west; 2 kept with new values (rows matched on unit).`
@@ -476,9 +470,9 @@ inputs, shape and columns, then its deletions and its answer.
 All working tables are included, not only those its answer used. Columns are
 listed where a chain starts, and a later step gives only how its columns
 differ from its first input's, as in ``same as `scores`; plus rank int64``. An
-operator's state names what the task did to it, such as `updated: set
-min_orders 5 to 10` or `updated: restored task 3's version`; use these to find
-the table a request means and the task an earlier state refers to.
+operator's state names what the task did to it, such as
+`updated: set min_orders 5 to 10`; use these to find the table a request means
+and the task an earlier state refers to.
 Function bodies are left out; read them on demand. The answer source marker
 records the table the agent declared, not a correctness guarantee.
 Saved states may contain earlier mistakes.
@@ -555,22 +549,14 @@ half_refunds = unit_scores(orders, delivered_only=True, refund_weight=0.5)
 moves = rank_change(scores, half_refunds, key=["unit"], by=[("score", "desc")], n=3)
 ```
 
-Task 4 asks how today's top three compares with the first report. The saved
-`scores@1` is an input; nothing from task 1 runs again:
-
-```dataflow
-since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")], n=3)
-```
-
-Task 5 returns to the scores of task 1 and continues from there. Task 2's
-entry says `updated: set delivered_only False to True`, so `scores@1` is the
-version wanted. Read the saved rule, then make it current again on today's
-orders:
+Task 4 asks how today's top three compares with the first report. Read the
+saved rule before comparing it with today's. The saved `scores@1` is an
+input; nothing from task 1 runs again:
 
 ```json
 {"reasoning":"Check the saved rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@1"],"view":null,"columns":null,"include_implementation":true}]}
 ```
 
 ```dataflow
-scores = scores@1
+since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")], n=3)
 ```

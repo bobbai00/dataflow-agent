@@ -37,8 +37,7 @@ Read each request for what it does to the state:
   again with the other setting (`strict = unit_scores(orders, min_orders=10)`)
   and build only the steps the question needs on top of it.
 - **The request refers to an earlier state.** Use the earlier table directly
-  instead of rebuilding it{{#history}}, as `name@N`; to continue from it, make
-  it current again with `name = name@N`{{/history}}.
+  instead of rebuilding it{{#history}}, as `name@N`{{/history}}.
 
 Most comparisons between two versions are rankings. `moves =
 rank_change(scores, strict, key=["unit"], by=[("score", "desc")], n=10)` lists

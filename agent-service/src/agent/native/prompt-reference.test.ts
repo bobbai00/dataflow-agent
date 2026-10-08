@@ -21,7 +21,7 @@ import { expect, test } from "bun:test";
 import { buildNativeModeSystemPrompt, nativeReferenceText } from "../prompts";
 import { NATIVE_OPERATORS, graphCatalogText } from "./catalog";
 import { TexeraAgent } from "../texera-agent";
-import { dataflowActionsSchema, prepareDataflowActions } from "../tools/dataflow-actions";
+import { createDataflowTool, dataflowActionsSchema, prepareDataflowActions } from "../tools/dataflow-actions";
 import { ContextMode } from "../../types/agent";
 import { validateNativeSettings } from "./settings";
 
@@ -31,8 +31,8 @@ test("on-demand prompt retains execution and state contracts with a smaller init
   expect(buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "full" } as any)).toBe(full);
   const lean = buildNativeModeSystemPrompt(ContextMode.DELTA, { ...options, nativePromptDetail: "on_demand" } as any);
   expect(lean.length).toBeLessThan(full.length);
-  expect(lean).not.toContain("Task 5 returns to the scores of task 1");
-  expect(full).toContain("Task 5 returns to the scores of task 1");
+  expect(lean).not.toContain("Task 3 asks how the ranking would change");
+  expect(full).toContain("Task 3 asks how the ranking would change");
   for (const contract of [
     "## Role and objective",
     "## Actions and their effects",
@@ -46,6 +46,30 @@ test("on-demand prompt retains execution and state contracts with a smaller init
     expect(lean).toContain(contract);
   expect(lean).toMatch(/"target"\s*:\s*"reference"/);
   expect(lean).not.toContain("{{");
+});
+
+test("history prompts and tool descriptions teach settings alternatives and saved inputs without restore", () => {
+  const assertNoRestore = (text: string) => {
+    expect(text).not.toMatch(/\b(name|scores) = \1@(?:N|\d+)\b/);
+    expect(text).not.toMatch(/made current again|make it current|restores? (?:the |task )|restored task/i);
+  };
+  for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+    for (const nativePromptDetail of ["full", "on_demand"] as const) {
+      for (const view of ["full", "sample", "sample_stats"] as const) {
+        const options = { multiTask: true, stateHistory: true, nativePromptDetail, retrievalViews: [view] };
+        const prompt = buildNativeModeSystemPrompt(mode, options);
+        const example = nativeReferenceText({ topic: "example", example: "history" }, options);
+        for (const text of [prompt, example]) {
+          assertNoRestore(text);
+          expect(text).toContain("refund_weight=0.5");
+          expect(text).toMatch(/scores@\d+/);
+        }
+      }
+    }
+  }
+  const tool = createDataflowTool(undefined, true);
+  assertNoRestore(tool.description!);
+  assertNoRestore(JSON.stringify(dataflowActionsSchema(true)));
 });
 
 test("on-demand reference actions validate for single and multi-task sessions", () => {

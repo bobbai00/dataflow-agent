@@ -32,10 +32,9 @@ tables as they are.
 
 An earlier version is one reference away: read `scores@2`, compare it
 (`moves = rank_change(scores@2, scores, key=["unit"], by=[("score", "desc")], n=3)`),
-answer from it, or make it current again with `scores = scores@2`. Saved
-values are never recomputed from current files; if one is unavailable, the
-action fails clearly. For the complete worked example, inspect reference with
-topic=example and example=history.
+or answer from it. Saved values are never recomputed from current files; if
+one is unavailable, the action fails clearly. For the complete worked example,
+inspect reference with topic=example and example=history.
 
 ```json
 {"reasoning":"Check the earlier rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@2"],"view":"sample_stats","columns":null,"include_implementation":true}]}

@@ -69,22 +69,14 @@ half_refunds = unit_scores(orders, delivered_only=True, refund_weight=0.5)
 moves = rank_change(scores, half_refunds, key=["unit"], by=[("score", "desc")], n=3)
 ```
 
-Task 4 asks how today's top three compares with the first report. The saved
-`scores@1` is an input; nothing from task 1 runs again:
-
-```dataflow
-since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")], n=3)
-```
-
-Task 5 returns to the scores of task 1 and continues from there. Task 2's
-entry says `updated: set delivered_only False to True`, so `scores@1` is the
-version wanted. Read the saved rule, then make it current again on today's
-orders:
+Task 4 asks how today's top three compares with the first report. Read the
+saved rule before comparing it with today's. The saved `scores@1` is an
+input; nothing from task 1 runs again:
 
 ```json
 {"reasoning":"Check the saved rule before reusing it.","actions":[{"type":"read","operator_ids":["scores@1"],"view":null,"columns":null,"include_implementation":true}]}
 ```
 
 ```dataflow
-scores = scores@1
+since_first = rank_change(scores@1, scores, key=["unit"], by=[("score", "desc")], n=3)
 ```
