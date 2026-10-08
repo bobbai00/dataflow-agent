@@ -55,19 +55,20 @@ test("task retrieval examples check reusable branches and declare answer roots w
   }
 });
 
-test("computed answers prefer runtime composition and narrow the first retrieval", () => {
+test("computed answers document runtime composition and focused retrieval", () => {
   for (const stateHistory of [false, true]) {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory });
-    expect(prompt).toContain("Prefer `answer` with `from` for tabular answers");
+    const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(([, json]) => JSON.parse(json));
+    expect(calls.some(call => call.actions.some((action: any) => action.type === "answer" && action.from))).toBe(true);
     expect(prompt).toContain("Use `columns` when a wide result hides the fields you need");
   }
 });
 
 test("scope and repair guidance is general and works in ordinary ReAct without a ledger or check interface", () => {
   const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
-  expect(single).toContain("Completeness describes the stored result");
+  expect(single).toMatch(/complete[\s\S]{0,180}stored/i);
   expect(single).toContain("scope");
-  expect(single).toContain("A smaller table is right when the request asks for that selection");
+  expect(single).toContain("requested population");
   for (const view of ["full", "sample", "sample_stats"] as const) {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true, retrievalViews: [view] });
     const section =
@@ -195,17 +196,29 @@ test("single-task prompts leave out multi-task guidance; the multi flag adds it 
   for (const options of [
     {},
     { nativePromptDetail: "on_demand" as const },
-    { retrievalViews: [...views], dataEvidence: true, flowEvidence: true, fullResultCharLimit: 100_000, maxResultRows: 5 },
+    {
+      retrievalViews: [...views],
+      dataEvidence: true,
+      flowEvidence: true,
+      fullResultCharLimit: 100_000,
+      maxResultRows: 5,
+    },
   ]) {
     const single = buildNativeModeSystemPrompt(ContextMode.DELTA, options);
     expect(single).not.toContain(existingGraph);
     expect(single).not.toContain("existing work");
     expect(single).not.toContain("Reuse\n   tables that already express the required work.");
     expect(single).not.toContain("### Earlier tasks in the session");
-    expect(single).toContain("1. **Understand the request.** Identify the answer,");
+    expect(single).toContain("population");
+    expect(single).toContain("unit of analysis");
+    expect(single).toContain("formula");
     expect(single).not.toContain("{{");
   }
-  for (const options of [{ multiTask: true }, { multiTask: true, stateHistory: true, stateLedger: true }, { session: true }]) {
+  for (const options of [
+    { multiTask: true },
+    { multiTask: true, stateHistory: true, stateLedger: true },
+    { session: true },
+  ]) {
     const multi = buildNativeModeSystemPrompt(ContextMode.DELTA, options);
     expect(multi).toContain(existingGraph);
     expect(multi).toContain("1. **Understand the request and existing work.** Identify the answer,");

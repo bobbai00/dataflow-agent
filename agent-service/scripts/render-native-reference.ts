@@ -79,7 +79,7 @@ export function renderSystemPrompt(): string {
     differing.join("\n") +
     "\n\n" +
     "Enabling evidence adds the matching paragraphs below. The default exposes data statistics through sample_stats; flow evidence is optional. " +
-    "[SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete prompt with all three retrieval views and flow evidence enabled, including synthetic retrieval and repair examples.\n\n" +
+    "[SYSTEM_PROMPT_WITH_EVIDENCE.txt](SYSTEM_PROMPT_WITH_EVIDENCE.txt) shows the complete single-task prompt with all three retrieval views and flow evidence enabled, using one compact computation example.\n\n" +
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
     "\n\nEnabling stateHistory adds the following instructions and historical actions:\n\n" +
     NATIVE_STATE_HISTORY.trim().replaceAll("{{RETRIEVE_EXAMPLE_VIEW}}", "sample") +

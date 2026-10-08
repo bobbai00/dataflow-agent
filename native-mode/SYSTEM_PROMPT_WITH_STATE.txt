@@ -211,7 +211,7 @@ Choose a `view` on every retrieve:
 
 | View | Shows |
 |---|---|
-| `sample_stats` | The schema and at most 50 example records, within 2000 characters, plus statistics on every column within a separate 2000-character budget. |
+| `sample_stats` | The schema and at most 50 example records, within 2000 characters, plus coverage-labeled column statistics within a separate 2000-character budget. |
 | `full` | Every record within 5000 characters; a capped view remains partial. |
 
 Look at a result with `sample_stats` first, and retrieve `full` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first. Use `columns` when a wide result hides the fields you need.

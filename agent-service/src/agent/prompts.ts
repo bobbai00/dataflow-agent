@@ -206,11 +206,12 @@ export function buildCodeModeSystemPrompt(
 
 // ============================================================================
 // NATIVE mode: named operator expressions over the catalog in
-// native/catalog.ts. Template in prompts/native-mode.md; the operator
-// reference is generated from the same definitions the parser validates
+// native/catalog.ts. Single-task and historical templates live in prompts/.
+// The operator reference is generated from the definitions the parser validates
 // against, so prompt and validator cannot drift.
 // ============================================================================
 const NATIVE_MODE_TEMPLATE: string = rd("native-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
+const NATIVE_SINGLE_TASK_TEMPLATE = rd("native-mode-single.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
 export interface NativePromptLayoutOptions extends RetrievalSettings, ObservationFormatOptions {
   maxOperatorResultCharLimit?: number;
@@ -239,9 +240,14 @@ const nativeFragment = (name: string) =>
   rd(name)
     .replace(/^<!--[\s\S]*?-->\s*/, "")
     .trim();
+/** Shared task principles also injected into the single-task code baseline. */
+export const SINGLE_TASK_ANALYSIS_PRINCIPLES = nativeFragment("single-task-principles.md");
 const NATIVE_FRAGMENTS = {
   data: nativeFragment("native-data-statistics.md"),
   flow: nativeFragment("native-flow-statistics.md"),
+  compactData: nativeFragment("native-data-statistics-compact.md"),
+  compactFlow: nativeFragment("native-flow-statistics-compact.md"),
+  compactSingleExample: nativeFragment("native-example-single-compact.md"),
   multiTask: nativeFragment("native-multi-task.md"),
   history: nativeFragment("native-state-history.md"),
   catalog: nativeFragment("native-task-catalog.md"),
@@ -276,6 +282,14 @@ function nativeFlags(options: NativePromptLayoutOptions): Record<string, boolean
     history: !!options.stateHistory,
     ledger: !!options.stateLedger,
     checks: !!options.checks,
+  };
+}
+
+/** Historical sessions keep the tutorials; single tasks use concise contracts. */
+function nativeStatisticsFragments(multi: boolean) {
+  return {
+    data: multi ? NATIVE_FRAGMENTS.data : NATIVE_FRAGMENTS.compactData,
+    flow: multi ? NATIVE_FRAGMENTS.flow : NATIVE_FRAGMENTS.compactFlow,
   };
 }
 
@@ -344,16 +358,14 @@ function adaptReceipts(text: string, options: NativePromptLayoutOptions, flags: 
 
 /** Explain exactly the evidence sources available to this session. */
 export function nativeEvidenceText(options: NativePromptLayoutOptions = {}): string {
+  const fragments = nativeStatisticsFragments(nativeFlags(options).multi);
   const data = options.retrievalViews
     ? availableRetrievalViews(options).includes("sample_stats")
     : options.dataEvidence;
   return [
-    data ? NATIVE_FRAGMENTS.data : "",
+    data ? fragments.data : "",
     options.flowEvidence
-      ? NATIVE_FRAGMENTS.flow.replaceAll(
-          "{{FLOW_BUDGET}}",
-          String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT)
-        )
+      ? fragments.flow.replaceAll("{{FLOW_BUDGET}}", String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT))
       : "",
   ]
     .filter(Boolean)
@@ -368,7 +380,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sample = `The schema and ${rows}, within ${sampleLimit} characters`;
   const descriptions = {
     sample: `${sample}.`,
-    sample_stats: `${views.includes("sample") ? "The sample" : sample}, plus statistics on every column within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget.`,
+    sample_stats: `${views.includes("sample") ? "The sample" : sample}, plus coverage-labeled column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget.`,
     full: `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`,
   };
   const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
@@ -382,11 +394,13 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
       .map(view => `| \`${view}\` | ${descriptions[view]} |`),
     "",
     [
-      first && views.includes("full")
-        ? `Look at a result with \`${first}\` first, and retrieve \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
-        : first
-          ? ""
-          : "Check the completeness of every `full` view.",
+      !nativeFlags(options).multi
+        ? "Choose the smallest view that resolves the remaining question; full can be used directly for a small result or exact row associations. Check coverage and compute reductions in the graph for large results."
+        : first && views.includes("full")
+          ? `Look at a result with \`${first}\` first, and retrieve \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+          : first
+            ? ""
+            : "Check the completeness of every `full` view.",
       "Use `columns` when a wide result hides the fields you need.",
     ]
       .filter(Boolean)
@@ -394,10 +408,10 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   ].join("\n");
 }
 
-/** The examples this session's features call for: a single task always, then
- * reading statistics, several tasks and earlier versions when available. */
+/** One compact single-task example, or tutorials for enabled historical features. */
 export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {}): string {
   const flags = nativeFlags(options);
+  if (!flags.multi) return NATIVE_FRAGMENTS.compactSingleExample;
   return [
     NATIVE_FRAGMENTS.singleExample,
     flags.data ? NATIVE_FRAGMENTS.dataExamples : "",
@@ -433,6 +447,7 @@ export function buildNativeModeSystemPrompt(
   const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
   const flags = nativeFlags(options);
   const format = observationFormat(options);
+  const statistics = nativeStatisticsFragments(flags.multi);
   const context = options.versioned
     ? "Your context lists earlier tasks in a catalog, followed by the current task and its calls. Table names refer to their current versions."
     : options.session
@@ -442,6 +457,7 @@ export function buildNativeModeSystemPrompt(
         : "Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it. Execute when you need a current result; inspect only when you are unsure of an operator's current definition.";
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
   const fields: Record<string, string> = {
+    ANALYSIS_PRINCIPLES: SINGLE_TASK_ANALYSIS_PRINCIPLES,
     OPERATOR_CATALOG:
       options.nativePromptDetail === "on_demand"
         ? "Signatures are listed below. Read a needed contract with inspect target=reference, topic=operators, operator_names=[...]. This is documentation, not graph state; it never executes or changes an operator. Reuse reference material already in context.\n\n" +
@@ -453,18 +469,24 @@ export function buildNativeModeSystemPrompt(
       format.keyValueColumns > 0
         ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
         : `Records use ${table} at any width.`,
-    DATA_STATISTICS: flags.data ? NATIVE_FRAGMENTS.data : "",
+    DATA_STATISTICS: flags.data ? statistics.data : "",
     FLOW_STATISTICS: flags.flow
-      ? NATIVE_FRAGMENTS.flow.replaceAll(
-          "{{FLOW_BUDGET}}",
-          String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT)
-        )
+      ? statistics.flow.replaceAll("{{FLOW_BUDGET}}", String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT))
       : "",
     EARLIER_TASKS: flags.multi ? nativeStateText(options) : "",
+    REFERENCE_HINTS:
+      options.nativePromptDetail === "on_demand" && !flags.multi
+        ? 'Reference inspection can read topic="operators", operator_names=[...], or topic="example", example="single"' +
+          (flags.data || flags.flow ? ' or "statistics"' : "") +
+          ". Reuse documentation already in context."
+        : "",
     EXAMPLES:
-      options.nativePromptDetail === "on_demand" ? NATIVE_FRAGMENTS.leanExamples : nativeRetrievalExamples(options),
+      options.nativePromptDetail === "on_demand" && flags.multi
+        ? NATIVE_FRAGMENTS.leanExamples
+        : nativeRetrievalExamples(options),
   };
-  let prompt = NATIVE_MODE_TEMPLATE.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
+  const template = flags.multi ? NATIVE_MODE_TEMPLATE : NATIVE_SINGLE_TASK_TEMPLATE;
+  let prompt = template.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
     if (!(key in fields)) throw new Error(`unknown prompt field {{${key}}}`);
     return fields[key];
   });
@@ -487,7 +509,9 @@ export function nativeReferenceText(
   if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");
   const text =
     request.example === "single"
-      ? NATIVE_FRAGMENTS.singleExample
+      ? flags.multi
+        ? NATIVE_FRAGMENTS.singleExample
+        : NATIVE_FRAGMENTS.compactSingleExample
       : request.example === "history"
         ? NATIVE_FRAGMENTS.historyExamples
         : [flags.data ? NATIVE_FRAGMENTS.dataExamples : "", flags.flow ? NATIVE_FRAGMENTS.flowExamples : ""]

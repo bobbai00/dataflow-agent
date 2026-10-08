@@ -35,7 +35,7 @@ import { NATIVE_OPERATORS, nativeCatalogText, catalogText } from "./catalog";
 import { compileNativeOp } from "./codegen";
 import { compileProgram, type ProgramStatement } from "./program";
 import { nativeTestTools } from "./test-support";
-import { missingGraphInputs, planGraphEdit } from "../tools/graph-edits";
+import { missingGraphInputs, parseGraphEdit, planGraphEdit } from "../tools/graph-edits";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { forkState, type HistoricalTask } from "../state-history";
@@ -726,9 +726,10 @@ describe("native prompt", () => {
     }
   });
 
-  test("evidence examples show retrieval, diagnosis and repair only when enabled", async () => {
+  test("multi-task evidence examples show retrieval, diagnosis and repair only when enabled", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      multiTask: true,
       retrievalViews: ["full", "sample", "sample_stats"],
       flowEvidence: true,
     });
@@ -748,13 +749,14 @@ describe("native prompt", () => {
     const { runNativePython } = await import("./codegen");
     for (const [, changes] of prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g))
       expect(await runNativePython({ changes })).toMatchObject({ ok: true });
-    const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
+    const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true, retrievalViews: ["sample"] });
     expect(plain).not.toContain("failed-value examples");
     expect(plain).not.toContain('"view": "full"');
     expect(plain).not.toContain('"view": "sample_stats"');
   });
   test("new evidence examples use synthetic fields and conditional repair rules", () => {
     const examples = nativeRetrievalExamples({
+      multiTask: true,
       retrievalViews: ["full", "sample", "sample_stats"],
       flowEvidence: true,
     });
@@ -767,7 +769,7 @@ describe("native prompt", () => {
     );
   });
   test("the synthetic decimal repair runs and preserves graph connections", async () => {
-    const examples = nativeRetrievalExamples({ retrievalViews: ["sample_stats"], flowEvidence: true });
+    const examples = nativeRetrievalExamples({ multiTask: true, retrievalViews: ["sample_stats"], flowEvidence: true });
     const repair = [...examples.matchAll(/```dataflow\n([\s\S]*?)\n```/g)]
       .map(([, changes]) => changes)
       .find(changes => changes.startsWith("typed = cast("))!;
@@ -801,12 +803,12 @@ total = aggregate(typed, average=mean("value"))
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
       retrievalViews: ["full", "sample", "sample_stats"],
     });
-    expect(prompt).toContain("Look at a result with `sample_stats` first");
-    expect(prompt).toContain("reduce a large result in the graph first");
-    expect(prompt).toContain("A scan preview covers only the previewed");
-    expect(prompt).toContain("not a random sample");
-    expect(prompt).toContain("Statistics are collected independently of the sample records");
-    expect(prompt).toContain("Scan each supplied path in full");
+    expect(/Look at a result with `sample_stats` first/i.test(prompt)).toBe(false);
+    expect(/scan each supplied path/i.test(prompt)).toBe(false);
+    expect(prompt).toMatch(/large[\s\S]{0,180}(?:graph|dataflow)|(?:graph|dataflow)[\s\S]{0,180}large/i);
+    expect(prompt).toMatch(/preview[^.\n]*(?:only|part)/i);
+    expect(prompt).toMatch(/not (?:a )?random/i);
+    expect(prompt).toMatch(/(?:statistics|profiles)[^.\n]*independent/i);
     expect(prompt).toContain("window(T, partition_by=");
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
@@ -824,8 +826,8 @@ total = aggregate(typed, average=mean("value"))
         expect(prompt).toContain(`| \`${view}\` |`);
         for (const other of ["full", "sample", "sample_stats"].filter(v => v !== view))
           expect(prompt).not.toContain(`| \`${other}\` |`);
-        expect(prompt.includes("#### Data statistics")).toBe(view === "sample_stats");
-        expect(prompt.includes("#### Flow statistics")).toBe(flowEvidence);
+        expect(/^#+ Data statistics\b/m.test(prompt)).toBe(view === "sample_stats");
+        expect(/^#+ Flow statistics\b/m.test(prompt)).toBe(flowEvidence);
         expect(prompt).toContain(view === "full" ? "90000 characters" : "750 characters");
         for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
           expect(prepareDataflowActions(JSON.parse(json), [view]).error).toBeUndefined();
@@ -847,10 +849,10 @@ total = aggregate(typed, average=mean("value"))
         expect(prompt).toContain(catalogText());
         expect(prompt.includes("recallState")).toBe("recall" in layout);
         expect(prompt).toContain("next call");
-        expect(prompt).toContain("only action");
+        expect(prompt).toMatch(/(?:only|sole) action/);
         expect(prompt).not.toContain("dataflow(edits");
         const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
-        expect(examples.length).toBeGreaterThanOrEqual(2);
+        expect(examples.length).toBeGreaterThanOrEqual(1);
         for (const input of examples) {
           expect(prepareDataflowActions(input).error).toBeUndefined();
           for (const a of input.actions)
@@ -871,19 +873,20 @@ total = aggregate(typed, average=mean("value"))
   });
 
   test("every edit example in the prompt parses", async () => {
-    const { runNativePython } = await import("./codegen");
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    const examples = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)];
-    expect(examples.length).toBeGreaterThanOrEqual(2);
-    for (const [, changes] of examples) {
-      const parsed = (await runNativePython({ changes })) as any;
-      expect(parsed).toMatchObject({ ok: true });
-      expect(parsed.statements.length).toBeGreaterThan(0);
-    }
+    const examples = [
+      ...[...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].map(([, changes]) => changes),
+      ...[...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)]
+        .flatMap(([, json]) => JSON.parse(json).actions)
+        .filter((action: any) => action.type === "edit")
+        .map((action: any) => action.changes),
+    ];
+    expect(examples.length).toBeGreaterThan(0);
+    for (const changes of examples) expect((await parseGraphEdit(changes)).length).toBeGreaterThan(0);
   });
 
   test("the native calculation example executes as separate connected stages in one edit", async () => {
-    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { multiTask: true });
     const example = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].find(([, changes]) =>
       changes.includes("over_budget = filter(")
     )?.[1];

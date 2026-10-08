@@ -420,14 +420,18 @@ export function createDataflowTool(
   const descriptions = {
     full: "full shows every record up to its character cap",
     sample: "sample shows a few records",
-    sample_stats: "sample_stats adds statistics on every column to the sample",
+    sample_stats: "sample_stats adds coverage-labeled column statistics to the sample",
   };
+  const retrievalGuidance =
+    multiTask && views.includes("full") && views.length > 1
+      ? ` Look with ${views.includes("sample_stats") ? "sample_stats" : "sample"} first; request full only when you need every row.`
+      : " Choose the view that resolves the remaining question; full can directly read a small result. Check completeness.";
   for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
     (retrieve.properties as any).view.enum = [...views];
     const scoped = "columns" in retrieve.properties;
     retrieve.description = scoped
       ? `Read an existing result restricted to the named columns, in the same views (${views.join(", ")}); use it on a wide table when only some columns are needed. Never executes.`
-      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}.${views.includes("full") && views.length > 1 ? ` Look with ${views.includes("sample_stats") ? "sample_stats" : "sample"} first; request full only when you need every row.` : ""} Never executes; missing or stale results require execute.`;
+      : `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}.${retrievalGuidance} Never executes; missing or stale results require execute.`;
   }
   for (const inspect of schema.properties.actions.items.anyOf.filter(
     a => "target" in a.properties && "view" in a.properties

@@ -236,21 +236,36 @@ test("every prompt capability combination matches its schema and keeps the commo
               stateHistory: history,
               tableFormat,
             });
-            // Role and actions, then solving a task, then examples.
-            const order = ["## Role and objective", "## Actions and their effects", "### Understanding observations", "## Solving a task", "## Examples"];
-            expect(prompt.startsWith(order[0])).toBe(true);
-            for (let i = 1; i < order.length; i++)
-              expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
-            expect(prompt.includes("#### Data statistics")).toBe(data);
-            expect(prompt.includes("#### Flow statistics")).toBe(flow);
+            if (history) {
+              // Historical sessions retain the longer observation tutorials.
+              const order = [
+                "## Role and objective",
+                "## Actions and their effects",
+                "### Understanding observations",
+                "## Solving a task",
+                "## Examples",
+              ];
+              expect(prompt.startsWith(order[0])).toBe(true);
+              for (let i = 1; i < order.length; i++)
+                expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
+            } else {
+              // Single-task sessions put the action contract before the catalog
+              // and use one compact computation example.
+              expect(prompt.indexOf("dataflow(reasoning, actions)")).toBeGreaterThanOrEqual(0);
+              expect(prompt.indexOf("dataflow(reasoning, actions)")).toBeLessThan(prompt.indexOf("scan(files,"));
+            }
+            expect(/^#+ Data statistics\b/m.test(prompt)).toBe(data);
+            expect(/^#+ Flow statistics\b/m.test(prompt)).toBe(flow);
             expect(prompt.includes("### Earlier tasks in the session")).toBe(history);
             expect(prompt.includes("### Example: compare with an earlier task and go back")).toBe(history);
             expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
             // Every fence closes, and example receipts carry only enabled statistics and this table syntax.
             expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
             const receipts = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(m => m[1]).join("\n");
-            expect(/^\s*- flow\b/m.test(receipts)).toBe(flow);
-            expect(/^statistics: full table/m.test(receipts)).toBe(data);
+            if (history) {
+              expect(/^\s*- flow\b/m.test(receipts)).toBe(flow);
+              expect(/^statistics: full table/m.test(receipts)).toBe(data);
+            }
             expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
             // As in the renderer, an execute receipt's blocks all have something to report.
             for (const section of receipts.split(/^(?=### )/m).filter(text => /^### \d+\. execute\b/.test(text)))

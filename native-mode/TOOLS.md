@@ -189,7 +189,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: sample_stats adds statistics on every column to the sample; full shows every record up to its character cap. Look with sample_stats first; request full only when you need every row. Never executes; missing or stale results require execute."
+            "description": "Read an existing result: sample_stats adds coverage-labeled column statistics to the sample; full shows every record up to its character cap. Choose the view that resolves the remaining question; full can directly read a small result. Check completeness. Never executes; missing or stale results require execute."
           },
           {
             "type": "object",
@@ -460,7 +460,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: sample_stats adds statistics on every column to the sample; full shows every record up to its character cap. Look with sample_stats first; request full only when you need every row. Never executes; missing or stale results require execute."
+            "description": "Read an existing result: sample_stats adds coverage-labeled column statistics to the sample; full shows every record up to its character cap. Look with sample_stats first; request full only when you need every row. Never executes; missing or stale results require execute."
           },
           {
             "type": "object",
