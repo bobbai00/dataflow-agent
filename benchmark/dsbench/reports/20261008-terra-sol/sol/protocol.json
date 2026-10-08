@@ -1,0 +1,92 @@
+{
+  "benchmark": "DSBench analysis diagnostic pilot",
+  "task_ids": [
+    "00000034-question5",
+    "00000034-question10",
+    "00000034-question14",
+    "00000032-question1",
+    "00000032-question3",
+    "00000032-question4",
+    "00000006-question17",
+    "00000006-question23",
+    "00000006-question25",
+    "00000010-question5",
+    "00000010-question9",
+    "00000010-question15"
+  ],
+  "arms": [
+    "data0_flow0",
+    "data1_flow0",
+    "data0_flow1",
+    "data1_flow1",
+    "smol_custom"
+  ],
+  "attempts_per_task_arm": 1,
+  "provider_failure_policy": "stop unstarted tasks; preserve every attempt",
+  "selection": "12 preselected questions:3 per retail/electricity/voting/league; not full-benchmark representative estimate",
+  "judge": "gpt-4o-2024-05-13 exact upstream request and official verdict semantics",
+  "source_commit": "d614d1948db0103e59eaf29caade2990f08be7bb",
+  "harness_commit": "af0a6b5cce6b9de426addc94c5d3c664bd056134",
+  "source_dirty_for_pilot": true,
+  "native_excel_fix": "timezone-free spreadsheet calendar date/time cells preserved as ISO strings; strict callback timestamp contract unchanged",
+  "files_sha256": {
+    "benchmark/dsbench/run.py": "84eda88fc3bd93a38cd9b3d473b17c28af7a42006779429a268b753a24576103",
+    "benchmark/dsbench/native_job.ts": "61fb72a3b9f6d1d27bbfefa4542c8fa15481255a6254da40a7b78f47a1d1d9c4",
+    "benchmark/dsbench/smol_job.py": "b9c3e5d3d5f9b4b88afe8475d6e69c5dac728f78900a145a9094da7a9084ef3e",
+    "benchmark/dsbench/judge.py": "96b8cf2c3bbd41efe2837e76f25543e27c7f12249ec2f6efea807e10bc787fad",
+    "benchmark/dsbench/prepare.py": "8fcf2fca99f878ffc0b3f9e09e7f58a494da13723a9f8c4ee0f7b1d689cf554a",
+    "benchmark/retrieval/native_isolated_python.py": "d9611818779e8a83437c50e4861dfa2b612cb9d85f4bfc9c3d81095443ea4792",
+    "agent-service/src/agent/native/python/runtime.py": "dc5aca064fd9d86643e126798f2724cc35d2408ed68b667c0931d36aaec17649",
+    "agent-service/src/agent/prompts/single-task-principles.md": "d7d481a3e72f38f5a916df029e632467873f47e9242311212fdb34b014a7019d",
+    "benchmark/Kramabench/judgment_runs/single_task_prompt_subset_20261008/shared-principles.txt": "e14577ac43cf8419a356d383adbc93d8396777d18a29874f1ddc008321c014bd",
+    "bin/single-node/litellm-config.yaml": "0039b2e0c39976131d872129f439824afdf4fdd16937770ad2ebde7c9b27847b"
+  },
+  "prepared_manifest_sha256": "932dab19faa3c6737f3202d98fa746ee8b2eac0a96b88639512645e915f9729e",
+  "runtime": {
+    "MODEL_SDK_RETRIES": "0",
+    "MODEL_MAX_OUTPUT_TOKENS": "8192",
+    "TEXERA_LLM_TRACE_DIR": "/var/tmp/texera-single-task-final/wire",
+    "TEXERA_AGENT_SERVICE_PORT": "3082",
+    "TEXERA_DASHBOARD_SERVICE_ENDPOINT": "http://localhost:22080",
+    "TEXERA_COMPUTING_UNIT_ENDPOINT": "http://localhost:22888",
+    "TEXERA_LOCAL_CU_URI": "http://localhost:22085",
+    "NATIVE_WORKSPACE": "/var/tmp/texera-single-task-final/native-workspaces",
+    "NATIVE_SOURCE_DATA": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/single-task-final/benchmark/Kramabench/data",
+    "UDF_PYTHON_PATH": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/single-task-final/benchmark/retrieval/native_isolated_python.py",
+    "NATIVE_ISOLATED_PYTHON": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/single-task-final/.venv/bin/python"
+  },
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "medium",
+  "pricing": {
+    "version": 1,
+    "kind": "token_estimate",
+    "model": "gpt-5.6-sol",
+    "source": {
+      "table": "Official OpenAI model documentation",
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "verified_on": "2026-10-08"
+    },
+    "currency": "USD",
+    "unit": "per_token",
+    "rates": {
+      "input": 4e-06,
+      "output": 2e-05,
+      "cache_read": 4e-07,
+      "cache_creation": 5e-06
+    },
+    "input_includes_cached": true,
+    "output_includes_reasoning": true,
+    "long_context_threshold_input_tokens": 272000,
+    "long_context_policy": "Audit that every pilot request stays under threshold; no tier multiplier applied below threshold."
+  },
+  "luna_reference": "/var/tmp/texera-dsbench-pilot-20261008",
+  "prepared_root": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/sol",
+  "output_root": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/sol/runs",
+  "judge_cache_dir": "/var/tmp/texera-dsbench-pilot-20261008/evaluation/judge-cache",
+  "model_selection": "GPT-5.6 family as priorLuna; exactaliases, no APIprotocol change",
+  "unchanged_prompt_settings_proof": "/var/tmp/dsbench-model-protocol-preservation.json",
+  "gateway_public_sha256": "4caa5d791fed7508a932fa11b0481a5ff77178c8dadc1f109a98b4d54433431e",
+  "excluded_setup_attempts_root": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/sol",
+  "excluded_setup_reason": "Owned gateway held stale provider credential; all requests rejected before any model response. Complete rejected artifacts preserved; no outcome-selected model retries.",
+  "credential_resolution": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/credential-resolution.json"
+}

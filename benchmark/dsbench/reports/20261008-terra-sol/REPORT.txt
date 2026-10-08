@@ -1,0 +1,196 @@
+DSBench analysis pilot — Terra and Sol at medium reasoning
+
+All 120 new attempts completed: the same twelve questions, five agent
+configurations, and one valid attempt per model/configuration/question.
+This repeats the Luna pilot with gpt-5.6-terra and gpt-5.6-sol. Both used
+medium reasoning. All 180 results below retain the exact official DSBench
+GPT-4o judge verdicts. No full benchmark or outcome-selected retry ran.
+
+Official scores and estimated agent costs
+
+Each cell shows correct/12 followed by agent token cost for those twelve.
+Configuration                   Luna              Terra             Sol
+Dataflow: both stats off         10/12 $0.037124    9/12 $0.275987     8/12 $0.490294
+Dataflow: data stats only        10/12 $0.039441   10/12 $0.253438     8/12 $0.506349
+Dataflow: flow metadata only     11/12 $0.034701   10/12 $0.289403     8/12 $0.463343
+Dataflow: both stats on          10/12 $0.035626   10/12 $0.321026     8/12 $0.508701
+smolagents: custom principles     7/12 $0.023371    6/12 $0.185749    10/12 $0.382542
+
+Model totals                    Agent cost        Successful model calls
+gpt-5.6-luna                    $0.170263         297
+gpt-5.6-terra                   $1.325603         228
+gpt-5.6-sol                     $2.351229         226
+
+New Terra/Sol agent cost:       $3.676832
+New judging beyond Luna:       $0.022830 (31 unique requests)
+New known API token estimate:  $3.699662
+All three agent costs:         $3.847095
+All three deduplicated judges: $0.040535 (56 unique requests)
+All three API token estimate:  $3.887630
+
+Costs exclude compute and any unknown charge for the rejected credential
+setup requests described below. These are recorded-usage price estimates,
+not provider invoices. Per-model judge referenced costs overlap: adding
+them would double count cached judgments. comparison.json deduplicates
+complete official requests across all three models and subtracts Luna's
+25 requests/$0.017705 to obtain the new judging spend.
+
+The frozen rates per million tokens are:
+Model              Uncached input    Cached input    Output
+gpt-5.6-luna        $0.20             $0.02           $1.20
+gpt-5.6-terra       $2.00             $0.20           $12.00
+gpt-5.6-sol         $4.00             $0.40           $20.00
+gpt-4o-2024-05-13   $5.00             no tier applied $15.00
+
+Input totals include cached input; output totals include reasoning. The
+recorded policy does not add reasoning twice or invent cache-creation
+charges. All successful new requests were below 272,000 input tokens:
+Terra maximum 11,494; Sol maximum 10,715. The shared gateway can warm caches
+across configurations, so these costs do not represent isolated cold runs.
+The two new campaigns used 2,592,189 input tokens, including 2,132,259 cached,
+and 104,488 output tokens, including 17,945 reasoning tokens.
+
+Protocol and comparability
+
+The twelve questions are the original Luna selection, three each from
+retail invoice analysis, unstructured electricity usage, district voting,
+and league/goal analysis. They use four original XLSX workbooks, without
+SQL. Source question and workbook bytes, typed private gold, task selection,
+shared principles, per-arm rendered prompts, settings and budgets match
+Luna. Each session is independent. This is a diagnostic selection rather
+than a random full-benchmark sample; modeling and dependent questions are
+excluded.
+
+Both native models route through explicit medium-reasoning gateway aliases.
+smol explicitly sends medium. Every attempt used a 25-step budget, 8192
+model output tokens per request, 900-second task timeout, and zero SDK
+retries. The shared Analysis principles appear exactly once in both system
+prompts. smol retains stock CodeAgent 1.23.0 framing plus those principles.
+Execution was capped at two native tasks and one smol task concurrently,
+matching the Luna pilot's concurrency cap.
+
+Native uses DELTA without thought replay or code snapshots. Sample limits
+are five rows/2000 characters; full results and smol print output are
+5000 characters. Each enabled evidence kind has a separate 2000-character
+budget. Profile collection stays enabled in all native arms. Data-off arms
+offer sample/full; data-on arms offer sample_stats/full. Flow metadata is
+independent. Four different rendered native prompts accurately describe
+their available evidence. Across models, each arm's prompt is identical.
+
+Each executor mounts only the current original question, introduction and
+workbook. Gold, notebooks, other questions and grading files remain outside
+the mounts. smol executor networking is off; native engine storage networking
+is retained. All 144 native workflows/agents/computing units across the
+three models are unique, and all attempts have confirmed resource cleanup.
+The owned agent service was stopped after completion; the existing engine
+and gateway services were preserved.
+
+Judging preserves upstream evaluate_prediction at GitHub revision
+ba786096137a5108af11c016ad3f09cdb97beefd: gpt-4o-2024-05-13, the exact
+prompt including its typo, temperature=0, top_p=1, max_tokens=256, both
+penalties=0, and its case-insensitive True-substring verdict rule. Raw final
+answers were never rewritten or normalized. The shared frozen cache reuses
+identical complete requests. All 120 new question/gold/prediction identities,
+request parameters, source hashes, cache keys, response model IDs and
+verdicts passed an independent offline integrity audit. No judge errors,
+response-model mismatches or unpriced judge records occurred.
+
+What limits interpretation of the scores
+
+The official judge rejects several correct requested answers. All16 Sol
+native False labels match the requested final answers: invoice143, the
+specified month order, Sunday and17.237, repeated across four modes. Each
+raw answer and executed result was independently checked against a fresh
+deterministic calculation from the pinned workbooks. The invoice143 result
+is also rejected across models, including responses with explicit option A.
+The raw response formats differ, but this association does not establish
+why the judge rejected them. Every official False remains in the scores.
+Consequently the smaller native scores cannot establish a clean model
+quality ranking. The deterministic checks are explanation, not rescoring.
+
+Several smol failures come from final_answer literals that disagree with
+the calculation printed in the same execution. Terra computes650 invoices,
+143 for Wendel, Sunday and17.237 but submits different literals. Sol avoids
+some of these by answering after observing the result, although its maximum
+window task still computes17.237 and submits17.422. Native's Answer action
+must stand alone, giving an observation opportunity in these cases.
+
+Terra's votingQ25 also reproduces a stock smolagents1.23.0 executor defect:
+logically correct nested generator code passed to set() yields dictionary
+keys and a leaked outer-loop party, returning7 non-winning parties.
+Ordinary Python with the identical code returns4. Sol's nested set
+comprehension avoids the defect. The frozen executor was not patched and
+the task was not rerun. smol-nested-generator-replay.json records the
+deterministic, no-model reproduction.
+
+Native Terra/Sol repair useful Luna mistakes: complete District Code
+mapping covers1000 ballots rather than a sparse nine-row label lookup,
+and literal penalty-marker counting avoids Luna's regex error. These
+successes occur with data statistics disabled as well. Conversely, some
+Terra electricity scans lose the first record as a header; its flow-only
+four-hour task parses7292 of8759 loaded records because a regex rejects full
+weekday names. It still finds17.237 because the winning window survives.
+The retrieved counts expose the loss, but the model does not repair it.
+Terra's both-on run parses all8760 records. Correct multiple-choice answers
+can conceal incomplete source processing.
+
+Luna remains much cheaper on this subset. Sol improves the official smol
+score, while the native official scores do not improve. One stochastic
+attempt per configuration and known judge/executor limitations prevent a
+causal claim about statistics or extrapolation to full DSBench accuracy.
+
+Setup exclusion and implementation
+
+Before the valid campaigns, three first requests were rejected with
+billing_not_active. The owned gateway held a stale provider key that differed
+from the repository's current key. The scheduler was stopped before further
+tasks. Only the owned ignored credential file/gateway was refreshed, and
+the current key match was verified without exposing key values. No valid
+model generation existed in these rejected attempts. Their preserved
+artifacts and unknown cost remain separate from accuracy and known-cost
+totals. Both subsequent valid campaigns have zero provider errors.
+
+run.py now accepts an exact --model and validated frozen --pricing-json;
+report.py records the model and rejects inconsistent model/pricing metadata.
+The supported LiteLLM configuration adds gpt-5.6-sol at medium. Runtime,
+task prompts, the Luna Excel scan fix and smol executor stayed unchanged
+during the repeat. Recovered action errors are retained: Terra40 native
+records/3 smol step errors; Sol14 native/0 smol step errors. Neither has
+formatting failures or prompt/settings/evidence/usage integrity violations.
+
+Validation passed: 59 offline runner/report/dataset/judge/isolation tests,
+Ruff and Black checks for ten Python files, and git diff whitespace checks.
+All60 existing Luna prompts/settings were checked against the updated
+runner without model calls. The prior Luna native fix had already passed
+1409 agent tests, typecheck, five Excel regressions and deterministic
+four-workbook preflight. No new engine or prompt change was made here.
+
+Artifacts
+
+comparison.json binds all180 official labels, costs and shared judge keys.
+luna-reference-scores.json preserves the Luna reference with model metadata.
+terra/scores.json and sol/scores.json contain every attempt and category.
+Each model directory also contains frozen protocol, pricing, actual gateway
+configuration and trace/usage summary. judge-integrity.json and
+manual-mechanism-audit.json/.txt contain independent checks and evidence.
+sol-native-official-failures-verification.json checks each of Sol's16
+rejected native answers without changing any official label.
+credential-resolution.json and excluded-provider-setup.json preserve the
+setup exclusion. service-cleanup.json records the final owned-service stop.
+../../README.txt gives runnable harness commands.
+
+Full raw runs and private evaluation artifacts remain outside the repo:
+/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/{terra,sol}/
+Rejected setup artifacts: the same parent directory's outer terra/ and sol/.
+Luna raw reference and shared judge cache:
+/var/tmp/texera-dsbench-pilot-20261008/
+Source archive and metadata:
+/var/tmp/texera-dsbench-audit-20261008/
+
+Primary sources
+
+https://github.com/LiqiangJing/DSBench/tree/ba786096137a5108af11c016ad3f09cdb97beefd
+https://github.com/LiqiangJing/DSBench/blob/ba786096137a5108af11c016ad3f09cdb97beefd/data_analysis/compute_answer.py
+https://huggingface.co/datasets/liqiang888/DSBench/tree/1196d6553ec200e1262841efc89cda5954ffe89f
+https://developers.openai.com/api/docs/models/gpt-5.6-terra
+https://developers.openai.com/api/docs/models/gpt-5.6-sol

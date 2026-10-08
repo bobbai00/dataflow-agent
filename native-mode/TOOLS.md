@@ -16,7 +16,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
     "reasoning": {
       "type": "string",
       "minLength": 1,
-      "pattern": "\\S",
+      "pattern": "[\\s\\S]*\\S[\\s\\S]*",
       "description": "One brief sentence stating the next objective."
     },
     "actions": {
@@ -62,7 +62,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1,
                 "maxItems": 8
@@ -90,7 +90,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "operator_id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "include_implementation": {
                 "type": "boolean"
@@ -115,7 +115,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "changes": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S",
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*",
                 "description": "Statements, each starting at the margin: `name = operator(inputs, parameters)` creates name or replaces its whole definition; its inputs are the operator names written first in the call, and they become its incoming edges in port order. `del name` deletes an operator and its edges. Python functions are indented under the operator that uses them. Names resolve against the graph after the whole edit. A failed Edit applies no changes."
               }
             },
@@ -152,7 +152,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1
               }
@@ -174,7 +174,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "operator_id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "view": {
                 "type": "string",
@@ -202,7 +202,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "operator_id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "view": {
                 "type": "string",
@@ -216,7 +216,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1
               }
@@ -240,7 +240,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "content": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               }
             },
             "required": [
@@ -260,7 +260,7 @@ Work with a dataflow through an ordered list of inspect, edit, execute, retrieve
               "from": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               }
             },
             "required": [
@@ -306,7 +306,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
     "reasoning": {
       "type": "string",
       "minLength": 1,
-      "pattern": "\\S",
+      "pattern": "[\\s\\S]*\\S[\\s\\S]*",
       "description": "One brief sentence stating the next objective."
     },
     "actions": {
@@ -333,7 +333,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1,
                 "maxItems": 8
@@ -361,7 +361,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "operator_id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "include_implementation": {
                 "type": "boolean"
@@ -386,7 +386,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "changes": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S",
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*",
                 "description": "Statements, each starting at the margin: `name = operator(inputs, parameters)` creates name or replaces its whole definition; its inputs are the operator names written first in the call, and they become its incoming edges in port order. `del name` deletes an operator and its edges. Python functions are indented under the operator that uses them. Names resolve against the graph after the whole edit. A failed Edit applies no changes."
               }
             },
@@ -423,7 +423,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1
               }
@@ -445,7 +445,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "operator_id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "view": {
                 "type": "string",
@@ -473,7 +473,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "operator_id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "view": {
                 "type": "string",
@@ -487,7 +487,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1
               }
@@ -511,7 +511,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "content": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               }
             },
             "required": [
@@ -531,7 +531,7 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "from": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               }
             },
             "required": [
@@ -585,14 +585,14 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                   {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": "\\S"
+                    "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                   },
                   {
                     "type": "array",
                     "items": {
                       "type": "string",
                       "minLength": 1,
-                      "pattern": "\\S"
+                      "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                     },
                     "minItems": 1,
                     "maxItems": 8
@@ -641,14 +641,14 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
               "content": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "\\S"
+                "pattern": "[\\s\\S]*\\S[\\s\\S]*"
               },
               "operator_ids": {
                 "type": "array",
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                 },
                 "minItems": 1,
                 "maxItems": 8
@@ -689,14 +689,14 @@ With `stateHistory: true`, task inspection retrieves the saved answer roots and 
                   {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": "\\S"
+                    "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                   },
                   {
                     "type": "array",
                     "items": {
                       "type": "string",
                       "minLength": 1,
-                      "pattern": "\\S"
+                      "pattern": "[\\s\\S]*\\S[\\s\\S]*"
                     },
                     "minItems": 1,
                     "maxItems": 8

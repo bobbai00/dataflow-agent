@@ -38,6 +38,47 @@ scores. (`Kramabench/.env` still works as a fallback for standalone use.)
 
 ## KramaBench
 
+### Comparable attempt metrics
+
+The shared [runtime package](runtime/) measures model requests and local
+resources for benchmark adapters. It retains raw usage, cache reads and writes,
+reasoning tokens, pricing snapshots, provider-reported charges, monotonic wall
+time, CPU time, and memory measurements. Unknown usage or pricing stays unknown;
+observed subtotals remain available. Agent request accounting is also available
+from `GET /api/agents/:id/model-metrics`, including startup source fingerprints.
+
+Native resources include the explicitly owned agent and engine services and
+their workers. Script resources include the controller and isolated executor.
+The provider gateway and native storage dependencies have separate component
+measurements. Kernel group memory peaks include charged file cache; sampled
+simultaneous RSS and charged memory are labeled as sampled measurements.
+Individual process or component peaks must never be added to claim a system
+peak. Remote provider CPU and memory are outside these local measurements.
+
+`experiment_matrix.py` freezes exact model routes, input hashes, prompts,
+settings, source hashes and an explicit resource inventory before execution.
+The default diagnostic selection contains five KramaBench and five DSBench
+tasks, each tested with custom-prompt smolagents and Bob with data, flow, or
+both. The registry accepts other exact model specifications and the matrix
+accepts other task selections. Preparation makes no model calls; execution
+resumes only identities that have never started. Failed and interrupted
+attempts retain their traces and are never silently retried.
+
+```bash
+python -m benchmark.model_registry --specs models.json \
+    --gateway-url http://localhost:4000/v1 \
+    --probe-output-dir <new preflight directory> --output <new model facts.json>
+python -m benchmark.experiment_matrix prepare --help
+python -m benchmark.experiment_matrix run --output <matrix directory>
+python -m benchmark.matrix_judge --output <matrix directory> \
+    --cache-dir <private judge cache directory>
+python -m benchmark.experiment_matrix report --output <matrix directory>
+```
+
+The optional registry access probes make paid tool calls and save their costs
+outside scored attempts. Grading uses the original benchmark evaluator in a
+separate phase; official and diagnostic scores remain distinct.
+
 ```bash
 bin/bench.sh kb systems                                    # list SUTs
 bin/bench.sh kb tasks --sut DataflowSystemStableHaiku \
@@ -78,6 +119,20 @@ git -C benchmark/DSGym checkout --detach 461a464da3e5d2bbea409462c61c8999527b461
 uv venv --python 3.12 benchmark/DSGym/.venv
 VIRTUAL_ENV=benchmark/DSGym/.venv uv pip install -r benchmark/retrieval/dsgym-requirements.txt
 ```
+
+That environment runs DSGym's agent loop. Its sandboxed kernel uses the
+interpreter that launches `dsgym_executor.py`, normally the KramaBench
+interpreter. The kernel interpreter needs `jupyter-client`, `ipykernel` and
+IPython; the KramaBench requirements already declare them. To install the
+tested kernel dependencies for the root Python 3.12 retrieval suite:
+
+```bash
+uv sync --locked --extra kramabench --extra dev
+.venv/bin/python -m pytest benchmark/retrieval -q
+```
+
+The root `kramabench` extra pins jupyter-client 8.10.0, ipykernel 6.29.5 and
+IPython 8.35.0. `uv sync --all-extras` also installs them.
 
 A round of both, from `benchmark/Kramabench` with the provider keys and
 `LITELLM_MASTER_KEY` in the environment:

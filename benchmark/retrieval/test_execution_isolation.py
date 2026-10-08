@@ -27,6 +27,7 @@ from unittest import mock
 
 from benchmark.retrieval import execution_isolation
 from benchmark.retrieval.execution_isolation import isolated_command
+from benchmark.retrieval import native_isolated_python
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -91,6 +92,53 @@ print(json.dumps({{'isolated': True}}))
             with self.assertRaisesRegex(RuntimeError, "bubblewrap"):
                 isolated_command([sys.executable, "-c", "pass"], python=sys.executable,
                                  data_roots=[], workspace=temp)
+
+    def test_native_task_mapping_hides_other_questions_and_gold(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tmp = Path(temp)
+            source = tmp / "source"
+            selected = source / "dsbench/task-one"
+            selected.mkdir(parents=True)
+            (selected / "input.csv").write_text("x\n3\n7\n")
+            other = source / "dsbench/task-two"
+            other.mkdir()
+            (other / "question.txt").write_text("Another question")
+            (source / "gold.json").write_text('{"answer": 10}')
+            workspace = tmp / "session"
+            workspace.mkdir()
+            mapping = workspace / "task-inputs.json"
+            mapping.write_text(json.dumps({"relative_path": "dsbench/task-one"}))
+            roots, mounts = native_isolated_python.worker_data_mounts(source, workspace, REPO)
+            code = f"""
+from pathlib import Path
+assert Path({str(selected / 'input.csv')!r}).exists()
+assert Path({str(REPO / 'amber/data/dsbench/task-one/input.csv')!r}).exists()
+assert Path({str(REPO / 'data/dsbench/task-one/input.csv')!r}).exists()
+assert not Path({str(other / 'question.txt')!r}).exists()
+assert not Path({str(source / 'gold.json')!r}).exists()
+try:
+    Path('/workspace/task-inputs.json').write_text('{{}}')
+except OSError:
+    pass
+else:
+    raise AssertionError('Task mapping was writable')
+"""
+            result = subprocess.run(isolated_command([sys.executable, "-c", code], python=sys.executable,
+                data_roots=roots, workspace=workspace, read_only=mounts), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_native_task_mapping_rejects_parent_and_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            tmp = Path(temp)
+            source, workspace, outside = tmp / "source", tmp / "session", tmp / "outside"
+            source.mkdir()
+            workspace.mkdir()
+            outside.mkdir()
+            (source / "escape").symlink_to(outside, target_is_directory=True)
+            for relative in ("../outside", "escape", str(outside), "", "."):
+                (workspace / "task-inputs.json").write_text(json.dumps({"relative_path": relative}))
+                with self.subTest(relative=relative), self.assertRaises(ValueError):
+                    native_isolated_python.worker_data_mounts(source, workspace, REPO)
 
 
 if __name__ == "__main__":

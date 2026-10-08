@@ -23,8 +23,13 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
+import { ModelRequestLedger, withModelRequestAccounting } from "./agent/llm-drivers/model-request-accounting";
+import { captureServiceRuntime, inventoryServiceSources } from "./agent/llm-drivers/service-runtime";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
+import { resolveModelCapabilities } from "./agent/llm-drivers/model-capabilities";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
 import {
@@ -39,7 +44,11 @@ import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
-import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
+import {
+  MAX_MODEL_REQUEST_TIMEOUT_MS,
+  resolveModelRequestTimeout,
+  withRequestTimeout,
+} from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
@@ -92,6 +101,9 @@ import type {
   UpdateAgentSettingsRequest,
   AgentSettingsApi,
   ReActStep,
+  ModelCapabilities,
+  ResolvedModelCapabilities,
+  ResolvedModelRequestTimeout,
 } from "./types/agent";
 import { AgentMode, AgentState, ContextMode, OperatorResultSerializationMode } from "./types/agent";
 
@@ -537,6 +549,8 @@ const agentStore = new Map<string, TexeraAgent>();
 /** Tracks which driver each agent was constructed with so `getAgentInfo`
  *  can echo it back to the UI. Populated by `createAgentInstance`. */
 const agentDrivers = new Map<string, AgentDriverKind>();
+const agentModelCapabilities = new Map<string, ResolvedModelCapabilities>();
+const agentModelRequestTimeouts = new Map<string, ResolvedModelRequestTimeout>();
 let agentCounter = 0;
 /**
  * Per-process salt for agent ids.
@@ -552,20 +566,34 @@ let agentCounter = 0;
  * The salt makes an id unique to the process that minted it, so a stale id from
  * an earlier process can never address a live agent.
  */
+// Process attestation is immutable for this boot, even if the worktree changes.
+const SERVICE_RUNTIME = captureServiceRuntime(inventoryServiceSources(new URL("./", import.meta.url)));
+
 const AGENT_ID_SALT = Math.random().toString(36).slice(2, 8);
 
 async function createAgentInstance(
   modelType: string,
   delegateConfig: AgentDelegateConfig,
   customName?: string,
-  explicitDriver?: AgentDriverKind
+  explicitDriver?: AgentDriverKind,
+  modelCapabilities?: ModelCapabilities,
+  modelRequestTimeoutMs?: number
 ): Promise<{ agentId: string; agent: TexeraAgent }> {
   const agentId = `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
+  const resolvedCapabilities = resolveModelCapabilities(modelType, modelCapabilities);
+  const resolvedRequestTimeout = resolveModelRequestTimeout(modelRequestTimeoutMs);
 
   const inputBudget = readInputBudget(process.env);
   const modelCallLimit = Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0);
 
+  const modelRequestLedger = new ModelRequestLedger(
+    agentId,
+    process.env.MODEL_REQUEST_JOURNAL_DIR ??
+      process.env.TEXERA_LLM_TRACE_DIR ??
+      join(tmpdir(), "texera-agent-model-requests"),
+    SERVICE_RUNTIME
+  );
   const openai = createOpenAI({
     baseURL: `${config.modelsEndpoint}/api`,
     // The LLM gateway (access-control-service) enforces a REGULAR/ADMIN-role
@@ -588,10 +616,15 @@ async function createAgentInstance(
           }),
           withInputBudget(
             inputBudget,
-            withModelCallLimit(modelCallLimit, () => agent.getCurrentMessageId())
+            withModelCallLimit(
+              modelCallLimit,
+              () => agent.getCurrentMessageId(),
+              withModelRequestAccounting(modelRequestLedger, () => agent.getCurrentMessageId())
+            )
           )
         )
-      )
+      ),
+      resolvedRequestTimeout.milliseconds
     ),
   });
 
@@ -604,6 +637,7 @@ async function createAgentInstance(
       ? new LocalReactTextDriver({ model })
       : new VercelToolUseDriver({
           model,
+          modelCapabilities,
           maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS
             ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS)
             : undefined,
@@ -612,6 +646,7 @@ async function createAgentInstance(
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
+    modelRequestLedger,
     driver,
     contextAssembler,
     modelType,
@@ -630,6 +665,8 @@ async function createAgentInstance(
 
   agentStore.set(agentId, agent);
   agentDrivers.set(agentId, driverKind);
+  agentModelCapabilities.set(agentId, resolvedCapabilities);
+  agentModelRequestTimeouts.set(agentId, resolvedRequestTimeout);
   log.info({ agentId, modelType, driver: driverKind, delegate: !!delegateConfig }, "created agent");
 
   return { agentId, agent };
@@ -723,6 +760,10 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     name: agent.agentName,
     modelType: agent.modelType,
     driver: agentDrivers.get(agentId) ?? "vercel-tool-use",
+    modelCapabilities: agentModelCapabilities.get(agentId),
+    modelRequestTimeoutMs: agentModelRequestTimeouts.get(agentId)?.milliseconds,
+    modelRequestTimeoutSource: agentModelRequestTimeouts.get(agentId)?.source,
+    modelRequestTimeoutMethod: "abort_signal_fetch_deadline",
     state: agent.getState(),
     createdAt: agent.createdAt,
     delegate: delegateConfig
@@ -867,7 +908,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   .post(
     "/",
     async ({ body, headers }) => {
-      const { modelType, name, workflowId, computingUnitId, settings, driver } = body as CreateAgentRequest;
+      const {
+        modelType, name, workflowId, computingUnitId, settings, driver, modelCapabilities, modelRequestTimeoutMs,
+      } = body as CreateAgentRequest;
 
       if (!modelType) {
         throw new Error("modelType is required");
@@ -894,7 +937,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         computingUnitId,
       };
 
-      const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name, driver);
+      const { agentId, agent } = await createAgentInstance(
+        modelType, delegateConfig, name, driver, modelCapabilities, modelRequestTimeoutMs
+      );
 
       try {
         if (settings) {
@@ -991,6 +1036,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         agent.destroy();
         agentStore.delete(agentId);
         agentDrivers.delete(agentId);
+        agentModelCapabilities.delete(agentId);
+        agentModelRequestTimeouts.delete(agentId);
         throw error;
       }
 
@@ -1005,6 +1052,11 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         // Explicit driver override. Must be in the schema or Elysia's
         // normalize pass strips it from the body before the handler reads it.
         driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
+        modelCapabilities: t.Optional(t.Object({ forcedToolChoice: t.Optional(t.Boolean()) }, { additionalProperties: false })),
+        // Elysia's Integer transform accepts numeric strings; require a JSON number.
+        modelRequestTimeoutMs: t.Optional(
+          t.Number({ minimum: 1, maximum: MAX_MODEL_REQUEST_TIMEOUT_MS, multipleOf: 1 })
+        ),
         settings: t.Optional(
           t.Object({
             maxOperatorResultCharLimit: t.Optional(t.Number()),
@@ -1124,6 +1176,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     agent.destroy();
     agentStore.delete(id);
     agentDrivers.delete(id);
+    agentModelCapabilities.delete(id);
+    agentModelRequestTimeouts.delete(id);
     return { deleted: true };
   })
 
@@ -1131,6 +1185,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     const agent = getAgent(id);
     return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
+
+  .get("/:id/model-metrics", ({ params: { id } }) => getAgent(id).getModelAccounting())
 
   .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
     const agent = getAgent(id);
@@ -1331,6 +1387,10 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         state: agent.getState(),
         answer: (endStep?.content ?? lastWithContent?.content ?? "").trim(),
         steps: result.messages.length,
+        usage: result.usage,
+        modelAccounting: result.modelAccounting,
+        stopped: result.stopped,
+        error: result.error,
         headId: agent.getHead(),
       };
     },
@@ -1591,6 +1651,9 @@ interface WsMessage {
 }
 
 interface WsOutgoingMessage {
+  usage?: import("./types/agent").TokenUsage;
+  modelAccounting?: import("./types/agent").ModelRequestAccounting;
+  stopped?: boolean;
   type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext" | "snapshot";
   step?: ReActStep;
   state?: string;
@@ -1762,6 +1825,10 @@ export function buildApp() {
             broadcastToAgent(agentId, {
               type: "complete",
               state: agent.getState(),
+              usage: result.usage,
+              modelAccounting: result.modelAccounting,
+              stopped: result.stopped,
+              error: result.error,
               operatorResults: getOperatorResultSummaries(agent),
             });
             broadcastNextContext(agentId, agent);
@@ -1850,6 +1917,8 @@ export function buildApp() {
 export function _resetAgentStoreForTests(): void {
   agentStore.clear();
   agentDrivers.clear();
+  agentModelCapabilities.clear();
+  agentModelRequestTimeouts.clear();
   agentCounter = 0;
 }
 

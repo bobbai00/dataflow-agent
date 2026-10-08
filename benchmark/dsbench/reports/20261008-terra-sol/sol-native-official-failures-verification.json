@@ -1,0 +1,596 @@
+{
+  "scope": "Deterministic workbook verification, no model calls or rescoring. Every Sol native official failure separately inspected.",
+  "computed_reference": {
+    "retail_rows": 5060,
+    "wendel_top_invoice": 143,
+    "wendel_top_invoice_revenue": 3463.8500000000004,
+    "monthly_profit": {
+      "January": 99223.94,
+      "February": 98045.53,
+      "March": 177208.1,
+      "April": 126381.47,
+      "May": 126130.29,
+      "June": 142438.26
+    },
+    "monthly_profit_order": [
+      "March",
+      "June",
+      "April",
+      "May",
+      "January",
+      "February"
+    ],
+    "usage_rows": 8760,
+    "usage_weekday_means": {
+      "Wednesday": 0.7339426100628931,
+      "Thursday": 0.7454575320512821,
+      "Friday": 0.7537443910256411,
+      "Saturday": 0.8907636217948718,
+      "Sunday": 0.8981570512820514,
+      "Monday": 0.7259447115384615,
+      "Tuesday": 0.7260576923076923
+    },
+    "usage_highest_day": "Sunday",
+    "usage_max_four_hour_kwh": 17.237000000000002,
+    "usage_max_window": [
+      "2014-07-20T17:00:00",
+      "2014-07-20T20:00:00"
+    ],
+    "source_workbooks_sha256": {
+      "MO13-Data-Analysis-Data-Workbook.xlsx": "8eb18f8cb3a8c053ea9e80735d690cf37f453bd8089603d0454a04334a974a23",
+      "MO14-Round-1-Dealing-With-Data-Workbook.xlsx": "900e97a48cc28ac6dbf3d8c727236d42415955c1a968b33f855f50b14599d6e2"
+    }
+  },
+  "checks": [
+    {
+      "model": "sol",
+      "arm": "data0_flow0",
+      "task_id": "00000034-question10",
+      "raw_response": "**a. 143**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "largest_wendel_invoice": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "Invoice Number": 143,
+              "revenue": 3463.8500000000004
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow0",
+      "task_id": "00000034-question14",
+      "raw_response": "**a. March, June, April, May, January, February**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "ranked_months": {
+          "totalRowCount": 6,
+          "sampleRecords": [
+            {
+              "Month": "March",
+              "profit": 177208.1
+            },
+            {
+              "Month": "June",
+              "profit": 142438.26
+            },
+            {
+              "Month": "April",
+              "profit": 126381.47
+            },
+            {
+              "Month": "May",
+              "profit": 126130.29000000001
+            },
+            {
+              "Month": "January",
+              "profit": 99223.94
+            },
+            {
+              "Month": "February",
+              "profit": 98045.53
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow0",
+      "task_id": "00000032-question3",
+      "raw_response": "**a. Sunday** \u2014 it has the highest average usage, approximately **0.898 kWh per hourly record**.",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "weekday_ranked": {
+          "totalRowCount": 7,
+          "sampleRecords": [
+            {
+              "weekday": "Sunday",
+              "average_kwh": 0.8981570512820511,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Saturday",
+              "average_kwh": 0.890763621794872,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Friday",
+              "average_kwh": 0.7537443910256411,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Thursday",
+              "average_kwh": 0.7454575320512821,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Wednesday",
+              "average_kwh": 0.7339426100628931,
+              "hourly_records": 1272
+            },
+            {
+              "weekday": "Tuesday",
+              "average_kwh": 0.7260576923076923,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Monday",
+              "average_kwh": 0.7259447115384615,
+              "hourly_records": 1248
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow0",
+      "task_id": "00000032-question4",
+      "raw_response": "**a. 17.237 kWh**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "four_hour": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "period_start": "2014-07-20T17:00:00Z",
+              "period_end_hour": "2014-07-20T20:00:00Z",
+              "max_4h_kwh": 17.237000000000002,
+              "parsed_records": 8760,
+              "valid_windows": 8757
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow0",
+      "task_id": "00000034-question10",
+      "raw_response": "**a. 143**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "largest_wendel_invoice": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "Invoice Number": 143,
+              "Revenue": 3463.8500000000004
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow0",
+      "task_id": "00000034-question14",
+      "raw_response": "**a. March, June, April, May, January, February**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "ranked_months": {
+          "totalRowCount": 6,
+          "sampleRecords": [
+            {
+              "month": "March",
+              "profit": 177208.1
+            },
+            {
+              "month": "June",
+              "profit": 142438.26
+            },
+            {
+              "month": "April",
+              "profit": 126381.47
+            },
+            {
+              "month": "May",
+              "profit": 126130.29000000001
+            },
+            {
+              "month": "January",
+              "profit": 99223.94
+            },
+            {
+              "month": "February",
+              "profit": 98045.53
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow0",
+      "task_id": "00000032-question3",
+      "raw_response": "**a. Sunday**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "weekday_ranked": {
+          "totalRowCount": 7,
+          "sampleRecords": [
+            {
+              "weekday": "Sunday",
+              "average_kwh": 0.8981570512820511,
+              "readings": 1248
+            },
+            {
+              "weekday": "Saturday",
+              "average_kwh": 0.890763621794872,
+              "readings": 1248
+            },
+            {
+              "weekday": "Friday",
+              "average_kwh": 0.7537443910256411,
+              "readings": 1248
+            },
+            {
+              "weekday": "Thursday",
+              "average_kwh": 0.7454575320512821,
+              "readings": 1248
+            },
+            {
+              "weekday": "Wednesday",
+              "average_kwh": 0.7339426100628931,
+              "readings": 1272
+            },
+            {
+              "weekday": "Tuesday",
+              "average_kwh": 0.7260576923076923,
+              "readings": 1248
+            },
+            {
+              "weekday": "Monday",
+              "average_kwh": 0.7259447115384615,
+              "readings": 1248
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow0",
+      "task_id": "00000032-question4",
+      "raw_response": "**a. 17.237 kWh**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "rolling4": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "max_4h_kwh": 17.237000000000002,
+              "period_end": "2014-07-20T20:00:00Z",
+              "parsed_rows": 8760,
+              "unique_hours": 8760
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow1",
+      "task_id": "00000034-question10",
+      "raw_response": "**a. 143**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "largest_invoice": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "Invoice Number": 143,
+              "revenue": 3463.8500000000004
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow1",
+      "task_id": "00000034-question14",
+      "raw_response": "**a. March, June, April, May, January, February**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "ranked_months": {
+          "totalRowCount": 6,
+          "sampleRecords": [
+            {
+              "month": "March",
+              "profit": 177208.1,
+              "lines": 1151,
+              "measured_lines": 1151
+            },
+            {
+              "month": "June",
+              "profit": 142438.26,
+              "lines": 833,
+              "measured_lines": 833
+            },
+            {
+              "month": "April",
+              "profit": 126381.47,
+              "lines": 711,
+              "measured_lines": 711
+            },
+            {
+              "month": "May",
+              "profit": 126130.29000000001,
+              "lines": 911,
+              "measured_lines": 911
+            },
+            {
+              "month": "January",
+              "profit": 99223.94,
+              "lines": 650,
+              "measured_lines": 650
+            },
+            {
+              "month": "February",
+              "profit": 98045.53,
+              "lines": 804,
+              "measured_lines": 804
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow1",
+      "task_id": "00000032-question3",
+      "raw_response": "**a. Sunday** \u2014 it has the highest average hourly usage, approximately **0.898 kWh**.",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "weekday_ranked": {
+          "totalRowCount": 7,
+          "sampleRecords": [
+            {
+              "weekday": "Sunday",
+              "average_usage_kwh": 0.8981570512820511,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Saturday",
+              "average_usage_kwh": 0.890763621794872,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Friday",
+              "average_usage_kwh": 0.7537443910256411,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Thursday",
+              "average_usage_kwh": 0.7454575320512821,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Wednesday",
+              "average_usage_kwh": 0.7339426100628931,
+              "hourly_records": 1272
+            },
+            {
+              "weekday": "Tuesday",
+              "average_usage_kwh": 0.7260576923076923,
+              "hourly_records": 1248
+            },
+            {
+              "weekday": "Monday",
+              "average_usage_kwh": 0.7259447115384615,
+              "hourly_records": 1248
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data0_flow1",
+      "task_id": "00000032-question4",
+      "raw_response": "**a. 17.237 kWh**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "max_four": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "start": "2014-07-20T17:00:00Z",
+              "end": "2014-07-20T20:00:00Z",
+              "four_hour_kwh": 17.237000000000002,
+              "continuous": true
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow1",
+      "task_id": "00000034-question10",
+      "raw_response": "**a. 143**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "largest_invoice": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "Invoice Number": 143,
+              "revenue": 3463.8500000000004
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow1",
+      "task_id": "00000034-question14",
+      "raw_response": "**a. March, June, April, May, January, February**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "ranked_months": {
+          "totalRowCount": 6,
+          "sampleRecords": [
+            {
+              "MonthNumber": 3,
+              "Profit": 177208.1
+            },
+            {
+              "MonthNumber": 6,
+              "Profit": 142438.26
+            },
+            {
+              "MonthNumber": 4,
+              "Profit": 126381.47
+            },
+            {
+              "MonthNumber": 5,
+              "Profit": 126130.29000000001
+            },
+            {
+              "MonthNumber": 1,
+              "Profit": 99223.94
+            },
+            {
+              "MonthNumber": 2,
+              "Profit": 98045.53
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow1",
+      "task_id": "00000032-question3",
+      "raw_response": "**a. Sunday**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "weekday_ranked": {
+          "totalRowCount": 7,
+          "sampleRecords": [
+            {
+              "weekday": "Sunday",
+              "average_kwh": 0.8981570512820511,
+              "records": 1248
+            },
+            {
+              "weekday": "Saturday",
+              "average_kwh": 0.890763621794872,
+              "records": 1248
+            },
+            {
+              "weekday": "Friday",
+              "average_kwh": 0.7537443910256411,
+              "records": 1248
+            },
+            {
+              "weekday": "Thursday",
+              "average_kwh": 0.7454575320512821,
+              "records": 1248
+            },
+            {
+              "weekday": "Wednesday",
+              "average_kwh": 0.7339426100628931,
+              "records": 1272
+            },
+            {
+              "weekday": "Tuesday",
+              "average_kwh": 0.7260576923076923,
+              "records": 1248
+            },
+            {
+              "weekday": "Monday",
+              "average_kwh": 0.7259447115384615,
+              "records": 1248
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    },
+    {
+      "model": "sol",
+      "arm": "data1_flow1",
+      "task_id": "00000032-question4",
+      "raw_response": "**a. 17.237 kWh**",
+      "official_correct": false,
+      "manual_final_answer_matches_requested_calculation": true,
+      "relevant_executed_results": {
+        "max_four_hours": {
+          "totalRowCount": 1,
+          "sampleRecords": [
+            {
+              "max_4h_kwh": 17.237000000000002,
+              "period_start": "2014-07-20T17:00:00Z",
+              "period_end_hour_start": "2014-07-20T20:00:00Z",
+              "source_rows": 8760,
+              "parsed_rows": 8760,
+              "duplicate_timestamps": 0,
+              "valid_windows": 8757
+            }
+          ]
+        }
+      },
+      "grade_changed": false
+    }
+  ],
+  "grading_disagreements": 16,
+  "source_date_semantics": "Calendar timestamps remain timezone-free in the source. Agent-emitted UTC Z representations do not change these scalar answers."
+}

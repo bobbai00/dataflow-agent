@@ -18,11 +18,48 @@
  */
 
 import { expect, test } from "bun:test";
-import { runAgentTurn } from "./agent-service-api";
+import { createAgent, runAgentTurn } from "./agent-service-api";
 
 const user = { id: "new-user", messageId: "new-message", role: "user", content: "current question", isEnd: true };
 const terminal = { id: "new-answer", messageId: "new-message", role: "agent", content: "saved answer", isEnd: true };
 const old = { id: "old-answer", messageId: "old-message", role: "agent", content: "old answer", isEnd: true };
+
+test("create client forwards an explicit model deadline and omits the absent option", async () => {
+  const bodies: any[] = [];
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    bodies.push(await request.json());
+    return Response.json({ id: "fixture", modelType: "test" });
+  } });
+  try {
+    const baseUrl = `http://localhost:${server.port}`;
+    await createAgent({ modelType: "test", baseUrl, modelRequestTimeoutMs: 240_000 } as any);
+    await createAgent({ modelType: "test", baseUrl });
+    expect(bodies[0].modelRequestTimeoutMs).toBe(240_000);
+    expect(bodies[1]).not.toHaveProperty("modelRequestTimeoutMs");
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("create client preserves explicit false capabilities and omits absent capabilities", async () => {
+  const bodies: any[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      bodies.push(await request.json());
+      return Response.json({ id: "fixture", modelType: "custom-model" });
+    },
+  });
+  try {
+    const baseUrl = `http://localhost:${server.port}`;
+    await createAgent({ modelType: "custom-model", baseUrl, modelCapabilities: { forcedToolChoice: false } } as any);
+    await createAgent({ modelType: "custom-model", baseUrl });
+    expect(bodies[0].modelCapabilities).toEqual({ forcedToolChoice: false });
+    expect(bodies[1]).not.toHaveProperty("modelCapabilities");
+  } finally {
+    server.stop(true);
+  }
+});
 
 function endpoint(options: {
   complete?: boolean;

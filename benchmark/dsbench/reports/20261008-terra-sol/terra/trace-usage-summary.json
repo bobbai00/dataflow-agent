@@ -1,0 +1,129 @@
+{
+  "generated_at": "2026-10-08T04:12:49.059158+00:00",
+  "agent_model": "gpt-5.6-terra",
+  "complete": true,
+  "expected_attempts": 60,
+  "finished_attempts": 60,
+  "finished_by_arm": {
+    "data0_flow0": 12,
+    "data1_flow0": 12,
+    "data0_flow1": 12,
+    "data1_flow1": 12,
+    "smol_custom": 12
+  },
+  "runner_finalized_attempts": 60,
+  "stopped_workers_without_runner_finalization": 0,
+  "global_violations": [],
+  "changed_frozen_sources": [],
+  "attempts_with_violations": 0,
+  "attempts_with_warnings": 0,
+  "total_wire_requests": 228,
+  "total_successful_model_responses": 228,
+  "total_provider_errors": 0,
+  "provider_blocked_attempts": 0,
+  "max_request_input_tokens": 11494,
+  "requests_at_or_above_long_context_threshold": 0,
+  "uncompleted_attempts": 0,
+  "empty_final_answers": 0,
+  "final_actions_completed": 60,
+  "cleanup_unconfirmed_attempts": 0,
+  "usage_total": {
+    "input_tokens": 1321207,
+    "output_tokens": 55013,
+    "cached_tokens": 1098315,
+    "cache_creation_tokens": 0,
+    "reasoning_tokens": 9877,
+    "total_tokens": 1376220
+  },
+  "cost_usd_total": 1.325603,
+  "recorded_successful_usage_cost_usd": 1.325603,
+  "native_action_errors": 40,
+  "smol_step_errors": 3,
+  "smol_formatting_errors": 0,
+  "native_prefix_checks": 152,
+  "native_profile_count": 213,
+  "native_profile_columns": 1270,
+  "by_arm": {
+    "data0_flow0": {
+      "finished": 12,
+      "calls": 50,
+      "cost_usd": 0.275987,
+      "system_prompt_hashes": {
+        "dba2ce5a69b0e6624672dcc3999e7cce8469c6b5c21fe20380896a8c332b0d04": 12
+      }
+    },
+    "data1_flow0": {
+      "finished": 12,
+      "calls": 46,
+      "cost_usd": 0.253438,
+      "system_prompt_hashes": {
+        "edc4494b2a1cddff7462ec50ca98e14396cf8902fea02a0905d474b3fdc7cb20": 12
+      }
+    },
+    "data0_flow1": {
+      "finished": 12,
+      "calls": 50,
+      "cost_usd": 0.289403,
+      "system_prompt_hashes": {
+        "6674707c91002a08a58345c18cf21d02fd7bc9d6f4c587080ad80d6df5599248": 12
+      }
+    },
+    "data1_flow1": {
+      "finished": 12,
+      "calls": 54,
+      "cost_usd": 0.321026,
+      "system_prompt_hashes": {
+        "3b20a47f4ed92a876acdbf1b487b314c64e0eb453f43097f37393201e1d2facc": 12
+      }
+    },
+    "smol_custom": {
+      "finished": 12,
+      "calls": 28,
+      "cost_usd": 0.185749,
+      "system_prompt_hashes": {
+        "fe5267f41962a7ab47b5b6a572a28b897114198599786608d3d6c706f59b64c3": 12
+      }
+    }
+  },
+  "method_notes": [
+    "Only attempts with runner returncode are finalized. Retained profiles in snapshots are collected in every arm; they are not evidence exposure.",
+    "Explicit --include-stopped-workers additionally audits saved terminated-worker artifacts without inventing a runner returncode; these remain separately counted.",
+    "Rejected provider requests have no usage-bearing response; successful-usage cost records do not establish their charge or prompt-token size.",
+    "Native inputMessages and OpenAI wire use different tool-call representations; DELTA prefixes checked independently in both formats.",
+    "Native medium reasoning is a frozen proxy configuration, not a client request field; smol explicitly sends medium.",
+    "Raw smol cache_write_tokens retained for diagnostics; frozen harness classifies them as ordinary prompt input, without separately billing cache creation.",
+    "Costs are frozen token-price estimates, not provider invoices. Output includes reasoning.",
+    "Cleanup success follows worker cleanup artifacts; no additional remote resources were queried or mutated.",
+    "Integrity checks do not judge semantic correctness or estimate full-benchmark performance."
+  ],
+  "campaign_manifest_sha256": "45cc673e56a5dc7369aa17ae76b7ab3901f74a17d3ef39757aaed70620cb4385",
+  "runtime_env_public_sha256": "f23c9c9f202432b5bc8cf3d0a9c3ed73dc43977b9da676ddc064f2272256572e",
+  "gateway_public_sha256": "4caa5d791fed7508a932fa11b0481a5ff77178c8dadc1f109a98b4d54433431e",
+  "checks_script_sha256": "9feb0901a23e39d9066a18a485341fe9802b8226d8f82c7bafd0fc6c5f83d239",
+  "prepared_manifest_sha256": "932dab19faa3c6737f3202d98fa746ee8b2eac0a96b88639512645e915f9729e",
+  "pricing": {
+    "version": 1,
+    "kind": "token_estimate",
+    "model": "gpt-5.6-terra",
+    "source": {
+      "table": "Official OpenAI model documentation",
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "verified_on": "2026-10-08"
+    },
+    "currency": "USD",
+    "unit": "per_token",
+    "rates": {
+      "input": 2e-06,
+      "output": 1.2e-05,
+      "cache_read": 2e-07,
+      "cache_creation": 2.5e-06
+    },
+    "input_includes_cached": true,
+    "output_includes_reasoning": true,
+    "long_context_threshold_input_tokens": 272000,
+    "long_context_policy": "Audit that every pilot request stays under threshold; no tier multiplier applied below threshold."
+  },
+  "shared_principles_sha256": "2c8b414f5b000414cdd0eade4eb9eeda57a909bb0350b4d4987a166c80ed3272",
+  "full_audit_sha256": "16c844da54e40260c4e9461feec5d14a23c78d29cf4b66c20142f65ab7c5ff4f",
+  "native_wire_files_archived": 600
+}

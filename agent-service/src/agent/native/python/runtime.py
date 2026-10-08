@@ -1129,7 +1129,7 @@ def _scan_encoding(path, requested):
         return "cp1252"
 
 
-def _scan_infer(frame, all_text, infer_text=True):
+def _scan_infer(frame, all_text, infer_text=True, calendar_dates=False):
     # The result is built column by column and shares every text column with
     # the parsed frame. Copying the whole frame here and in _scan_header held
     # three copies of every cell at once: a 1 GB CSV peaked near 8 GB and its
@@ -1147,6 +1147,18 @@ def _scan_infer(frame, all_text, infer_text=True):
             )
             continue
         present = series.dropna()
+        # Excel has calendar dates/times, not timezone-qualified instants. Keep
+        # their exact values as ISO text; an explicit cast can choose a zone.
+        # This does not relax the timestamp contract for user Python outputs.
+        if calendar_dates and len(present) and pd.api.types.infer_dtype(present, skipna=True) in (
+            "datetime", "datetime64", "date", "time"
+        ):
+            output[name] = series.map(
+                lambda value: None if _missing(value) else (
+                    pd.Timestamp(value).isoformat() if isinstance(value, np.datetime64) else value.isoformat()
+                )
+            ).astype("string")
+            continue
         # infer_dtype checks "every present value is text" in C; a Python loop
         # over the cells was most of a large scan (8.6 M rows: about 58 s).
         if infer_text and len(present) and pd.api.types.infer_dtype(present, skipna=True) == "string":
@@ -1223,7 +1235,8 @@ def _scan_header(spec, raw, source_meta):
             field="header",
         )
     output.columns = names
-    return _scan_infer(output, props.get("allText", False), infer_text=source_meta["format"] != "excel")
+    excel = source_meta["format"] == "excel"
+    return _scan_infer(output, props.get("allText", False), infer_text=not excel, calendar_dates=excel)
 
 
 def _html_tables(path, encoding):

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "kind": "token_estimate",
+  "model": "gpt-5.6-sol",
+  "source": {
+    "table": "Official OpenAI model documentation",
+    "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+    "verified_on": "2026-10-08"
+  },
+  "currency": "USD",
+  "unit": "per_token",
+  "rates": {
+    "input": 4e-06,
+    "output": 2e-05,
+    "cache_read": 4e-07,
+    "cache_creation": 5e-06
+  },
+  "input_includes_cached": true,
+  "output_includes_reasoning": true,
+  "long_context_threshold_input_tokens": 272000,
+  "long_context_policy": "Audit that every pilot request stays under threshold; no tier multiplier applied below threshold."
+}

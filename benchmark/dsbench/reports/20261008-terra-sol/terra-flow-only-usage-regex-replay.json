@@ -1,0 +1,29 @@
+{
+  "scope": "No-LLM deterministic canonical-input regex replay of Terra flow-only Q4. No retry or grading change.",
+  "campaign_artifact": "terra/runs/system_scratch/data0_flow1/00000032-question4/react_steps.json",
+  "workbook_sha256": "900e97a48cc28ac6dbf3d8c727236d42415955c1a968b33f855f50b14599d6e2",
+  "pattern": "(\\d{1,2})\\s*(AM|PM)\\s+(?:[A-Za-z]{3}\\s+)?(\\d{1,2})(?:st|nd|rd|th)?-([A-Za-z]{3})-(\\d{4}).*?([0-9]+(?:\\.[0-9]+)?)\\s*kwh",
+  "loaded_default_header_rows": 8759,
+  "matched_rows": 7292,
+  "dropped_rows": 1467,
+  "missing_full_weekday_counts": {
+    "Friday": 209,
+    "Sunday": 219,
+    "Monday": 219,
+    "Tuesday": 198,
+    "Wednesday": 205,
+    "Thursday": 215,
+    "Saturday": 202
+  },
+  "missing_examples": [
+    "_1AM  Friday 19th-Dec-2014___0.209  kwh  ",
+    "  _1 AM   Friday 11-Jul-2014____0.547 kwh ",
+    "_11PM  Sunday 11th-May-2014___0.344  kwh  ",
+    " __11AM  Monday 23rd-Jun-2014_1.017 kwh",
+    " __9 AM Tuesday 01-Jul-2014_0.626  kwh  ",
+    "_1PM   Tuesday 11th-Feb-2014____0.547 kwh ",
+    "__12 AM   Sunday 1st-Jun-2014____1.67  kwh ",
+    "  __10AM Monday 8-Sep-2014___0.308kwh"
+  ],
+  "interpretation": "The optional weekday group permits exactly three letters. Full weekday words are rejected; the final model-observed summary7292/8759 exposes incomplete parsing. Winning scalar17.237 survives, so target correctness does not establish complete analysis."
+}

@@ -35,6 +35,7 @@ from campaign import ResourceQueue, install_provider_prices, prepare_artifacts
 from catalog import inventory
 from run import KB, MODEL_TYPES, ROOT, save
 from run_comparison import audit_script
+from attempt_runtime import supervise_adapter, record_adapter_metrics, validate_resource_scope, record_provider_block
 
 SYSTEMS = {
     "smolagents": {"prefix": "CodeAgentSystem", "adapter": "evaluate_script_task.py"},
@@ -57,7 +58,13 @@ def main():
     parser.add_argument(
         "--script-endpoint", default="http://localhost:18000/v1", help="OpenAI-compatible model gateway"
     )
-    parser.add_argument("--model", choices=list(MODEL_TYPES), default="Luna")
+    parser.add_argument("--model", default="Luna", help="Known model name or arbitrary exact gateway model ID")
+    parser.add_argument("--model-facts", type=Path, help="Frozen exact model capability/pricing facts")
+    parser.add_argument(
+        "--resource-scope",
+        type=Path,
+        help="Optional owned service/component scope; shared components require serial workers",
+    )
     parser.add_argument("--systems", nargs="+", choices=list(SYSTEMS), default=list(SYSTEMS))
     parser.add_argument("--max-steps", type=int, default=25)
     parser.add_argument("--output-chars", type=int, default=5000, help="Characters of execution output shown per step")
@@ -76,6 +83,10 @@ def main():
     parser.add_argument("--all-tasks", action="store_true", help="All original top-level KramaBench tasks")
     parser.add_argument("--tasks", nargs="+", default=[])
     args = parser.parse_args()
+    resource_scope = json.loads(args.resource_scope.read_text()) if args.resource_scope else {}
+    validate_resource_scope(resource_scope)
+    if resource_scope and args.workers != 1:
+        parser.error("An owned shared resource scope requires --workers 1 for attributable measurements")
     if (
         min(
             args.workers,
@@ -119,9 +130,18 @@ def main():
     import requests
     from systems import cost_utils
 
-    model = MODEL_TYPES[args.model]
+    model = MODEL_TYPES.get(args.model, args.model)
+    model_fact = None
+    if args.model_facts:
+        facts = json.loads(args.model_facts.read_text())
+        rows = facts["models"] if isinstance(facts, dict) else facts
+        model_fact = next(row for row in rows if args.model in {row["requested_model"], row["native_model_id"]})
+        model = model_fact["native_model_id"]
+        if type(model_fact.get("available")) is not bool:
+            parser.error("Frozen model facts must include a boolean provider-access result")
     dsgym_home = args.dsgym_home.resolve()
     tag = output.name.replace("-", "_")
+    model_tag = "".join(character if character.isalnum() else "_" for character in args.model)
     jobs = []
     for rep in range(1, args.repetitions + 1):
         round_jobs = [
@@ -130,7 +150,7 @@ def main():
                 "arm": name,
                 "task": task,
                 "rep": rep,
-                "sut": f"{SYSTEMS[name]['prefix']}{args.model}_{tag}_{name}_Rep{rep}",
+                "sut": f"{SYSTEMS[name]['prefix']}{model_tag}_{tag}_{name}_Rep{rep}",
             }
             for name in args.systems
             for task in args.tasks
@@ -144,6 +164,8 @@ def main():
         "models": {args.model: model},
         "pricing_overrides": install_provider_prices(cost_utils, [model]),
         "price_schedule": cost_utils.price_schedule(model),
+        "model_fact": model_fact,
+        "resource_scope": resource_scope,
         "task_ids": args.tasks,
         "repetitions": args.repetitions,
         "script_settings": {
@@ -189,7 +211,7 @@ def main():
     pending = ResourceQueue(
         jobs, {t["task_id"] for t in sources if t["bytes"] >= args.large_input_bytes}, args.large_workers
     )
-    lock, launch_lock = threading.Lock(), threading.Lock()
+    lock = threading.Lock()
     progress = {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "status": "running",
@@ -225,8 +247,14 @@ def main():
             time.sleep(15)
 
     def execute(job, slot):
-        ready(slot)
         path = output / "system_scratch" / job["sut"] / job["task"]
+        if model_fact and not model_fact["available"]:
+            row = {**job, **record_provider_block(path, fact=model_fact, task_id=job["task"], system=job["arm"])}
+            with lock:
+                progress["completed"].append(row)
+                save(output / "progress.json", progress)
+            return
+        ready(slot)
         log = output / "logs" / f"{job['sut']}-{job['task']}.log"
         log.parent.mkdir(exist_ok=True)
         env = dict(
@@ -235,62 +263,56 @@ def main():
             RETRIEVAL_JOB=json.dumps(job),
             PYTHONUNBUFFERED="1",
         )
-        started, timed_out = time.monotonic(), False
-        with log.open("x") as stream:
-            with launch_lock:
-                proc = subprocess.Popen(
-                    [
-                        sys.executable,
-                        str(Path(__file__).with_name(SYSTEMS[job["arm"]]["adapter"])),
-                        "--sut",
-                        job["sut"],
-                        "--workload",
-                        kb.workload_of(job["task"]),
-                        "--task_id",
-                        job["task"],
-                        "--use_truth_subset",
-                        "--no_pipeline_eval",
-                        "--verbose",
-                    ],
-                    cwd=KB,
-                    env=env,
-                    stdout=stream,
-                    stderr=subprocess.STDOUT,
-                )
-                time.sleep(1)
-            with lock:
-                progress["active"][slot] = {
-                    **job,
-                    "pid": proc.pid,
-                    "started_at": datetime.now(timezone.utc).isoformat(),
-                }
-                save(output / "progress.json", progress)
-            print("START", job, flush=True)
-            try:
-                proc.wait(timeout=args.timeout)
-            except subprocess.TimeoutExpired:
-                # The adapter stops its agent, keeps the usage so far and lets
-                # the evaluator score the unanswered task.
-                timed_out = True
-                proc.terminate()
-                try:
-                    proc.wait(timeout=90)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
+        with lock:
+            progress["active"][slot] = {**job, "started_at": datetime.now(timezone.utc).isoformat()}
+            save(output / "progress.json", progress)
+        print("START", job, flush=True)
+        supervised = supervise_adapter(
+            [
+                sys.executable,
+                str(Path(__file__).with_name(SYSTEMS[job["arm"]]["adapter"])),
+                "--sut",
+                job["sut"],
+                "--workload",
+                kb.workload_of(job["task"]),
+                "--task_id",
+                job["task"],
+                "--use_truth_subset",
+                "--no_pipeline_eval",
+                "--verbose",
+            ],
+            directory=path,
+            stdout_path=log,
+            cwd=KB,
+            env=env,
+            timeout_seconds=args.timeout,
+            system=job["arm"],
+            resource_scope=resource_scope,
+            terminate_grace_seconds=90,
+        )
         evaluation = json.loads((path / "evaluation.json").read_text()) if (path / "evaluation.json").exists() else {}
         stats = json.loads((path / "stats.json").read_text()) if (path / "stats.json").exists() else {}
         scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
         checks = audit_script(path)
+        metrics = record_adapter_metrics(
+            path,
+            supervised,
+            system=job["arm"],
+            model=model,
+            task_id=job["task"],
+            pricing=model_fact.get("pricing") if model_fact else manifest["price_schedule"],
+            resource_scope=resource_scope,
+        )
         save(path / "attempt-audit.json", checks)
         row = {
             **job,
-            "exit_code": proc.returncode,
-            "timeout": timed_out,
+            "exit_code": supervised.returncode,
+            "timeout": supervised.timed_out,
             "score": max(scores) if scores else None,
-            "cost_usd": stats.get("cost_usd"),
+            "cost_usd": metrics["cost"]["total_usd"],
             "steps": stats.get("num_steps"),
-            "seconds": time.monotonic() - started,
+            "seconds": supervised.wall_seconds,
+            "normalized_metrics": metrics,
             "audit": checks,
         }
         with lock:

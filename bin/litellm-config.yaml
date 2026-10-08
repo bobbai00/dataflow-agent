@@ -38,6 +38,10 @@ litellm_settings:
   # against gpt-5.2; harmless for the dataflow agent (which doesn't send them).
   drop_params: true
 
+router_settings:
+  # Surface every failed provider attempt to the caller's request journal.
+  num_retries: 0
+
 model_list:
   # ── Anthropic (latest generally available) ──────────────────────────────
   # Anthropic prompt caching is OPT-IN per request (cache_control breakpoints),
@@ -152,4 +156,24 @@ model_list:
     litellm_params:
       model: openai/gpt-5.6-terra
       api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+
+  # Exact requested OpenRouter routes; provider IDs are never substituted.
+  - model_name: qwen3.8-27b
+    litellm_params:
+      model: openrouter/qwen/qwen3.8-27b
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      reasoning_effort: medium
+  - model_name: deepseek-v4.1-flash
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4.1-flash
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      api_base: "os.environ/OPENROUTER_BASE_URL"
       reasoning_effort: medium

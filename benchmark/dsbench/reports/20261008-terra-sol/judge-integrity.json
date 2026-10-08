@@ -1,0 +1,75 @@
+{
+  "complete": true,
+  "verified_at": "2026-10-08T04:16:46.496602+00:00",
+  "model_calls_from_audit": 0,
+  "declared_predictions": 120,
+  "official_model": "gpt-4o-2024-05-13",
+  "source_revision": "ba786096137a5108af11c016ad3f09cdb97beefd",
+  "models": [
+    {
+      "agent_model": "gpt-5.6-terra",
+      "declared_predictions": 60,
+      "finished_attempts": 60,
+      "completed_attempts": 60,
+      "provider_blocked_attempts": 0,
+      "prepared_input_and_gold_integrity": true,
+      "frozen_campaign_source_hashes": true,
+      "complete_final_judge_integrity": true,
+      "final_inputs": 60,
+      "final_grades": 60,
+      "grading_status": "All 60 official requests and predictions verified.",
+      "unique_official_requests": 29,
+      "identical_request_reuses": 31,
+      "judge_errors": 0,
+      "response_model_mismatches": 0,
+      "unpriced_judge_records": 0,
+      "known_unique_original_judge_cost_usd": 0.021135,
+      "files": {
+        "final_inputs": {
+          "path": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/terra/evaluation/final-inputs.jsonl",
+          "sha256": "12611888ad00e4d7aa0b0ab46c7a828751381cf2b3e2846390e12a6b3b91773e"
+        },
+        "final_grades": {
+          "path": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/terra/evaluation/final-grades.jsonl",
+          "sha256": "c1b0d4edcc62a5e0dae9fa44fe87d4946aeb15ddf5d3ac8aa0f02d1f4658cdd3"
+        }
+      }
+    },
+    {
+      "agent_model": "gpt-5.6-sol",
+      "declared_predictions": 60,
+      "finished_attempts": 60,
+      "completed_attempts": 60,
+      "provider_blocked_attempts": 0,
+      "prepared_input_and_gold_integrity": true,
+      "frozen_campaign_source_hashes": true,
+      "complete_final_judge_integrity": true,
+      "final_inputs": 60,
+      "final_grades": 60,
+      "grading_status": "All 60 official requests and predictions verified.",
+      "unique_official_requests": 26,
+      "identical_request_reuses": 34,
+      "judge_errors": 0,
+      "response_model_mismatches": 0,
+      "unpriced_judge_records": 0,
+      "known_unique_original_judge_cost_usd": 0.01895,
+      "files": {
+        "final_inputs": {
+          "path": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/sol/evaluation/final-inputs.jsonl",
+          "sha256": "ecf4cbca9e4b5a76804d5cb4288e07e77dd14010e39a0e6986e68ca9ba9eb9e3"
+        },
+        "final_grades": {
+          "path": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/valid/sol/evaluation/final-grades.jsonl",
+          "sha256": "f4006c75a95b5a47750ac5e84900a876f1bfca557367a6133344b6b7175e5309"
+        }
+      }
+    }
+  ],
+  "combined_unique_official_requests": 44,
+  "combined_known_unique_original_judge_cost_usd": 0.032130000000000006,
+  "combined_cost_coverage": "All final requests",
+  "reproducer": {
+    "path": "/var/tmp/texera-dsbench-terra-sol-pilot-20261008/audit/judge-integrity-check.py",
+    "sha256": "f9be68d313834a2280d2142bd3dce09d0bf44e1cc45fac8d9afc0e08fedba39c"
+  }
+}

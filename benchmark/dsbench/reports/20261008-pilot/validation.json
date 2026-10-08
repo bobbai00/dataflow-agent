@@ -1,0 +1,75 @@
+{
+  "frozen_runtime_sources_unchanged": true,
+  "prepared_manifest_hash_matches": true,
+  "known_credential_matches_in_new_source_and_reports": 0,
+  "agent_service_unit_tests": {
+    "passed": 1409,
+    "failed": 0,
+    "log": "/var/tmp/dsbench-pilot-agent-unit-tests.log"
+  },
+  "agent_service_typecheck": {
+    "exit_code": 0,
+    "log": "/var/tmp/dsbench-pilot-agent-typecheck.log"
+  },
+  "native_excel_regressions": {
+    "passed": 5,
+    "scope": "typed header/headerless date/time/null/numeric transport, unchanged all_text/preview, strict Process timestamps"
+  },
+  "deterministic_preflight": "/var/tmp/texera-dsbench-pilot-20261008/preflight-default-fixed/summary.json",
+  "resource_cleanup": {
+    "owned_pilot_agent_service_stopped": true,
+    "existing_runtime_ports": {
+      "3082": false,
+      "22080": true,
+      "22888": true,
+      "22085": true,
+      "23090": true,
+      "23096": true,
+      "18000": true
+    },
+    "stop_method": "bin/local-dev.sh down agent-service",
+    "keeper_session_exited": true
+  },
+  "offline_tests": {
+    "passed": 38,
+    "failed": 0,
+    "dsbench": 33,
+    "execution_isolation": 5,
+    "log": "/var/tmp/dsbench-final-offline-tests.log"
+  },
+  "offline_formatting": {
+    "ruff": "passed",
+    "black": "passed",
+    "git_diff_check": "passed"
+  },
+  "deterministic_preflight_summary": {
+    "passed": true,
+    "no_model_calls": true,
+    "workbooks": [
+      {
+        "challenge_id": "00000034",
+        "passed": true,
+        "cleaned": true,
+        "error": null
+      },
+      {
+        "challenge_id": "00000032",
+        "passed": true,
+        "cleaned": true,
+        "error": null
+      },
+      {
+        "challenge_id": "00000006",
+        "passed": true,
+        "cleaned": true,
+        "error": null
+      },
+      {
+        "challenge_id": "00000010",
+        "passed": true,
+        "cleaned": true,
+        "error": null
+      }
+    ]
+  }
+}

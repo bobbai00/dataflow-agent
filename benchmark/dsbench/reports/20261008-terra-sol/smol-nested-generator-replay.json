@@ -1,0 +1,47 @@
+{
+  "captured_at_utc": "2026-10-08T03:58:42.760971+00:00",
+  "scope": "No-LLM deterministic local-executor replay of Terra smol Q25; no campaign modification or retry.",
+  "smolagents_version": "1.23.0",
+  "campaign_artifact": "terra/runs/system_scratch/smol_custom/00000006-question25/full-memory.json",
+  "source_code": "parties = ['Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple', 'Brown', 'Black']\nwinners = {'Alpha': ['Green'], 'Beta': ['Red'], 'Gamma': ['Orange'], 'Delta': ['Green'], 'Epsilon': ['Purple'], 'Zeta': ['Purple'], 'Eta': ['Red'], 'Theta': ['Green'], 'Iota': ['Red']}\nparty = 'Black'\nwinning_parties = set(party for district_winners in winners.values() for party in district_winners)\nparties_without_a_win = [party for party in parties if party not in winning_parties]\nlen(parties_without_a_win)\n",
+  "cpython": {
+    "winning_parties": [
+      "Green",
+      "Orange",
+      "Purple",
+      "Red"
+    ],
+    "parties_without_win": [
+      "Yellow",
+      "Blue",
+      "Brown",
+      "Black"
+    ],
+    "count": 4
+  },
+  "smolagents_LocalPythonExecutor": {
+    "winning_parties": [
+      "Alpha",
+      "Beta",
+      "Black",
+      "Delta",
+      "Epsilon",
+      "Eta",
+      "Gamma",
+      "Iota",
+      "Theta",
+      "Zeta"
+    ],
+    "parties_without_win": [
+      "Red",
+      "Orange",
+      "Yellow",
+      "Green",
+      "Blue",
+      "Purple",
+      "Brown"
+    ],
+    "count": 7
+  },
+  "interpretation": "The nested generator incorrectly binds/enumerates values in the stock AST executor. The agent code has the correct district/points calculation, but executor semantics turn its union of winner values into nine dictionary keys plus the outer last party Black. Official campaign label is not changed."
+}

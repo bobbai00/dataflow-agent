@@ -16,11 +16,13 @@ import os
 from pathlib import Path
 import runpy
 import sys
+import time
 
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from campaign import install_provider_prices
+from attempt_runtime import capture_agent_ledger
 
 sys.path.insert(0, str(Path.cwd()))
 import systems
@@ -32,7 +34,9 @@ job = json.loads(os.environ["RETRIEVAL_JOB"])
 arm = manifest["arms"][job["arm"]]
 pricing = install_provider_prices(cost_utils, [manifest["models"][job["model"]]])
 if pricing:
-    assert pricing == {manifest["models"][job["model"]]: manifest["pricing_overrides"][manifest["models"][job["model"]]]}, "Pricing drift"
+    assert pricing == {
+        manifest["models"][job["model"]]: manifest["pricing_overrides"][manifest["models"][job["model"]]]
+    }, "Pricing drift"
 
 
 def save(path, data):
@@ -57,8 +61,14 @@ class RetrievalSystem(_NativeExpressionBase):
         base = Path(self.output_dir) / job["task"]
         endpoint = agent.agent_service_endpoint + "/api/agents/" + agent.agent_id
         settings = {**manifest["settings"], **arm}
-        save(base / "resources.json", {"agent_id": agent.agent_id, "workflow_id": agent._workflow_id,
-                                      "computing_unit_id": agent._computing_unit_id})
+        save(
+            base / "resources.json",
+            {
+                "agent_id": agent.agent_id,
+                "workflow_id": agent._workflow_id,
+                "computing_unit_id": agent._computing_unit_id,
+            },
+        )
         # Code visibility is set by the inherited creation protocol and is not
         # accepted by PATCH. Still verify its actual value below.
         patch = {k: v for k, v in settings.items() if k != "enableCodeInSnapshot"}
@@ -66,8 +76,14 @@ class RetrievalSystem(_NativeExpressionBase):
         if not response.ok:
             agent.cleanup()
             raise RuntimeError(f"Retrieval settings rejected: {response.status_code} {response.text[:1200]}")
-        save(base / "provenance.json", {"agent_revision": manifest["agent_revision"],
-                                       "harness_revision": manifest["harness_revision"], "job": job})
+        save(
+            base / "provenance.json",
+            {
+                "agent_revision": manifest["agent_revision"],
+                "harness_revision": manifest["harness_revision"],
+                "job": job,
+            },
+        )
         for route in ["system-info", "settings"]:
             response = requests.get(endpoint + "/" + route, timeout=30)
             response.raise_for_status()
@@ -76,12 +92,28 @@ class RetrievalSystem(_NativeExpressionBase):
         assert all(recorded[k] == value for k, value in settings.items()), "Settings drift"
         info = json.loads((base / "system-info.json").read_text())
         tool = next(t for t in info["tools"] if t["name"] == "dataflow")
-        retrieval = next(a for a in tool["inputSchema"]["properties"]["actions"]["items"]["anyOf"]
-                         if a["properties"]["type"]["const"] == "retrieve")
+        retrieval = next(
+            a
+            for a in tool["inputSchema"]["properties"]["actions"]["items"]["anyOf"]
+            if a["properties"]["type"]["const"] == "retrieve"
+        )
         assert retrieval["properties"]["view"]["enum"] == arm["retrievalViews"]
 
     def serve_query(self, query, query_id="default-0", subset_files=None):
-        answer = super().serve_query(query, query_id, subset_files)
+        started = time.monotonic()
+        try:
+            answer = super().serve_query(query, query_id, subset_files)
+        finally:
+            base = Path(self.output_dir) / query_id
+            save(
+                base / "lifecycle.json",
+                {
+                    "serve_query_seconds": time.monotonic() - started,
+                    "boundary": "Original serve_query includes setup and trace capture; evaluator excluded",
+                },
+            )
+            if self.agent and self.agent.agent_id:
+                capture_agent_ledger(base, self.agent.agent_service_endpoint, self.agent.agent_id)
         endpoint = self.agent.agent_service_endpoint + "/api/agents/" + self.agent.agent_id
         base = Path(self.output_dir) / query_id
         response = requests.get(endpoint + "/snapshots/head", timeout=30)

@@ -18,7 +18,7 @@
  */
 
 import { env } from "../config/env";
-import type { AgentInfo, AgentSettingsApi, ReActStep } from "../types/agent";
+import type { AgentInfo, AgentSettingsApi, ModelCapabilities, ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { NativeObservation } from "../agent/native/evidence";
 import type { NativeErrorQuery, NativeErrorSummary } from "../agent/native/diagnostics";
@@ -50,6 +50,8 @@ export interface CreateAgentOptions {
   workflowId?: number;
   computingUnitId?: number;
   settings?: AgentSettingsApi;
+  modelCapabilities?: ModelCapabilities;
+  modelRequestTimeoutMs?: number;
   baseUrl?: string;
 }
 
@@ -60,6 +62,8 @@ export async function createAgent(opts: CreateAgentOptions): Promise<AgentInfo> 
     workflowId: opts.workflowId,
     computingUnitId: opts.computingUnitId,
     settings: opts.settings,
+    modelCapabilities: opts.modelCapabilities,
+    modelRequestTimeoutMs: opts.modelRequestTimeoutMs,
   };
   for (const k of Object.keys(body)) if (body[k] === undefined) delete body[k];
 

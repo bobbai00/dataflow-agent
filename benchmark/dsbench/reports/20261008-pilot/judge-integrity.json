@@ -1,0 +1,65 @@
+{
+  "passed": true,
+  "verified_at": "2026-10-08T03:35:43.528092+00:00",
+  "model_calls_from_audit": 0,
+  "task_count": 12,
+  "arm_count": 5,
+  "prediction_count": 60,
+  "grade_count": 60,
+  "unique_official_requests": 25,
+  "identical_request_reuses": 35,
+  "judge_errors": 0,
+  "response_model_mismatches": 0,
+  "official_model": "gpt-4o-2024-05-13",
+  "source_revision": "ba786096137a5108af11c016ad3f09cdb97beefd",
+  "request_parameters": {
+    "model": "gpt-4o-2024-05-13",
+    "temperature": 0,
+    "max_tokens": 256,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0
+  },
+  "max_retries": 0,
+  "request_timeout_seconds": 90.0,
+  "official_verdict_rule": "case-insensitive true substring; exceptions False",
+  "verified": {
+    "complete_unique_declared_identities": true,
+    "frozen_campaign_source_hashes": true,
+    "pinned_original_source_hashes": true,
+    "prepared_questions_match_source_archive": true,
+    "typed_gold_matches_pinned_metadata": true,
+    "final_questions_and_typed_answers_match_preparation": true,
+    "predictions_match_response_utf8_bytes": true,
+    "grade_and_cache_requests_match_official_request": true,
+    "request_cache_keys_match_frozen_parameters": true,
+    "response_models_match_exact_official_snapshot": true,
+    "verdicts_match_response_and_official_rule": true,
+    "cache_verdicts_and_usage_match_grades": true,
+    "usage_and_original_cost_match_provider_response": true,
+    "cache_hits_add_zero_calls_and_cost": true
+  },
+  "unique_original_judge_cost_usd": 0.017705000000000002,
+  "files": {
+    "manifest": {
+      "path": "/var/tmp/texera-dsbench-pilot-20261008/manifest.json",
+      "sha256": "932dab19faa3c6737f3202d98fa746ee8b2eac0a96b88639512645e915f9729e"
+    },
+    "gold": {
+      "path": "/var/tmp/texera-dsbench-pilot-20261008/evaluation/gold.json",
+      "sha256": "5e0c97e9210a418f1f8593680813f8aa381b841d9ac7f6c21369b22f3bd7a43d"
+    },
+    "final_inputs": {
+      "path": "/var/tmp/texera-dsbench-pilot-20261008/evaluation/final-inputs.jsonl",
+      "sha256": "1c67cd4fdfdeeebf1f3774af3994c477ae6f547bb50f76cef058558a5ae617fa"
+    },
+    "final_grades": {
+      "path": "/var/tmp/texera-dsbench-pilot-20261008/evaluation/final-grades.jsonl",
+      "sha256": "206cd90ff17231447e374b00b5f32daea38c2a3da608bca88ee95eba5c5e0ed0"
+    },
+    "script": {
+      "path": "/var/tmp/texera-dsbench-pilot-20261008/audit/judge-integrity-check.py",
+      "sha256": "e37537f40c630021bedd7a35b738ade9edc08e88cea54499bf9ec5b2f615e7ca"
+    }
+  }
+}

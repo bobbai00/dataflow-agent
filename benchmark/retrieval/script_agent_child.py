@@ -30,9 +30,11 @@ REQUEST_FIELDS = [
     "messages",
     "stop",
     "max_tokens",
+    "max_completion_tokens",
     "temperature",
     "tools",
     "tool_choice",
+    "parallel_tool_calls",
     "response_format",
     "reasoning_effort",
 ]
@@ -65,7 +67,7 @@ def main():
     import httpx
     from smolagents.local_python_executor import LocalPythonExecutor
 
-    from code_agent import CodeAgentWrapper
+    from code_agent import CodeAgentWrapper, load_structured_output_transport
 
     def append(name, event):
         event["timestamp"] = datetime.now(timezone.utc).isoformat()
@@ -95,6 +97,7 @@ def main():
                     "logs_chars": len(logs),
                     "truncated": TRUNCATION_MARK in logs,
                     "output_chars": None if output is None else len(str(output.output)),
+                    "is_final_answer": bool(output is not None and output.is_final_answer),
                     "error": failure,
                 },
             )
@@ -141,9 +144,13 @@ def main():
     )
     model.client = model.create_client()
     create = model.client.chat.completions.create
+    transport_helpers = load_structured_output_transport() if wrapper.model_capabilities else None
 
     def recorded_create(*args, **kwargs):
         nonlocal call_number
+        bridge = None
+        if transport_helpers is not None:
+            kwargs, bridge = transport_helpers.prepare_completion_request(kwargs, wrapper.model_capabilities)
         call_number += 1
         number, started = call_number, time.monotonic()
         append(
@@ -152,6 +159,7 @@ def main():
                 "phase": "request",
                 "call": number,
                 "request": {key: kwargs[key] for key in REQUEST_FIELDS if key in kwargs},
+                "structured_output_transport": bridge,
             },
         )
         try:
@@ -174,11 +182,30 @@ def main():
                 "phase": "response",
                 "call": number,
                 "response_model": response.model,
-                "usage": response.usage.model_dump(),
+                "usage": response.usage.model_dump() if response.usage is not None else None,
                 "choices": [choice.model_dump() for choice in response.choices],
                 "seconds": time.monotonic() - started,
             },
         )
+        if transport_helpers is not None:
+            try:
+                adapted = transport_helpers.unwrap_structured_response(response, bridge)
+            except ValueError as error:
+                append(
+                    "model-request-trace.jsonl",
+                    {"phase": "structured_output_error", "call": number, "error": str(error)},
+                )
+                raise
+            if bridge is not None:
+                append(
+                    "model-request-trace.jsonl",
+                    {
+                        "phase": "structured_output_adaptation",
+                        "call": number,
+                        "content": adapted.choices[0].message.content,
+                    },
+                )
+            return adapted
         return response
 
     model.client.chat.completions.create = recorded_create

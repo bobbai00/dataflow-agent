@@ -30,7 +30,26 @@
  * Responses transport.
  */
 
-export const LLM_REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS ?? 180_000);
+import type { ResolvedModelRequestTimeout } from "../../types/agent";
+
+const configuredTimeout = process.env.LLM_REQUEST_TIMEOUT_MS;
+export const LLM_REQUEST_TIMEOUT_MS = Number(configuredTimeout ?? 180_000);
+/** Portable signed 32-bit timer bound shared by Bun and Node runtimes. */
+export const MAX_MODEL_REQUEST_TIMEOUT_MS = 2_147_483_647;
+
+/** Resolve once per agent; omission preserves the module's captured global default. */
+export function resolveModelRequestTimeout(timeoutMs?: number): ResolvedModelRequestTimeout {
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_MODEL_REQUEST_TIMEOUT_MS)
+  ) {
+    throw new RangeError("Invalid model request timeout: expected positive portable integer milliseconds");
+  }
+  return {
+    milliseconds: timeoutMs ?? LLM_REQUEST_TIMEOUT_MS,
+    source: timeoutMs !== undefined ? "explicit" : configuredTimeout === undefined ? "default" : "environment",
+  };
+}
 
 /** `fetch` with a deadline per request; the caller's own abort signal still wins. */
 export function withRequestTimeout(

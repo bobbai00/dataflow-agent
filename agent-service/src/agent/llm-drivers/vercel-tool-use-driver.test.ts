@@ -19,6 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
+import { jsonSchema, tool } from "ai";
 import { VercelToolUseDriver } from "./vercel-tool-use-driver";
 import type { DriverStepFinish } from "./types";
 
@@ -52,5 +53,49 @@ for (const field of ["cache_write_tokens", "cache_creation_tokens"]) {
     expect(result.usage.cacheCreationInputTokens).toBe(500);
     expect(result.usage.cachedInputTokens).toBe(1000);
     expect(result.usage.inputTokens).toBe(2000);
+  });
+}
+
+for (const [modelId, forcedToolChoice, expected] of [
+  ["custom-model", false, "auto"],
+  ["custom-model", true, "required"],
+  ["custom-model", undefined, "required"],
+  ["claude-sonnet-5.5", undefined, "auto"],
+  ["claude-sonnet-5-5", undefined, "auto"],
+  ["claude-sonnet-5.5", true, "required"],
+] as const) {
+  test(`resolves ${modelId} forcedToolChoice=${forcedToolChoice} once and passes ${expected}`, async () => {
+    const choices: unknown[] = [];
+    const model = new MockLanguageModelV3({
+      modelId,
+      doGenerate: async options => {
+        choices.push(options.toolChoice);
+        return {
+          content: [{ type: "text", text: "done" }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 2, text: 2, reasoning: 0 },
+          },
+          warnings: [],
+        };
+      },
+    });
+    const driver = new VercelToolUseDriver({
+      model,
+      modelCapabilities: forcedToolChoice === undefined ? undefined : { forcedToolChoice },
+    });
+    await driver.runTurn({
+      initialMessages: [{ role: "user", content: "Original task" }],
+      systemPrompt: "Original prompt",
+      tools: { fixture: tool({ inputSchema: jsonSchema({ type: "object", properties: {} }) }) },
+      maxSteps: 1,
+      parallelToolCalls: false,
+      requireToolCall: true,
+      getFinalAnswer: () => "done",
+      prepareStep: async ({ messages }) => ({ messages }),
+      onStepFinish: async () => {},
+    });
+    expect(choices).toEqual([{ type: expected }]);
   });
 }

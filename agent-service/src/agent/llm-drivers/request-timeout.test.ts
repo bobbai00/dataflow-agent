@@ -20,7 +20,100 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
-import { isTransientModelError, withRequestTimeout } from "./request-timeout";
+import {
+  isTransientModelError,
+  LLM_REQUEST_TIMEOUT_MS,
+  resolveModelRequestTimeout,
+  withRequestTimeout,
+} from "./request-timeout";
+
+test("explicit model deadlines resolve independently without changing the captured default", () => {
+  const baseline = resolveModelRequestTimeout();
+  expect(baseline.milliseconds).toBe(LLM_REQUEST_TIMEOUT_MS);
+  expect(["environment", "default"]).toContain(baseline.source);
+  expect(resolveModelRequestTimeout(240_000)).toEqual({ milliseconds: 240_000, source: "explicit" });
+  expect(resolveModelRequestTimeout(50)).toEqual({ milliseconds: 50, source: "explicit" });
+  expect(resolveModelRequestTimeout()).toEqual(baseline);
+});
+
+test("explicit model deadlines reject invalid or nonportable millisecond values", () => {
+  for (const value of [0, -1, 1.5, "240000", null, true, NaN, Infinity, 2_147_483_648]) {
+    expect(() => resolveModelRequestTimeout(value as any)).toThrow("Invalid model request timeout");
+  }
+});
+
+test("omitted model deadline provenance is captured once instead of following environment mutations", () => {
+  const baseline = resolveModelRequestTimeout();
+  const original = process.env.LLM_REQUEST_TIMEOUT_MS;
+  try {
+    process.env.LLM_REQUEST_TIMEOUT_MS = "9";
+    expect(resolveModelRequestTimeout()).toEqual(baseline);
+  } finally {
+    if (original === undefined) delete process.env.LLM_REQUEST_TIMEOUT_MS;
+    else process.env.LLM_REQUEST_TIMEOUT_MS = original;
+  }
+});
+
+test("a configured startup environment is retained as the omitted deadline's provenance", async () => {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--eval",
+      `
+    const { resolveModelRequestTimeout } = await import("./src/agent/llm-drivers/request-timeout.ts");
+    const initial = resolveModelRequestTimeout();
+    process.env.LLM_REQUEST_TIMEOUT_MS = "9";
+    console.log(JSON.stringify({ initial, after: resolveModelRequestTimeout(), explicit: resolveModelRequestTimeout(50) }));
+  `,
+    ],
+    { env: { ...process.env, LLM_REQUEST_TIMEOUT_MS: "12345" }, stdout: "pipe", stderr: "pipe" }
+  );
+  expect(await child.exited).toBe(0);
+  expect(await new Response(child.stderr).text()).toBe("");
+  const observed = JSON.parse(await new Response(child.stdout).text());
+  expect(observed.initial).toEqual({ milliseconds: 12345, source: "environment" });
+  expect(observed.after).toEqual(observed.initial);
+  expect(observed.explicit).toEqual({ milliseconds: 50, source: "explicit" });
+});
+
+test("the fetch deadline still expires while a response body continuously makes progress", async () => {
+  let chunks = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue("[");
+            timer = setInterval(() => {
+              chunks++;
+              controller.enqueue("0,");
+            }, 10);
+          },
+          cancel() {
+            if (timer) clearInterval(timer);
+          },
+        })
+      ),
+  });
+  try {
+    const started = performance.now();
+    const error = await withRequestTimeout(
+      globalThis.fetch,
+      100
+    )(`http://localhost:${server.port}`)
+      .then(response => response.text())
+      .catch(error => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(["TimeoutError", "AbortError"]).toContain(error.name);
+    expect(chunks).toBeGreaterThan(1);
+    expect(performance.now() - started).toBeLessThan(2000);
+  } finally {
+    if (timer) clearInterval(timer);
+    server.stop(true);
+  }
+});
 
 /** A provider that accepted the request and never answers; it only honours abort. */
 const neverAnswers = ((_input: unknown, init?: RequestInit) =>

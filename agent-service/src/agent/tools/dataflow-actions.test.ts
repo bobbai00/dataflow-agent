@@ -24,6 +24,7 @@ import { asSchema } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
 import {
+  DATAFLOW_ACTIONS_SCHEMA,
   createDataflowTool,
   prepareDataflowActions,
   renderDataflowActionsResult,
@@ -36,6 +37,36 @@ import { assembleContext } from "../util/context-utils";
 import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 
 const edit = { type: "edit", changes: 'source = scan("data/orders.csv")' };
+
+describe("native nonblank string patterns", () => {
+  const pattern = DATAFLOW_ACTIONS_SCHEMA.properties.reasoning.pattern;
+  // A structured decoder can apply the regex to the entire string, whereas
+  // JSON Schema validation searches for a matching substring.
+  const wholeValuePattern = new RegExp(`^(?:${pattern})(?![\\s\\S])`, "u");
+
+  test("whole-value matching admits full reasoning, multiline edits and answers", () => {
+    // The preserved Qwen smoke emitted only I/t/I for these three fields:
+    // the previous \\S grammar admitted a single character, never full values.
+    const examples = [
+      "I will inspect the input file.",
+      'source = scan("data/orders.csv")\nclean = filter(source)\n    def keep(row):\n        return row["amount"] > 0',
+      "13.1628",
+    ];
+    for (const value of examples) {
+      expect(new RegExp("^(?:\\S)(?![\\s\\S])", "u").test(value)).toBe(false);
+      expect(wholeValuePattern.test(value)).toBe(true);
+    }
+  });
+
+  test("search and whole-value matching preserve the original nonblank rule", () => {
+    const searchPattern = new RegExp(pattern, "u");
+    for (const value of ["", " ", "\n\t\r", "\u00a0\uFEFF", "I", "t", " I ", "\nI\n", "a b", "line\nnext", "é", "数据", "\u200b"]) {
+      const nonblank = /\S/u.test(value);
+      expect(searchPattern.test(value)).toBe(nonblank);
+      expect(wholeValuePattern.test(value)).toBe(nonblank);
+    }
+  });
+});
 
 describe("compact action observations", () => {
   async function receipt(action: DataflowAction, output: unknown, status: "ok" | "error" = "ok") {

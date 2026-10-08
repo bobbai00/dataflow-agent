@@ -1,0 +1,49 @@
+{
+  "artifacts": [
+    {
+      "file": "REPORT.txt",
+      "sha256": "45a7c92fc48603f3028d1b468eb6ea48d493aaedb30ffb610685dc0acf2f9226",
+      "bytes": 9318
+    },
+    {
+      "file": "gateway-public.json",
+      "sha256": "8adf612042b206edf0db262917c0054772542de5702e6f8c725e328ed582051d",
+      "bytes": 842
+    },
+    {
+      "file": "judge-integrity.json",
+      "sha256": "bcee8f5e81d5bc4b8afdbc15df2a8a0cbf8f4a0eb0fbd7a75f344b23304add7e",
+      "bytes": 2520
+    },
+    {
+      "file": "manual-mechanism-audit.json",
+      "sha256": "54ead5b9638dfe16307877c6b9f744498ca2d4e94338eeffc793a1ce62de3391",
+      "bytes": 77848
+    },
+    {
+      "file": "manual-mechanism-audit.txt",
+      "sha256": "763f2a43754e38d4e7fbd3717c2062f9afdf7963cb53cab51dd09956fea8161c",
+      "bytes": 12658
+    },
+    {
+      "file": "protocol.json",
+      "sha256": "248d70c7140b36671a5b39f511aa2bbd21c62bb5f03b85b20875f8a3ed9726c2",
+      "bytes": 3162
+    },
+    {
+      "file": "scores.json",
+      "sha256": "15e3f295897a02027852580f23ac57e6a5c3f47f67e2ba2100676f36a1f10c59",
+      "bytes": 34863
+    },
+    {
+      "file": "trace-usage-summary.json",
+      "sha256": "3c5706c2bed2e0cd2a95f61fc78ec9d1e3caebc791949df0269412a61ad39335",
+      "bytes": 3709
+    },
+    {
+      "file": "validation.json",
+      "sha256": "0f1c07ed676f102294ceba19f8c1db12c04dc1198af4f2fa40f6405511f601fe",
+      "bytes": 1916
+    }
+  ]
+}

@@ -54,6 +54,8 @@ import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult, DriverStepFini
 import type { TokenUsage } from "../../types/agent";
 import { parseReActText, type ParsedReActOutput } from "./react-text-parser";
 import { parseQwenToolCall } from "./qwen-tool-call-parser";
+import { normalizeSdkUsage } from "./model-request-accounting";
+import { sumTokenUsage } from "./turn-usage-accounting";
 
 export interface LocalReactTextDriverOptions {
   model: LanguageModel;
@@ -80,7 +82,7 @@ export class LocalReactTextDriver implements LLMDriver {
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
     let messages: ModelMessage[] = input.initialMessages;
     let lastThought = "";
-    const aggregated: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    let aggregated: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
     // Pick the parser for the configured tool-call dialect once per turn (the
     // dialect is fixed for the duration of a turn). The system prompt the
@@ -108,16 +110,8 @@ export class LocalReactTextDriver implements LLMDriver {
       });
 
       const rawText = result.text ?? "";
-      const usage: TokenUsage | undefined = result.usage
-        ? {
-            inputTokens: result.usage.inputTokens,
-            outputTokens: result.usage.outputTokens,
-            totalTokens: result.usage.totalTokens,
-          }
-        : undefined;
-      aggregated.inputTokens = (aggregated.inputTokens ?? 0) + (usage?.inputTokens ?? 0);
-      aggregated.outputTokens = (aggregated.outputTokens ?? 0) + (usage?.outputTokens ?? 0);
-      aggregated.totalTokens = (aggregated.totalTokens ?? 0) + (usage?.totalTokens ?? 0);
+      const usage = normalizeSdkUsage(result.usage, (result.response as any)?.body?.usage);
+      if (usage) aggregated = sumTokenUsage([aggregated, usage]);
 
       const parsed = parse(rawText);
       lastThought = parsed.thought;

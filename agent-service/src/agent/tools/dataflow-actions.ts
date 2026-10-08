@@ -88,7 +88,9 @@ export interface DataflowActionsResult {
   references?: TaskReference[];
 }
 
-const text = { type: "string", minLength: 1, pattern: "\\S" };
+// JSON Schema searches patterns, but some constrained decoders match the whole
+// value. Spell out the surrounding text so both accept every nonblank string.
+const text = { type: "string", minLength: 1, pattern: "[\\s\\S]*\\S[\\s\\S]*" };
 const object = <T extends Record<string, unknown>>(properties: T) => ({
   type: "object",
   additionalProperties: false,

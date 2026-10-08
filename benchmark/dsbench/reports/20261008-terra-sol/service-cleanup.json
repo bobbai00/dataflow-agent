@@ -1,0 +1,14 @@
+{
+  "owned_agent_service_stop_returncode": 0,
+  "keeper_stop_requested": true,
+  "tcp_ports_up": {
+    "3082": false,
+    "22080": true,
+    "22888": true,
+    "22085": true,
+    "23090": true,
+    "23096": true,
+    "18000": true
+  },
+  "preserved_other_services": true
+}

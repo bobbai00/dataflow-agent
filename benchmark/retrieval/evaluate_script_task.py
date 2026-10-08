@@ -66,6 +66,17 @@ def discard_workspace(workspace, scratch):
     shutil.rmtree(workspace, ignore_errors=True)
 
 
+def model_options(manifest):
+    """Only explicit provider facts override the historical model defaults."""
+    fact = manifest.get("model_fact")
+    if not fact:
+        return {}
+    return {
+        "model_parameters": fact.get("model_parameters", {}),
+        "model_capabilities": fact.get("model_capabilities", {}),
+    }
+
+
 def main():
     sys.path.insert(0, str(Path.cwd()))
     import systems
@@ -87,6 +98,7 @@ def main():
                 api_base=manifest["script_endpoint"],
                 api_key=os.environ.get("CODE_AGENT_API_KEY") or os.environ["LITELLM_MASTER_KEY"],
                 **settings,
+                **model_options(manifest),
                 **kwargs,
             )
 

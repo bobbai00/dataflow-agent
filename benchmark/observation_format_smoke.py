@@ -149,9 +149,11 @@ class LongDSObservationFormatLuna(DataflowObservationFormatLuna):
         before.raise_for_status()
         previous = before.json()["steps"]
         deadline = time.monotonic() + (self.agent.max_turn_seconds or 1200)
+        completion = {}
         try:
             response = requests.post(base + "/message", json={"content": prompt}, timeout=(10, 1200))
             response.raise_for_status()
+            completion = response.json()
         except (requests.ConnectionError, requests.Timeout):
             # A disconnected synchronous request can still finish server-side.
             # Poll its actual trace; never resubmit a paid/partially run turn.
@@ -170,7 +172,7 @@ class LongDSObservationFormatLuna(DataflowObservationFormatLuna):
         if not steps or steps[0].get("role") != "user" or steps[0].get("content") != prompt:
             raise RuntimeError("REST turn did not produce the expected new request in the trace")
         end = next((step for step in reversed(steps) if step.get("role") == "agent" and step.get("isEnd")), None)
-        if end is None:
+        if end is None and not (completion.get("error") or completion.get("stopped")):
             raise RuntimeError("REST turn has no completed answer; partial trace remains available")
         mapping = {
             "input_tokens": "inputTokens",
@@ -184,13 +186,17 @@ class LongDSObservationFormatLuna(DataflowObservationFormatLuna):
             key: sum(int(step.get("usage", {}).get(field) or 0) for step in steps if step.get("role") == "agent")
             for key, field in mapping.items()
         }
+        if isinstance(completion.get("usage"), dict):
+            usage = {key: int(completion["usage"].get(field) or 0) for key, field in mapping.items()}
         result = MessageResult(
-            response=end.get("content", ""),
+            response=completion.get("answer") or (end or {}).get("content", ""),
             messages=steps,
             usage=usage,
             stats={"steps": sum(step.get("role") == "agent" for step in steps)},
-            stopped=False,
+            stopped=bool(completion.get("stopped")),
+            error=completion.get("error"),
             completed=True,
+            model_accounting=completion.get("modelAccounting"),
         )
         self.agent._last_result = result
         return result

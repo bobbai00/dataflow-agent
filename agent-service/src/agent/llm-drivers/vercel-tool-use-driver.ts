@@ -34,7 +34,9 @@
 import { generateText, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
 import { MissingAnswerActionError } from "./types";
-import type { TokenUsage } from "../../types/agent";
+import { normalizeSdkUsage } from "./model-request-accounting";
+import type { ModelCapabilities, ResolvedModelCapabilities, TokenUsage } from "../../types/agent";
+import { resolveModelCapabilities } from "./model-capabilities";
 
 export interface VercelToolUseDriverOptions {
   model: LanguageModel;
@@ -43,24 +45,24 @@ export interface VercelToolUseDriverOptions {
   temperature?: number;
   maxOutputTokens?: number;
   maxRetries?: number;
+  modelCapabilities?: ModelCapabilities;
 }
 
 export class VercelToolUseDriver implements LLMDriver {
   private readonly model: LanguageModel;
   private readonly temperature: number;
+  readonly modelCapabilities: ResolvedModelCapabilities;
   private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
+    const modelId = typeof opts.model === "string" ? opts.model : opts.model.modelId;
+    this.modelCapabilities = resolveModelCapabilities(modelId, opts.modelCapabilities);
     this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
-    // Sonnet 5.5 rejects forced tool use. The native Answer contract is still
-    // enforced below, including the bounded correction for a text-only reply.
-    const modelId = typeof this.model === "string" ? this.model : this.model.modelId;
-    const supportsForcedTools = !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
     // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
@@ -73,7 +75,7 @@ export class VercelToolUseDriver implements LLMDriver {
       tools: input.tools,
       temperature: this.temperature,
       stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
-      toolChoice: input.requireToolCall && supportsForcedTools ? "required" : "auto",
+      toolChoice: input.requireToolCall && this.modelCapabilities.forcedToolChoice ? "required" : "auto",
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -89,15 +91,8 @@ export class VercelToolUseDriver implements LLMDriver {
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
       onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
-        // Preserve cache writes from raw provider usage. Gateways expose both
-        // OpenAI's cache_write_tokens and Anthropic's cache_creation_tokens;
-        // the SDK's flattened usage does not retain either field reliably.
-        const stepCacheCreation = Number(
-          (response as any)?.body?.usage?.prompt_tokens_details?.cache_write_tokens ??
-            (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
-            (response as any)?.body?.usage?.cache_creation_input_tokens ??
-            0
-        );
+        const stepUsage = normalizeSdkUsage(usage, (response as any)?.body?.usage);
+        const stepCacheCreation = stepUsage?.cacheCreationInputTokens ?? 0;
         cacheCreationTotal += stepCacheCreation;
         const before = new Map(toolResults?.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
         await input.onStepFinish({
@@ -117,18 +112,7 @@ export class VercelToolUseDriver implements LLMDriver {
               isError,
             };
           }),
-          usage: usage
-            ? {
-                inputTokens: usage.inputTokens,
-                outputTokens: usage.outputTokens,
-                totalTokens: usage.totalTokens,
-                // Per-class breakdown — the python client re-aggregates usage per
-                // step, so reasoning/cache must ride on each step's usage.
-                reasoningTokens: (usage as any).reasoningTokens,
-                cachedInputTokens: (usage as any).cachedInputTokens,
-                cacheCreationInputTokens: stepCacheCreation,
-              }
-            : undefined,
+          usage: stepUsage,
         });
         // The SDK cloned response.messages before calling this hook. Preserve
         // outputs completed by the agent here so the returned archive reflects

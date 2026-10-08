@@ -33,7 +33,8 @@ from urllib.parse import urlsplit
 
 from campaign import ResourceQueue, audit_attempt, install_provider_prices, prepare_artifacts
 from catalog import inventory
-from run import ROOT, KB, save
+from run import ROOT, KB, MODEL_TYPES, save
+from attempt_runtime import supervise_adapter, record_adapter_metrics, validate_resource_scope, record_provider_block
 
 
 def audit_script(path):
@@ -70,11 +71,18 @@ def main():
     parser.add_argument("--endpoint", default="http://localhost:3079")
     parser.add_argument("--script-endpoint", default="http://localhost:4001/v1")
     parser.add_argument("--script-chars", type=int, default=5000)
+    parser.add_argument("--model", default="Sonnet55", help="Known model name or arbitrary exact gateway model ID")
+    parser.add_argument("--model-facts", type=Path, help="Frozen exact model capability/pricing facts")
+    parser.add_argument("--resource-scope", type=Path, help="Owned service/components for serial comparable collection")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=1200)
     parser.add_argument("--agent-revision", required=True)
     parser.add_argument("--engine-revision", required=True)
     args = parser.parse_args()
+    resource_scope = json.loads(args.resource_scope.read_text()) if args.resource_scope else {}
+    validate_resource_scope(resource_scope)
+    if resource_scope and args.workers != 1:
+        parser.error("An owned shared resource scope requires --workers 1 for attributable measurements")
     if args.output.exists():
         parser.error("Refusing to overwrite existing output")
     if min(args.workers, args.timeout, args.script_chars) < 1:
@@ -98,16 +106,27 @@ def main():
     from dataflow_agent import login
     from systems import cost_utils
 
+    model = MODEL_TYPES.get(args.model, args.model)
+    model_fact = None
+    if args.model_facts:
+        facts = json.loads(args.model_facts.read_text())
+        rows = facts["models"] if isinstance(facts, dict) else facts
+        model_fact = next(row for row in rows if args.model in {row["requested_model"], row["native_model_id"]})
+        model = model_fact["native_model_id"]
+        if type(model_fact.get("available")) is not bool:
+            parser.error("Frozen model facts must include a boolean provider-access result")
+
     output = args.output.resolve()
     sources = inventory()
     tasks = sorted(t["task_id"] for t in sources)
     assert len(tasks) == 104
     tag = output.name.replace("-", "_")
-    jobs = [{"model": "Sonnet55", "arm": arm, "task": task, "rep": 1,
-             "sut": f"{prefix}Sonnet55_{tag}_{arm}_Rep1"}
-            for prefix, arm in [("CodeAgentSystem", "guided_script"),
-                                ("DataflowSystem", "adaptive_flow1")]
-            for task in tasks]
+    model_tag = "".join(character if character.isalnum() else "_" for character in args.model)
+    jobs = [
+        {"model": args.model, "arm": arm, "task": task, "rep": 1, "sut": f"{prefix}{model_tag}_{tag}_{arm}_Rep1"}
+        for prefix, arm in [("CodeAgentSystem", "guided_script"), ("DataflowSystem", "adaptive_flow1")]
+        for task in tasks
+    ]
     random.Random(102).shuffle(jobs)
     # First production attempt checks the new script routing/instrumentation.
     # It remains part of the full round, whatever its official score is.
@@ -115,36 +134,73 @@ def main():
     jobs.remove(first)
     jobs.insert(0, first)
     manifest = {
-        "agent_revision": args.agent_revision, "engine_revision": args.engine_revision,
+        "agent_revision": args.agent_revision,
+        "engine_revision": args.engine_revision,
         "runner_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "harness_revision": subprocess.check_output(["git", "-C", str(KB), "rev-parse", "HEAD"], text=True).strip(),
-        "endpoint": args.endpoint, "script_endpoint": args.script_endpoint,
-        "task_ids": tasks, "repetitions": 1, "models": {"Sonnet55": "claude-sonnet-5.5"},
-        "pricing_overrides": install_provider_prices(cost_utils, ["claude-sonnet-5.5"]),
-        "arms": {"adaptive_flow1": {"retrievalViews": ["full", "sample", "sample_stats"],
-                                     "flowEvidence": True, "dataEvidence": True}},
-        "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
-                     "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
-                     "fullResultCharLimit": 100000, "dataEvidenceCharLimit": 2000,
-                     "flowEvidenceCharLimit": 2000, "thoughtReplay": False, "enableCodeInSnapshot": False},
-        "script_settings": {"max_steps": 25, "max_print_outputs_length": args.script_chars,
-                            "use_custom_prompt": True, "use_fine_grained_prompt": False,
-                            "use_pitfalls_prompt": False, "no_action_detail": False,
-                            "final_answer_tool_prompt": True},
+        "endpoint": args.endpoint,
+        "script_endpoint": args.script_endpoint,
+        "task_ids": tasks,
+        "repetitions": 1,
+        "models": {args.model: model},
+        "model_fact": model_fact,
+        "resource_scope": resource_scope,
+        "price_schedule": model_fact.get("pricing") if model_fact else cost_utils.price_schedule(model),
+        "pricing_overrides": install_provider_prices(cost_utils, [model]),
+        "arms": {
+            "adaptive_flow1": {
+                "retrievalViews": ["full", "sample", "sample_stats"],
+                "flowEvidence": True,
+                "dataEvidence": True,
+            }
+        },
+        "settings": {
+            "agentMode": "native",
+            "contextMode": "delta",
+            "nativeProfileCollection": True,
+            "maxSteps": 25,
+            "maxOperatorResultCharLimit": 2000,
+            "maxResultRows": 5,
+            "fullResultCharLimit": 100000,
+            "dataEvidenceCharLimit": 2000,
+            "flowEvidenceCharLimit": 2000,
+            "thoughtReplay": False,
+            "enableCodeInSnapshot": False,
+        },
+        "script_settings": {
+            "max_steps": 25,
+            "max_print_outputs_length": args.script_chars,
+            "use_custom_prompt": True,
+            "use_fine_grained_prompt": False,
+            "use_pitfalls_prompt": False,
+            "no_action_detail": False,
+            "final_answer_tool_prompt": True,
+        },
         "selection": "All 104 original top-level KramaBench tasks, both systems, one attempt each. User-selected guided 5K script preview; Dataflows retains current adaptive views with 2K samples plus statistics and flow. No task exclusions or outcome-selected retries.",
         "attempt_policy": "One attempt per task and system, as requested; no recovery rounds or best-of selection.",
-        "pass_threshold": 1.0, "workers": args.workers, "large_workers": 1,
-        "large_input_bytes": 100000000, "task_timeout_seconds": args.timeout,
-        "workspaces": str(args.output.resolve() / "workspaces"), "input_inventory": sources, "jobs": jobs,
+        "pass_threshold": 1.0,
+        "workers": args.workers,
+        "large_workers": 1,
+        "large_input_bytes": 100000000,
+        "task_timeout_seconds": args.timeout,
+        "workspaces": str(args.output.resolve() / "workspaces"),
+        "input_inventory": sources,
+        "jobs": jobs,
     }
     output.mkdir(parents=True)
     save(output / "manifest.json", manifest)
     prepare_artifacts(KB / "system_scratch", output / "system_scratch", [j["sut"] for j in jobs])
     os.chdir(KB)
     pending = ResourceQueue(jobs[1:], {t["task_id"] for t in sources if t["bytes"] >= 100000000}, 1)
-    lock, launch_lock = threading.Lock(), threading.Lock()
-    progress = {"started_at": datetime.now(timezone.utc).isoformat(), "status": "running",
-                "active": {}, "completed": [], "worker_errors": [], "waiting": {}}
+    lock = threading.Lock()
+    progress = {
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "status": "running",
+        "active": {},
+        "completed": [],
+        "worker_errors": [],
+        "waiting": {},
+    }
     save(output / "progress.json", progress)
     units = {}
 
@@ -178,14 +234,37 @@ def main():
 
     def execute(job, slot):
         dataflow = job["arm"] == "adaptive_flow1"
+        if model_fact and not model_fact["available"]:
+            path = output / "system_scratch" / job["sut"] / job["task"]
+            row = {
+                **job,
+                **record_provider_block(
+                    path, fact=model_fact, task_id=job["task"], system="native" if dataflow else "smolagents"
+                ),
+            }
+            with lock:
+                progress["completed"].append(row)
+                save(output / "progress.json", progress)
+            return
         ready(slot, dataflow)
         if dataflow and slot not in units:
             token = login(api_endpoint=os.environ["TEXERA_API_ENDPOINT"])
             headers = {"Authorization": "Bearer " + token}
-            response = requests.post(os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"] + "/api/computing-unit/create",
-                headers=headers, timeout=30, json={"name": f"comparison-{tag}-{slot}", "unitType": "local",
-                "cpuLimit": "NaN", "memoryLimit": "NaN", "gpuLimit": "NaN", "jvmMemorySize": "NaN",
-                "shmSize": "NaN", "uri": os.environ["TEXERA_WORKFLOW_EXECUTION_ENDPOINT"]})
+            response = requests.post(
+                os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"] + "/api/computing-unit/create",
+                headers=headers,
+                timeout=30,
+                json={
+                    "name": f"comparison-{tag}-{slot}",
+                    "unitType": "local",
+                    "cpuLimit": "NaN",
+                    "memoryLimit": "NaN",
+                    "gpuLimit": "NaN",
+                    "jvmMemorySize": "NaN",
+                    "shmSize": "NaN",
+                    "uri": os.environ["TEXERA_WORKFLOW_EXECUTION_ENDPOINT"],
+                },
+            )
             response.raise_for_status()
             body = response.json()
             units[slot] = (body.get("computingUnit", body)["cuid"], headers)
@@ -193,51 +272,77 @@ def main():
         path = output / "system_scratch" / job["sut"] / job["task"]
         log = output / "logs" / f"{job['sut']}-{job['task']}.log"
         log.parent.mkdir(exist_ok=True)
-        env = dict(os.environ, RETRIEVAL_MANIFEST=str(output / "manifest.json"),
-                   RETRIEVAL_JOB=json.dumps(job), PYTHONUNBUFFERED="1")
+        env = dict(
+            os.environ,
+            RETRIEVAL_MANIFEST=str(output / "manifest.json"),
+            RETRIEVAL_JOB=json.dumps(job),
+            PYTHONUNBUFFERED="1",
+        )
         if dataflow:
             env["RETRIEVAL_CUID"] = str(units[slot][0])
         adapter = "evaluate_task.py" if dataflow else "evaluate_script_task.py"
-        started, timed_out = time.monotonic(), False
-        with log.open("x") as stream:
-            with launch_lock:
-                proc = subprocess.Popen([sys.executable, str(Path(__file__).with_name(adapter)),
-                    "--sut", job["sut"], "--workload", kb.workload_of(job["task"]),
-                    "--task_id", job["task"], "--use_truth_subset", "--no_pipeline_eval", "--verbose"],
-                    cwd=KB, env=env, stdout=stream, stderr=subprocess.STDOUT)
-                time.sleep(1)
-            with lock:
-                progress["active"][slot] = {**job, "pid": proc.pid, "started_at": datetime.now(timezone.utc).isoformat()}
-                save(output / "progress.json", progress)
-            print("START", job, flush=True)
+        with lock:
+            progress["active"][slot] = {**job, "started_at": datetime.now(timezone.utc).isoformat()}
+            save(output / "progress.json", progress)
+        print("START", job, flush=True)
+        supervised = supervise_adapter(
+            [
+                sys.executable,
+                str(Path(__file__).with_name(adapter)),
+                "--sut",
+                job["sut"],
+                "--workload",
+                kb.workload_of(job["task"]),
+                "--task_id",
+                job["task"],
+                "--use_truth_subset",
+                "--no_pipeline_eval",
+                "--verbose",
+            ],
+            directory=path,
+            stdout_path=log,
+            cwd=KB,
+            env=env,
+            timeout_seconds=args.timeout,
+            system="native" if dataflow else "smolagents",
+            resource_scope=resource_scope,
+        )
+        if supervised.timed_out and dataflow and (path / "resources.json").exists():
+            endpoint = args.endpoint + "/api/agents/" + json.loads((path / "resources.json").read_text())["agent_id"]
             try:
-                proc.wait(timeout=args.timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                resource = path / "resources.json"
-                if dataflow and resource.exists():
-                    endpoint = args.endpoint + "/api/agents/" + json.loads(resource.read_text())["agent_id"]
-                    try:
-                        requests.post(endpoint + "/stop", timeout=20)
-                        trace = requests.get(endpoint + "/react-steps", timeout=20)
-                        if trace.ok:
-                            save(path / "watchdog-react_steps.json", trace.json())
-                    except Exception as exc:
-                        save(path / "watchdog-error.json", {"error": str(exc)})
-                proc.terminate()
-                try:
-                    proc.wait(timeout=20)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
+                requests.post(endpoint + "/stop", timeout=20)
+                trace = requests.get(endpoint + "/react-steps", timeout=20)
+                if trace.ok:
+                    save(path / "watchdog-react_steps.json", trace.json())
+            except Exception as exc:
+                save(path / "watchdog-error.json", {"error": str(exc)})
         evaluation = json.loads((path / "evaluation.json").read_text()) if (path / "evaluation.json").exists() else {}
-        stats = json.loads((path / "stats.json").read_text()) if (path / "stats.json").exists() else {}
         scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
-        checks = audit_attempt(path, {**manifest["settings"], **manifest["arms"][job["arm"]]}) if dataflow else audit_script(path)
+        checks = (
+            audit_attempt(path, {**manifest["settings"], **manifest["arms"][job["arm"]]})
+            if dataflow
+            else audit_script(path)
+        )
+        metrics = record_adapter_metrics(
+            path,
+            supervised,
+            system="native" if dataflow else "smolagents",
+            model=model,
+            task_id=job["task"],
+            pricing=manifest["price_schedule"],
+            resource_scope=resource_scope,
+        )
         save(path / "attempt-audit.json", checks)
-        row = {**job, "exit_code": proc.returncode, "timeout": timed_out,
-               "score": max(scores) if scores else None, "cost_usd": stats.get("cost_usd"),
-               "seconds": time.monotonic() - started, "audit": checks}
+        row = {
+            **job,
+            "exit_code": supervised.returncode,
+            "timeout": supervised.timed_out,
+            "score": max(scores) if scores else None,
+            "cost_usd": metrics["cost"]["total_usd"],
+            "seconds": supervised.wall_seconds,
+            "audit": checks,
+            "normalized_metrics": metrics,
+        }
         with lock:
             progress["completed"].append(row)
             progress["active"].pop(slot, None)
@@ -269,8 +374,11 @@ def main():
                     (output / "PAUSE").write_text(f"Worker error requires investigation: {exc}\n")
     finally:
         for slot, (cuid, headers) in units.items():
-            response = requests.delete(os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"] + f"/api/computing-unit/{cuid}/terminate",
-                                       headers=headers, timeout=30)
+            response = requests.delete(
+                os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"] + f"/api/computing-unit/{cuid}/terminate",
+                headers=headers,
+                timeout=30,
+            )
             save(output / f"cu-{slot}.json", {"cuid": cuid, "status": "terminated" if response.ok else "cleanup_error"})
         progress["status"] = "complete" if len(progress["completed"]) == len(jobs) else "incomplete"
         progress["finished_at"] = datetime.now(timezone.utc).isoformat()

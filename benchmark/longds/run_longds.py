@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Run one LongDS task as ONE dataflow-agent session.
 
 The whole point of LongDS is that turn N+1 depends on analytical state built in
@@ -31,12 +43,17 @@ import re
 import subprocess
 import sys
 import time
+from uuid import uuid4
 from pathlib import Path
 
 from _paths import KB_ROOT, PREPARED, REPO_ROOT, SCRATCH, add_import_paths
 
 os.chdir(KB_ROOT)  # data/... paths in prompts are relative to the KramaBench root
 add_import_paths()
+
+from turn_accounting import (finish_turn_metrics, load_pricing_snapshot, select_new_requests,
+                             native_resource_window, aggregate_turn_resources, session_resource_window)
+from runtime.metrics import AttemptMetrics, write_json_exclusive
 
 # Both bold conventions must parse: the LongDS per-turn contract writes
 # `**Final Answer: <json>**` (bold wraps everything), while the service-side
@@ -221,7 +238,12 @@ def main() -> int:
     ap.add_argument("--turn-timeout", type=int, default=1200, help="per-turn wall-clock budget (s)")
     ap.add_argument("--skip-done", action="store_true")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--pricing-snapshot", type=Path, default=os.environ.get("TEXERA_BENCH_PRICING_SNAPSHOT"),
+                    help="frozen model registry or exact pricing JSON; absent rates remain unknown")
+    ap.add_argument("--resource-scope", type=Path, default=os.environ.get("TEXERA_BENCH_RESOURCE_SCOPE"),
+                    help="explicit owned native service/cgroup/shared component scope JSON")
     args = ap.parse_args()
+    resource_scope = json.loads(Path(args.resource_scope).read_text()) if args.resource_scope else None
 
     manifest_path = PREPARED / args.task / "manifest.json"
     if not manifest_path.exists():
@@ -265,16 +287,40 @@ def main() -> int:
     # it must be set before the arm is constructed.
     os.environ["TEXERA_AGENT_MAX_TURN_SECONDS"] = str(args.turn_timeout)
 
+    session_attempt_id = uuid4().hex
+    window = None
+    try:
+        with session_resource_window(resource_scope) as window:
+            result = _run_session(args, manifest, turns, gold_by_turn, arm_cls, sut_name, run_dir,
+                                  resource_scope, session_attempt_id)
+    finally:
+        if window is not None:
+            window.resources["boundary"] = "session construction through cleanup; turn counters reset separately"
+            receipt = run_dir / "attempts" / session_attempt_id / "session-resources.json"
+            write_json_exclusive(receipt, window.resources)
+            if summary_path.exists():
+                summary = json.loads(summary_path.read_text())
+                if summary.get("session_attempt_id") == session_attempt_id:
+                    summary["turn_window_resources"] = summary.get("resources")
+                    summary["resources"] = window.resources
+                    summary["session_resources_path"] = str(receipt.relative_to(run_dir))
+                    summary_path.write_text(json.dumps(summary, indent=2))
+    return result
+
+
+def _run_session(args, manifest, turns, gold_by_turn, arm_cls, sut_name, run_dir,
+                 resource_scope, session_attempt_id):
     print(f"arm={args.arm} ({arm_cls._NAME})  task={args.task}  turns={len(turns)}")
+    wall_start = time.monotonic()
     sut = arm_cls(verbose=args.verbose, output_dir=str(run_dir))
     sut.output_dir = str(run_dir)
+    pricing = load_pricing_snapshot(args.pricing_snapshot, sut.model_type)
     sut.process_dataset(manifest["data_dir"])
     if sut.agent is None:
         print("FATAL: agent setup failed — is the stack up?")
         return 2
 
     from dataflow_agent import get_agent_react_steps, get_agent_workflow
-    from systems.cost_utils import compute_cost
 
     endpoint = sut.agent.agent_service_endpoint
     # A LongDS session is a sequence of dependent requests, so a native agent
@@ -293,6 +339,9 @@ def main() -> int:
         json.dumps(
             {
                 "benchmark": "longds",
+                "session_attempt_id": session_attempt_id,
+                "pricing": pricing.as_dict() if pricing else None,
+                "resource_scope": resource_scope,
                 "task_key": args.task,
                 "arm": args.arm,
                 "sut": sut_name,
@@ -319,8 +368,10 @@ def main() -> int:
         )
     )
 
-    records, steps_seen, wall_start = [], 0, time.time()
-    totals = {"cost_usd": 0.0, "input": 0, "output": 0, "reasoning": 0, "cached": 0}
+    records, steps_seen, turn_resources = [], 0, []
+    seen_request_ids = set()
+    totals = {"cost_usd": 0.0, "observed_cost_usd": 0.0, "unknown_cost_turns": 0,
+              "input": 0, "output": 0, "reasoning": 0, "cached": 0, "cache_creation": 0}
 
     for idx, turn in enumerate(turns):
         tid = turn["turn_id"]
@@ -329,21 +380,29 @@ def main() -> int:
         # it (two concurrent runs of the same task raced exactly once, and the
         # loser died mid-turn on a bare mkdir).
         tdir.mkdir(parents=True, exist_ok=True)
+        attempt = AttemptMetrics(f"{session_attempt_id}-t{tid:02d}", benchmark="longds", system=sut_name,
+                                 task_id=f"{args.task}/t{tid:02d}",
+                                 manifest={"session_attempt_id": session_attempt_id, "turn_id": tid,
+                                           "model": sut.model_type, "agent_id": sut.agent.agent_id})
         prompt = (
             build_turn_1_prompt(manifest, turn, agent_mode=sut.agent_mode)
             if idx == 0 else build_turn_n_prompt(turn, agent_mode=sut.agent_mode)
         )
         (tdir / "prompt.txt").write_text(prompt)
 
-        t0 = time.time()
+        t0 = time.monotonic()
+        result = None
+        resource_window = None
         try:
-            result = sut.agent.run(prompt)
+            with native_resource_window(resource_scope) as resource_window:
+                with attempt.lifecycle_clock("solve"):
+                    result = sut.agent.run(prompt, empty_turn_retries=0)
             response, err, stopped = result.response or "", result.error, result.stopped
             usage = result.usage or {}
             ws_steps = int((result.stats or {}).get("steps") or 0)
         except Exception as exc:  # noqa: BLE001 — a dead turn must not kill the session
             response, err, stopped, usage, ws_steps = "", f"{type(exc).__name__}: {exc}", True, {}, 0
-        elapsed = time.time() - t0
+        elapsed = time.monotonic() - t0
 
         (tdir / "response.txt").write_text(response or "(empty response)")
         answer = extract_answer(response)
@@ -374,28 +433,60 @@ def main() -> int:
         except Exception:
             pass
 
-        tok_in = usage.get("input_tokens", 0)
-        tok_out = usage.get("output_tokens", 0)
-        tok_cached = usage.get("cached_input_tokens", 0)
-        try:
-            cost = compute_cost(
-                sut.model_type, input_tokens=tok_in, output_tokens=tok_out, cached_tokens=tok_cached
-            ) or 0.0
-        except Exception:
-            cost = 0.0
-        totals["cost_usd"] += cost
+        accounting = getattr(result, "model_accounting", None)
+        if accounting is None:
+            try:
+                import requests
+
+                accounting_response = requests.get(
+                    f"{endpoint}/api/agents/{sut.agent.agent_id}/model-metrics", timeout=30)
+                accounting_response.raise_for_status()
+                accounting = select_new_requests(accounting_response.json(), seen_request_ids)
+            except Exception as exc:
+                print(f"  (could not fetch authoritative model accounting for turn {tid}: {exc})")
+                accounting = None
+        if accounting is not None:
+            seen_request_ids.update(request["requestId"] for request in accounting.get("requests", []))
+        resources = resource_window.resources if resource_window else {
+            "status": "unavailable", "reason": "resource_collector_failed_before_start"}
+        resources["boundary"] = "one synchronous solve request; setup and artifact collection excluded"
+        turn_resources.append(resources)
+        full_metrics = finish_turn_metrics(attempt, accounting, pricing=pricing, usage=usage,
+                                           stopped=stopped, error=err, resources=resources)
+        observed = full_metrics["observed_usage"]
+        tok_in = observed.get("input_tokens") or 0
+        tok_out = observed.get("output_tokens") or 0
+        tok_cached = observed.get("cached_input_tokens") or 0
+        tok_created = observed.get("cache_creation_tokens") or 0
+        cost = full_metrics["cost"]["cost_usd"]
+        observed_cost = full_metrics["cost"]["observed_cost_usd"]
+        if cost is None:
+            totals["unknown_cost_turns"] += 1
+            totals["cost_usd"] = None
+        elif totals["cost_usd"] is not None:
+            totals["cost_usd"] += cost
+        totals["observed_cost_usd"] += observed_cost or 0
         totals["input"] += tok_in
         totals["output"] += tok_out
-        totals["reasoning"] += usage.get("reasoning_tokens", 0)
+        totals["reasoning"] += observed.get("reasoning_tokens") or 0
         totals["cached"] += tok_cached
+        totals["cache_creation"] += tok_created
+        receipt_dir = tdir / "attempts" / session_attempt_id
+        attempt.write(receipt_dir)
+        if accounting is not None:
+            write_json_exclusive(receipt_dir / "model-accounting.json", accounting)
 
         stats = {
             "turn_id": tid,
             "input_tokens": tok_in,
             "output_tokens": tok_out,
-            "reasoning_tokens": usage.get("reasoning_tokens", 0),
+            "reasoning_tokens": observed.get("reasoning_tokens"),
             "cached_tokens": tok_cached,
-            "cost_usd": round(cost, 6),
+            "cache_creation_tokens": tok_created,
+            "cost_usd": round(cost, 6) if cost is not None else None,
+            "observed_cost_usd": observed_cost,
+            "usage_status": (accounting or {}).get("usageStatus", "unknown"),
+            "metrics_path": str((receipt_dir / "metrics.json").relative_to(run_dir)),
             "elapsed_seconds": round(elapsed, 1),
             "stopped": stopped,
             "error": err,
@@ -414,7 +505,7 @@ def main() -> int:
                 "state_type": g.get("state_type", []),
                 "depends_tasks": g.get("depends_tasks", []),
                 "depends_span": g.get("depends_span", []),
-                "success": bool(answer) and not err,
+                "success": bool(answer) and not err and not stopped,
                 "steps": metrics["agent_steps"],
                 "stats": stats,
             }
@@ -431,18 +522,22 @@ def main() -> int:
                     "sut": sut_name,
                     "turns_total": len(turns),
                     "turns_completed": len(records),
-                    "totals": {**totals, "cost_usd": round(totals["cost_usd"], 6)},
-                    "wall_seconds": round(time.time() - wall_start, 1),
+                    "session_attempt_id": session_attempt_id,
+                    "totals": {**totals, "cost_usd": round(totals["cost_usd"], 6)
+                               if totals["cost_usd"] is not None else None},
+                    "wall_seconds": round(time.monotonic() - wall_start, 1),
+                    "resources": aggregate_turn_resources(turn_resources, time.monotonic() - wall_start),
                 },
                 indent=2,
             )
         )
 
         flag = "" if not err else f"  ERR: {err[:80]}"
+        cost_label = f"${cost:.4f}" if cost is not None else "cost unknown"
         print(
             f"  turn {tid:>2}/{len(turns)}  steps={metrics['agent_steps']:>2} "
             f"ctx={metrics['max_prompt_bytes'] / 1000:>7.1f}kB  {elapsed:>5.0f}s "
-            f"${cost:.4f}  ans={answer[:60]!r}{flag}"
+            f"{cost_label}  ans={answer[:60]!r}{flag}"
         )
 
     try:
@@ -450,9 +545,15 @@ def main() -> int:
     except Exception:
         pass
 
+    session_summary = json.loads((run_dir / "summary.json").read_text()) if records else {}
+    session_summary["wall_seconds"] = time.monotonic() - wall_start
+    session_summary["wall_boundary"] = "session construction through cleanup; grading excluded"
+    session_summary["resources"] = aggregate_turn_resources(turn_resources, session_summary["wall_seconds"])
+    (run_dir / "summary.json").write_text(json.dumps(session_summary, indent=2))
+    cost_label = f"${totals['cost_usd']:.4f}" if totals["cost_usd"] is not None else "cost unknown"
     print(
         f"\ndone: {len(records)}/{len(turns)} turns, "
-        f"${totals['cost_usd']:.4f}, {(time.time() - wall_start) / 60:.1f} min"
+        f"{cost_label}, {(time.monotonic() - wall_start) / 60:.1f} min"
     )
     print(f"artifacts: {run_dir}")
     return 0

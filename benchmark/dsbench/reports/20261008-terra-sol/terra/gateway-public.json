@@ -1,0 +1,73 @@
+{
+  "captured_at_utc": "2026-10-08T03:52:31.352077+00:00",
+  "capture_method": "Read-only Docker inspect/config comparison and authenticated GET /v1/models only; no completion calls.",
+  "container_id": "fd721f58bf9b6271092bd3115cbbd1ddd634f169a2463dfa2408e7eb25457a19",
+  "container_name": "/texera-single-task-final-litellm",
+  "container_started_at": "2026-10-08T03:51:03.869176958Z",
+  "ports": {
+    "4000/tcp": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "18000"
+      }
+    ]
+  },
+  "config_mounts": [
+    {
+      "Source": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/single-task-final/bin/single-node/litellm-config.yaml",
+      "Destination": "/app/config.yaml",
+      "RW": false
+    }
+  ],
+  "config_sha256": "0039b2e0c39976131d872129f439824afdf4fdd16937770ad2ebde7c9b27847b",
+  "mounted_config_matches_source": true,
+  "model_inventory": {
+    "http_status": 200,
+    "model_ids": [
+      "claude-haiku-4.5",
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-sonnet-5.5",
+      "gpt-5-mini",
+      "gpt-5-mini-medium",
+      "gpt-5.2",
+      "gpt-5.2-medium",
+      "gpt-5.6",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-tara",
+      "gpt-5.6-terra"
+    ],
+    "terra_and_sol_present": true
+  },
+  "routes": [
+    {
+      "model_name": "gpt-5.6-terra",
+      "litellm_params": {
+        "model": "openai/gpt-5.6-terra",
+        "reasoning_effort": "medium",
+        "api_key": "os.environ/OPENAI_API_KEY",
+        "api_base_override_present": false
+      },
+      "model_info": {}
+    },
+    {
+      "model_name": "gpt-5.6-sol",
+      "litellm_params": {
+        "model": "openai/gpt-5.6-sol",
+        "reasoning_effort": "medium",
+        "api_key": "os.environ/OPENAI_API_KEY",
+        "api_base_override_present": false
+      },
+      "model_info": {}
+    }
+  ],
+  "drop_params": true,
+  "provider_base_override_present": {
+    "OPENAI_API_BASE": false,
+    "OPENAI_BASE_URL": false,
+    "LITELLM_BASE_URL": false
+  },
+  "credential_values_omitted": true,
+  "prior_gateway_evidence": "audit/gateway-before-credential-refresh.json"
+}

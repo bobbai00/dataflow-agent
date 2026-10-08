@@ -1,0 +1,33 @@
+{
+  "classification": "Invalid provider-credential setup; stopped and excluded from benchmark performance comparisons",
+  "root_cause": "Owned gateway used a stale provider key; three requests rejected with provider billing_not_active via gateway429 before any successful model response. Root verified the credential mismatch privately and corrected only ignored owned infrastructure configuration.",
+  "planned_attempts": 120,
+  "started_stopped_attempts": 3,
+  "unstarted_attempts": 117,
+  "wire_requests": 3,
+  "successful_model_responses": 0,
+  "provider_errors": 3,
+  "integrity_violations": 0,
+  "cleanup_unconfirmed": 0,
+  "runner_finalized_attempts": 2,
+  "stopped_workers_without_runner_finalization": 1,
+  "usage_scope": "No provider token usage returned for rejected requests. Native recorded attempt counts are unknown in service stats but explicit in archived wire. Interrupted smol runner did not finalize pricing/cost metadata.",
+  "cost_usd": null,
+  "score_scope": "No benchmark accuracy or zero-cost claim; no official judge requested for invalid setup attempts.",
+  "models": [
+    {
+      "model": "gpt-5.6-terra",
+      "started_attempts": 2,
+      "requests": 2,
+      "provider_errors": 2,
+      "summary_sha256": "627535cf53dd5ee169bb35414c8ccb49f8c0cee1f270e4ef596a04c0aac29d43"
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "started_attempts": 1,
+      "requests": 1,
+      "provider_errors": 1,
+      "summary_sha256": "98c5d09d9bba9a95b6c26f8fb2835c3acf7be48a8cc3d1de29bc73b5a7107df4"
+    }
+  ]
+}

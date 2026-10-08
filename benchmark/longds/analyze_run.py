@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Per-turn cost/steps/context report for a LongDS run.
 
 The accuracy breakdowns live in `judge_longds.py`. This is the other half of the
@@ -62,16 +74,21 @@ def main() -> int:
     for r in rows:
         tid = r["turn_id"]
         verdict = {1: "1", 0: "0", None: "?"}.get(scores.get(tid), " ")
+        cost = f"{r['cost_usd']:.4f}" if r.get("cost_usd") is not None else "unknown"
         print(
             f"{tid:>4} {r['agent_steps']:>5} {r['max_prompt_bytes'] / 1000:>8.1f} "
             f"{r['input_tokens']:>8} {r['cached_tokens']:>8} {r['output_tokens']:>6} "
-            f"{r['elapsed_seconds']:>5.0f} {r['cost_usd']:>8.4f}  {verdict:>3}  {patterns.get(tid, '')}"
+            f"{r['elapsed_seconds']:>5.0f} {cost:>8}  {verdict:>3}  {patterns.get(tid, '')}"
         )
 
     ctx = [r["max_prompt_bytes"] for r in rows]
-    total_cost = sum(r["cost_usd"] for r in rows)
-    print(f"\ntotal ${total_cost:.4f}   mean ${total_cost / len(rows):.4f}/turn   "
-          f"{sum(r['elapsed_seconds'] for r in rows) / 60:.1f} min")
+    known_costs = [r["cost_usd"] for r in rows if r.get("cost_usd") is not None]
+    if len(known_costs) == len(rows):
+        total_cost = sum(known_costs)
+        cost_report = f"total ${total_cost:.4f}   mean ${total_cost / len(rows):.4f}/turn"
+    else:
+        cost_report = f"total unknown ({len(rows) - len(known_costs)} unpriced/incomplete turns); known ${sum(known_costs):.4f}"
+    print(f"\n{cost_report}   {sum(r['elapsed_seconds'] for r in rows) / 60:.1f} min")
     print(f"steps/turn: mean {statistics.mean(r['agent_steps'] for r in rows):.1f}  "
           f"max {max(r['agent_steps'] for r in rows)}")
     print(f"context: first {ctx[0] / 1000:.1f} kB  last {ctx[-1] / 1000:.1f} kB")

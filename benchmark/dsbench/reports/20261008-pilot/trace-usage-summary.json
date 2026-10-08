@@ -1,0 +1,97 @@
+{
+  "generated_at": "2026-10-08T03:31:43.122897+00:00",
+  "complete": true,
+  "expected_attempts": 60,
+  "finished_attempts": 60,
+  "finished_by_arm": {
+    "data0_flow0": 12,
+    "data1_flow0": 12,
+    "data0_flow1": 12,
+    "data1_flow1": 12,
+    "smol_custom": 12
+  },
+  "global_violations": [],
+  "changed_frozen_sources": [],
+  "attempts_with_violations": 0,
+  "attempts_with_warnings": 0,
+  "total_wire_requests": 297,
+  "total_provider_errors": 0,
+  "uncompleted_attempts": 0,
+  "empty_final_answers": 0,
+  "final_actions_completed": 60,
+  "cleanup_unconfirmed_attempts": 0,
+  "usage_total": {
+    "input_tokens": 1771505,
+    "output_tokens": 73088,
+    "cached_tokens": 1509714,
+    "cache_creation_tokens": 0,
+    "reasoning_tokens": 17524,
+    "total_tokens": 1844593
+  },
+  "cost_usd_total": 0.170263,
+  "native_action_errors": 76,
+  "smol_step_errors": 4,
+  "smol_formatting_errors": 0,
+  "native_prefix_checks": 224,
+  "native_profile_count": 184,
+  "native_profile_columns": 1240,
+  "by_arm": {
+    "data0_flow0": {
+      "finished": 12,
+      "calls": 71,
+      "cost_usd": 0.037124,
+      "system_prompt_hashes": {
+        "dba2ce5a69b0e6624672dcc3999e7cce8469c6b5c21fe20380896a8c332b0d04": 12
+      }
+    },
+    "data1_flow0": {
+      "finished": 12,
+      "calls": 72,
+      "cost_usd": 0.039441,
+      "system_prompt_hashes": {
+        "edc4494b2a1cddff7462ec50ca98e14396cf8902fea02a0905d474b3fdc7cb20": 12
+      }
+    },
+    "data0_flow1": {
+      "finished": 12,
+      "calls": 68,
+      "cost_usd": 0.034701,
+      "system_prompt_hashes": {
+        "6674707c91002a08a58345c18cf21d02fd7bc9d6f4c587080ad80d6df5599248": 12
+      }
+    },
+    "data1_flow1": {
+      "finished": 12,
+      "calls": 61,
+      "cost_usd": 0.035626,
+      "system_prompt_hashes": {
+        "3b20a47f4ed92a876acdbf1b487b314c64e0eb453f43097f37393201e1d2facc": 12
+      }
+    },
+    "smol_custom": {
+      "finished": 12,
+      "calls": 25,
+      "cost_usd": 0.023371,
+      "system_prompt_hashes": {
+        "fe5267f41962a7ab47b5b6a572a28b897114198599786608d3d6c706f59b64c3": 12
+      }
+    }
+  },
+  "method_notes": [
+    "Only attempts with runner returncode are finalized. Retained profiles in snapshots are collected in every arm; they are not evidence exposure.",
+    "Native inputMessages and OpenAI wire use different tool-call representations; DELTA prefixes checked independently in both formats.",
+    "Native medium reasoning is a frozen proxy configuration, not a client request field; smol explicitly sends medium.",
+    "Raw smol cache_write_tokens retained for diagnostics; frozen harness classifies them as ordinary prompt input, without separately billing cache creation.",
+    "Costs are frozen token-price estimates, not provider invoices. Output includes reasoning.",
+    "Cleanup success follows worker cleanup artifacts; no additional remote resources were queried or mutated.",
+    "Integrity checks do not judge semantic correctness or estimate full-benchmark performance."
+  ],
+  "campaign_manifest_sha256": "248d70c7140b36671a5b39f511aa2bbd21c62bb5f03b85b20875f8a3ed9726c2",
+  "runtime_env_public_sha256": "f23c9c9f202432b5bc8cf3d0a9c3ed73dc43977b9da676ddc064f2272256572e",
+  "gateway_public_sha256": "8adf612042b206edf0db262917c0054772542de5702e6f8c725e328ed582051d",
+  "checks_script_sha256": "c2842b7a7475c764df144c69a837f4b7eb0475167cdcef8596754a8e3b994a34",
+  "prepared_manifest_sha256": "932dab19faa3c6737f3202d98fa746ee8b2eac0a96b88639512645e915f9729e",
+  "shared_principles_sha256": "2c8b414f5b000414cdd0eade4eb9eeda57a909bb0350b4d4987a166c80ed3272",
+  "full_audit_sha256": "94291e0c63b44c191fab025638510adb81ae2ff28752b5d099f49173853b8857",
+  "native_wire_files_archived": 816
+}

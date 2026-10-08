@@ -147,6 +147,9 @@ import {
   type ContextAssembler,
   type DriverRunTurnResult,
 } from "./llm-drivers/types";
+import { TurnUsageAccounting, withTurnUsageAccounting, sumTokenUsage } from "./llm-drivers/turn-usage-accounting";
+import type { ModelRequestLedger } from "./llm-drivers/model-request-accounting";
+import type { ModelRequestAccounting } from "../types/agent";
 import { forkState, historicalTask } from "./state-history";
 import { restoreAssignment, splitVersionCommands } from "./state-ledger";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
@@ -167,6 +170,7 @@ function createEmptyWorkflowContent(): WorkflowContent {
 }
 
 export interface TexeraAgentConfig {
+  modelRequestLedger?: ModelRequestLedger;
   /** LLM strategy. Owns the `LanguageModel` and decides how to translate
    *  the agent's bookkeeping callbacks into one or more model requests.
    *  Pair this with `contextAssembler` — the two travel together. */
@@ -188,6 +192,7 @@ export interface TexeraAgentConfig {
 }
 
 export interface AgentMessageResult {
+  modelAccounting?: ModelRequestAccounting;
   response: string;
   messages: ModelMessage[];
   usage: TokenUsage;
@@ -312,6 +317,7 @@ const MODEL_RETRIES_PER_TURN = Number(process.env.MODEL_RETRIES_PER_TURN ?? 2);
 const MODEL_RETRY_BACKOFF_MS = () => Number(process.env.MODEL_RETRY_BACKOFF_MS ?? 3000);
 
 export class TexeraAgent {
+  private readonly modelRequestLedger?: ModelRequestLedger;
   readonly agentId: string;
   readonly agentName: string;
   readonly modelType: string;
@@ -385,6 +391,7 @@ export class TexeraAgent {
     this.modelType = config.modelType;
     this.createdAt = new Date();
     this.driver = config.driver;
+    this.modelRequestLedger = config.modelRequestLedger;
     this.contextAssembler = config.contextAssembler;
     this.systemPromptBuilder = config.systemPromptBuilder;
     this.systemPrompt = config.systemPrompt || "";
@@ -855,6 +862,10 @@ export class TexeraAgent {
 
   removeWebsocket(ws: any): void {
     this.websockets.delete(ws);
+  }
+
+  getModelAccounting(messageId?: string): ModelRequestAccounting | undefined {
+    return this.modelRequestLedger?.summary(messageId);
   }
 
   getReActSteps(): ReActStep[] {
@@ -1996,6 +2007,16 @@ export class TexeraAgent {
   ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
+    const accounting = new TurnUsageAccounting();
+    const turnDriver = withTurnUsageAccounting(this.driver, accounting);
+    const resultWithUsage = (result: Omit<AgentMessageResult, "usage" | "modelAccounting">): AgentMessageResult => {
+      const modelAccounting = this.getModelAccounting(messageId);
+      return {
+        ...result,
+        usage: modelAccounting?.usage ?? accounting.usage,
+        ...(modelAccounting ? { modelAccounting } : {}),
+      };
+    };
     this.nativeActionAnswer = undefined;
 
     await this.refreshWorkflowFromBackend();
@@ -2057,7 +2078,7 @@ export class TexeraAgent {
       let budgetFeedbackSteps = 0;
       const budgetReminders = new Set<number>();
       const runDriverOnce = (seed: ModelMessage[], maxSteps: number = this.settings.maxSteps) =>
-        this.driver.runTurn({
+        turnDriver.runTurn({
           initialMessages: seed,
           systemPrompt: this.systemPrompt,
           tools: this.tools,
@@ -2232,13 +2253,10 @@ export class TexeraAgent {
             const result = await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
             if (!partials.length) return result;
             const segments = [...partials, result];
-            const keys = new Set(segments.flatMap(segment => Object.keys(segment.usage))) as Set<keyof TokenUsage>;
             return {
               ...result,
               messages: segments.flatMap(segment => segment.messages),
-              usage: Object.fromEntries(
-                [...keys].map(key => [key, segments.reduce((n, segment) => n + (segment.usage[key] ?? 0), 0)])
-              ),
+              usage: sumTokenUsage(segments.map(segment => segment.usage)),
             };
           } catch (error) {
             if (
@@ -2352,12 +2370,11 @@ export class TexeraAgent {
         }
       }
 
-      return {
+      return resultWithUsage({
         response: this.nativeActionAnswer ?? result.text,
         messages: result.messages,
-        usage: result.usage,
         stopped: false,
-      };
+      });
     } catch (error: any) {
       const isAborted = error.name === "AbortError" || this.abortController?.signal.aborted;
 
@@ -2378,12 +2395,7 @@ export class TexeraAgent {
         this.addStep(stoppedStep);
         this.head = stoppedStepId;
 
-        return {
-          response: "",
-          messages: [],
-          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-          stopped: true,
-        };
+        return resultWithUsage({ response: "", messages: [], stopped: true });
       }
 
       stepIndex++;
@@ -2402,13 +2414,12 @@ export class TexeraAgent {
       this.addStep(errorStep);
       this.head = errorStepId;
 
-      return {
+      return resultWithUsage({
         response: "",
         messages: [],
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
         stopped: false,
         error: error.message || String(error),
-      };
+      });
     } finally {
       // The turn is over however it ended (answered, aborted, error): seal its
       // versions. A later turn referencing `X (turn N)` must get one fixed

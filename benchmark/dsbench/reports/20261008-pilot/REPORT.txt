@@ -1,0 +1,161 @@
+DSBench analysis pilot — Luna and the official GPT-4o judge
+
+All 60 declared attempts completed and were graded. The selected twelve
+questions are usable with both agents. In this run, Dataflow with flow
+metadata alone scored 11/12; the other three Dataflow modes scored 10/12;
+custom smolagents scored 7/12. These are official, unchanged judge labels.
+This pilot supports using a selected DSBench analysis subset for further
+evaluation. It does not establish full-benchmark accuracy, a statistics
+benefit, or an improvement attributable to the prompt refactor.
+
+Results
+
+Configuration                  Correct    Accuracy    Agent cost    Calls
+Dataflow: both stats off        10/12      83.3%       $0.037124     71
+Dataflow: data stats only       10/12      83.3%       $0.039441     72
+Dataflow: flow metadata only    11/12      91.7%       $0.034701     68
+Dataflow: both stats on         10/12      83.3%       $0.035626     61
+smolagents: custom principles    7/12      58.3%       $0.023371     25
+
+Each category contains three questions:
+Configuration                  Retail   Electricity   Voting   League
+Dataflow: both stats off        2/3      3/3           2/3      3/3
+Dataflow: data stats only       2/3      3/3           3/3      2/3
+Dataflow: flow metadata only    2/3      3/3           3/3      3/3
+Dataflow: both stats on         2/3      3/3           2/3      3/3
+smolagents: custom principles   1/3      2/3           1/3      3/3
+
+Total estimated agent cost: $0.170263.
+Total estimated judge cost: $0.017705.
+Total estimated API token cost: $0.187968; compute excluded.
+Judging used 25 unique requests, reusing 35 identical official requests.
+Costs include original charges from earlier grading waves, not just the
+last wave's incremental charges. No provider or judge errors occurred.
+There were 297 measured agent requests, 1,771,505 input tokens (1,509,714
+cached), and 73,088 output tokens. Reasoning is included in output tokens.
+The Luna rates were frozen at $0.20/M input, $0.02/M cached input and
+$1.20/M output. The exact GPT-4o snapshot uses $5/M input and $15/M output.
+These are recorded-price estimates, not provider invoices. Concurrent arms
+share the model gateway, so their cache savings are not isolated cold costs.
+
+Protocol
+
+Twelve questions were selected before agent runs: three each from retail
+invoice analysis, unstructured electricity usage, district voting, and
+league/goal analysis. They use four original XLSX workbooks, with no SQL.
+Each question is independent and receives one fresh session per arm. This
+selection excludes modeling, image-heavy tasks, and questions requiring
+other answers; it is not a random sample of all DSBench analysis questions.
+
+Both agents used gpt-5.6-luna with medium reasoning, a 25-step budget,
+8192 output tokens per request, a 900-second task limit, and zero SDK
+retries. The exact shared Analysis principles appeared once in both
+system prompts. The same original introduction, question, and allowed
+file list were supplied; final-action instructions match each interface.
+smolagents retained its stock CodeAgent 1.23.0 framing and received those
+principles as custom instructions. No pre-refactor prompt control was run.
+
+Native used DELTA context without thought replay or code snapshots. Its
+sample limit was five rows/2000 characters and full retrieval 5000
+characters. smol's print limit was 5000 characters. Each enabled evidence
+kind had a separate 2000-character budget. Native profile collection was
+enabled in all four arms; only exposure changed. Data-stats arms allowed
+sample_stats/full, and other arms allowed sample/full. Flow metadata was
+independent. Prompt, settings, actual wire usage and evidence exposure
+were audited for all 60 attempts without integrity violations.
+
+Each executor could read only the current task's original introduction,
+question and workbook. Other questions, worked notebooks and evaluation
+answers were outside its input mounts. smol's executor had networking
+disabled; native retained engine storage networking. All native agents,
+workflows and computing units were fresh; cleanup records confirmed their
+deletion and all smol executor processes stopped. Recovered model action
+errors remain in the traces (76 native records, four smol step errors).
+
+Grading follows DSBench's pinned evaluate_prediction exactly: the same
+prompt, model gpt-4o-2024-05-13, temperature=0, top_p=1, max_tokens=256,
+both penalties=0, and its case-insensitive True-substring rule. Raw final
+answers were neither normalized nor rewritten. Identical complete requests
+reuse one frozen verdict; incorrect verdicts were not retried or replaced.
+The judge request was checked against the pinned upstream code, and all
+recorded requests, response models and labels were independently audited.
+
+What the traces show
+
+1. The official judge has a concrete false-negative. Retail question10's
+   correct answer is option A, invoice143. Grouping Wendel's invoice lines
+   confirms revenue3463.85 across three lines. All four Dataflow modes
+   answer "a. 143", but the exact official GPT-4o request returns False.
+   smol's "143" also receives False. Those labels remain in every score.
+   This disagreement limits interpretation of the absolute accuracy.
+
+2. Three smol failures occur despite a correct calculation: retailQ5
+   prints650 distinct invoices but submits b.985; electricityQ4 computes
+   17.237 but submits17.487; votingQ23 computes Purple but submits Yellow.
+   Each inconsistent literal final_answer is in the same code execution
+   as the correct calculation. Dataflow retrieves the scalar/table and
+   answers in a later action in these cases. Both stats-off and stats-on
+   native arms succeed, so this contrast is not evidence of a stats gain.
+
+3. VotingQ25 exposes a useful layout/cardinality distinction. Native with
+   both stats off groups a sparse nine-row district lookup and silently
+   drops991 of1000 ballots, answering3. Data-stats-only and both flow arms
+   use the dense District Code column, map codes to nine district buckets,
+   and answer4. smol selects the sparse district-label column and ends up
+   with zero eligible ballots, answering8. Statistics can make the sparse
+   lookup visible, but the flow-only run also succeeds. This is one trial
+   per configuration and does not establish which exposure caused success.
+
+4. Statistics do not prevent implementation mistakes. Data-stats-only
+   leagueQ9 uses a wrong escaped regex, counting540 instead of30 penalty
+   markers. Both-stats votingQ23 awards points to unmarked0 preferences
+   and shifts the ranking scale, choosing Green instead of Purple even
+   though it retrieves the correct points mapping. Extra information
+   needs correct interpretation and result checks.
+
+5. Passing MCQs can hide incomplete data processing. Several native
+   electricity runs leave header=True on a headerless workbook and load
+   8759 of8760 observations. The rounded mean and winning day still match
+   the answer choices. Profiles accurately describe the parsed8759 rows;
+   complete profile coverage does not prove complete source-file coverage.
+   One native maximum-window answer also includes a wrong auxiliary start
+   timestamp despite the requested amount17.237 being correct.
+
+Implementation and validation
+
+The free deterministic preflight found that native Excel scans rejected
+timezone-free spreadsheet date cells during engine transport. Before any
+paid native attempt, the reader was fixed to preserve homogeneous calendar
+date/time columns as ISO strings. Numeric inference and nulls remain;
+strict timestamp validation for user Python outputs remains. Every native
+arm used this same fix, and both agents read unchanged workbook bytes.
+
+The new harness records pinned hashes, task-specific mounts, actual prompt
+and settings, raw answers, traces, token usage, errors and cleanup. The
+judge runs separately from agent execution, and report aggregation binds
+current question/gold/prediction to the exact cached official request.
+Validation passed: full 1,409 agent unit tests, agent typecheck, native
+Excel regression tests, DSBench offline checks and execution-isolation
+checks. No full benchmark or additional outcome-selected attempts ran.
+
+Artifacts and provenance
+
+scores.json: official per-arm/per-task outcomes and complete cost totals.
+protocol.json: frozen task IDs, source revisions, limits and source hashes.
+trace-usage-summary.json: complete prompt/settings/usage/cleanup audit.
+judge-integrity.json: exact-source and all-request grading audit.
+manual-mechanism-audit.json/.txt: deterministic checks and trace evidence.
+gateway-public.json: actual read-only Luna route and medium-reasoning config.
+../../README.txt (benchmark/dsbench/README.txt): reproducible commands.
+
+Full raw runs, private gold and judge caches remain outside the repository:
+/var/tmp/texera-dsbench-pilot-20261008/
+Source archive and metadata:
+/var/tmp/texera-dsbench-audit-20261008/
+
+DSBench source:
+https://github.com/LiqiangJing/DSBench/tree/ba786096137a5108af11c016ad3f09cdb97beefd
+Official judge:
+https://github.com/LiqiangJing/DSBench/blob/ba786096137a5108af11c016ad3f09cdb97beefd/data_analysis/compute_answer.py
+Dataset revision:
+https://huggingface.co/datasets/liqiang888/DSBench/tree/1196d6553ec200e1262841efc89cda5954ffe89f

@@ -49,6 +49,38 @@ bin/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k --task sports__nfl_b
 ```
 
 
+## Per-turn accounting
+
+New native runs write immutable `tNN/attempts/<session-id>/metrics.json` receipts,
+request-level files, and the service's raw `model-accounting.json`. `stats.json`
+points to these receipts. The ledger includes every dispatched provider request,
+including retries and failed requests whose billing is unknown. Cache writes are
+separate from ordinary and cached input; reasoning remains a subset of output.
+Missing billing or prices produce `null` totals, with observed work kept separately.
+
+Supply `--pricing-snapshot <model-registry.json>` and
+`--resource-scope <owned-services.json>` to `run_longds.py`, or set
+`TEXERA_BENCH_PRICING_SNAPSHOT` and `TEXERA_BENCH_RESOURCE_SCOPE`. The ordinary
+KramaBench native wrapper uses the same environment variables. The resource JSON
+uses the shared runtime schema: `owned_service_pids`, `required_service_labels`,
+`ownership_verified`, a v1/v2 `cgroup`, and optional `shared_components` for the
+gateway. Scope ownership and collector completeness remain visible in each receipt.
+
+Resource windows cover each synchronous solve request. Session wall time includes
+construction through cleanup. To measure full session CPU and memory, add a
+`session_cgroup` to the resource JSON: a separate, verified exclusive ancestor of
+the per-turn `cgroup` in both CPU and memory controllers. Its parent peak counter
+covers construction, checkpoints, and cleanup while per-turn child peaks reset
+independently. The full session receipt is written under
+`attempts/<session-id>/session-resources.json`. Gateway components are also measured,
+with their combined sampled memory clearly distinguished from a kernel peak.
+
+Without `session_cgroup`, the session summary sums disjoint turn CPU windows and
+takes their largest measured memory value. That fallback explicitly excludes
+setup, inter-turn checkpoints, and cleanup and does not claim an exact session peak.
+Use the supervised campaign runtime when comparing full task CPU and memory costs.
+
+
 ## Deviations from the official protocol — state these with any number
 
 1. **Judge model — resolved.** The paper's judge, `deepseek-v4-pro`, is reachable

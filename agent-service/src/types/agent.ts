@@ -53,10 +53,66 @@ export interface TokenUsage {
   totalTokens?: number;
   // Per-class breakdown for accurate cost. `cachedInputTokens` is the subset of
   // input served from cache (cheap cache-read); `cacheCreationInputTokens` is the
-  // Anthropic cache-WRITE count; `reasoningTokens` is the thinking subset of output.
+  // cache-WRITE count; `reasoningTokens` is the thinking subset of output.
   cachedInputTokens?: number;
   cacheCreationInputTokens?: number;
   reasoningTokens?: number;
+}
+
+/** Safe reply diagnostics without provider message, refusal, or error text. */
+export interface ProviderResponseMetadata {
+  choiceCount: number | null;
+  choices: Array<{
+    index: number | null;
+    finishReason: string | null;
+    refusal: { present: true; type: string; characterCount: number | null } | null;
+    contentCharacterCount: number | null;
+    toolCallCount: number | null;
+  }>;
+  providerError?: { type: string | null; code: string | null; messageCharacterCount: number | null };
+}
+
+/** One actual transport dispatch, including SDK retries and failed responses. */
+export interface ModelRequestRecord {
+  version: 1;
+  requestId: string;
+  agentId: string;
+  messageId?: string;
+  requestedModel?: string;
+  returnedModel?: string;
+  providerResponseId?: string;
+  providerResponseMetadata?: ProviderResponseMetadata;
+  startedAt: string;
+  finishedAt?: string;
+  durationMs?: number;
+  status: "pending" | "succeeded" | "http_error" | "transport_error" | "aborted";
+  httpStatus?: number;
+  usage: TokenUsage | null;
+  rawUsage: Record<string, any> | null;
+}
+
+export interface ServiceRuntimeFingerprint {
+  version: 1;
+  pid: number;
+  startedAt: string;
+  sourceHashes: Record<string, string>;
+}
+
+/** Observed usage remains available when billing for failed requests is unknown. */
+export interface ModelRequestAccounting {
+  version: 1;
+  source: "transport";
+  serviceRuntime?: ServiceRuntimeFingerprint;
+  messageId?: string;
+  attemptedRequests: number;
+  succeededRequests: number;
+  failedRequests: number;
+  pendingRequests: number;
+  usage: TokenUsage;
+  usageCoverage?: Record<string, { knownRequests: number; attemptedRequests: number }>;
+  usageStatus: "complete" | "partial" | "unknown";
+  unknownUsageRequestIds: string[];
+  requests: ModelRequestRecord[];
 }
 
 /**
@@ -755,11 +811,29 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   sessionTurns?: boolean;
 }
 
+export interface ModelCapabilities {
+  forcedToolChoice?: boolean;
+}
+
+export interface ResolvedModelCapabilities {
+  forcedToolChoice: boolean;
+  forcedToolChoiceSource: "explicit" | "known_model_default" | "default";
+}
+
+export interface ResolvedModelRequestTimeout {
+  readonly milliseconds: number;
+  readonly source: "explicit" | "environment" | "default";
+}
+
 export interface AgentInfo {
   id: string;
   name: string;
   modelType: string;
   driver: AgentDriverKind;
+  modelCapabilities?: ResolvedModelCapabilities;
+  readonly modelRequestTimeoutMs?: number;
+  readonly modelRequestTimeoutSource?: ResolvedModelRequestTimeout["source"];
+  readonly modelRequestTimeoutMethod?: "abort_signal_fetch_deadline";
   state: AgentState;
   createdAt: Date;
   delegate?: AgentDelegateConfig;
@@ -776,6 +850,10 @@ export interface CreateAgentRequest {
    *  from `modelType` (`local-llm` → `local-react`, everything else →
    *  `vercel-tool-use`). */
   driver?: AgentDriverKind;
+  /** Provider transport capabilities; generation parameters stay in the gateway profile. */
+  modelCapabilities?: ModelCapabilities;
+  /** Absolute provider fetch/body deadline; independent of prompt and tool settings. */
+  modelRequestTimeoutMs?: number;
 }
 
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {

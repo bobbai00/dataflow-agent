@@ -1,0 +1,8 @@
+All 120 fresh Terra/Sol attempts finished with final answers and confirmed cleanup. No provider errors, settings/prompt/evidence/DELTA/usage violations, or formatting errors. Four native statistics combinations and custom smolagents were checked for each model. Model/medium/8,192 output settings match actual request traces and frozen active gateway evidence. All rendered prompts are identical to their Luna counterparts, with the shared principles present exactly once. All 144 native workflows/agents/computing units across Luna/Terra/Sol are unique.
+
+gpt-5.6-terra: 228 successful calls; $1.325603 estimated agent cost; max request input 11,494 tokens; 40 native action-error records; 3 recovered smol step errors.
+gpt-5.6-sol: 226 successful calls; $2.351229 estimated agent cost; max request input 10,715 tokens; 14 native action-error records; 0 recovered smol step errors.
+
+New combined agent token estimate: $3.676832; including Luna: $3.847095. Judging and compute are excluded. Archived 1149 new native wire JSON files. All successful input prompts stay below 272,000 tokens.
+
+The three rejected stale-credential setup requests remain excluded, preserved under the outer roots, with no zero-cost or benchmark-performance claim. Smol raw cache_write_tokens retain the original successful-input classification; no unrecorded cache-creation charge was invented. Accuracy must come from the official judge. This small one-attempt diagnostic sample does not prove causality or establish full-benchmark accuracy.

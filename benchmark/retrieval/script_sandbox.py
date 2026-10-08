@@ -38,6 +38,7 @@ from urllib.parse import urlsplit
 from execution_isolation import isolated_command
 
 CHILD = Path(__file__).with_name("script_agent_child.py")
+STRUCTURED_OUTPUT_HELPER = Path(__file__).resolve().parents[1] / "runtime/structured_output_transport.py"
 WRAPPER_SETTINGS = (
     "max_steps",
     "verbosity_level",
@@ -46,6 +47,9 @@ WRAPPER_SETTINGS = (
     "use_pitfalls_prompt",
     "max_print_outputs_length",
     "no_action_detail",
+    "model_parameters",
+    "model_capabilities",
+    "use_structured_outputs_internally",
 )
 HARNESS_SOURCES = ("code_agent.py", "code_agent_custom_prompt.py")
 
@@ -129,6 +133,7 @@ class SandboxedScriptAgent:
                 read_only=[
                     (self.data_root, str(Path("/workspace") / self.data_relative)),
                     (CHILD, "/harness/" + CHILD.name),
+                    (STRUCTURED_OUTPUT_HELPER, "/harness/structured_output_transport.py"),
                     *((self.harness / name, "/harness/" + name) for name in HARNESS_SOURCES),
                 ],
                 read_write=[(self.artifacts, "/artifacts"), (sockets, "/gateway")],

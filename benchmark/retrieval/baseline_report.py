@@ -80,6 +80,7 @@ def attempt(root, row):
     """Everything recorded about one attempt, reduced to numbers."""
     path = root / "system_scratch" / row["sut"] / row["task"]
     stats, evaluation = read(path / "stats.json", {}), read(path / "evaluation.json", {})
+    normalized = read(path / "metrics.json")
     trace = lines(path / "model-request-trace.jsonl")
     responses = [e for e in trace if e["phase"] == "response"]
     executions = [e for e in lines(path / "executions.jsonl") if e["event"] == "execute"]
@@ -94,13 +95,25 @@ def attempt(root, row):
         # (the answer was `nan`) from its average alike.
         "score": None if value is None or math.isnan(value) else value,
         "answer": (read(path / "answer.json", {}) or {}).get("answer"),
-        "cost_usd": stats.get("cost_usd") or 0.0,
-        "input_tokens": stats.get("input_tokens") or 0,
-        "cached_tokens": stats.get("cached_tokens") or 0,
-        "output_tokens": stats.get("output_tokens") or 0,
-        "reasoning_tokens": stats.get("reasoning_tokens") or 0,
-        "model_calls": len(responses),
-        "failed_model_calls": sum(e["phase"] == "error" for e in trace),
+        "cost_usd": normalized["cost"]["total_usd"] if normalized else stats.get("cost_usd") or 0.0,
+        "input_tokens": normalized["tokens"]["input_tokens"] if normalized else stats.get("input_tokens") or 0,
+        "cached_tokens": normalized["tokens"]["cached_tokens"] if normalized else stats.get("cached_tokens") or 0,
+        "cache_creation_tokens": (
+            normalized["tokens"]["cache_creation_tokens"] if normalized else stats.get("cache_creation_tokens") or 0
+        ),
+        "uncached_input_tokens": (
+            normalized["tokens"].get("uncached_input_tokens")
+            if normalized
+            else (stats.get("input_tokens") or 0) - (stats.get("cached_tokens") or 0)
+        ),
+        "output_tokens": normalized["tokens"]["output_tokens"] if normalized else stats.get("output_tokens") or 0,
+        "reasoning_tokens": (
+            normalized["tokens"]["reasoning_tokens"] if normalized else stats.get("reasoning_tokens") or 0
+        ),
+        "model_calls": normalized["requests"]["succeeded"] if normalized else len(responses),
+        "failed_model_calls": (
+            normalized["requests"]["failed"] if normalized else sum(e["phase"] == "error" for e in trace)
+        ),
         "empty_responses": sum(
             not e.get("choices") or not (e["choices"][0]["message"].get("content") or "").strip() for e in responses
         ),
@@ -124,7 +137,8 @@ def attempt(root, row):
             and not (read(path / "result.json", {}) or {}).get("answer")
         ),
         "no_answer": (read(path / "answer.json", {}) or {}).get("answer") in (None, "", "No response from agent"),
-        "audit": row["audit"],
+        "audit": row.get("audit", {"violations": [], "warnings": []}),
+        "normalized_metrics": normalized,
     }
 
 
@@ -133,7 +147,8 @@ def summarize(attempts, scorer):
     calls = [s for a in attempts for s in a["model_call_seconds"]]
     executions = [s for a in attempts for s in a["execution_seconds"]]
     kernel = [s for a in attempts for s in a["kernel_seconds"]]
-    total = lambda key: sum(a[key] for a in attempts)  # noqa: E731
+    total = lambda key: None if any(a[key] is None for a in attempts) else sum(a[key] for a in attempts)  # noqa: E731
+    created_total = total("cache_creation_tokens")
     summary = {
         "tasks": len(attempts),
         "scored": len(scored),
@@ -144,7 +159,8 @@ def summarize(attempts, scorer):
         "cost_usd": total("cost_usd"),
         "input_tokens": total("input_tokens"),
         "cached_tokens": total("cached_tokens"),
-        "uncached_input_tokens": total("input_tokens") - total("cached_tokens"),
+        "cache_creation_tokens": created_total,
+        "uncached_input_tokens": total("uncached_input_tokens"),
         "output_tokens": total("output_tokens"),
         "reasoning_tokens": total("reasoning_tokens"),
         "model_calls": total("model_calls"),
@@ -175,6 +191,13 @@ def summarize(attempts, scorer):
             w: sum(w in a["audit"]["warnings"] for a in attempts)
             for w in sorted({w for a in attempts for w in a["audit"]["warnings"]})
         },
+        "normalized_attempts": sum(a["normalized_metrics"] is not None for a in attempts),
+        "known_cost_usd": sum(
+            (a["normalized_metrics"] or {}).get("cost", {}).get("known_usd") or a["cost_usd"] or 0 for a in attempts
+        ),
+        "resource_metrics_complete": sum(
+            (a["normalized_metrics"] or {}).get("resource_completeness", {}).get("complete", False) for a in attempts
+        ),
     }
     if scorer:
         success, golds = scorer
@@ -191,6 +214,10 @@ def summarize(attempts, scorer):
 
 def seconds(value):
     return "-" if value is None else f"{value:.1f}"
+
+
+def number(value, specification):
+    return "-" if value is None else format(value, specification)
 
 
 def render(root, manifest, summaries):
@@ -220,18 +247,22 @@ def render(root, manifest, summaries):
             ("Tasks scored 1.0", lambda s: f"{s['full_passes']} / {s['tasks']}"),
             ("Unscored tasks (judge failed or NaN metric)", lambda s: str(s["unscored"])),
             ("Score with unscored tasks as 0 (%)", lambda s: f"{s['score_unscored_as_zero']:.2f}"),
-            ("Cost (USD)", lambda s: f"{s['cost_usd']:.4f}"),
-            ("Cost per task (USD)", lambda s: f"{s['cost_usd'] / s['tasks']:.5f}"),
+            ("Cost (USD)", lambda s: number(s["cost_usd"], ".4f")),
+            ("Known observed cost (USD)", lambda s: number(s["known_cost_usd"], ".4f")),
+            (
+                "Cost per task (USD)",
+                lambda s: number(s["cost_usd"] / s["tasks"] if s["cost_usd"] is not None else None, ".5f"),
+            ),
         ],
     )
     table(
         "Tokens",
         [
-            ("Input", lambda s: f"{s['input_tokens']:,}"),
-            ("  of which cached", lambda s: f"{s['cached_tokens']:,}"),
-            ("  of which uncached", lambda s: f"{s['uncached_input_tokens']:,}"),
-            ("Output", lambda s: f"{s['output_tokens']:,}"),
-            ("  of which reasoning", lambda s: f"{s['reasoning_tokens']:,}"),
+            ("Input", lambda s: number(s["input_tokens"], ",")),
+            ("  of which cached", lambda s: number(s["cached_tokens"], ",")),
+            ("  of which uncached", lambda s: number(s["uncached_input_tokens"], ",")),
+            ("Output", lambda s: number(s["output_tokens"], ",")),
+            ("  of which reasoning", lambda s: number(s["reasoning_tokens"], ",")),
         ],
     )
     table(

@@ -1,0 +1,35 @@
+{
+  "container_id": "a917429c006f99a9bc920765d1f4f406ca9860b5846cf9ad04bc57d6936e3217",
+  "container_name": "/texera-single-task-final-litellm",
+  "args": [
+    "--config",
+    "/app/config.yaml",
+    "--port",
+    "4000",
+    "--host",
+    "0.0.0.0"
+  ],
+  "ports": {
+    "4000/tcp": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "18000"
+      }
+    ]
+  },
+  "config_mounts": [
+    {
+      "Source": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/single-task-final/bin/single-node/litellm-config.yaml",
+      "Destination": "/app/config.yaml",
+      "RW": false
+    }
+  ],
+  "config_sha256": "f8dfbfc1fe03ffed02bf0fc9475cd999ffcd8d5e9aa44307a9e85615a9edc561",
+  "luna_route": {
+    "model_name": "gpt-5.6-luna",
+    "litellm_params": {
+      "model": "openai/gpt-5.6-luna",
+      "reasoning_effort": "medium"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "source_hash_checks": 20,
+  "frozen_source_hashes_match": true,
+  "both_models_medium": true,
+  "new_valid_attempts_completed": 120,
+  "all_final_judgments_verified": true,
+  "manual_audit_complete": true,
+  "whitespace_check_passed": true,
+  "kramabench_submodule_clean": true,
+  "secret_match_scan_files": 49,
+  "secret_matches": 0,
+  "owned_agent_service_stopped": true,
+  "other_services_preserved": true,
+  "offline_tests_previously_completed": 59,
+  "offline_test_failures": 0,
+  "python_format_and_lint_files_previously_checked": 10,
+  "new_models_called_during_verification": 0
+}
