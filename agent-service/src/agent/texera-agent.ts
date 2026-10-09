@@ -2194,15 +2194,18 @@ export class TexeraAgent {
               "model step finished"
             );
 
-            // Some routes repeat one tool call verbatim within a response (Qwen
-            // on DeepInfra returned 62 copies of one dataflow call). Identical
-            // copies are one decision: keep the first call and its result, so
-            // the copies neither run nor enter the replayed context.
+            // Some routes repeat one tool call within a response (Qwen on
+            // DeepInfra returned 62 copies of one dataflow call, sometimes with
+            // the reasoning reworded). Copies with the same actions are one
+            // decision: keep the first call and its result, so the copies
+            // neither run nor enter the replayed context.
             const seenInputs = new Set<string>();
             const keptCallIds = new Set<string>();
             const formattedToolCalls = toolCalls
               ?.filter(tc => {
-                const key = `${tc.toolName}\u0000${JSON.stringify(tc.input ?? null)}`;
+                const input = tc.input as { actions?: unknown } | null | undefined;
+                const decision = tc.toolName === TOOL_NAME_DATAFLOW && input?.actions !== undefined ? input.actions : input;
+                const key = `${tc.toolName}\u0000${JSON.stringify(decision ?? null)}`;
                 if (seenInputs.has(key)) return false;
                 seenInputs.add(key);
                 keptCallIds.add(tc.toolCallId);
@@ -3106,22 +3109,25 @@ export class TexeraAgent {
     const actions = (toolResults ?? []).map(tr => asDataflowActionsResult(tr.output)).filter(r => r !== undefined);
     if (actions.length && this.head) {
       const stepId = this.head;
-      if (actions.length > 1) {
-        for (const result of actions) {
+      const previousTasks = this.archivedTaskHistory().filter(
+        task => task.steps[0]?.messageId !== this.stepsById.get(stepId)?.messageId
+      );
+      // Several distinct dataflow calls in one response (Qwen splits one turn's
+      // work into two or more calls) run in the order given, each with its own
+      // receipt, as if their action lists had been sent as one call. Calls
+      // after an answer are not run: the task ended there.
+      if (actions.length > 1) this.log.info({ stepId, calls: actions.length }, "running several dataflow calls from one response in order");
+      let answered = false;
+      for (const result of actions) {
+        if (answered) {
           result.status = "error";
-          result.error =
-            "Use one dataflow call per turn, with all actions in its ordered actions list. No actions were run.";
+          result.error = "Not run: an earlier dataflow call in this response answered the task.";
           for (const item of result.actions) {
             item.status = "skipped";
             item.output = result.error;
           }
+          continue;
         }
-      }
-      const previousTasks = this.archivedTaskHistory().filter(
-        task => task.steps[0]?.messageId !== this.stepsById.get(stepId)?.messageId
-      );
-      for (const result of actions) {
-        if (actions.length > 1) continue;
         await executeDataflowActionBatch(result, {
           state: this.workflowState,
           storage: this.snapshotStorage,
@@ -3167,7 +3173,10 @@ export class TexeraAgent {
             .filter(step => step.role === "user" && step.isBegin)
             .map(step => String(step.content ?? "")),
         });
-        if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
+        if (result.answer !== undefined) {
+          this.nativeActionAnswer = result.answer;
+          answered = true;
+        }
       }
       const step = this.stepsById.get(stepId);
       if (step) {
