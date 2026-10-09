@@ -22,6 +22,8 @@ import type { ReActStep } from "../types/agent";
 import type { HistoricalTask } from "./state-history";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import type { DataflowActionsResult } from "./tools/dataflow-actions";
+import { taskOperatorCatalog } from "./task-catalog";
+import { inlineCode, operatorBlock, type OperatorBlock } from "./native/observation-format";
 
 /** Immutable action-time access evidence, never inferred from model prose. */
 export interface TaskReference {
@@ -72,6 +74,11 @@ export interface TaskRecord {
   }>;
   consulted_tasks: number[];
   unresolved_references: number;
+  /** Registered sessions (the prior-task operator catalog): the source of the
+   * definitions the task registered or changed, and its operator blocks. */
+  definitions?: string;
+  operator_changes?: OperatorBlock[];
+  operator_deletions?: OperatorBlock[];
   output_roots?: {
     basis: "answer" | "observed_reads" | "unknown";
     roots: Array<{
@@ -177,6 +184,9 @@ export function taskHistoryFromSteps(
 export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly TaskHistory[]): TaskRecord[] {
   const ordered = [...tasks].sort((a, b) => a.taskId - b.taskId);
   const stepTasks = new Map(ordered.flatMap(t => t.steps.map(s => [s.id, t.taskId] as const)));
+  // One entry form per session, so a task that registered no Python still
+  // reports its operators like the rest.
+  const registered = ordered.some(t => t.steps.some(s => batches(s).some(r => r.protocol === "registered-python-v1")));
   const resultOwners = new Map<string, number>();
   const definitionOwners = new Map<string, number>();
   const records: TaskRecord[] = [];
@@ -284,6 +294,7 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
       consulted_tasks: [...consulted].sort((a, b) => a - b),
       unresolved_references: unresolved,
       output_roots: outputRoots(storage, task, ordered),
+      ...(registered ? taskOperatorCatalog(storage, task, ordered) : {}),
     });
     // Index every snapshot earned in this task, not just its final answer.
     // A cached/inherited result keeps its earliest known producer.
@@ -302,19 +313,28 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
   return records;
 }
 
-const clip = (text: string, limit: number) =>
-  text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
+const clip = (text: string, limit: number, note: string) =>
+  text.length <= limit ? text : `${text.slice(0, limit)}… [${note}]`;
 
 const TASK_HISTORY_INTRO =
   "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads, not correctness or every semantic dependency. Inspect a relevant task for its local answer computation and versioned earlier-input references. Expand selected inputs when needed; Python and selected result tables are available on request.";
+
+// A registered session has no task inspection: each entry carries the task's
+// definitions and operators itself.
+const REGISTERED_TASK_HISTORY_INTRO =
+  "# Prior Tasks\n\nEach entry lists the definitions that task registered or changed and the operators it created, changed or deleted, as it left them, and its answer. Dependencies record computation and reads, not correctness.";
+
+const introFor = (tasks: readonly TaskRecord[]) =>
+  tasks.some(task => task.operator_changes !== undefined) ? REGISTERED_TASK_HISTORY_INTRO : TASK_HISTORY_INTRO;
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
 }
 
 function taskOutcome(task: TaskRecord, answerChars: number): string {
+  if (task.operator_changes !== undefined) return registeredEntry(task, answerChars);
   return [
-    `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
+    `Answer: ${task.answer ? clip(task.answer, answerChars, "answer clipped; inspect this task for the original") : "No completed answer."}`,
     `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
     `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => root.operator_id).join(", ") : "not declared; inspect the task to select a candidate branch"}`,
     ...(task.unresolved_references
@@ -325,11 +345,33 @@ function taskOutcome(task: TaskRecord, answerChars: number): string {
     .trimEnd();
 }
 
+/** A registered task's catalog entry. Its answer cannot declare sources, so
+ * the results the task read stand as the labelled candidates. */
+function registeredEntry(task: TaskRecord, answerChars: number): string {
+  const definitions = task.definitions ?? "";
+  const fence = "`".repeat(Math.max(3, ...(definitions.match(/`+/g) ?? []).map(run => run.length + 1)));
+  const changes = task.operator_changes ?? [];
+  const deletions = task.operator_deletions ?? [];
+  const read = task.output_roots?.basis === "observed_reads" ? task.output_roots.roots : [];
+  return [
+    ...(definitions ? ["Definitions:", `${fence}python`, definitions, fence] : []),
+    ...(changes.length ? ["Operators:", ...changes.map(operatorBlock)] : []),
+    ...(deletions.length ? ["Deleted operators:", ...deletions.map(operatorBlock)] : []),
+    ...(!definitions && !changes.length && !deletions.length ? ["No definitions or operators changed."] : []),
+    `Answer: ${task.answer ? clip(task.answer, answerChars, "answer clipped") : "No completed answer."}`,
+    `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
+    `Answer sources: not declared${read.length ? `; results read: ${read.map(root => inlineCode(root.task_id === task.task_id ? root.operator_id : `${root.operator_id}@${root.task_id}`)).join(", ")}` : ""}`,
+    ...(task.unresolved_references
+      ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
+      : []),
+  ]
+    .join("\n")
+    .trimEnd();
+}
+
 export function renderTaskIndex(tasks: readonly TaskRecord[], answerChars = 1200): string {
   return tasks.length
-    ? [TASK_HISTORY_INTRO, ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars)}`)].join(
-        "\n\n"
-      )
+    ? [introFor(tasks), ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars)}`)].join("\n\n")
     : "";
 }
 
@@ -341,7 +383,7 @@ export function renderTaskMessages(
 ): ModelMessage[] {
   return tasks.length
     ? [
-        { role: "user", content: TASK_HISTORY_INTRO },
+        { role: "user", content: introFor(tasks) },
         ...tasks.flatMap(task => {
           const request = requestMessages.get(task.task_id);
           if (!request) throw new Error(`Missing initial request frames for task ${task.task_id}`);
