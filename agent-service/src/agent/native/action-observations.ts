@@ -124,13 +124,20 @@ function retrievedResultLines(blocks: OperatorBlock[], text = ""): string[] {
   return lines;
 }
 
-export function renderActionObservations(result: DataflowActionsResult): string {
+export function actionObservationTitle(item: DataflowActionsResult["actions"][number]): string {
+  return `### ${item.index}. ${item.action.type}${target(item.action)}: ${item.status}`;
+}
+
+export function renderActionObservations(
+  result: DataflowActionsResult,
+  options: { includeHeadings?: boolean } = {}
+): string {
   const config = observationFormat(result.format);
   if (!result.actions.length)
     return `### dataflow call rejected\n${issueText(result.error ?? "No actions ran.", "CALL_REJECTED")}`;
   return result.actions
     .map(item => {
-      const title = `### ${item.index}. ${item.action.type}${target(item.action)}: ${item.status}`;
+      const title = options.includeHeadings === false ? "" : actionObservationTitle(item);
       // A call still running has no output yet (a trace read mid-call).
       if (item.status === "pending") return `${title} (running)`;
       if (item.status === "skipped") {

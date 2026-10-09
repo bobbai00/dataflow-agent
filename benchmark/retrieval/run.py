@@ -22,7 +22,6 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import random
 import shutil
 import socket
 import subprocess
@@ -33,7 +32,7 @@ from urllib.parse import urlsplit
 
 from campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
 from catalog import inventory
-from configuration import campaign_arms, full_result_char_limit
+from configuration import campaign_arms, full_result_char_limit, campaign_jobs, source_snapshot, SOURCE_PATHS
 from metrics import current_price_schedule, reconcile_run
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +55,8 @@ def main():
     parser.add_argument("--endpoint", default="http://localhost:3075")
     parser.add_argument("--agent-revision", help="Revision served by the frozen agent; defaults to this checkout")
     parser.add_argument("--engine-revision", help="Revision built into the running backend; record independently of the agent")
+    parser.add_argument("--gateway-revision", help="Revision built into the running access-control gateway")
+    parser.add_argument("--dry-run", action="store_true", help="Validate and print the exact worklist/settings; no credentials, artifacts or service calls")
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--all-tasks", action="store_true", help="All original top-level KramaBench tasks")
@@ -86,12 +87,26 @@ def main():
         args.selection = "All 104 original KramaBench top-level tasks; no task exclusions or outcome-selected retries."
         assert len(args.tasks) == 104
     assert len(set(args.tasks)) == len(args.tasks), "Duplicate task IDs"
+    if len(set(args.models)) != len(args.models) or len(set(args.arms)) != len(args.arms):
+        parser.error("Models and arms must be unique")
     assert set(args.tasks) <= {t["task_id"] for t in source_inventory}, "Unknown task IDs"
     output = args.output.resolve()
     if args.source_manifest:
         args.source_manifest = args.source_manifest.resolve()
     if output.exists():
         raise SystemExit(f"Refusing to overwrite {output}")
+    tag = output.name.replace("-", "_")
+    jobs = campaign_jobs(args.models, args.arms, args.tasks, args.repetitions, tag)
+    settings = {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
+                "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
+                "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
+                "thoughtReplay": False, "enableCodeInSnapshot": False}
+    if args.dry_run:
+        print(json.dumps({"dry_run": True, "attempts": len(jobs), "workers": args.workers,
+              "task_ids": args.tasks, "models": {m: MODEL_TYPES[m] for m in args.models},
+              "arms": {k: arms[k] for k in args.arms}, "settings": settings,
+              "source_paths": SOURCE_PATHS, "jobs": jobs}, indent=2))
+        return
     for path in [ROOT / ".env", KB / ".env"]:
         if path.exists():
             for line in path.read_text().splitlines():
@@ -111,23 +126,15 @@ def main():
     import kb
     from systems import cost_utils
     pricing_overrides = install_provider_prices(cost_utils, [MODEL_TYPES[m] for m in args.models])
-    source_hash = hashlib.sha256()
-    source_paths = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-co", "--exclude-standard", "--",
-        "agent-service/src", "amber/src", "benchmark/retrieval", "bin/strict_tools.py"], text=True).splitlines()
-    source_files = []
-    for name in sorted(set(source_paths)):
-        source = ROOT / name
-        if source.is_file():
-            source_hash.update(name.encode() + b"\0" + source.read_bytes() + b"\0")
-            source_files.append({"path": name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
+    frozen_sources = source_snapshot(ROOT)
     os.chdir(KB)
     output.mkdir(parents=True)
     save(output / "source-snapshot.json", {"captured_at": datetime.now(timezone.utc).isoformat(),
-         "sha256": source_hash.hexdigest(), "matches_launch_manifest": True, "files": source_files})
-    tag = output.name.replace("-", "_")
+         **frozen_sources, "matches_launch_manifest": True})
     manifest = {
         "agent_revision": args.agent_revision or subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "engine_revision": args.engine_revision,
+        "gateway_revision": args.gateway_revision,
         "runner_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "harness_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "endpoint": args.endpoint, "task_ids": args.tasks, "repetitions": args.repetitions,
@@ -136,13 +143,11 @@ def main():
         "pricing_schedules": {MODEL_TYPES[m]: current_price_schedule(MODEL_TYPES[m]) or cost_utils.price_schedule(MODEL_TYPES[m]) for m in args.models},
         "wire_directory": str(args.wire_dir.resolve()) if args.wire_dir else None,
         "working_tree_diff_sha256": hashlib.sha256(subprocess.check_output(
-            ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "benchmark/retrieval", "bin"])).hexdigest(),
-        "working_tree_sources_sha256": source_hash.hexdigest(),
+            ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "access-control-service", "benchmark/retrieval", "bin"])).hexdigest(),
+        "working_tree_sources_sha256": frozen_sources["sha256"],
+        "source_paths": SOURCE_PATHS,
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
-        "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
-                     "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
-                     "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
-                     "thoughtReplay": False, "enableCodeInSnapshot": False},
+        "settings": settings,
         "selection": args.selection,
         "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
         "task_timeout_seconds": args.timeout, "workers": args.workers,
@@ -152,13 +157,6 @@ def main():
     }
     if args.source_manifest:
         manifest["source_inventory"] = json.loads(args.source_manifest.resolve().read_text())
-    jobs = []
-    for rep in range(1, args.repetitions + 1):
-        round_jobs = [{"model": model, "arm": arm, "task": task, "rep": rep,
-                       "sut": f"DataflowSystem{model}_{tag}_{arm}_Rep{rep}"}
-                      for model in args.models for arm in args.arms for task in args.tasks]
-        random.Random(101 + rep).shuffle(round_jobs)
-        jobs.extend(round_jobs)
     for name in {j["sut"] for j in jobs}:
         assert not (KB / "system_scratch" / name).exists(), f"Would overwrite {name}"
     manifest["jobs"] = jobs

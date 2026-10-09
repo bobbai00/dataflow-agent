@@ -18,7 +18,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
+import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep, type RetrievalView } from "../../types/agent";
 import { buildContextAssembler } from "../../server";
 import type { OperatorInfo } from "../../types/execution";
 import { assembleContext } from "../util/context-utils";
@@ -31,6 +31,8 @@ import { dataflowInput, type LegacySpec } from "./test-support";
 import { formatOperatorResult } from "../tools/result-formatting";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
+import { prepareRegisteredDataflowActions } from "../tools/dataflow-actions";
+import { executeDataflowActionBatch } from "../tools/dataflow-action-runtime";
 
 function fixture() {
   const state = new WorkflowState();
@@ -243,6 +245,9 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
           settings: {
             ...DEFAULT_AGENT_SETTINGS,
             agentMode: AgentMode.NATIVE,
+            // This fixture deliberately records the historical expression-mode
+            // tool envelope; its evidence lives in snapshot observations.
+            messageLayout: "native",
             contextMode: mode,
             dataEvidence,
             flowEvidence,
@@ -273,6 +278,68 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       });
     }
 }
+
+for (const dataEvidence of [false, true])
+  for (const flowEvidence of [false, true])
+    test(`production Markdown preserves registered receipts: data=${dataEvidence}/flow=${flowEvidence}`, async () => {
+      const f = fixture();
+      await f.record("A", [filter, source]);
+      f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
+      const retrievalViews: RetrievalView[] = dataEvidence ? ["sample_stats", "full"] : ["sample", "full"];
+      const settings = {
+        ...DEFAULT_AGENT_SETTINGS,
+        agentMode: AgentMode.NATIVE,
+        contextMode: ContextMode.DELTA,
+        dataEvidence,
+        flowEvidence,
+        retrievalViews,
+        systemPrompt: "",
+      };
+      const input = {
+        reasoning: "Read the retained result using this session's evidence settings.",
+        actions: [{ type: "retrieve", operator_ids: ["selected"], view: retrievalViews[0] }],
+      };
+      const output = prepareRegisteredDataflowActions(input, retrievalViews);
+      await executeDataflowActionBatch(output, {
+        state: f.state,
+        storage: f.storage,
+        stepId: "A",
+        settings,
+        context: {},
+        execute: async () => {
+          throw new Error("Retrieval must not execute.");
+        },
+        edited: () => {
+          throw new Error("Retrieval must not edit.");
+        },
+        isCurrent: () => true,
+      });
+      expect(output.status).toBe("completed");
+      f.steps[0].toolCalls = [{ toolName: "dataflow", toolCallId: "read", input }];
+      f.steps[0].toolResults = [{ toolCallId: "read", output }];
+      const assembler = buildContextAssembler("vercel-tool-use", {} as never);
+      const assembly = {
+        visibleSteps: f.steps,
+        workflowState: f.state,
+        snapshotStorage: f.storage,
+        compilationResult: null,
+        settings,
+      };
+      const messages = await assembler(assembly as any);
+      const text = JSON.stringify(messages);
+      expect(text).toContain("## Iteration");
+      expect(text).toContain("#### Outcome");
+      expect(text.includes("statistics:")).toBe(dataEvidence);
+      expect(text.includes("- flow:")).toBe(flowEvidence);
+      // History replays the receipt earned at that time; later session switches
+      // cannot add previously hidden measurements or erase displayed evidence.
+      expect(
+        await assembler({
+          ...assembly,
+          settings: { ...settings, dataEvidence: !dataEvidence, flowEvidence: !flowEvidence },
+        } as any)
+      ).toEqual(messages);
+    });
 
 test("DELTA error observations stay append-only without a moving legacy error suffix", async () => {
   const f = fixture();

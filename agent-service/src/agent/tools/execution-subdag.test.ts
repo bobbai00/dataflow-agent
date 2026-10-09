@@ -207,6 +207,12 @@ describe("execution phase metrics survive persistence summaries", () => {
     compilationDurationMs: 7,
     runtimeStartAttempted: true,
   } as const;
+  const clientTiming = {
+    requestToHeadersMs: expect.any(Number),
+    responseBodyDecodeMs: expect.any(Number),
+    resultPreparationMs: expect.any(Number),
+    snapshotStoreMs: expect.any(Number),
+  };
 
   test.each([true, false])("single execution records engine metrics, success=%s", async success => {
     WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
@@ -231,8 +237,19 @@ describe("execution phase metrics survive persistence summaries", () => {
         }
       );
       expect(outcome.executionRuns).toEqual([
-        { targets: ["c"], executionId: "e1", success, state: success ? "Completed" : "Failed", phaseMetrics },
+        {
+          targets: ["c"],
+          executionId: "e1",
+          success,
+          state: success ? "Completed" : "Failed",
+          phaseMetrics,
+          clientTiming,
+        },
       ]);
+      for (const duration of Object.values(outcome.executionRuns![0].clientTiming!)) {
+        expect(Number.isFinite(duration)).toBe(true);
+        expect(duration).toBeGreaterThanOrEqual(0);
+      }
       expect(runs).toEqual(outcome.executionRuns!);
     } finally {
       fetch.mockRestore();
@@ -297,7 +314,7 @@ describe("execution phase metrics survive persistence summaries", () => {
         { opsToViewResult: ["c"] }
       );
       expect(outcome.executionRuns).toEqual([
-        { targets: ["c"], executionId: null, success: false, state: "Error", phaseMetrics: null },
+        { targets: ["c"], executionId: null, success: false, state: "Error", phaseMetrics: null, clientTiming },
       ]);
     } finally {
       fetch.mockRestore();

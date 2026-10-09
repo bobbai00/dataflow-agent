@@ -157,7 +157,8 @@ An agent created with no `settings` uses
 | Setting | Default | What it gives the model |
 |---|---|---|
 | `agentMode` | `native` | the operator expressions above; `code` is the other mode |
-| `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
+| `contextMode` | `delta` | replay the retained trajectory in order |
+| `messageLayout` | `markdown` for flat native DELTA | one Markdown report per iteration, pairing decoded actions with their outcomes; explicit `native` retains the tool-call transcript for comparison |
 | `dataEvidence` | `false` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |

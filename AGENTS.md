@@ -165,6 +165,16 @@ the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
 graph inspection is built into `dataflow`. See [README.md §2](README.md) for
 the full table.
 
+Flat native DELTA defaults to `messageLayout: "markdown"`: one environment
+report per iteration pairs frozen submitted code/declarations with recorded
+outcomes. Actual user requests and final answers retain their roles. The model
+still calls the real `dataflow` tool; raw calls/results remain in saved traces.
+Explicit `messageLayout: "native"` preserves the previous transcript for A/B
+comparisons. Standard context budgets support both sliding and checkpoint
+compaction. Advanced legacy context policies keep their existing renderer;
+explicitly combining them with Markdown is rejected. See
+[the context contract](docs/native-registered-python-design.md#iteration-history).
+
 Measured `filter(t, predicate="name", settings={})` calls a registered predicate
 with a read-only row mapping and keyword settings. Boolean/null verdicts keep or
 drop rows; null verdicts are included in rejected counts. It preserves schema and

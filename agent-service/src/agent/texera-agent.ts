@@ -100,7 +100,13 @@ import {
   createNativeTools,
   TOOL_NAME_DATAFLOW,
 } from "./tools/native-batch-tools";
-import { NativeCatalogSettingsError, validateNativeSettings, validateTaskContextSettings } from "./native/settings";
+import {
+  NativeCatalogSettingsError,
+  validateNativeSettings,
+  validateTaskContextSettings,
+  validateMarkdownContextSettings,
+  effectiveMessageLayout,
+} from "./native/settings";
 import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
 import { planSeedSources, registeredSeedStatement } from "./native/seed-sources";
 import { formatNativeDiagnostic } from "./native/diagnostics";
@@ -603,7 +609,7 @@ export class TexeraAgent {
         versioned: this.settings.versionedMode === true,
         session: this.settings.sessionTurns === true,
         recall: this.settings.enableRecallTool === true,
-        messageLayout: this.settings.messageLayout,
+        messageLayout: effectiveMessageLayout(this.settings),
         reasoning: this.settings.dataflowReasoning === true,
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
@@ -1567,6 +1573,11 @@ export class TexeraAgent {
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
     validateTaskContextSettings({ ...this.settings, ...updates });
+    validateMarkdownContextSettings({
+      ...this.settings,
+      ...Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined)),
+    });
+    const previousMessageLayout = effectiveMessageLayout(this.settings);
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
     if (
@@ -1895,6 +1906,7 @@ export class TexeraAgent {
 
     // An agent that has not been initialized yet has no prompt at all; the
     // first settings update gives it one for the (possibly default) mode.
+    if (previousMessageLayout !== effectiveMessageLayout(this.settings)) promptNeedsRebuild = true;
     if (promptNeedsRebuild || !this.systemPrompt) {
       this.rebuildSystemPrompt();
     }

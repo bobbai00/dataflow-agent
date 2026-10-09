@@ -1,0 +1,151 @@
+{
+  "metric": "Serialized working-iteration history bytes on identical frozen traces; excludes system prompt, tools and task text. Not a provider-token or cost estimate.",
+  "rows": [
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 3,
+      "nativeHistoryBytes": 7137,
+      "markdownHistoryBytes": 6491,
+      "reductionPercent": 9.051422166176259
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 3,
+      "nativeHistoryBytes": 5518,
+      "markdownHistoryBytes": 4765,
+      "reductionPercent": 13.646248640811887
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 10,
+      "nativeHistoryBytes": 27361,
+      "markdownHistoryBytes": 24744,
+      "reductionPercent": 9.564708892218853
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 6,
+      "nativeHistoryBytes": 27775,
+      "markdownHistoryBytes": 26306,
+      "reductionPercent": 5.288928892889288
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 5206,
+      "markdownHistoryBytes": 4723,
+      "reductionPercent": 9.277756434882821
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 6,
+      "nativeHistoryBytes": 11219,
+      "markdownHistoryBytes": 9713,
+      "reductionPercent": 13.423656297352704
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 5,
+      "nativeHistoryBytes": 21336,
+      "markdownHistoryBytes": 19943,
+      "reductionPercent": 6.528871391076119
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 11,
+      "nativeHistoryBytes": 24842,
+      "markdownHistoryBytes": 22124,
+      "reductionPercent": 10.941148055712102
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 6,
+      "nativeHistoryBytes": 23121,
+      "markdownHistoryBytes": 21523,
+      "reductionPercent": 6.911465767051594
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 4,
+      "nativeHistoryBytes": 13558,
+      "markdownHistoryBytes": 12535,
+      "reductionPercent": 7.54536067266558
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 6021,
+      "markdownHistoryBytes": 5544,
+      "reductionPercent": 7.922272047832591
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 4868,
+      "markdownHistoryBytes": 4373,
+      "reductionPercent": 10.16844700082169
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 5437,
+      "markdownHistoryBytes": 4954,
+      "reductionPercent": 8.883575501195518
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 5389,
+      "markdownHistoryBytes": 4900,
+      "reductionPercent": 9.074039710521431
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 9,
+      "nativeHistoryBytes": 35439,
+      "markdownHistoryBytes": 33085,
+      "reductionPercent": 6.64239961624199
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 4162,
+      "markdownHistoryBytes": 3679,
+      "reductionPercent": 11.604997597308985
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/legal-easy-3/react_steps.json",
+      "iterations": 2,
+      "nativeHistoryBytes": 4855,
+      "markdownHistoryBytes": 4372,
+      "reductionPercent": 9.948506694129765
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 4,
+      "nativeHistoryBytes": 22017,
+      "markdownHistoryBytes": 20876,
+      "reductionPercent": 5.182359086160693
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 3,
+      "nativeHistoryBytes": 24965,
+      "markdownHistoryBytes": 24139,
+      "reductionPercent": 3.3086320849188833
+    },
+    {
+      "trace": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/biomedical-hard-3/react_steps.json",
+      "iterations": 5,
+      "nativeHistoryBytes": 26335,
+      "markdownHistoryBytes": 24907,
+      "reductionPercent": 5.422441617619134
+    }
+  ],
+  "totals": {
+    "iterations": 89,
+    "nativeHistoryBytes": 306561,
+    "markdownHistoryBytes": 283696,
+    "reductionPercent": 7.458548217157435
+  }
+}

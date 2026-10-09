@@ -473,9 +473,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * anyway. Off by default — control arms keep a byte-identical protocol.
    */
   seedSources: boolean;
-  /** Context layout and result sampling are independent of data/flow evidence. */
-  /** Context layout and result sampling are independent of data/flow evidence. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
+  /** Markdown reports default in flat native DELTA; explicit legacy layouts
+   * retain their framing. Sampling and data/flow evidence are independent. */
+  messageLayout?: "markdown" | "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
   /**
    * VERSIONED MODE — the session as one immutable version DAG addressed by
    * (operatorId, turnId). Three coupled changes, one flag:
@@ -779,6 +779,7 @@ export interface CreateAgentRequest {
 }
 
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  messageLayout?: AgentSettings["messageLayout"];
   taskContext?: "trajectory" | "dependencies";
   multiTask?: boolean;
   maxOperatorResultCharLimit?: number;

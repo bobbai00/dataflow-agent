@@ -107,3 +107,14 @@ for (const data of [false, true])
       expect(info.tools).toHaveLength(1);
       expect(info.tools[0].inputSchema).toEqual(schema);
     });
+
+test("registered prompt describes the effective Markdown history and keeps real tool calls", () => {
+  const markdown = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { messageLayout: "markdown" });
+  const native = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { messageLayout: "native" });
+  expect(markdown).toContain("one Markdown report per completed iteration");
+  expect(markdown).toContain("recorded execution status");
+  expect(markdown).toContain("Continue calling the dataflow tool");
+  expect(native).not.toContain("one Markdown report per completed iteration");
+  expect(markdown).toContain('"actions":');
+  expect(markdown).not.toContain("They do not repeat the entire implementation.");
+});

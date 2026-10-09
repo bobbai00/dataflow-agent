@@ -25,10 +25,22 @@ def evidence_matrix_contrasts(rows, models):
              for flow in [0, 1]]
     pairs += [("flow", f"evidence_data{data}_flow1", f"evidence_data{data}_flow0")
               for data in [0, 1]]
+    return matched_contrasts(rows, models, pairs)
+
+
+def layout_contrasts(rows, models):
+    """Matched layout pilot; one repetition is descriptive, never significant."""
+    return matched_contrasts(rows, models, [("message_layout", "layout_markdown", "layout_native")])
+
+
+def matched_contrasts(rows, models, pairs):
     metrics = {"score": "score_delta", "cost_usd": "cost_delta_usd",
                "model_calls": "model_calls_delta", "input_tokens": "input_tokens_delta",
                "output_tokens": "output_tokens_delta", "cached_tokens": "cached_tokens_delta",
-               "elapsed_seconds": "elapsed_seconds_delta"}
+               "elapsed_seconds": "elapsed_seconds_delta", "model_requests": "model_requests_delta",
+               "cache_creation_tokens": "cache_creation_tokens_delta", "format_compliant": "format_compliant_delta",
+               "tool_errors": "tool_errors_delta", "action_errors": "action_errors_delta",
+               "wire_context_bytes": "wire_context_bytes_delta"}
     contrasts = []
     for model in models:
         lookup = {(row["arm"], row["task"], row["rep"]): row
@@ -47,6 +59,13 @@ def evidence_matrix_contrasts(rows, models):
             for metric, output_key in metrics.items():
                 differences = defaultdict(list)
                 for a, b in matched:
+                    if metric in {"input_tokens", "output_tokens", "cached_tokens", "cache_creation_tokens"} and any(
+                        row.get("usage_complete") is False for row in [a, b]
+                    ):
+                        continue
+                    availability = {"cached_tokens": "cache_read_usage_complete", "cache_creation_tokens": "cache_write_usage_complete"}.get(metric)
+                    if availability and any(row.get(availability) is False for row in [a, b]):
+                        continue
                     if a.get(metric) is not None and b.get(metric) is not None:
                         differences[a["task"]].append(a[metric] - b[metric])
                 contrast["metric_pairs"][metric] = sum(map(len, differences.values()))

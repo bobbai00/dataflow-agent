@@ -98,6 +98,34 @@ manifest. Its default remains 100,000 for existing campaign compatibility; pass
 5,000 explicitly to match the current service default. Valid values are
 128–100,000. Historical arm names retain their original settings.
 
+For the matched message-layout pilot, `layout_native` and `layout_markdown`
+pin the replay format explicitly. Both expose `sample_stats` and `full`, enable
+flow evidence, and collect full-table profiles. This command validates all 24
+jobs without reading credentials, creating artifacts, or contacting services:
+
+```bash
+bin/bench.sh retrieval run --dry-run \
+    --output benchmark/retrieval/runs/<new-layout-campaign> --endpoint http://localhost:3001 \
+    --tasks legal-easy-3 biomedical-hard-3 \
+    --models Luna Terra Sol Opus48 Qwen38_27B DeepSeek41Flash \
+    --arms layout_native layout_markdown --repetitions 1 --workers 3 \
+    --full-result-char-limit 5000
+```
+
+After freezing and validating the runtime, remove `--dry-run` and add
+`--wire-dir`, `--agent-revision`, `--engine-revision`, and `--gateway-revision`
+for the deployed stack. The source snapshot hashes agent, Amber, gateway,
+benchmark and both LiteLLM configuration files. It records working-tree content
+independently of the declared deployed revisions.
+
+`analyze` reports matched layout differences, final-line compliance, conservative
+numeric-result support, captured request roles, prefix stability, and usage.
+`python benchmark/retrieval/matrix_audit.py <campaign>` saves detailed per-request
+hashes, context byte counts and cache availability without making API calls.
+Context bytes are serialized message size, not measured provider tokens. One
+repetition over two tasks is a diagnostic comparison; warm provider caches,
+routing and changes in agent behavior can also affect cost and calls.
+
 For an opt-in infrastructure project with independent names and volumes, use
 the supported launcher with the isolated overlay. Standard host ports must be
 available; existing deployments are left running.

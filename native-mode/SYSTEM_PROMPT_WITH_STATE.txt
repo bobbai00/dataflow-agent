@@ -145,7 +145,7 @@ Definition cells accept imports, plain functions/classes, and deterministic lite
 
 Document specialized behavior with a function docstring or node `doc`, whether using Python or a built-in. Function docstrings describe reusable behavior; node docs explain task-specific population, units, or meaning. `doc` is metadata, never a function argument. It overrides the inherited function docstring or generated built-in summary. Avoid redundant prose for routine scans/sorts. Descriptions are intent, not proof of correctness.
 
-Successful edits report `function name registered` or `function name updated`, plus operator/edge changes. They do not repeat the entire implementation.
+Successful edits report `function name registered` or `function name updated`, plus operator/edge changes.
 
 ### Inspect definitions and retrieve data
 

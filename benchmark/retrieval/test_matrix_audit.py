@@ -65,6 +65,58 @@ class MatrixAuditTests(unittest.TestCase):
         self.assertEqual(result["wire_prefix_checks"], 1)
         self.assertEqual(result["observations"]["execute_blocks"], 1)
 
+    def test_markdown_wire_history_is_audited_without_scanning_fenced_source(self):
+        self.settings["messageLayout"] = "markdown"
+        self.request()
+        history = {"role": "user", "content": "# Environment history\n\n## Iteration 1\n\n### Submitted actions\n"
+                   "````python\ndef f():\n    \"\"\"\n- flow: fake source text\nstatistics: fake\n```\n    \"\"\"\n````\n"
+                   "### 1. execute source: ok\n#### Outcome\n1 operator executed."}
+        self.request(2, [history])
+        result = self.findings()
+        self.assertEqual(result["violations"], [])
+        self.assertEqual(result["observations"]["markdown_messages"], 1)
+        self.assertEqual(result["observations"]["execute_blocks"], 1)
+        self.assertEqual(result["wire_context"]["roles"], {"system": 2, "user": 3})
+        self.assertEqual(result["wire_context"]["prefix_pairs"][0]["unchanged_messages"], 2)
+        self.assertTrue(result["wire_context"]["prefix_pairs"][0]["full_previous_prefix"])
+        self.assertGreater(result["wire_context"]["total_context_bytes"], 0)
+        self.assertEqual(len(result["wire_context"]["requests"][0]["request_sha256"]), 64)
+        history["content"] += "\n- flow: actual measured output"
+        self.request(2, [history])
+        self.assertIn("flow_markdown_leak", self.findings()["violations"])
+
+    def test_markdown_layout_cannot_replay_native_tool_frames(self):
+        self.settings["messageLayout"] = "markdown"
+        self.request(extra=[{"role": "assistant", "tool_calls": [{"id": "call"}], "content": None},
+                            {"role": "tool", "tool_call_id": "call", "content": "ok"}])
+        self.assertIn("markdown_contains_native_tool_frames", self.findings()["violations"])
+
+    def test_markdown_outcome_ends_before_the_next_call_submission(self):
+        self.settings["messageLayout"] = "markdown"
+        self.request(extra=[{"role": "user", "content":
+            "# Environment history\n\n## Iteration 1\n### Call 1: dataflow\n"
+            "### 1. inspect graph: ok\n#### Outcome\nThe graph is empty.\n"
+            "### Call 2: dataflow\nstatistics: authored text, not a receipt\n"
+            "- flow: authored text, not a receipt\n"
+            "### 1. retrieve report: ok\n#### Outcome\nrecords: one row"}])
+        result = self.findings()
+        self.assertEqual(result["violations"], [])
+        self.assertEqual(result["observations"]["retrieve_blocks"], 1)
+        self.assertEqual(result["observations"]["with_statistics_caption"], 0)
+
+    def test_wire_request_usage_keeps_missing_cache_fields_unknown_and_reports_format(self):
+        self.request()
+        self.write("wire/000001-response.json", {"usage": {"prompt_tokens": 50, "completion_tokens": 5}})
+        self.write("wire/000001-meta.json", {"status": 200})
+        (self.path / "prompt.txt").write_text("End with **Final Answer: <value>**")
+        (self.path / "response.txt").write_text("Final Answer: 3")
+        result = self.findings()
+        request = result["wire_context"]["requests"][0]
+        self.assertEqual(request["usage"]["input_tokens"], 50)
+        self.assertIsNone(request["usage"]["cached_tokens"])
+        self.assertEqual(request["http_status"], 200)
+        self.assertFalse(result["answer_diagnostics"]["format_compliant"])
+
     def test_each_wire_request_must_keep_conditional_prompt_and_schema(self):
         self.request()
         self.request(2, data=True, flow=True)

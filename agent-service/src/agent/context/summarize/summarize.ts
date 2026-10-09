@@ -102,6 +102,24 @@ export interface SummarizeResult {
 
 export function summarize(input: SummarizeInput, params: SummarizeParams): SummarizeResult {
   const interleaved = params.trajectory.events === "interleaved";
+  if (
+    params.messageLayout === "markdown" &&
+    (!interleaved ||
+      params.currentSnapshot ||
+      params.trajectory.priorTurns === "index" ||
+      params.trajectory.versionedCatalog ||
+      params.trajectory.sessionTurns ||
+      params.trajectory.staticCompaction ||
+      params.trajectory.showCompactMeter ||
+      params.trajectory.foldResolvedRevisions ||
+      params.trajectory.renderPrefs ||
+      params.trajectory.userTaskPlacement === "bottom" ||
+      params.trajectory.observations === "none" ||
+      needsExtras(params))
+  )
+    throw new Error(
+      "messageLayout markdown supports flat DELTA with ordinary context-window compression/sliding; select a legacy layout for this context policy."
+    );
   const mode = interleaved ? ContextMode.DELTA : ContextMode.LATEST;
   const options = paramsToRenderOptions(params, input.compilationResult ?? null);
 
@@ -123,15 +141,26 @@ export function summarize(input: SummarizeInput, params: SummarizeParams): Summa
   // NATIVE FRAMES: collect which step produced each rendered event so the
   // transcript can carry that step's REAL tool calls (true toolCallIds).
   const stepByEvent = new Map<number, ReActStep>();
+  if (params.messageLayout === "markdown") options.markdownContext = { messages: [] };
   if (params.messageLayout === "native") {
     options.eventStepSink = (eventIndex, step) => stepByEvent.set(eventIndex, step);
   }
   const text = renderContextCore(input.visibleSteps, input.workflowState, input.snapshotStorage, mode, options);
-  const messages: ModelMessage[] = buildMessages(params.messageLayout, text, stepByEvent);
+  const messages: ModelMessage[] =
+    options.markdownContext?.messages ?? buildMessages(params.messageLayout, text, stepByEvent);
   return {
     text,
     messages,
-    breakdown: computeBreakdown(text),
+    breakdown:
+      params.messageLayout === "markdown"
+        ? {
+            totalTokens: estimateTokens(text),
+            sections: messages.map((message, index) => ({
+              title: `${message.role} ${index + 1}`,
+              tokens: estimateTokens(String(message.content)),
+            })),
+          }
+        : computeBreakdown(text),
   };
 }
 

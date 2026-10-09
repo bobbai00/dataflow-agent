@@ -34,8 +34,11 @@ import {
   type DataflowActionsResult,
 } from "../../src/agent/tools/dataflow-actions";
 import { assertNativeCleanupSafe } from "./native-cleanup";
+import { renderMarkdownIteration } from "../../src/agent/native/markdown-iteration";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3001";
+const layout = process.env.TEXERA_CONTEXT_LAYOUT ?? "markdown";
+assert.ok(layout === "native" || layout === "markdown", "TEXERA_CONTEXT_LAYOUT must be native or markdown");
 const directory = mkdtempSync(join(tmpdir(), "registered-python-live-"));
 const save = (name: string, value: unknown) =>
   writeFileSync(join(directory, name), JSON.stringify(value, null, 2) + "\n");
@@ -104,6 +107,7 @@ async function run(name: string, actions: DataflowAction[], statuses: string[], 
   const before = await history();
   const context = await debug(actions);
   const trace = await getReActSteps(resource!.agentId, baseUrl);
+  const step = trace.steps.findLast(step => step.toolCalls?.some(call => call.toolName === "dataflow"))!;
   const result = trace.steps.flatMap(step => step.toolResults ?? []).at(-1)?.output as DataflowActionsResult;
   const snapshot = await getSnapshot(resource!.agentId, "head", baseUrl);
   const after = await history();
@@ -112,6 +116,12 @@ async function run(name: string, actions: DataflowAction[], statuses: string[], 
   save(`probe-${index}.json`, { name, actions, result, snapshot, before, after });
   writeFileSync(join(directory, `probe-${index}-observations.md`), renderDataflowActionsResult(result));
   writeFileSync(join(directory, `probe-${index}-context.txt`), context);
+  save(`probe-${index}-trace.json`, trace);
+  writeFileSync(join(directory, `probe-${index}-iteration.md`), renderMarkdownIteration(step, index));
+  if (layout === "markdown") {
+    assert.match(context, /## Iteration \d+/, "Live context must use the Markdown iteration renderer");
+    assert.match(context, /#### Outcome/, "Live reports pair submitted actions with recorded outcomes");
+  }
   assert.equal(
     result.protocol,
     "registered-python-v1",
@@ -171,7 +181,7 @@ try {
     settings: {
       agentMode: "native",
       contextMode: "delta",
-      messageLayout: "native",
+      messageLayout: layout as "native" | "markdown",
       retrievalViews: ["full", "sample_stats"],
       nativeProfileCollection: true,
       dataEvidence: true,

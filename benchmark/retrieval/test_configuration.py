@@ -13,8 +13,15 @@
 """Pure campaign configuration checks; never connect to a service/provider."""
 import argparse
 import unittest
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
+import json
+import os
+import subprocess
+import sys
 
-from benchmark.retrieval.configuration import campaign_arms, full_result_char_limit
+from benchmark.retrieval.configuration import campaign_arms, full_result_char_limit, campaign_jobs, source_snapshot
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -42,7 +49,55 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertEqual(arms[f"{view}_flow{flow}_fullstats"], {
                     **expected, "nativeProfileScope": "full",
                 })
-        self.assertEqual(len(arms), 20)
+        self.assertEqual(len(arms), 22)
+
+    def test_layout_pair_changes_only_pinned_framing(self):
+        arms = campaign_arms()
+        for layout in ["native", "markdown"]:
+            self.assertEqual(arms[f"layout_{layout}"], {
+                "messageLayout": layout, "retrievalViews": ["sample_stats", "full"],
+                "dataEvidence": True, "flowEvidence": True, "nativeProfileScope": "full",
+            })
+        models = ["Luna", "Terra", "Sol", "Opus48", "Qwen38_27B", "DeepSeek41Flash"]
+        jobs = campaign_jobs(models, ["layout_native", "layout_markdown"],
+                             ["legal-easy-3", "biomedical-hard-3"], 1, "fixture")
+        self.assertEqual(len(jobs), 24)
+        self.assertEqual(len({(j["model"], j["arm"], j["task"], j["rep"]) for j in jobs}), 24)
+        self.assertEqual(jobs, campaign_jobs(models, ["layout_native", "layout_markdown"],
+                                           ["legal-easy-3", "biomedical-hard-3"], 1, "fixture"))
+
+    def test_source_freeze_covers_gateway_configs_and_hashes_contents(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            names = ["access-control-service/src/Gateway.scala", "bin/litellm-config.yaml",
+                     "bin/single-node/litellm-config.yaml"]
+            for name in names:
+                file = root / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text("first")
+            with patch("benchmark.retrieval.configuration.subprocess.check_output",
+                       return_value="\n".join(names)) as command:
+                first = source_snapshot(root)
+                self.assertEqual({f["path"] for f in first["files"]}, set(names))
+                self.assertTrue(set(["access-control-service/src", *names[1:]]).issubset(command.call_args.args[0]))
+                (root / names[0]).write_text("changed")
+                second = source_snapshot(root)
+            self.assertNotEqual(first["sha256"], second["sha256"])
+            self.assertNotEqual(first["files"][0]["sha256"], second["files"][0]["sha256"])
+
+    def test_dry_run_succeeds_without_credentials_or_artifact_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "not-created"
+            run = Path(__file__).with_name("run.py")
+            result = subprocess.run([sys.executable, str(run), "--dry-run", "--output", str(output),
+                "--models", "Luna", "--tasks", "legal-easy-3", "biomedical-hard-3", "--arms",
+                "layout_native", "layout_markdown", "--repetitions", "1", "--full-result-char-limit", "5000"],
+                env={**os.environ, "OPENAI_API_KEY": "dummy"}, text=True, capture_output=True, check=True)
+            plan = json.loads(result.stdout)
+            self.assertTrue(plan["dry_run"])
+            self.assertEqual(plan["attempts"], 4)
+            self.assertEqual(plan["settings"]["fullResultCharLimit"], 5000)
+            self.assertFalse(output.exists())
 
     def test_full_result_cap_accepts_api_bounds_and_smaller_display_budget(self):
         for value in ["128", "5000", "100000"]:

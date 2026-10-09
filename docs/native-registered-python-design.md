@@ -127,6 +127,41 @@ reports completion, reuse, and errors. Retrieval returns one labeled result bloc
 per target with coverage captions and enabled statistics. Documentation states
 intent; it does not prove measured correctness.
 
+### Iteration history
+
+Flat native DELTA uses `messageLayout: "markdown"` by default. Each completed
+iteration becomes one environment report with ordered actions. Python source and
+graph declarations are decoded from the saved request and shown once beside the
+matching outcome: registration, operator and edge changes, execution status,
+retrieved tables, statistics, or errors. Failed and skipped edits retain their
+attempted code and explicitly say it was not applied.
+
+Reports use the request and receipt frozen at that iteration; later edits never
+rewrite earlier history. Requests and receipts match by tool-call ID. Missing
+or ambiguous receipts mark the outcome unconfirmed; malformed receipts retain
+the original payload for diagnosis. Markdown fences protect source text containing
+headings or backticks.
+Context assembly uses typed records, not a parser over rendered Markdown.
+
+Real user requests remain user messages and final answers remain assistant
+messages. Environment reports are labeled user-role context records, rather than
+fabricated provider tool exchanges. The system prompt explains their purpose and
+instructs the model to continue calling `dataflow`. Raw tool calls and receipts
+remain available in the trace API for replay and auditing.
+
+Ordinary context budgets retain their existing sliding-window or checkpoint
+policy and count the rendered reports. Explicit `messageLayout: "native"` selects
+the previous tool transcript. Code mode, LATEST, and advanced legacy context
+policies retain their existing defaults; an explicit incompatible Markdown
+configuration is rejected before it changes the agent. This separates formatting
+from experiment-specific history selection.
+
+Checkpoints retain registered Python cells in order, including functions not yet
+used by any operator. They retain earlier retrieved results only while the saved
+materialization still matches; edits or a newer unrequested execution cannot
+inherit those observations. A large namespace can exceed the existing soft
+context target rather than silently lose definitions.
+
 ## Built-ins and source reading
 
 Thirteen built-ins are available: scan, filter, project, cast, aggregate, join,

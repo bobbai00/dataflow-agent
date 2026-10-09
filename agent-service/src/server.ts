@@ -26,7 +26,12 @@ import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
 import { TexeraAgent } from "./agent/texera-agent";
-import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import {
+  NativeCatalogSettingsError,
+  validateNativeSettings,
+  validateEvidenceSettings,
+  effectiveMessageLayout,
+} from "./agent/native/settings";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -274,16 +279,9 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       turnHistoryIndex: settings.turnHistory === "index" ? true : undefined,
       thinObservations: settings.indexThinObservations !== false ? undefined : false,
       attemptReflection: settings.attemptReflection,
-      // Caching is not optional: unless an arm pins a layout, LATEST ships one
-      // message per operator block (opSplit) and DELTA ships the append-only
-      // tool-call transcript (native), the two framings gpt-5.6-* can credit.
-      messageLayout:
-        settings.messageLayout ??
-        (settings.versionedMode || settings.sessionTurns
-          ? "turnSplit"
-          : settings.contextMode === ContextMode.LATEST
-            ? "opSplit"
-            : "native"),
+      // Flat native DELTA defaults to immutable Markdown iteration reports;
+      // advanced policies and explicit arms retain their established layouts.
+      messageLayout: effectiveMessageLayout(settings),
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
       sessionTurns: settings.sessionTurns,
@@ -1443,6 +1441,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
 
       agent.updateSettings({
         ...observationFormatPatch(settings),
+        messageLayout: settings.messageLayout,
         multiTask: settings.multiTask,
         taskContext: settings.taskContext,
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
@@ -1515,6 +1514,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     {
       body: t.Object({
         maxOperatorResultCharLimit: t.Optional(t.Number()),
+        messageLayout: t.Optional(t.String()),
         maxOperatorResultCellCharLimit: t.Optional(t.Number()),
         operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
         toolTimeoutSeconds: t.Optional(t.Number()),

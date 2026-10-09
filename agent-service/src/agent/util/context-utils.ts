@@ -74,6 +74,7 @@ import { formatNativeDiagnostic } from "../native/diagnostics";
 import { nativeCheckLines } from "../native/checks";
 import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
+import { renderMarkdownIteration } from "../native/markdown-iteration";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
  *  (native mode's deleteOperator). Undefined for read-only tools and for the
@@ -130,6 +131,7 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
 }
 
 import { buildTaskGraph, renderTaskMessages, taskHistoryFromSteps } from "../task-history";
+import { validateMarkdownContextSettings } from "../native/settings";
 
 const log = createLogger("ContextAssembler");
 
@@ -140,8 +142,12 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
   nativeChecks?: boolean;
-  /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
+  /** Wire framing, including typed Markdown iteration reports for native DELTA. */
+  messageLayout?: "markdown" | "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
+  /** The selected render candidate owns its typed messages; no Markdown parsing. */
+  markdownContext?: { messages: ModelMessage[] };
+  /** Authored definitions loaded out of band must not appear in a checkpoint. */
+  markdownLoadedState?: SnapshotData;
   /**
    * opBlock only: every operator the agent has asked to observe at least once
    * on this path. Those operators keep a result section for the rest of the
@@ -489,6 +495,14 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
+  validateMarkdownContextSettings({
+    ...options,
+    contextMode: mode,
+    versionedMode: options.versionedCatalog,
+    turnHistory: options.turnHistoryIndex ? "index" : undefined,
+    enableCompactTool: options.showCompactMeter,
+    summarizeParams: options.summarizePatch,
+  });
   if (options.taskContext === "dependencies") {
     const currentRequest = [...visibleSteps].reverse().find(s => s.role === "user" && s.isBegin);
     const history =
@@ -563,7 +577,18 @@ export function renderContextCore(
   mode: ContextMode,
   options: AssembleContextOptions
 ): string {
-  const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
+  const built = buildPath(visibleSteps, snapshotStorage);
+  const path = built.path;
+  let initSnapshot = built.initSnapshot;
+  if (options.messageLayout === "markdown") {
+    const loaded = [...visibleSteps]
+      .reverse()
+      .find(step => step.synthetic === "state" && snapshotStorage.hasSnapshotFor(step.id));
+    if (loaded) {
+      options.markdownLoadedState = snapshotStorage.getAssociatedSnapshot(loaded.id);
+      initSnapshot = options.markdownLoadedState;
+    }
+  }
   const batchObservations = new Map<string, ReadonlySet<string>>();
   // Read-only steps inherit the last batch's display selection in LATEST;
   // every DELTA event still resolves its own immutable request independently.
@@ -1571,7 +1596,7 @@ function renderCompressed(
 ): string {
   const sections: string[] = [];
 
-  if (latestUserContent) {
+  if (latestUserContent && options.messageLayout !== "markdown") {
     sections.push("# User Task");
     sections.push("");
     sections.push(latestUserContent);
@@ -1594,10 +1619,10 @@ function renderCompressed(
   // task index and retrieval tools retain access to earlier work. References
   // to unchanged inputs stay in the definitions without expanding upstreams.
   let checkpoint = boundarySnap;
-  if (tasks.length === 1 && initSnapshot) {
+  if (initSnapshot && (tasks.length === 1 || options.markdownLoadedState)) {
     const baseline = new Map(initSnapshot.workflow.operators.map(op => [op.operatorID, op]));
     const observed = new Set<string>();
-    for (const node of tasks[0].nodes) {
+    for (const node of tasks.flatMap(task => task.nodes)) {
       if (node.eventIndex < keepFrom)
         for (const id of Object.keys(node.snapshot?.nativeObservations ?? {})) observed.add(id);
     }
@@ -1616,6 +1641,58 @@ function renderCompressed(
       },
     };
   }
+  if (options.messageLayout === "markdown") {
+    // Carry only observations earned before this boundary for the same live
+    // result. A later edit/re-execution must never inherit stale table facts.
+    const observations: Record<string, NonNullable<SnapshotData["nativeObservations"]>[string]> = {};
+    for (const node of tasks.flatMap(task => task.nodes)) {
+      if (node.eventIndex >= keepFrom || !node.snapshot) continue;
+      for (const [id, observation] of Object.entries(node.snapshot.nativeObservations ?? {})) {
+        const earned = node.snapshot.results.get(id);
+        const current = checkpoint.results.get(id);
+        if (
+          !earned ||
+          !current ||
+          current.info.error ||
+          !["Completed", "CompletedFromCache"].includes(current.info.state)
+        )
+          continue;
+        const previousVersion = earned.info.resultVersion;
+        const currentVersion = current.info.resultVersion;
+        // A cache read changes request timing/ownership, not the producing
+        // version. Only a complete binding can prove that reuse; imported or
+        // incomplete records conservatively require identical result info.
+        const sameResult =
+          previousVersion?.complete && currentVersion?.complete
+            ? previousVersion.id === currentVersion.id &&
+              observation.resultVersion === currentVersion.id &&
+              currentVersion.operatorRevision ===
+                checkpoint.workflow.operators.find(op => op.operatorID === id)?.nativeOp?.revision
+            : isDeepStrictEqual(earned.info, current.info);
+        if (sameResult) observations[id] = observation;
+      }
+    }
+    checkpoint = { ...checkpoint, nativeObservations: observations };
+    const requested = new Map(options.batchObservationsByStep);
+    if (checkpoint.reactStepId) requested.set(checkpoint.reactStepId, new Set(Object.keys(observations)));
+    deckOptions.batchObservationsByStep = requested;
+    const namespace = checkpoint.workflow.nativeNamespace;
+    if (namespace?.cells.length) {
+      const hidden = options.markdownLoadedState?.workflow.nativeNamespace?.cells ?? [];
+      let prefix = 0;
+      while (prefix < hidden.length && namespace.cells[prefix] === hidden[prefix]) prefix++;
+      const cells = namespace.cells.slice(prefix);
+      if (cells.length) {
+        sections.push("## Registered Python namespace");
+        sections.push("Applied definitions in order; later definitions replace earlier bindings.");
+        for (const source of cells) {
+          const fence = "`".repeat(Math.max(3, ...(source.match(/`+/g) ?? []).map(run => run.length + 1)));
+          sections.push(`${fence}python\n${source}${source.endsWith("\n") ? "" : "\n"}${fence}`);
+        }
+        sections.push("");
+      }
+    }
+  }
   const deck = serializeSnapshotCompact(checkpoint, workflowState, deckOptions, /*sectionLevel=*/ 2);
   if (deck) {
     sections.push(
@@ -1630,6 +1707,8 @@ function renderCompressed(
   // prev-snapshot to the boundary so the first surviving event diffs against the
   // deck (not the empty init). No omitted-marker — the deck stands in its place.
   const suffix: AssembleContextOptions = { ...suffixOptions, keepFromEventIndex: keepFrom, omittedEventsCount: 0 };
+  if (options.messageLayout === "markdown")
+    return renderMarkdownContext(tasks, suffix, latestUserStepId, sections.join("\n").trimEnd());
   const events = renderAgentEvents(
     tasks,
     workflowState,
@@ -1783,6 +1862,44 @@ function renderAgentEvents(
   return bodies.length ? bodies.join("\n\n") : "(no agent actions yet)";
 }
 
+/** Build one typed candidate after the existing policy has selected its
+ * cutoff/checkpoint. Only the chosen candidate's messages survive budgeting. */
+function renderMarkdownContext(
+  tasks: TaskGroup[],
+  options: AssembleContextOptions,
+  latestUserStepId: string | undefined,
+  checkpoint = ""
+): string {
+  const nodes = tasks.flatMap(task => task.nodes);
+  const cutoff = options.keepFromEventIndex;
+  const currentRequest = nodes.find(node => node.step.id === latestUserStepId);
+  const messages: ModelMessage[] = [];
+  // A cutoff can remove the event at which the current task was requested.
+  // Preserve that request as its own user message, before the checkpoint.
+  if (cutoff !== undefined && currentRequest && currentRequest.eventIndex < cutoff)
+    messages.push({ role: "user", content: currentRequest.step.content });
+  if (checkpoint) messages.push({ role: "user", content: `# Environment checkpoint\n\n${checkpoint}` });
+  if (options.omittedEventsCount)
+    messages.push({
+      role: "user",
+      content: `# Environment history\n\n${options.omittedEventsCount} earlier events omitted to fit the context budget.`,
+    });
+  for (const node of nodes) {
+    if (cutoff !== undefined && node.eventIndex < cutoff) continue;
+    const step = node.step;
+    if (step.role === "user") {
+      messages.push({ role: "user", content: step.content });
+      continue;
+    }
+    if (step.role !== "agent") continue;
+    const report = renderMarkdownIteration(step, node.eventIndex);
+    if (report) messages.push({ role: "user", content: `# Environment history\n\n${report}` });
+    if (step.isEnd && step.content) messages.push({ role: "assistant", content: step.content });
+  }
+  if (options.markdownContext) options.markdownContext.messages = messages;
+  return messages.map(message => String(message.content)).join("\n\n");
+}
+
 function renderInterleaved(
   tasks: TaskGroup[],
   workflowState: WorkflowState,
@@ -1792,6 +1909,7 @@ function renderInterleaved(
   latestUserStepId: string | undefined,
   createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
+  if (options.messageLayout === "markdown") return renderMarkdownContext(tasks, options, latestUserStepId);
   const sections: string[] = [];
   const taskAtBottom = options.userTaskPlacement === "bottom";
   // Native frames are a conversation: keep each request at its original
@@ -3852,6 +3970,10 @@ function serializeOperatorFull(
   sharedUpstream?: Map<string, string>
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
+  const hiddenDefinition =
+    options.markdownLoadedState?.workflow.operators.some(
+      loaded => loaded.operatorID === op.operatorID && isDeepStrictEqual(loaded, op)
+    ) === true;
   // Visibility is a serializer invariant, not only a full-snapshot caller
   // convention. Compact decks and historical layouts use this path too.
   const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
@@ -3869,7 +3991,8 @@ function serializeOperatorFull(
       return operatorBlock(
         describeOperator(op, info, {
           ...observationFormat(options.nativeEvidence ?? options),
-          implementation: options.opExtras?.(op.operatorID)?.includeCode === true,
+          ...(hiddenDefinition ? { definition: false } : {}),
+          implementation: !hiddenDefinition && options.opExtras?.(op.operatorID)?.includeCode === true,
           scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
           issues: ["- note: result not requested."],
         })
@@ -3913,11 +4036,13 @@ function serializeOperatorFull(
   if (op.nativeOp) {
     const block = describeOperator(op, info, {
       ...observationFormat(options.nativeEvidence ?? options),
+      ...(hiddenDefinition ? { definition: false } : {}),
       scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
       implementation:
-        opBlock ||
-        !!ex?.includeCode ||
-        (!ex && options.messageLayout !== "opSplit" && options.includeOperatorProperties !== false),
+        !hiddenDefinition &&
+        (opBlock ||
+          !!ex?.includeCode ||
+          (!ex && options.messageLayout !== "opSplit" && options.includeOperatorProperties !== false)),
       usedBy: snapshot.workflow.operators
         .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
         .map(item => item.operatorID),

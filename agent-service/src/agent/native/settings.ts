@@ -20,6 +20,60 @@
 /** A rejected setting is a client error, not a server failure. */
 export class NativeCatalogSettingsError extends Error {}
 
+type ContextSettings = Record<string, unknown> & { messageLayout?: string; agentMode?: string; contextMode?: string };
+
+/** These policies retain their established renderer. The default is resolved
+ * from configuration, never from how many events currently fit the budget. */
+function markdownConflict(settings: ContextSettings): string | undefined {
+  if ((settings.agentMode ?? "native") !== "native") return "agentMode";
+  if ((settings.contextMode ?? "delta") !== "delta") return "contextMode";
+  if (settings.taskContext === "dependencies") return "taskContext";
+  if (settings.turnHistory === "index") return "turnHistory";
+  if (settings.userTaskPlacement === "bottom") return "userTaskPlacement";
+  return [
+    "versionedMode",
+    "sessionTurns",
+    "stateLedger",
+    "staticCompaction",
+    "enableCompactTool",
+    "summarizeParams",
+    "selectorConfig",
+    "learnedConfig",
+    "tunerConfig",
+    "frontierDecayConfig",
+    "probeRetirementConfig",
+    "rolePolicyConfig",
+    "foldResolvedRevisionsConfig",
+    "enableRenderPrefs",
+  ].find(key => !!settings[key]);
+}
+
+export function validateMarkdownContextSettings(input: object): void {
+  const settings = input as ContextSettings;
+  if (settings.messageLayout !== "markdown") return;
+  const conflict = markdownConflict(settings);
+  if (conflict)
+    throw new NativeCatalogSettingsError(
+      `messageLayout markdown requires flat native DELTA context; unsupported setting: ${conflict}. Select a legacy messageLayout for this policy.`
+    );
+}
+
+export function effectiveMessageLayout(
+  input: object
+): "markdown" | "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit" {
+  const settings = input as ContextSettings;
+  if (settings.messageLayout !== undefined) {
+    validateMarkdownContextSettings(settings);
+    return settings.messageLayout as ReturnType<typeof effectiveMessageLayout>;
+  }
+  if (!markdownConflict(settings)) return "markdown";
+  return settings.versionedMode || settings.sessionTurns
+    ? "turnSplit"
+    : settings.contextMode === "latest"
+      ? "opSplit"
+      : "native";
+}
+
 /** Settings that no longer exist. They are refused rather than mapped so an
  * old experiment configuration never silently becomes a new arm. */
 const REMOVED_SETTINGS = [
@@ -46,6 +100,15 @@ const REMOVED_SETTINGS = [
 /** Deliberate breaking change: never silently reinterpret old experiments. */
 export function validateEvidenceSettings(settings: object): void {
   const supplied = settings as Record<string, unknown>;
+  if (
+    supplied.messageLayout !== undefined &&
+    !["markdown", "block", "blockSplit", "native", "opBlock", "opSplit", "turnSplit"].includes(
+      String(supplied.messageLayout)
+    )
+  )
+    throw new NativeCatalogSettingsError(
+      "Unknown messageLayout; use markdown, native, block, blockSplit, opBlock, opSplit or turnSplit"
+    );
   if (supplied.nativePromptDetail !== undefined && !["full", "on_demand"].includes(String(supplied.nativePromptDetail)))
     throw new NativeCatalogSettingsError("nativePromptDetail must be full or on_demand");
   if (supplied.taskContext !== undefined && !["trajectory", "dependencies"].includes(String(supplied.taskContext)))

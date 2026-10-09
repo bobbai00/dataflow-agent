@@ -12,6 +12,12 @@
 # limitations under the License.
 """Campaign settings validated before credentials, services, or artifacts."""
 import argparse
+import hashlib
+import random
+import subprocess
+
+SOURCE_PATHS = ["agent-service/src", "amber/src", "access-control-service/src", "benchmark/retrieval",
+                "bin/strict_tools.py", "bin/litellm-config.yaml", "bin/single-node/litellm-config.yaml"]
 
 
 def campaign_arms():
@@ -38,7 +44,37 @@ def campaign_arms():
         }
         for data in [0, 1] for flow in [0, 1]
     })
+    arms.update({f"layout_{layout}": {
+        "messageLayout": layout, "retrievalViews": ["sample_stats", "full"],
+        "dataEvidence": True, "flowEvidence": True, "nativeProfileScope": "full",
+    } for layout in ["native", "markdown"]})
     return arms
+
+
+def campaign_jobs(models, arms, tasks, repetitions, tag):
+    """Deterministic matched worklist shared by dry-run validation and launch."""
+    jobs = []
+    for rep in range(1, repetitions + 1):
+        batch = [{"model": model, "arm": arm, "task": task, "rep": rep,
+                  "sut": f"DataflowSystem{model}_{tag}_{arm}_Rep{rep}"}
+                 for model in models for arm in arms for task in tasks]
+        random.Random(101 + rep).shuffle(batch)
+        jobs.extend(batch)
+    return jobs
+
+
+def source_snapshot(root):
+    """Hash working-tree runtime, gateway and harness sources without exposing contents."""
+    paths = subprocess.check_output(["git", "-C", str(root), "ls-files", "-co", "--exclude-standard", "--",
+                                     *SOURCE_PATHS], text=True).splitlines()
+    digest, files = hashlib.sha256(), []
+    for name in sorted(set(paths)):
+        source = root / name
+        if source.is_file():
+            contents = source.read_bytes()
+            digest.update(name.encode() + b"\0" + contents + b"\0")
+            files.append({"path": name, "sha256": hashlib.sha256(contents).hexdigest()})
+    return {"sha256": digest.hexdigest(), "files": files}
 
 
 def full_result_char_limit(value):

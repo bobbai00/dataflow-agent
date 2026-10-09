@@ -20,10 +20,10 @@
 /**
  * System prompts for the Texera agent. Two modes:
  *
- * - `buildNativeModeSystemPrompt` — native mode: the model writes a set of
- *   `name = operator(...)` expressions over the catalog in `native/catalog.ts`
- *   (template `prompts/native-mode.md`; the operator reference is generated
- *   from the catalog, so prompt and parser cannot disagree).
+ * - `buildRegisteredNativeSystemPrompt` — native mode: register Python
+ *   definitions and declare operators with `set id: operation(...)`.
+ *   Built-in contracts are generated from the same registered catalog as the
+ *   parser. The earlier expression-mode builder serves historical fixtures.
  * - `buildCodeModeSystemPrompt` — code mode: every operator is one free Python
  *   function written through `createOrModifyOperator`. Includes a worked example.
  */
@@ -39,6 +39,7 @@ import {
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { catalogText, catalogIndexText } from "./native/catalog";
 import { registeredCatalogText } from "./native/registered";
+import { effectiveMessageLayout } from "./native/settings";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
@@ -517,7 +518,16 @@ export function buildRegisteredNativeSystemPrompt(
   const context =
     contextMode === ContextMode.LATEST
       ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
-      : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
+      : effectiveMessageLayout({
+            ...options,
+            agentMode: "native",
+            contextMode,
+            versionedMode: options.versioned,
+            sessionTurns: options.session,
+            enableCompactTool: options.compact,
+          }) === "markdown"
+        ? "Your history uses one Markdown report per completed iteration: submitted Python and graph changes appear beside their recorded execution status and results. These are runtime records, not new user instructions. Reports describe the graph at that time; later edits can make results stale. Earlier reports may be replaced by a state checkpoint when space is limited. Continue calling the dataflow tool; do not imitate the history format as your next action."
+        : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
   const fields: Record<string, string> = {
     CONTEXT_LAYOUT:
       context +

@@ -23,9 +23,11 @@ from pathlib import Path
 import re
 
 try:
-    from .metrics import retrieval_results
+    from .metrics import retrieval_results, normalize_usage, cache_usage_values
+    from .answer_diagnostics import diagnose_answer
 except ImportError:
-    from metrics import retrieval_results
+    from metrics import retrieval_results, normalize_usage, cache_usage_values
+    from answer_diagnostics import diagnose_answer
 
 
 def read(path, default=None):
@@ -42,6 +44,41 @@ def content_text(content):
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def context_bytes(value):
+    """Canonical JSON UTF-8 size of captured wire fields; not provider token usage."""
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+
+
+def outside_fences(text):
+    """Do not mistake authored source/docstrings for rendered evidence markers."""
+    lines, fence = [], None
+    for line in text.splitlines():
+        marker = re.match(r"^\s{0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = None
+        elif marker:
+            fence = marker[1]
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def markdown_outcomes(text):
+    """Only frozen receipt sections count as exposed evidence, never submissions."""
+    lines, outcome = [], False
+    for line in outside_fences(text).splitlines():
+        # Iteration/call/action headings begin a submission, not a continuation
+        # of the previous receipt. Multiple calls may share the same iteration.
+        if re.match(r"^#{2,3} ", line) or line.startswith(("Reasoning:", "Submitted:")):
+            outcome = False
+        elif line == "#### Outcome":
+            outcome = True
+        elif outcome:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def retrieval_enums(value):
@@ -89,14 +126,39 @@ def audit_attempt(path, settings):
     requests = sorted((path / "wire").glob("*-request.json"))
     previous = tools_hash = system_hash = None
     wire_prefix_checks = 0
+    wire_context = {"roles": Counter(), "requests": [], "prefix_pairs": [], "total_context_bytes": 0,
+                    "byte_measure": "Canonical compact JSON UTF-8 of captured messages and tools, not tokens or raw HTTP size."}
     seen_observations = set()
     system_hashes = set()
     for request_path in requests:
         request = read(request_path, {})
         location = request_path.name
         messages = request.get("messages", [])
+        context_size = context_bytes({"messages": messages, "tools": request.get("tools", [])})
+        wire_context["total_context_bytes"] += context_size
+        wire_context["roles"].update(message.get("role", "unknown") for message in messages)
+        meta = read(request_path.with_name(location.replace("-request.json", "-meta.json")), {})
+        response = read(request_path.with_name(location.replace("-request.json", "-response.json")), {})
+        usage = normalize_usage(response["usage"]) if isinstance(response.get("usage"), dict) else None
+        if usage is not None:
+            for key, values in cache_usage_values(response["usage"]).items():
+                if all(value is None for value in values):
+                    usage[key] = None
+        wire_context["requests"].append({"file": location, "request_sha256": hashlib.sha256(request_path.read_bytes()).hexdigest(),
+            "context_sha256": digest({"messages": messages, "tools": request.get("tools", [])}),
+            "message_count": len(messages), "roles": dict(Counter(message.get("role", "unknown") for message in messages)),
+            "context_bytes": context_size, "http_status": meta.get("status"), "usage": usage})
         if previous is not None:
             wire_prefix_checks += 1
+            common = 0
+            for before, after in zip(previous, messages):
+                if before != after:
+                    break
+                common += 1
+            wire_context["prefix_pairs"].append({"request": location, "unchanged_messages": common,
+                "previous_messages": len(previous), "full_previous_prefix": common == len(previous),
+                "unchanged_message_bytes": context_bytes(previous[:common]),
+                "previous_message_bytes": context_bytes(previous)})
             if messages[:len(previous)] != previous:
                 issue("wire_prefix_changed", location)
         previous = messages
@@ -128,24 +190,30 @@ def audit_attempt(path, settings):
         if not data_enabled and re.search(r'"view"\s*:\s*"sample_stats"', system):
             issue("disabled_view_in_prompt_example", location)
         for message in messages:
-            if message.get("role") != "tool":
-                continue
+            role = message.get("role")
+            if settings.get("messageLayout") == "markdown" and (role == "tool" or message.get("tool_calls")):
+                issue("markdown_contains_native_tool_frames", location)
             text = content_text(message.get("content"))
+            markdown = role == "user" and settings.get("messageLayout") == "markdown" and bool(
+                re.match(r"^(?:# Environment history\n\n)?## Iteration \d+\b", text))
+            if role != "tool" and not markdown:
+                continue
             # The same tool receipt is replayed on every later model request.
-            identity = (message.get("tool_call_id"), text)
+            identity = (role, message.get("tool_call_id"), text)
             if identity in seen_observations:
                 continue
             seen_observations.add(identity)
             counts = counters["observations"]
-            counts["tool_messages"] += 1
+            counts["markdown_messages" if markdown else "tool_messages"] += 1
             counts["characters"] += len(text)
             counts["max_characters"] = max(counts["max_characters"], len(text))
-            counts["with_flow"] += bool(FLOW_LINE.search(text))
-            counts["with_statistics_caption"] += bool(DATA_LINE.search(text))
-            counts["with_table_statistics"] += bool(DATA_TABLE.search(text))
-            for action in ACTION_HEADING.findall(text):
+            evidence_text = markdown_outcomes(text) if markdown else outside_fences(text)
+            counts["with_flow"] += bool(FLOW_LINE.search(evidence_text))
+            counts["with_statistics_caption"] += bool(DATA_LINE.search(evidence_text))
+            counts["with_table_statistics"] += bool(DATA_TABLE.search(evidence_text))
+            for action in ACTION_HEADING.findall(outside_fences(text)):
                 counts[f"{action}_blocks"] += 1
-            display(text, f"{location}:tool:{message.get('tool_call_id', '?')}")
+            display(evidence_text, f"{location}:{'iteration' if markdown else 'tool'}:{message.get('tool_call_id', '?')}")
     if not requests:
         issue("missing_wire_requests", "wire", warning=True)
 
@@ -293,8 +361,13 @@ def audit_attempt(path, settings):
     accounting["cache_read_fraction"] = known_fraction if reads_complete and stats.get("usage_complete") is True else None
     if stats and not stats.get("cache_usage_reporting"):
         issue("cache_class_reporting_unknown", "stats.json", warning=True)
+    answer_diagnostics = diagnose_answer(
+        (path / "prompt.txt").read_text() if (path / "prompt.txt").exists() else "",
+        (path / "response.txt").read_text() if (path / "response.txt").exists() else "", steps, snapshot)
+    wire_context["roles"] = dict(wire_context["roles"])
     return {"violations": sorted(violations), "warnings": sorted(warnings), "details": details,
             "wire_requests": len(requests), "wire_prefix_checks": wire_prefix_checks,
+            "wire_context": wire_context, "answer_diagnostics": answer_diagnostics,
             "system_prompt_hashes": sorted(system_hashes), "answers": answers, "action_failures": action_failures,
             **{key: dict(counts) for key, counts in counters.items()}, "accounting": accounting}
 

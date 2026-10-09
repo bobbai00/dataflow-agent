@@ -13,10 +13,41 @@
 """Matched matrix reporting without benchmark imports or provider calls."""
 import unittest
 
-from benchmark.retrieval.comparison import evidence_matrix_contrasts
+from benchmark.retrieval.comparison import evidence_matrix_contrasts, layout_contrasts
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_layout_contrast_keeps_unknown_cost_separate_from_other_metrics(self):
+        rows = [{"model": "Luna", "arm": f"layout_{layout}", "task": task, "rep": 1,
+                 "score": 1, "model_requests": calls, "model_calls": calls,
+                 "cost_usd": cost, "format_compliant": layout == "markdown"}
+                for task in ["a", "b"]
+                for layout, calls, cost in [("native", 5, .02), ("markdown", 3, None)]]
+        contrast, = layout_contrasts(rows, ["Luna"])
+        self.assertEqual(contrast["tasks"], 2)
+        self.assertEqual(contrast["matched_attempts"], 2)
+        self.assertEqual(contrast["model_requests_delta"], -2)
+        self.assertEqual(contrast["format_compliant_delta"], 1)
+        self.assertEqual(contrast["score_delta"], 0)
+        self.assertIsNone(contrast["cost_delta_usd"])
+        self.assertEqual(contrast["metric_pairs"]["cost_usd"], 0)
+        self.assertTrue(contrast["descriptive_only"])
+        self.assertEqual(contrast["factor"], "message_layout")
+
+    def test_layout_token_contrast_excludes_partial_usage_and_unreported_cache(self):
+        rows = [{"model": "Luna", "arm": f"layout_{layout}", "task": "a", "rep": 1,
+                 "model_requests": 4, "input_tokens": 100, "cached_tokens": 0,
+                 "usage_complete": complete, "cache_read_usage_complete": False}
+                for layout, complete in [("native", True), ("markdown", False)]]
+        contrast, = layout_contrasts(rows, ["Luna"])
+        self.assertIsNone(contrast["input_tokens_delta"])
+        self.assertIsNone(contrast["cached_tokens_delta"])
+        self.assertEqual(contrast["model_requests_delta"], 0)
+        rows[1]["usage_complete"] = True
+        contrast, = layout_contrasts(rows, ["Luna"])
+        self.assertEqual(contrast["input_tokens_delta"], 0)
+        self.assertIsNone(contrast["cached_tokens_delta"])
+
     def test_four_contrasts_change_one_factor_and_are_descriptive(self):
         rows = [{"model": "Luna", "arm": f"evidence_data{data}_flow{flow}",
                  "task": "a", "rep": 1, "score": data * 0.4 + flow * 0.1,

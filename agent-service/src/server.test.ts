@@ -361,6 +361,30 @@ describe("Agent control routes", () => {
 });
 
 describe(`PATCH ${API}/agents/:id/settings`, () => {
+  test("switches Markdown history live and rejects incompatible layout updates atomically", async () => {
+    const created = await readJson<{ id: string }>(
+      await createAgent({
+        settings: { agentMode: "native", contextMode: "delta", messageLayout: "native" },
+      })
+    );
+    const path = `${API}/agents/${created.id}`;
+    const before = await readJson<any>(await getJson(`${path}/system-info`));
+    const changed = await patchJson(`${path}/settings`, { messageLayout: "markdown" });
+    expect(changed.status).toBe(200);
+    expect(await readJson<any>(changed)).toMatchObject({ messageLayout: "markdown" });
+    const settings = await readJson<any>(await getJson(`${path}/settings`));
+    expect(settings.messageLayout).toBe("markdown");
+    const after = await readJson<any>(await getJson(`${path}/system-info`));
+    expect(after.systemPrompt).not.toBe(before.systemPrompt);
+    expect(after.systemPrompt).toContain("Markdown");
+    const bad = await patchJson(`${path}/settings`, { contextMode: "latest", maxSteps: 7 });
+    expect(bad.status).toBe(400);
+    expect(await readJson<any>(await getJson(`${path}/settings`))).toEqual(settings);
+    expect(await readJson<any>(await getJson(`${path}/system-info`))).toEqual(after);
+    expect((await patchJson(`${path}/settings`, { messageLayout: "native" })).status).toBe(200);
+    expect((await readJson<any>(await getJson(`${path}/system-info`))).systemPrompt).toBe(before.systemPrompt);
+  });
+
   test("updates settings and returns the new values", async () => {
     const created = await readJson<{ id: string }>(await createAgent());
 

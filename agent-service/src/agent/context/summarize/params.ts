@@ -332,7 +332,7 @@ export const SummarizeParamsSchema = z.object({
   /** Per-cell char cap reused for the surfaced print-output block. 0 ⇒ none. */
   maxCellChars: z.number().int().min(0).default(0),
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout: z.enum(["block", "blockSplit", "native", "opBlock", "opSplit", "turnSplit"]).optional(),
+  messageLayout: z.enum(["markdown", "block", "blockSplit", "native", "opBlock", "opSplit", "turnSplit"]).optional(),
 });
 export type SummarizeParams = z.infer<typeof SummarizeParamsSchema>;
 

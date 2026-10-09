@@ -20,7 +20,8 @@ import random
 import statistics
 import sys
 from metrics import retrieval_results, tool_error_counts, edit_operations
-from comparison import evidence_matrix_contrasts
+from comparison import evidence_matrix_contrasts, layout_contrasts
+from matrix_audit import audit_attempt as audit_wire_attempt
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmark/Kramabench"))
@@ -70,6 +71,9 @@ def main():
                "output_tokens": stats.get("output_tokens", 0), "cached_tokens": stats.get("cached_tokens", 0),
                "reasoning_tokens": stats.get("reasoning_tokens", 0),
                "cache_creation_tokens": stats.get("cache_creation_tokens", 0),
+               "cache_read_usage_complete": stats.get("cache_usage_reporting", {}).get("cached_tokens", {}).get("complete", False),
+               "cache_write_usage_complete": stats.get("cache_usage_reporting", {}).get("cache_creation_tokens", {}).get("complete", False),
+               "cost_estimate_assumptions": stats.get("cost_estimate_assumptions", []),
                "elapsed_seconds": stats.get("elapsed_seconds"),
                "model_latency_seconds": stats.get("model_latency_seconds"),
                "attempt_seconds": done[(job["sut"], job["task"])].get("seconds"),
@@ -132,6 +136,20 @@ def main():
                 row["prefix_failures"] += current_request[:len(previous_request)] != previous_request
         elif row["native_actions_observed"] or manifest.get("settings", {}).get("agentMode") == "native":
             row["no_answer"] = not row["answer_recorded"]
+        wire = audit_wire_attempt(path, {**manifest.get("settings", {}), **manifest.get("arms", {}).get(job["arm"], {})})
+        row["answer_diagnostics"] = wire["answer_diagnostics"]
+        row["format_compliant"] = wire["answer_diagnostics"]["format_compliant"]
+        row["numeric_support"] = wire["answer_diagnostics"]["numeric_support"]["status"]
+        row["wire_requests"] = wire["wire_requests"]
+        row["wire_prefix_checks"] = wire["wire_prefix_checks"]
+        row["wire_prefix_failures"] = sum(not pair["full_previous_prefix"] for pair in wire["wire_context"]["prefix_pairs"])
+        row["wire_context_bytes"] = wire["wire_context"]["total_context_bytes"] if wire["wire_requests"] else None
+        row["wire_roles"] = wire["wire_context"]["roles"]
+        row["wire_violations"] = wire["violations"]
+        row["wire_warnings"] = wire["warnings"]
+        row["wire_http_errors"] = sum(request["http_status"] is not None and request["http_status"] != 200
+                                     for request in wire["wire_context"]["requests"])
+        row["wire_http_status_unknown"] = sum(request["http_status"] is None for request in wire["wire_context"]["requests"])
         row["answered_after_action_errors"] = row["answer_recorded"] and statuses["error"] > 0
         row["answered_after_tool_errors"] = row["answer_recorded"] and row["tool_errors"] > 0
         row.update(views=dict(views), actions=dict(types), statuses=dict(statuses),
@@ -180,7 +198,18 @@ def main():
             values = [r[key] for r in items if r[key] is not None]
             s["mean_" + key] = statistics.mean(values) if values else None
             s[key + "_known"] = len(values)
-        s["cache_fraction"] = s["cached_tokens"] / s["input_tokens"] if s["input_tokens"] else None
+        s["cache_fraction"] = (s["cached_tokens"] / s["input_tokens"] if s["input_tokens"] and
+            all(r["usage_complete"] is True and r["cache_read_usage_complete"] for r in items) else None)
+        s["cost_estimate_assumptions"] = sorted({note for r in items for note in r["cost_estimate_assumptions"]})
+        for key in ["wire_requests", "wire_prefix_checks", "wire_prefix_failures", "wire_http_errors"]:
+            s[key] = sum(r[key] for r in items)
+        s["wire_context_bytes"] = sum(r["wire_context_bytes"] for r in items if r["wire_context_bytes"] is not None)
+        s["wire_context_known"] = sum(r["wire_context_bytes"] is not None for r in items)
+        s["format_compliant"] = sum(r["format_compliant"] is True for r in items)
+        s["format_required"] = sum(r["format_compliant"] is not None for r in items)
+        s["numeric_support"] = dict(Counter(r["numeric_support"] for r in items))
+        s["wire_violations"] = dict(Counter(value for r in items for value in r["wire_violations"]))
+        s["wire_roles"] = dict(sum((Counter(r["wire_roles"]) for r in items), Counter()))
         for key in ["actions", "statuses", "edit_operations", "operators_created"]:
             counts = Counter()
             for row in items:
@@ -199,6 +228,15 @@ def main():
     for item in summary:
         cost = f"${item['provider_reported_cost_usd']:.6f}" if item["provider_reported_cost_usd"] is not None else "unknown"
         lines.append(f"{item['model']} | {item['tool_errors']} | {item['envelope_errors']} | {item['action_errors']} | {cost} | {', '.join(item['response_providers']) or 'not reported'}")
+    lines += ["", "Captured wire context and answer contract",
+              "Wire requests include retries; agent calls count recorded model decisions. Context bytes are canonical compact UTF-8 JSON messages/tools, not provider token counts.",
+              "Numeric cell matches establish visible support, not correctness; missing bounded cells are inconclusive. Official scores do not enforce final-line formatting.",
+              "Model | Arm | Wire requests | Wire HTTP errors | Stable prefix pairs | Context bytes | Final-line format | Numeric support"]
+    for item in summary:
+        lines.append(f"{item['model']} | {item['arm']} | {item['wire_requests']} | {item['wire_http_errors']} | "
+                     f"{item['wire_prefix_checks'] - item['wire_prefix_failures']}/{item['wire_prefix_checks']} | "
+                     f"{item['wire_context_bytes']} ({item['wire_context_known']} known) | "
+                     f"{item['format_compliant']}/{item['format_required']} | {item['numeric_support']}")
     contrasts = []
     pairs = [("sample_stats_flow0", "full_flow0"), ("sample_stats_flow0", "sample_flow0")]
     pairs += [(f"{view}_flow1", f"{view}_flow0") for view in ["full", "sample", "sample_stats", "adaptive"]]
@@ -229,6 +267,19 @@ def main():
             values = [f"{contrast[key]:+.6f}" if contrast[key] is not None else "unknown"
                       for key in ["score_delta", "cost_delta_usd", "model_calls_delta"]]
             lines.append(f"{contrast['model']} | {contrast['treatment']} | {contrast['control']} | {contrast['tasks']} | " + " | ".join(values))
+    layout_pairs = layout_contrasts(rows, manifest["models"])
+    contrasts.extend(layout_pairs)
+    if layout_pairs:
+        lines += ["", "Message layout: descriptive matched differences (markdown minus native)",
+                  "Same tasks/repetition/model with both evidence channels and full profiling fixed. One repetition on two tasks does not estimate general accuracy or significance.",
+                  "Task means receive equal weight; missing metrics are excluded independently with pair counts in analysis.json. Live token/call differences also reflect model behavior, not only serialization.",
+                  "Cache reads depend on provider routing, warm prefixes and run order; shuffled jobs do not control initial provider cache state. Frozen-rate estimates are not invoices.",
+                  "Model | Matched tasks | Score delta | Mean USD delta | API requests delta | Input tokens delta | Output tokens delta | Cache reads delta | Format delta"]
+        for contrast in layout_pairs:
+            values = [f"{contrast[key]:+.6f}" if contrast[key] is not None else "unknown" for key in
+                      ["score_delta", "cost_delta_usd", "model_requests_delta", "input_tokens_delta",
+                       "output_tokens_delta", "cached_tokens_delta", "format_compliant_delta"]]
+            lines.append(f"{contrast['model']} | {contrast['tasks']} | " + " | ".join(values))
     report = {"summary": summary, "contrasts": contrasts, "rows": rows, "retrievals": retrievals, "errors": errors}
     (directory / "analysis.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     (directory / "REPORT.txt").write_text("\n".join(lines) + "\n")
