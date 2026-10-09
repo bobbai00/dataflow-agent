@@ -297,8 +297,16 @@ def main():
                 archive = output / "system_scratch" / job["sut"] / job["task"]
                 if destination.exists() and destination.resolve() != archive.resolve():
                     shutil.copytree(destination, archive)
-                evaluation = json.loads((archive / "evaluation.json").read_text()) if (archive / "evaluation.json").exists() else {}
-                stats = json.loads((archive / "stats.json").read_text()) if (archive / "stats.json").exists() else {}
+                def read_json(name):
+                    """A harness killed at the wall clock can leave a truncated file; treat it as absent."""
+                    file = archive / name
+                    try:
+                        return json.loads(file.read_text()) if file.exists() else {}
+                    except ValueError:
+                        print("WARN", job, f"unreadable {name}", flush=True)
+                        return {}
+                evaluation = read_json("evaluation.json")
+                stats = read_json("stats.json")
                 if args.wire_dir:
                     stats, metrics_audit = reconcile_run(archive, MODEL_TYPES[job["model"]],
                         manifest["pricing_schedules"][MODEL_TYPES[job["model"]]], args.wire_dir)

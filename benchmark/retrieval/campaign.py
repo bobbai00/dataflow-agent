@@ -81,10 +81,25 @@ def prepare_artifacts(scratch, archive, sut_names):
 
 def audit_attempt(path, settings):
     """Flag engine/context invariants separately from normal model mistakes."""
+    violations, warnings = [], []
+
     def read(name, default):
         file = path / name
-        return json.loads(file.read_text()) if file.exists() else default
-    violations, warnings = [], []
+        if not file.exists():
+            return default
+        try:
+            return json.loads(file.read_text())
+        except ValueError:
+            # A harness terminated at the wall clock can leave a truncated dump;
+            # the runner's watchdog copy of the trace is complete.
+            fallback = path / "watchdog-react_steps.json" if name == "react_steps.json" else None
+            if fallback is not None and fallback.exists():
+                try:
+                    return json.loads(fallback.read_text())
+                except ValueError:
+                    pass
+            warnings.append(f"unreadable_{name}")
+            return default
     recorded = read("settings.json", None)
     if recorded is None:
         warnings.append("missing_settings")
