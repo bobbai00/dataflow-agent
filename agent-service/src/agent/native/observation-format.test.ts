@@ -190,11 +190,22 @@ test("operator blocks preserve the definition and fixed field order", () => {
     columns: ["k int64", "v str"],
     usedBy: ["totals"],
   });
-  expect(text).toContain("- **joined** (join, executed)");
+  expect(text).toContain("- **joined** (join, completed)");
   expect(text).toContain('definition: ``join(on="a`b")``');
   expect(text.indexOf("definition:")).toBeLessThan(text.indexOf("inputs:"));
   expect(text.indexOf("inputs:")).toBeLessThan(text.indexOf("result:"));
   expect(text.indexOf("result:")).toBeLessThan(text.indexOf("columns:"));
+});
+
+test("completed operator displays hide reuse details without changing recorded states", () => {
+  for (const state of ["executed", "cached"]) {
+    const block = { id: "source", kind: "scan", state, result: "3 rows × 1 column" };
+    expect(operatorBlock(block)).toContain("**source** (scan, completed)");
+    expect(operatorBlock(block)).not.toContain("cached");
+    expect(block.state).toBe(state);
+  }
+  for (const state of ["failed", "not run", "stale", "saved"])
+    expect(operatorBlock({ id: "source", kind: "scan", state })).toContain(`(scan, ${state})`);
 });
 
 test("topological order keeps creation order for independent operators", () => {

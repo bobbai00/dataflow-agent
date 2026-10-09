@@ -40,7 +40,7 @@ Give each call one brief objective in `reasoning` and an ordered `actions` list.
 
 Each edit is atomic; the whole action list is not. Invalid edits commit nothing and skip later actions. Earlier successful edits remain. After execution fails, later requested executions and inspect/retrieve actions can continue, retaining successful results. Edits are skipped; a skipped edit also blocks subsequent executions so they cannot silently use the old graph. Repair failed definitions in the next call.
 
-Only execute computes graph results. A changed operator invalidates affected descendants. Python definition changes conservatively invalidate custom operators and their descendants because functions can share helpers and constants. Execute affected targets before retrieving. Old observations describe their recorded definitions, not necessarily the current graph.
+Only execute computes graph results. After changing an operator, execute affected targets before retrieving. Changing Python definitions also requires executing custom operators, registered filters, and their descendants because functions can share helpers and constants. Old observations describe their recorded definitions, not necessarily the current graph.
 
 ### Built-in operators
 
@@ -145,7 +145,7 @@ Definition cells accept imports, plain functions/classes, and deterministic lite
 
 Document specialized behavior with a function docstring or node `doc`, whether using Python or a built-in. Function docstrings describe reusable behavior; node docs explain task-specific population, units, or meaning. `doc` is metadata, never a function argument. It overrides the inherited function docstring or generated built-in summary. Avoid redundant prose for routine scans/sorts. Descriptions are intent, not proof of correctness.
 
-Successful edits report `function name registered` or `function name updated`, plus operator/edge changes. They do not repeat the entire implementation.
+Observations are Markdown grouped by action number and status. Edits name registered or updated functions, operator IDs and types, and added or removed edges. Execution reports completed, failed, or not-run operators; completed means a current result is available. Retrieved tables are labeled by operator ID, with coverage and omission notices. Errors identify the action and, when applicable, the operator, declaration line, or Python source location. `No changes were applied` refers to that edit only. Repair the reported cause, execute affected targets, and retrieve the results before answering.
 
 ### Inspect definitions and retrieve data
 
@@ -162,7 +162,7 @@ Use inspect only when relevant information is missing from context:
 
 For unfamiliar spreadsheets, batch `scan(files=..., preview=1)`, execute, and inspect source to find worksheets and raw headers. Then scan the chosen sheet normally and use schema inspection for exact parsed column names. Follow pagination and omission notices; never guess a hidden name.
 
-Inspection never executes. Namespace inspection reads authored definitions, not variables from an operator execution. Shape/schema describe only current materialized results; stale results need execution. Use retrieve for table records and statistics.
+Inspection never executes. Namespace inspection reads authored definitions, not variables from an operator execution. Shape/schema describe only current completed results; stale results need execution. Use retrieve for table records and statistics.
 
 Retrieve several results using `operator_ids=['report','checks']` when they need the same view. Optional `columns` applies to every selected result. Missing/stale/failed targets are reported individually; valid targets remain readable. Use separate actions for different views or column selections.
 
@@ -198,11 +198,11 @@ The request supplies columns group and numeric value in data/example.csv and ask
 {"reasoning":"Compute and check group totals and the overall total.","actions":[{"type":"edit","python":"","changes":"set records: scan(files='data/example.csv')\nset totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\nset overall: aggregate(records, outputs={'total': sum('value')})"},{"type":"execute","operator_ids":["report","overall"]},{"type":"retrieve","operator_ids":["report","overall"],"view":"full"}]}
 ```
 
-The edit reports created operators and edges; execute reports completion/cache reuse. Suppose retrieval returns:
+The edit reports created operators and edges; execute confirms completed results. Suppose retrieval returns:
 
 ```text
 ### 3. retrieve report, overall: ok
-- **report** (sort, executed)
+- **report** (sort, completed)
   - result: 2 rows × 2 columns
 records: full; 2 of 2 rows, 2 of 2 columns (complete)
 | group | total |
@@ -210,7 +210,7 @@ records: full; 2 of 2 rows, 2 of 2 columns (complete)
 | A | 30 |
 | B | 70 |
 
-- **overall** (aggregate, executed)
+- **overall** (aggregate, completed)
   - result: 1 row × 1 column
 records: full; 1 of 1 row, 1 of 1 column (complete)
 | total |

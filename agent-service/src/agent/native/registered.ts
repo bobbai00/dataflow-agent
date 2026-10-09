@@ -63,6 +63,11 @@ interface SetStatement {
   inputs: string[];
   kwargs: Record<string, ParsedValue>;
 }
+function declarationError(statement: { id: string; line: number }, error: unknown): Error {
+  return new Error(
+    `Changes line ${statement.line}, operator ${statement.id}: ${error instanceof Error ? error.message : error}`
+  );
+}
 const retired = new Set(["map", "process"]);
 export const REGISTERED_OPERATOR_NAMES = NATIVE_OPERATORS.filter(d => !retired.has(d.name)).map(d => d.name);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
@@ -195,7 +200,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   const parsed = (await runNativePython({ registered: true, phase: "parse", cells, changes: options.changes })) as {
     ok: boolean;
     error?: string;
-    statements: Array<SetStatement | { kind: "delete"; id: string }>;
+    statements: Array<SetStatement | { kind: "delete"; id: string; line: number }>;
     declarations: Record<string, RegisteredBinding>;
   };
   if (!parsed.ok) throw new Error(parsed.error);
@@ -207,63 +212,74 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   const changedIds = new Set<string>();
   const deletedIds: string[] = [];
   for (const statement of parsed.statements) {
-    if (statement.kind === "delete") {
-      if (!operators[statement.id]) throw new Error(`Cannot delete missing operator ${statement.id}.`);
-      delete operators[statement.id];
-      deletedIds.push(statement.id);
-      continue;
-    }
-    const kwargs = { ...statement.kwargs };
-    let doc: string | undefined;
-    if (kwargs.doc) {
-      const value = literal(kwargs.doc);
-      if (value !== null && typeof value !== "string") throw new Error("doc must be a string or None.");
-      doc = value ?? undefined;
-      delete kwargs.doc;
-    }
-    let view: NativeOpView;
-    if (statement.op === "filter") {
-      view = normalizeRegisteredFilter({ ...statement, kwargs }, cells, options);
-    } else if (REGISTERED_OPERATOR_NAMES.includes(statement.op)) {
-      view = normalizeBuiltin({ ...statement, kwargs }, options);
-    } else {
-      if (retired.has(statement.op))
-        throw new Error(`${statement.op} is retired; call a registered table function directly.`);
-      const binding = parsed.declarations[statement.op];
-      if (!binding || binding.kind !== "function" || statement.op.startsWith("_"))
-        throw new Error(`Unknown operator type ${statement.op}. Register a public synchronous function first.`);
-      view = {
-        type: "Process",
-        registeredName: statement.op,
-        inputs: statement.inputs,
-        source: statement.source,
-        graph: { inputPorts: statement.inputs.map((_, index) => `input-${index}`) },
-        properties: {
-          registered: {
-            cells,
-            entry: statement.op,
-            settings: Object.fromEntries(Object.entries(kwargs).map(([key, value]) => [key, literal(value)])),
-            namespaceRevision: hash(cells),
+    try {
+      if (statement.kind === "delete") {
+        if (!operators[statement.id]) throw new Error(`Cannot delete missing operator ${statement.id}.`);
+        delete operators[statement.id];
+        deletedIds.push(statement.id);
+        continue;
+      }
+      const kwargs = { ...statement.kwargs };
+      let doc: string | undefined;
+      if (kwargs.doc) {
+        const value = literal(kwargs.doc);
+        if (value !== null && typeof value !== "string") throw new Error("doc must be a string or None.");
+        doc = value ?? undefined;
+        delete kwargs.doc;
+      }
+      let view: NativeOpView;
+      if (statement.op === "filter") {
+        view = normalizeRegisteredFilter({ ...statement, kwargs }, cells, options);
+      } else if (REGISTERED_OPERATOR_NAMES.includes(statement.op)) {
+        view = normalizeBuiltin({ ...statement, kwargs }, options);
+      } else {
+        if (retired.has(statement.op))
+          throw new Error(`${statement.op} is retired; call a registered table function directly.`);
+        const binding = parsed.declarations[statement.op];
+        if (!binding || binding.kind !== "function" || statement.op.startsWith("_"))
+          throw new Error(`Unknown operator type ${statement.op}. Register a public synchronous function first.`);
+        view = {
+          type: "Process",
+          registeredName: statement.op,
+          inputs: statement.inputs,
+          source: statement.source,
+          graph: { inputPorts: statement.inputs.map((_, index) => `input-${index}`) },
+          properties: {
+            registered: {
+              cells,
+              entry: statement.op,
+              settings: Object.fromEntries(Object.entries(kwargs).map(([key, value]) => [key, literal(value)])),
+              namespaceRevision: hash(cells),
+            },
           },
-        },
-        ...(options.profileCollection
-          ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
-          : {}),
-      };
+          ...(options.profileCollection
+            ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
+            : {}),
+        };
+      }
+      if (doc !== undefined) view.doc = doc;
+      view.revision = nativeRevision(view);
+      operators[statement.id] = view;
+      changedIds.add(statement.id);
+    } catch (error) {
+      throw declarationError(statement, error);
     }
-    if (doc !== undefined) view.doc = doc;
-    view.revision = nativeRevision(view);
-    operators[statement.id] = view;
-    changedIds.add(statement.id);
   }
+  const declarations = new Map(parsed.statements.map(statement => [statement.id, statement]));
   const visiting = new Set<string>(),
     visited = new Set<string>();
   function visit(id: string): void {
-    if (!operators[id]) throw new Error(`Input operator ${id} does not exist in the final graph.`);
     if (visiting.has(id)) throw new Error(`The final graph contains a cycle through ${id}.`);
     if (visited.has(id)) return;
     visiting.add(id);
-    operators[id].inputs.forEach(visit);
+    for (const input of operators[id].inputs) {
+      if (!operators[input]) {
+        const message = `Input operator ${input} does not exist in the final graph; required by operator ${id}.`;
+        const declaration = declarations.get(id) ?? declarations.get(input);
+        throw declaration ? declarationError(declaration, message) : new Error(message);
+      }
+      visit(input);
+    }
     visiting.delete(id);
     visited.add(id);
   }

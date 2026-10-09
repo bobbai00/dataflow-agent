@@ -496,8 +496,9 @@ export interface OperatorBlock {
   issues?: readonly string[];
 }
 export function operatorBlock(block: OperatorBlock): string {
+  const state = block.state === "cached" || block.state === "executed" ? "completed" : block.state;
   return [
-    `- **${block.id}** (${block.kind}, ${block.state})`,
+    `- **${block.id}** (${block.kind}, ${state})`,
     ...(block.definition ? [`  - definition: ${inlineCode(block.definition)}`] : []),
     ...(block.description ? [`  - description: ${block.description.replace(/\n/g, " ")}`] : []),
     ...(block.signature ? [`  - signature: ${inlineCode(block.signature)}`] : []),

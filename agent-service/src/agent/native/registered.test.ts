@@ -90,6 +90,71 @@ test("edit rejection is atomic and validates the final graph against function si
   await expect(stageRegisteredEdit({ ...before, python: "def scan():\n    pass", changes: "" })).rejects.toThrow();
 });
 
+test("invalid declarations identify the changes line and operator without applying earlier edits", async () => {
+  const before = await stageRegisteredEdit({ operators: {}, python: "", changes: "set raw: scan(files='data.csv')" });
+  const snapshot = JSON.stringify(before);
+  for (const [expression, cause] of [
+    ["limit(raw, n='one')", "n"],
+    ["unknown(raw)", "Unknown operator type unknown"],
+    ["limit(raw, n=1, doc=3)", "doc must be a string or None"],
+  ]) {
+    const error = await stageRegisteredEdit({
+      ...before,
+      python: "",
+      changes: `set first: limit(raw, n=1)\nset invalid: ${expression}`,
+    }).then(
+      () => undefined,
+      error => error as Error
+    );
+    expect(error!.message).toContain("Changes line 2, operator invalid:");
+    expect(error!.message).toContain(cause);
+    expect(JSON.stringify(before)).toBe(snapshot);
+  }
+});
+
+test("missing graph inputs identify the consumer and the declaration that caused the error", async () => {
+  const before = await stageRegisteredEdit({
+    operators: {},
+    python: "",
+    changes: "set raw: scan(files='data.csv')\nset result: limit(raw, n=1)",
+  });
+  await expect(
+    stageRegisteredEdit({
+      ...before,
+      python: "",
+      changes: "set first: limit(raw, n=1)\nset result: limit(absent, n=1)",
+    })
+  ).rejects.toThrow(
+    "Changes line 2, operator result: Input operator absent does not exist in the final graph; required by operator result."
+  );
+  await expect(stageRegisteredEdit({ ...before, python: "", changes: "delete raw" })).rejects.toThrow(
+    "Changes line 1, operator raw: Input operator raw does not exist in the final graph; required by operator result."
+  );
+});
+
+test("graph syntax errors identify their declaration while Python errors retain definition-cell locations", async () => {
+  await expect(
+    stageRegisteredEdit({
+      operators: {},
+      python: "",
+      changes: "set raw: scan(files='data.csv')\nset invalid: limit(raw, n=)",
+    })
+  ).rejects.toThrow("Changes line 2, operator invalid:");
+  await expect(
+    stageRegisteredEdit({ operators: {}, python: "def load(:\n    pass", changes: "set raw: load()" })
+  ).rejects.toThrow("<definitions:1>, line 1");
+});
+
+test("incomplete graph expressions identify changes and the tokenizer error location", async () => {
+  await expect(
+    stageRegisteredEdit({
+      operators: {},
+      python: "",
+      changes: "set raw: scan(files='data.csv')\nset invalid: limit(raw, n=1",
+    })
+  ).rejects.toThrow(/Changes line \d+: .*EOF.*multi-line statement/);
+});
+
 test("fixed mappings accept reserved column names and documentation is metadata", async () => {
   const state = await stageRegisteredEdit({
     operators: {},

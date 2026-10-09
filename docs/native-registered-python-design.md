@@ -27,6 +27,9 @@ The previous planning document is retained in
 [the archive](archived/native-registered-python-design-before-implementation-20261008.md)
 and is superseded, including its automatic-refresh and answer-from proposals.
 
+The [follow-up checklist](#follow-up-checklist-2026-10-08) records pending changes
+and experiments separately from the implemented contract below.
+
 ## Actions
 
 | Action | Contract |
@@ -121,11 +124,24 @@ purpose when needed. Description precedence is explicit doc, current function
 docstring, then generated built-in summary. `doc` is metadata, never forwarded as
 a function argument. Avoid redundant descriptions for routine scans/sorts.
 
-Successful edits produce Markdown receipts including `function name registered`
-or `function name updated`, operator/edge changes, and invalidations. Execution
-reports completion, reuse, and errors. Retrieval returns one labeled result block
-per target with coverage captions and enabled statistics. Documentation states
-intent; it does not prove measured correctness.
+Observations use Markdown, grouped by action number and status. Successful edits
+name registered or updated functions, changed operators and their types, and added
+or removed edges. After a change, affected results are named with an instruction
+to execute before retrieving. Execution reports completed results, failures, and
+operators that did not run. `Completed` means a current result is available; engine
+reuse counts and cache states remain internal telemetry. Retrieval returns one
+block per operator ID with coverage captions and enabled statistics. Errors name
+the action and relevant operator, declaration line, or Python source location;
+an edit failure explicitly confirms that none of that edit was applied.
+Documentation states intent; it does not prove measured correctness.
+
+On this branch, default native DELTA context preserves model-message roles: user
+requests use `user`, model calls use `assistant`, and tool observations use `tool`
+with the matching call ID. The internal trace groups calls and results in an
+`agent` step; that is a storage label, not a model-message role. Vercel AI SDK
+handles native tool calling while our context assembler reconstructs history and
+formats observations before each request. Other layouts, such as LATEST's state
+summary, may place environment summaries in user-role messages.
 
 ## Built-ins and source reading
 
@@ -257,3 +273,122 @@ records all 18 original attempts, the confirmed provider schema incompatibility,
 and six successful validation reruns after its correction. The
 [engine probe](../benchmark/retrieval/results/20261008-registered-python-engine/README.md)
 retains actual Markdown observations from ten deterministic checks.
+
+## Follow-up checklist (2026-10-08)
+
+Goal: reduce **cost per correctly completed task** by avoiding unnecessary model
+calls and tokens, while preserving accuracy, useful diagnostics, and deterministic
+execution. Unchecked items are follow-up work or explicitly labeled experiments;
+they do not change the current contract. Checked items describe local changes,
+not a claim that they have been committed or deployed.
+
+### Completed local cleanup
+
+- [x] Remove cache counts and cache-state labels from ordinary observations;
+  retain internal telemetry. Describe current results as completed.
+- [x] Remove the redundant action-batch status prefix and improve edit-error
+  attribution to declaration lines and operator IDs.
+- [x] Update prompt guidance and generated references for that cleanup; validate
+  with unit tests, type checking, and reference-drift checks.
+
+### P0 — Prevent avoidable calls and repair loops
+
+- [ ] Bring the empty-execution-loop protection from `feat/context-improvement`
+  onto this branch. Verify it handles registered-native diagnostics, terminates
+  repeated no-progress calls, and preserves usage and failure records.
+- [ ] Investigate empty/malformed action envelopes on the affected provider routes.
+  Distinguish provider/schema issues from model authoring mistakes before changing
+  the protocol; do not count transport retries as new model decisions.
+- [ ] Make common authoring mistakes easy to repair: nested graph calls,
+  unregistered function names, and invalid dtype syntax. Evaluate safe dtype
+  aliases separately rather than silently broadening accepted syntax.
+- [ ] Teach recovery from parsing/conversion failures: inspect the relevant input
+  and test normalization before retrying. Avoid repeated coercion or row dropping
+  that merely hides the original data problem.
+
+### P1 — Keep context compact and attributable
+
+- [ ] Finalize one Markdown observation per ordered action batch. Preserve native
+  `user`, `assistant` tool-call, and matching `tool` result roles; the trace's
+  internal `agent` label must not be confused with a provider message role.
+- [ ] Show action number/status, registered or updated function names, operator
+  IDs/types, and changed edges. Include input positions when edge order matters.
+  Keep submitted code in the assistant call rather than routinely echoing it.
+- [ ] Report which operator results are ready, failed, or not run. Bound long
+  success lists while preserving requested targets and failures; wording must not
+  imply that every available result was physically recomputed.
+- [ ] Give each retrieved result its operator ID, view, schema, and row/column
+  coverage. Preserve truncation and preview notices; trim repeated definitions,
+  status lines, and other details that do not help interpret the table.
+- [ ] Keep result-table statistics and flow evidence distinct, with independent
+  budgets. Do not repeat facts already fully shown in a small result table.
+- [ ] Deduplicate the same execution error within a batch by referring to its
+  earlier action. Errors returned in a later call must remain understandable on
+  their own.
+
+### P1 — Make Python failures easier to debug
+
+- [ ] Surface the authored definition cell, function, cell-relative line number,
+  and failing source line. Add source excerpts and a caret for syntax errors.
+- [ ] Retain the exact failed definition version for diagnostics; inspecting the
+  current function after an edit must not substitute for the code that failed.
+- [ ] Use a bounded source excerpt, with additional source available on demand.
+  Avoid default full-function/library-traceback repetition and explicitly mark
+  truncation. Infrastructure failures may legitimately have no user-code line.
+
+### P1 — Guide operator choice and documentation
+
+- [ ] Prefer built-ins for equivalent supported operations and compose known
+  chains in one edit/execute/retrieve batch. Use Python for specialized loading,
+  parsing, or calculations; do not force extra operators just to increase the
+  built-in share. Preserve ties, null handling, cardinality, and numeric semantics.
+- [ ] Retrieve multiple needed outputs together. Reserve a new model call for
+  decisions that actually depend on those outputs.
+- [ ] Request concise docstrings for registered functions/predicates and optional
+  node `doc` for task-specific meaning, including specialized built-ins. Omit
+  boilerplate for obvious operators; missing prose alone should not reject an edit.
+- [ ] Keep precedence explicit: node `doc`, current function docstring, then
+  built-in summary. Verify inherited descriptions follow function revisions and
+  documentation-only edits preserve results. Show descriptions when added,
+  changed, or inspected rather than repeating them on every execution/retrieval.
+
+### P1 — Preserve safe partial progress
+
+- [ ] Retain atomic edits: one failed edit applies none of its changes; earlier
+  successful edits remain. Do not execute dependent actions against the old graph
+  as though the rejected edit succeeded.
+- [ ] Verify that an execution failure still permits requested independent
+  executions and inspection/retrieval, with outcomes per target. A skipped edit
+  must block later execution that could silently use its unapplied changes.
+- [ ] Evaluate allowing independent reads after a read-only action fails. Keep
+  this separate from relaxing failed-edit behavior: in the audited comparison,
+  all five failed edits' skipped execute/retrieve pairs depended on rejected nodes,
+  so continuing those pairs would not have saved useful work.
+
+### P2 — Align the prompt and measure the benefit
+
+- [ ] Apply the chosen guidance to the
+  [prompt source](../agent-service/src/agent/prompts/native-registered.md), then
+  regenerate the [rendered prompt](native-registered-python-system-prompt.txt)
+  and native references. Fix stale built-in counts and retired-operator wording
+  in reference generation.
+- [ ] Use general synthetic examples for custom loading, one/multiple table
+  inputs, settings, isolated invocations, function replacement, and error repair.
+  Keep examples independent of benchmark tasks and validate their tool envelopes.
+- [ ] Add focused regression coverage for message roles/call IDs, error identity
+  and source versions, partial results, failure sequencing, and retrieval without
+  execution. Run the relevant service tests and reference checks.
+- [ ] Compare changes on matched tasks across the models, with fixed revisions,
+  routes, settings, and repeated trials. Change one factor at a time; hold data
+  statistics and flow evidence settings fixed unless they are the experiment.
+- [ ] Report correctness, completion, repair calls, API requests, model decisions,
+  and tool actions separately. Include failed attempts in cost per correct task.
+  Separate uncached input, cache reads/writes, output, and reasoning accounting
+  without double counting; distinguish provider-reported cost from estimates and
+  leave missing usage unknown. Context characters are not token measurements.
+- [ ] Count final built-in/custom operators separately from attempted declarations
+  and revisions; identify built-ins using Python predicates as hybrid behavior.
+  Treat operator mix and cache-hit rate as diagnostic measurements, not success
+  criteria. The audited 24-attempt context comparison had 113 built-in and 15
+  custom final nodes, but does not establish that increasing the built-in share
+  causes lower cost or higher accuracy.

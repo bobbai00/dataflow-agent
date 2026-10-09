@@ -176,8 +176,8 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
   await s.agent.sendMessage("Task 2");
   const edit2 = receiptText(s.outcomes[2]);
   expect(edit2).toContain("inputs from earlier tasks:");
-  expect(edit2).toMatch(/\*\*eligible\*\* \(filter, executed\)[\s\S]*origin: task 1[\s\S]*used by: `joined`/);
-  expect(edit2).toMatch(/\*\*top8\*\* \(limit, executed\)[\s\S]*origin: task 1[\s\S]*used by: `joined`/);
+  expect(edit2).toMatch(/\*\*eligible\*\* \(filter, completed\)[\s\S]*origin: task 1[\s\S]*used by: `joined`/);
+  expect(edit2).toMatch(/\*\*top8\*\* \(limit, completed\)[\s\S]*origin: task 1[\s\S]*used by: `joined`/);
   const exec2 = s.outcomes[2].actions[1].output as any;
   const joinedNotes: string[] = exec2.operators.find((op: any) => op.id === "joined").checks;
   expect(joinedNotes.join("\n")).toContain(
@@ -226,7 +226,7 @@ test("an empty result gets a block in the execute receipt without the ledger, fl
   s.agent.updateSettings({ stateHistory: false, stateLedger: false, flowEvidence: false, nativeChecks: false });
   await s.agent.sendMessage("Task 1");
   expect(receiptText(s.outcomes[0])).toMatch(
-    /\*\*empty_units\*\* \(scan, executed\)\n  - result: 0 rows × 2 columns[\s\S]*- note: empty table\./
+    /\*\*empty_units\*\* \(scan, completed\)\n  - result: 0 rows × 2 columns[\s\S]*- note: empty table\./
   );
 });
 

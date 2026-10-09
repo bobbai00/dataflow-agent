@@ -197,6 +197,59 @@ function completed(id: string, value: number): OperatorInfo {
   } as unknown as OperatorInfo;
 }
 
+test("registered receipts retain useful identities while engine reuse stays in telemetry", async () => {
+  const h = harness();
+  const result = await h.run(
+    [
+      { type: "edit", python: loader, changes: "set raw: source()\nset report: copy_values(raw)" },
+      { type: "execute", operator_ids: ["report"] },
+      { type: "retrieve", operator_ids: ["report"], view: "full" },
+    ],
+    async step => {
+      h.storage.setOperatorResult(step, "raw", {
+        ...completed("raw", 2),
+        state: "CompletedFromCache",
+      });
+      h.storage.setOperatorResult(step, "report", completed("report", 2));
+    }
+  );
+  expect(result.actions.map(action => action.status)).toEqual(["ok", "ok", "ok"]);
+  const text = renderDataflowActionsResult(result);
+  expect(text).toContain("function source registered");
+  expect(text).toContain("function copy_values registered");
+  expect(text).toContain("operator raw created (source)");
+  expect(text).toContain("operator report created (copy_values)");
+  expect(text).toContain("edge raw -> report created");
+  expect(text).toContain("2. execute report: ok");
+  expect(text).toContain("2 completed (report, raw)");
+  expect(text).toContain("3. retrieve report: ok");
+  expect(text).toContain("**report** (copy_values, completed)");
+  expect(text).toContain("| 2 |");
+  expect(text).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
+  expect((result.actions[1].output as any).operators.find((op: any) => op.id === "raw").state).toBe("cached");
+  expect(h.storage.getOperatorResult("step0", "raw")?.state).toBe("CompletedFromCache");
+});
+
+test("rejected batch edits name the action and declaration without undoing earlier edits", async () => {
+  const h = harness();
+  const result = await h.run([
+    { type: "edit", python: loader, changes: "set raw: source()" },
+    {
+      type: "edit",
+      python: "",
+      changes: "set report: copy_values(raw)\nset broken: limit(raw, n='invalid')",
+    },
+    { type: "execute", operator_ids: ["report"] },
+  ]);
+  const text = renderDataflowActionsResult(result);
+  expect(result.actions.map(action => action.status)).toEqual(["ok", "error", "skipped"]);
+  expect(text).toContain("2. edit: error\nNo changes were applied.");
+  expect(text).toContain("Changes line 2, operator broken");
+  expect(text).toContain("3. execute report: skipped (action 2 failed)");
+  expect(h.state.getAllOperators().map(op => op.operatorID)).toEqual(["raw"]);
+  expect(h.executions()).toBe(0);
+});
+
 test("batched retrieval keeps valid targets around missing targets without execution", async () => {
   const h = harness();
   const created = await h.run([{ type: "edit", python: loader, changes: "set a: source()\nset b: source(value=2)" }]);

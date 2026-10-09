@@ -50,6 +50,17 @@ test("reference and initial prompt expose only retained built-ins with registere
   expect(() => registeredReferenceText({ topic: "operators", operator_names: ["process"] })).toThrow();
 });
 
+test("registered instructions explain actionable observations without cache bookkeeping", () => {
+  const prompt = buildRegisteredNativeSystemPrompt();
+  expect(prompt).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
+  expect(prompt).toContain("action number");
+  expect(prompt).toContain("operator ID");
+  expect(prompt).toContain("completed");
+  expect(prompt).toContain("No changes were applied");
+  const schema = asSchema(createRegisteredDataflowTool().inputSchema).jsonSchema;
+  expect(JSON.stringify(schema)).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
+});
+
 for (const data of [false, true])
   for (const flow of [false, true])
     test(`registered prompt and live agent settings agree: data=${data}, flow=${flow}`, () => {

@@ -316,7 +316,7 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           );
         lines.push(...blocks.map(operatorBlock));
         if (output.invalidated_results?.length)
-          lines.push(`results invalidated: ${output.invalidated_results.join(", ")}`);
+          lines.push(`Execute before retrieving: ${output.invalidated_results.join(", ")}.`);
         const unconnected = new Map<string, string[]>();
         for (const input of (output.unconnected_inputs ?? []) as string[]) {
           const id = input.slice(0, input.lastIndexOf("."));
@@ -330,9 +330,14 @@ export function renderActionObservations(result: DataflowActionsResult): string 
         if (output.provenance?.length) lines.push(...output.provenance);
       } else if (item.action.type === "execute") {
         const all = output.operators ?? [];
+        const completed = all.filter((op: any) => op.status === "ok");
+        const shown = completed.slice(0, 8).map((op: any) => op.id);
+        const completedIds = [
+          ...shown,
+          ...(completed.length > shown.length ? [`… ${completed.length - shown.length} more`] : []),
+        ];
         const counts = [
-          `${all.filter((op: any) => op.status === "ok" && op.state !== "cached").length} executed`,
-          `${all.filter((op: any) => op.status === "ok" && op.state === "cached").length} cached`,
+          `${completed.length} completed${completedIds.length ? ` (${completedIds.join(", ")})` : ""}`,
           ...(all.some((op: any) => op.state === "failed")
             ? [`${all.filter((op: any) => op.state === "failed").length} failed`]
             : []),

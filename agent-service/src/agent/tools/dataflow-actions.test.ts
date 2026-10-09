@@ -53,9 +53,12 @@ describe("compact action observations", () => {
     const saved = JSON.stringify(result);
     const text = renderDataflowActionsResult(result);
     expect(text).toContain("1. execute: ok");
-    expect(text).toContain("250 operators: 250 executed, 0 cached");
-    expect(text.length).toBeLessThan(150);
-    expect(text).not.toContain("old_branch_");
+    expect(text).toContain("250 operators: 250 completed");
+    expect(text.length).toBeLessThan(300);
+    expect(text).toContain("old_branch_0");
+    expect(text).toContain("242 more");
+    expect(text).not.toContain("old_branch_8");
+    expect(text).not.toContain("cached");
     expect(JSON.stringify(result)).toBe(saved);
     expect(renderDataflowActionsResult(structuredClone(result))).toBe(text);
   });
@@ -77,8 +80,8 @@ describe("compact action observations", () => {
     );
     const text = renderDataflowActionsResult(result);
     expect(text).toContain("1. execute: error");
-    expect(text).toContain("4 operators: 2 executed, 0 cached");
-    expect(text).toContain("**header** (operator, executed)");
+    expect(text).toContain("4 operators: 2 completed (ordinary, header)");
+    expect(text).toContain("**header** (operator, completed)");
     expect(text).toContain("check: header row repeats");
     expect(text).toContain("error EXECUTION_FAILED: File missing: orders.csv");
     expect(text).toContain("note: No completed result");
@@ -87,7 +90,7 @@ describe("compact action observations", () => {
     expect(text).not.toContain("ordinary:");
   });
 
-  test("edit observations report one line per change, then invalidations and unconnected inputs", async () => {
+  test("edit observations report changes, results needing execution and unconnected inputs", async () => {
     const result = await receipt(edit as DataflowAction, {
       changes: [
         { change: "operator", operator_id: "source", operator: "scan", action: "updated" },
@@ -107,7 +110,7 @@ describe("compact action observations", () => {
       "operator probe deleted",
       "edge source -> probe removed",
       "edge source -> joined.left created",
-      "results invalidated: source, total",
+      "Execute before retrieving: source, total.",
       "total.in is unconnected; restate total with its inputs or delete it before executing.",
       "pair.left, pair.right are unconnected; restate pair with its inputs or delete it before executing.",
     ]);
@@ -225,7 +228,9 @@ describe("receipt details found in live runs", () => {
         operator_blocks: [],
       }
     );
-    expect(text).toContain("results invalidated: eligible\nnote: Restored eligible's task-2 definition in place.");
+    expect(text).toContain(
+      "Execute before retrieving: eligible.\nnote: Restored eligible's task-2 definition in place."
+    );
   });
 
   test("a rejected edit says once that nothing was applied", async () => {

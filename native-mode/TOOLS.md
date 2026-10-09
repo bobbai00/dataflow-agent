@@ -360,7 +360,7 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
             "required": [
               "type"
             ],
-            "description": "Compute the whole graph, reusing current cached results. Retrieve results separately."
+            "description": "Ensure the whole graph has current results. Report completion or errors; retrieve tables separately."
           },
           {
             "type": "object",
@@ -384,7 +384,7 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
               "type",
               "operator_ids"
             ],
-            "description": "Compute selected operators and ancestors, reusing current results. Other branches do not run."
+            "description": "Ensure selected operators and ancestors have current results. Other branches do not run. Retrieve tables separately."
           },
           {
             "type": "object",

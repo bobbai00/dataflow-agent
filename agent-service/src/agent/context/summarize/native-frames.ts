@@ -183,8 +183,8 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     messages.push({
       role: "tool",
       content: calls.map((tc, k) => {
-        const own = ownOutcome(step, tc.toolCallId);
         const isLast = k === calls.length - 1;
+        const own = ownOutcome(step, tc.toolCallId, isLast && !!observation);
         const value = isLast && observation ? (own ? `${own}\n\n${observation}` : observation) : own || "ok";
         return {
           type: "tool-result" as const,
@@ -236,10 +236,11 @@ function extractThought(head: string): string {
 }
 
 /** That one call's own outcome, first line only — errors keep their message. */
-function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
+function ownOutcome(step: ReActStep | undefined, toolCallId: string, hasObservation: boolean): string {
   const r = step?.toolResults?.find(x => x.toolCallId === toolCallId);
   if (!r) return "";
-  if (r.output?.kind === "dataflow-actions") return `dataflow-actions: ${r.output.status}`;
+  // Per-action Markdown already reports completion or failure for this call.
+  if (r.output?.kind === "dataflow-actions") return hasObservation ? "" : `dataflow-actions: ${r.output.status}`;
   const out = typeof r.output === "string" ? r.output : JSON.stringify(r.output ?? "");
   const first = out.trim().split("\n")[0]?.trim() ?? "";
   return first.slice(0, 300);

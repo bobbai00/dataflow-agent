@@ -201,6 +201,12 @@ describe("execution plan carries only the targets' upstream closure", () => {
 });
 
 describe("execution phase metrics survive persistence summaries", () => {
+  const clientTiming = {
+    requestToHeadersMs: expect.any(Number),
+    responseBodyDecodeMs: expect.any(Number),
+    resultPreparationMs: expect.any(Number),
+    snapshotStoreMs: expect.any(Number),
+  };
   const phaseMetrics = {
     version: 1,
     compilation: "passed",
@@ -231,7 +237,14 @@ describe("execution phase metrics survive persistence summaries", () => {
         }
       );
       expect(outcome.executionRuns).toEqual([
-        { targets: ["c"], executionId: "e1", success, state: success ? "Completed" : "Failed", phaseMetrics },
+        {
+          targets: ["c"],
+          executionId: "e1",
+          success,
+          state: success ? "Completed" : "Failed",
+          phaseMetrics,
+          clientTiming,
+        },
       ]);
       expect(runs).toEqual(outcome.executionRuns!);
     } finally {
@@ -297,7 +310,7 @@ describe("execution phase metrics survive persistence summaries", () => {
         { opsToViewResult: ["c"] }
       );
       expect(outcome.executionRuns).toEqual([
-        { targets: ["c"], executionId: null, success: false, state: "Error", phaseMetrics: null },
+        { targets: ["c"], executionId: null, success: false, state: "Error", phaseMetrics: null, clientTiming },
       ]);
     } finally {
       fetch.mockRestore();

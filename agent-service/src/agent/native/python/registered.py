@@ -146,12 +146,20 @@ def parse_registered_changes(source):
     import ast
     import math
     import re
+    import tokenize
     from graph_parser import _blocks
     from program_parser import _encode
 
     statements = []
     seen = set()
-    for line, block in _blocks(source):
+    try:
+        blocks = _blocks(source)
+    except tokenize.TokenError as error:
+        message, (line, _) = error.args
+        raise ValueError(f"Changes line {line}: {message}") from error
+    except SyntaxError as error:
+        raise ValueError(f"Changes line {error.lineno}: {error.msg}") from error
+    for line, block in blocks:
         text = "\n".join(block)
         deletion_text = "\n".join(part for part in block if part.strip() and not part.lstrip().startswith("#"))
         deletion = re.fullmatch(r"delete\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:#.*)?", deletion_text.strip())
@@ -164,7 +172,11 @@ def parse_registered_changes(source):
                 raise ValueError(f"Line {line}: use set id: type(inputs, settings) or delete id.")
             identifier = match[1]
             expression = text[match.end():]
-            node = ast.parse(expression, mode="eval").body
+            try:
+                node = ast.parse(expression, mode="eval").body
+            except SyntaxError as error:
+                error_line = line + text[:match.end()].count("\n") + (error.lineno or 1) - 1
+                raise ValueError(f"Changes line {error_line}, operator {identifier}: {error.msg}") from error
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 raise ValueError(f"Line {line}: the definition must call an operator type by name.")
             if any(not isinstance(arg, ast.Name) for arg in node.args):

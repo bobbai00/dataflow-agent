@@ -200,7 +200,9 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
     expect(messages.some(m => m.role === "assistant" && JSON.stringify(m.content).includes('"roman_cities"'))).toBe(
       true
     );
-    expect(messages.some(m => m.role === "tool" && JSON.stringify(m.content).includes("dataflow-actions"))).toBe(true);
+    expect(
+      messages.some(m => m.role === "tool" && JSON.stringify(m.content).includes("operator roman_cities created"))
+    ).toBe(true);
   } finally {
     restore();
   }

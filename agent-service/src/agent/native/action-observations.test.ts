@@ -52,5 +52,33 @@ test("batched retrieval renders one schema per result and retains partial result
   expect(text).toContain("UNKNOWN_OPERATOR");
   expect(text).toContain("columns: y str");
   expect(text).toContain("records: omitted (budget)");
+  expect(text).toContain("**a** (scan, completed)");
+  expect(text).toContain("**b** (scan, completed)");
+  expect(text).not.toContain("cached");
   expect(entries).toEqual(before);
+});
+
+test("execution names successful operators without exposing reuse, and preserves failures", async () => {
+  const result = prepareRegisteredDataflowActions({
+    reasoning: "Compute the requested summaries.",
+    actions: [{ type: "execute", operator_ids: ["summary", "broken"] }],
+  });
+  const output = {
+    operators: [
+      { id: "source", status: "ok", state: "cached", rows: 20 },
+      { id: "summary", status: "ok", state: "executed", rows: 1 },
+      { id: "broken", status: "error", state: "failed", message: "ValueError: invalid value" },
+      { id: "dependent", status: "error", state: "not run", cause: "upstream `broken` failed" },
+    ],
+  };
+  const before = structuredClone(output);
+  await runDataflowActions(result, async () => ({ status: "error", output }));
+  const text = renderActionObservations(result);
+  expect(text).toContain("execute summary, broken: error");
+  expect(text).toContain("4 operators in scope: 2 completed (source, summary), 1 failed, 1 not run.");
+  expect(text).not.toContain("cached");
+  expect(text).toContain("**broken** (operator, failed)");
+  expect(text).toContain("ValueError: invalid value");
+  expect(text).toContain("not run: dependent (upstream `broken` failed)");
+  expect(output).toEqual(before);
 });

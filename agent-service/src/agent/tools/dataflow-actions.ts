@@ -548,10 +548,13 @@ export const REGISTERED_DATAFLOW_ACTIONS_SCHEMA = object({
             },
           }
         ),
-        action("execute", "Compute the whole graph, reusing current cached results. Retrieve results separately."),
         action(
           "execute",
-          "Compute selected operators and ancestors, reusing current results. Other branches do not run.",
+          "Ensure the whole graph has current results. Report completion or errors; retrieve tables separately."
+        ),
+        action(
+          "execute",
+          "Ensure selected operators and ancestors have current results. Other branches do not run. Retrieve tables separately.",
           {
             operator_ids: { type: "array", items: text, minItems: 1 },
           }
