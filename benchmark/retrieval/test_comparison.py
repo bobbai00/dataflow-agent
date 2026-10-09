@@ -11,9 +11,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Matched matrix reporting without benchmark imports or provider calls."""
+from pathlib import Path
+import sys
 import unittest
 
 from benchmark.retrieval.comparison import evidence_matrix_contrasts
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_comparison import audit_script
 from script_agent_child import save_full_memory

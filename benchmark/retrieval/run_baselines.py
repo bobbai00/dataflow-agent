@@ -62,6 +62,14 @@ def main():
     parser.add_argument("--max-steps", type=int, default=25)
     parser.add_argument("--output-chars", type=int, default=5000, help="Characters of execution output shown per step")
     parser.add_argument(
+        "--prompt",
+        choices=["custom", "default", "pitfalls"],
+        default="custom",
+        help="smolagents instructions: the KramaBench custom guidance (step decomposition and data pitfalls, "
+        "the counterpart of the dataflow agent's analysis principles), smolagents' defaults only, or the "
+        "pitfalls-only variant",
+    )
+    parser.add_argument(
         "--execution-timeout",
         type=int,
         default=600,
@@ -149,9 +157,9 @@ def main():
         "script_settings": {
             "max_steps": args.max_steps,
             "max_print_outputs_length": args.output_chars,
-            "use_custom_prompt": False,
+            "use_custom_prompt": args.prompt == "custom",
             "use_fine_grained_prompt": False,
-            "use_pitfalls_prompt": False,
+            "use_pitfalls_prompt": args.prompt == "pitfalls",
             "no_action_detail": False,
             "final_answer_tool_prompt": True,
         },
