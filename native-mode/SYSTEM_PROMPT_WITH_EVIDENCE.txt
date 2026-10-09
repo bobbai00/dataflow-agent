@@ -160,7 +160,7 @@ Use inspect only when relevant information is missing from context:
 | `namespace` | Registered definitions, including unused functions; optional `names` selects bindings and `include_implementation` requests source. |
 | `reference` | With `topic='operators', operator_names=[...]`, selected built-in contracts, defaults, and restrictions. |
 
-For unfamiliar spreadsheets, batch `scan(files=..., preview=1)`, execute, and inspect source to find worksheets and raw headers. Then scan the chosen sheet normally and use schema inspection for exact parsed column names. Follow pagination and omission notices; never guess a hidden name.
+Scan each source in full, execute, and retrieve a `sample_stats` (or `sample`) view of it before computing: actual values settle headers, units, codes, and missing-value conventions that names alone do not. Use schema inspection when a wide table's column list is cut. Use `scan(files=..., preview=1)` with source inspection only when a scan fails or its columns look wrong, such as workbook sheets or raw headers; then scan the chosen sheet normally. Follow pagination and omission notices; never guess a hidden name.
 
 Inspection never executes. Namespace inspection reads authored definitions, not variables from an operator execution. Shape/schema describe only current completed results; stale results need execution. Use retrieve for table records and statistics.
 
