@@ -3570,6 +3570,8 @@ export class TexeraAgent {
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
 
+        // A replayed request inherits the same session state as a live one.
+        const sessionState = this.sessionStateText();
         const userStepId = this.generateStepId();
         const userStep: ReActStep = {
           id: userStepId,
@@ -3579,6 +3581,7 @@ export class TexeraAgent {
           timestamp: Date.now(),
           role: "user",
           content,
+          ...(sessionState ? { sessionState } : {}),
           isBegin: true,
           isEnd: true,
           messageSource,

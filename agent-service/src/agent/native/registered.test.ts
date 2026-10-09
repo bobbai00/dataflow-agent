@@ -611,6 +611,16 @@ print(json.dumps(out))`,
     [2, 4],
     [3, 6],
   ]);
+  // A version the same edit changes is still read as task 1 left it.
+  const together = await stageRegisteredEdit({
+    ...task1,
+    saved: at,
+    python: "RATE = 3",
+    changes: "set both: union(prices@1, prices)",
+  });
+  expect(together.operators.both.inputs).toEqual(["prices@1", "prices"]);
+  expect(() => compileNativeOp(together.operators.both, "both")).not.toThrow();
+  expect(together.operators["prices@1"].revision).toBe(saved.prices.revision);
   // Once nothing reads the copy, it is gone.
   const cleared = await stageRegisteredEdit({ ...compare, saved: at, python: "", changes: "delete both" });
   expect(cleared.operators["prices@1"]).toBeUndefined();

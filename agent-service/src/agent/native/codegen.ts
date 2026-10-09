@@ -33,7 +33,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { NATIVE_BY_TYPE, NATIVE_ID_RE, type NativeOpView } from "./catalog";
+import { NATIVE_BY_TYPE, NATIVE_ID_RE, NATIVE_VERSION_ID_RE, type NativeOpView } from "./catalog";
 import type { NativeDiagnostic } from "./diagnostics";
 
 export interface CompiledNativeOp {
@@ -121,8 +121,11 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   const def = NATIVE_BY_TYPE.get(view.type);
   if (!def) throw new Error(`unknown native operator type "${view.type}"`);
   const inputs = view.inputs ?? [];
+  // Explicit ports never make input IDs Python names, so there an input may
+  // also be an earlier task's version.
   for (const id of inputs) {
-    if (!NATIVE_ID_RE.test(id)) throw new Error(`input operator id "${id}" is not a valid identifier`);
+    if (!NATIVE_ID_RE.test(id) && !(view.graph && NATIVE_VERSION_ID_RE.test(id)))
+      throw new Error(`input operator id "${id}" is not a valid identifier`);
   }
   if (new Set(inputs).size !== inputs.length && view.type !== "Join" && !view.graph) {
     throw new Error(`inputs must be distinct operators (got ${inputs.join(", ")})`);
