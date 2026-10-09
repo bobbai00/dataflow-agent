@@ -222,8 +222,6 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   resume?: boolean;
   compact?: boolean;
   multiTask?: boolean;
-  /** Later requests begin with the state they inherit (registered protocol). */
-  sessionState?: boolean;
   /** `dependencies`: earlier tasks appear as cards in place of their calls. */
   taskContext?: AgentSettings["taskContext"];
   messageLayout?: AgentSettings["messageLayout"];
@@ -522,18 +520,16 @@ export function buildRegisteredNativeSystemPrompt(
     contextMode === ContextMode.LATEST
       ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
       : flags.multi && options.taskContext === "dependencies"
-        ? "Your context contains the current task's calls and observations. Each earlier task appears as its request and a catalog entry instead of its calls: the definitions it registered or changed, the operators it created, changed or deleted as it left them, with results and column names, and its answer. Each observation describes the graph at that time; later edits may have made its results stale."
+        ? "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: the definitions it registered or changed, the operators it created, changed, or deleted with their results and columns, and its answer. Entries carry no records; retrieve an earlier table by its ID when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
         : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
   const fields: Record<string, string> = {
     CONTEXT_LAYOUT:
       context +
       (flags.multi
-        ? " Requests in this session share one graph and one set of registered definitions; each request is a task, numbered from 1." +
-          (options.sessionState
-            ? " Each later request begins with the session state it inherits: every registered function, and every operator with its definition, current result, the task that set it, and its column names."
-            : "") +
-          " Setting an existing operator ID replaces that operator for everything that reads it; a new ID keeps both. An input written `name@N` reads `name` as task N left it, unaffected by later edits."
+        ? " Requests in this session are tasks, numbered from 1, that share one graph and one set of registered definitions."
         : ""),
+    // Multi-task sessions only, so a single-task prompt is unchanged.
+    MULTI_TASK: flags.multi ? nativeFragment("native-registered-multi-task.md") : "",
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
     RETRIEVAL: nativeRetrievalText(options),
     RECORD_LAYOUT:

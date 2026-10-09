@@ -19,6 +19,7 @@ import type { ModelMessage } from "ai";
 import { AgentMode, ContextMode } from "../../types/agent";
 import { buildContextAssembler } from "../../server";
 import { buildRegisteredNativeSystemPrompt } from "../prompts";
+import { settingsChange } from "../task-catalog";
 import { TexeraAgent } from "../texera-agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 
@@ -159,7 +160,8 @@ test("an earlier task is its request and a catalog entry of what it changed, in 
   expect(second).toContain("Definitions:\n```python\nRATE = 3\n```");
   expect(second).not.toContain("def scaled");
   expect(second).toContain("- **prices** (priced, updated: the definitions its function uses changed)");
-  expect(second).toContain("- **big** (scaled, updated)");
+  // An update that kept the function and inputs names the settings that moved.
+  expect(second).toContain("- **big** (scaled, updated: factor 2 → 5)");
   // An input from an earlier task names the task that saved it.
   expect(second).toContain(
     "- **doubled** (priced, created)\n  - definition: `set doubled: priced(raw, doc='Values at the current rate.')`\n  - signature: `(table)`\n  - inputs: `raw` (version at end of task 1)"
@@ -189,9 +191,28 @@ test("the prompt describes earlier tasks as catalog entries only in the catalog 
   const trajectory = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { multiTask: true });
   expect(catalog).not.toContain("Your context contains earlier calls and observations.");
   expect(trajectory).toContain("Your context contains earlier calls and observations.");
-  expect(trajectory).not.toContain("catalog entry");
+  expect(trajectory).not.toContain("appears as its request and a catalog entry");
+  // Both layouts teach working across requests; a single task carries none of it.
+  for (const prompt of [catalog, trajectory]) {
+    expect(prompt).toContain("## 5. Working across requests");
+    expect(prompt).toContain("set newcomers: join(top, top@1, on=['unit'], how='anti')");
+  }
+  const single = buildRegisteredNativeSystemPrompt(ContextMode.DELTA);
+  expect(single).not.toContain("Working across requests");
+  expect(single).not.toContain("{{");
   // One task alone has no earlier tasks to describe.
-  expect(buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { taskContext: "dependencies" })).toBe(
-    buildRegisteredNativeSystemPrompt(ContextMode.DELTA)
-  );
+  expect(buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { taskContext: "dependencies" })).toBe(single);
+});
+
+test("an update that keeps the function and inputs is summarized by the settings it moved", () => {
+  const registered = (settings: Record<string, unknown>, entry = "unit_scores") =>
+    ({ type: "Registered", inputs: ["orders"], properties: { registered: { entry, cells: [], settings } } }) as any;
+  expect(settingsChange(registered({ min_orders: 5 }), registered({ min_orders: 10 }))).toBe("min_orders 5 → 10");
+  expect(settingsChange(registered({}), registered({ label: "it's" }))).toBe("label default → 'it\\'s'");
+  expect(settingsChange(registered({ a: 1 }), registered({ a: 1 }))).toBeUndefined();
+  // Another function, or other inputs, is a new definition rather than a settings change.
+  expect(settingsChange(registered({ a: 1 }), registered({ a: 2 }, "other"))).toBeUndefined();
+  expect(settingsChange(registered({ a: 1 }), { ...registered({ a: 2 }), inputs: ["raw"] })).toBeUndefined();
+  const limit = (n: number) => ({ type: "Limit", inputs: ["ranked"], properties: { n, offset: 0 } }) as any;
+  expect(settingsChange(limit(3), limit(5))).toBe("n 3 → 5");
 });

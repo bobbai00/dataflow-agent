@@ -303,7 +303,7 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
   expect(settings.tableFormat).toBe("tsv");
   expect(settings.keyValueColumns).toBe(0);
   expect(settings.systemPrompt).toContain(
-    "Requests in this session share one graph and one set of registered definitions"
+    "Requests in this session are tasks, numbered from 1, that share one graph and one set of registered definitions."
   );
 });
 

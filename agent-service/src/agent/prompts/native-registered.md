@@ -117,3 +117,5 @@ Answer in the next call:
 ```json
 {"reasoning":"Both requested results are current and complete.","actions":[{"type":"answer","content":"Group A: 30; group B: 70. Overall total: 100."}]}
 ```
+
+{{MULTI_TASK}}

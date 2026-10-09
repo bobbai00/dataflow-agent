@@ -22,6 +22,7 @@ import type { TaskHistory } from "./task-history";
 import type { SnapshotData, WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import type { DataflowActionsResult } from "./tools/dataflow-actions";
 import type { GraphChangeReceipt } from "./tools/graph-edits";
+import type { NativeOpView } from "./native/catalog";
 import { columnsFromInput, describeOperator, type OperatorBlock } from "./native/observation-format";
 
 /**
@@ -34,6 +35,41 @@ import { columnsFromInput, describeOperator, type OperatorBlock } from "./native
 
 const completed = (info: OperatorInfo | undefined): info is OperatorInfo =>
   !!info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state);
+
+/** A setting value as the statement spells it. */
+function pyLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "None";
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (typeof value === "string") return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  if (Array.isArray(value)) return `[${value.map(pyLiteral).join(", ")}]`;
+  if (typeof value === "object")
+    return `{${Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${pyLiteral(key)}: ${pyLiteral(item)}`)
+      .join(", ")}}`;
+  return String(value);
+}
+
+/** What an update changed when it kept the operator's function and inputs:
+ * its settings, as `name old → new`. A registered call keeps its settings
+ * beside its entry; a built-in keeps them as its properties. */
+export function settingsChange(previous: NativeOpView, now: NativeOpView): string | undefined {
+  if (previous.type !== now.type || JSON.stringify(previous.inputs) !== JSON.stringify(now.inputs)) return undefined;
+  const call = (view: NativeOpView) => {
+    const registered = view.properties.registered as { entry?: string; settings?: Record<string, unknown> } | undefined;
+    if (registered) return { entry: registered.entry, settings: registered.settings ?? {} };
+    return { entry: view.type, settings: view.properties };
+  };
+  const before = call(previous);
+  const after = call(now);
+  if (before.entry !== after.entry) return undefined;
+  const names = [...new Set([...Object.keys(before.settings), ...Object.keys(after.settings)])];
+  const moved = names.filter(name => JSON.stringify(before.settings[name]) !== JSON.stringify(after.settings[name]));
+  const value = (settings: Record<string, unknown>, name: string) =>
+    Object.hasOwn(settings, name) ? pyLiteral(settings[name]) : "default";
+  return moved.length
+    ? moved.map(name => `${name} ${value(before.settings, name)} → ${value(after.settings, name)}`).join(", ")
+    : undefined;
+}
 
 /** Operators a task's committed edits touched, in first-edit order. An edit
  * is atomic, so a rejected one touched nothing. */
@@ -112,7 +148,9 @@ export function taskOperatorCatalog(
             storage.getWorkflow(t.stepId).operators.find(item => item.operatorID === id)?.nativeOp?.revision ===
             op.nativeOp!.revision
         );
+      const moved = settingsChange(was.nativeOp!, op.nativeOp!);
       if (restored) state = `updated: restored task ${restored.taskId}'s version`;
+      else if (moved) state = `updated: ${moved}`;
       else if (was.nativeOp!.source === op.nativeOp!.source)
         state = "updated: the definitions its function uses changed";
     }
