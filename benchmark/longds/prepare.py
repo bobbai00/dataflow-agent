@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """Split the LongDS dataset into what the agent may see and what it may not.
 
 `task.json` carries the gold `answer` AND a gold `code` field (the reference
@@ -30,6 +47,29 @@ from pathlib import Path
 from _paths import KB_ROOT as KB, DATAMIND, PREPARED, DATA_REL_ROOT
 
 TASK_ROOT = DATAMIND / "task" / "longds"
+
+
+def resolve_task_selection(dataset_root: Path, version: str, split: str) -> tuple[Path, list[dict]]:
+    """Resolve an explicit version/split; missing v1.1 data never falls back."""
+    if version not in {'v1', 'v1.1'} or split not in {'full', 'lite'}:
+        raise ValueError('Expected version v1/v1.1 and split full/lite')
+    if version == 'v1':
+        if split != 'full':
+            raise ValueError('The legacy v1 layout supports only the full split')
+        root = dataset_root / 'task/longds'
+        listing = root / 'task_list.json'
+    else:
+        root = dataset_root / f'task/longds_{version}'
+        listing = root / f'task_list_{split}.json'
+    entries = json.loads(listing.read_text())
+    if not isinstance(entries, list):
+        raise ValueError(f'Task list must be an array: {listing}')
+    for entry in entries:
+        for field in ('task_domain', 'dataset_name', 'task_id'):
+            value = entry[field]
+            if not isinstance(value, str) or value in {'', '.', '..'} or '/' in value or '\\' in value:
+                raise ValueError(f'Invalid {field}: {value!r}')
+    return root, entries
 
 
 def task_key(domain: str, dataset: str, task_id: str) -> str:
@@ -69,12 +109,14 @@ def _norm_turn_ids(raw) -> list[int]:
                 out.append(int(m.group(1)))
     return sorted(set(out))
 
-def prepare_one(entry: dict, turn_limit: int | None) -> dict | None:
+def prepare_one(entry: dict, turn_limit: int | None, *, task_root: Path | None = None,
+                output_root: Path | None = None, data_root: Path | None = None,
+                version: str = 'v1', split: str = 'full') -> dict | None:
     domain, dataset, tid = entry["task_domain"], entry["dataset_name"], entry["task_id"]
     key = task_key(domain, dataset, tid)
-    task_json = TASK_ROOT / domain / dataset / tid / "task.json"
-    meta_json = TASK_ROOT / domain / dataset / tid / "metadata.json"
-    data_dir = KB / DATA_REL_ROOT / domain / dataset / tid / "data"
+    task_json = (task_root or TASK_ROOT) / domain / dataset / tid / "task.json"
+    meta_json = task_json.with_name('metadata.json')
+    data_dir = (data_root or KB / DATA_REL_ROOT) / domain / dataset / tid / "data"
 
     if not task_json.exists():
         return None
@@ -89,10 +131,12 @@ def prepare_one(entry: dict, turn_limit: int | None) -> dict | None:
     meta_by_turn = {m.get("turn"): m for m in meta}
 
     files = file_inventory(data_dir)
-    out_dir = PREPARED / key
+    out_dir = (output_root or PREPARED) / key
     out_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = {
+        "longds_version": version,
+        "split": split,
         "key": key,
         "domain": domain,
         "dataset_name": dataset,
@@ -105,6 +149,8 @@ def prepare_one(entry: dict, turn_limit: int | None) -> dict | None:
         ],
     }
     gold = {
+        "longds_version": version,
+        "split": split,
         "key": key,
         "domain": domain,
         "dataset_name": dataset,
@@ -140,13 +186,17 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", help="domain/dataset/task_id to prepare (default: all present)")
     ap.add_argument("--turn-limit", type=int, default=None)
+    ap.add_argument('--version', choices=['v1', 'v1.1'], default='v1', help='Explicit task version; legacy default retained')
+    ap.add_argument('--split', choices=['full', 'lite'], default='full')
+    ap.add_argument('--output', type=Path, help='Default v1.1 output is separate from legacy prepared tasks')
     args = ap.parse_args()
 
-    task_list_path = TASK_ROOT / "task_list.json"
-    if not task_list_path.exists():
-        print(f"FATAL: {task_list_path} missing — download the dataset first")
+    try:
+        task_root, entries = resolve_task_selection(DATAMIND, args.version, args.split)
+    except (FileNotFoundError, ValueError) as error:
+        print(f'FATAL: {error}')
         return 2
-    entries = json.loads(task_list_path.read_text())
+    output_root = args.output or (PREPARED if args.version == 'v1' else PREPARED / f'{args.version}_{args.split}')
 
     if args.task:
         want = args.task.strip("/").split("/")
@@ -162,8 +212,9 @@ def main() -> int:
             print(f"FATAL: {args.task} not in task_list.json")
             return 2
 
-    print(f"preparing {len(entries)} candidate task(s) -> {PREPARED}")
-    made = [m for m in (prepare_one(e, args.turn_limit) for e in entries) if m]
+    print(f"preparing {len(entries)} candidate task(s) -> {output_root}")
+    made = [m for m in (prepare_one(e, args.turn_limit, task_root=task_root, output_root=output_root,
+                                   version=args.version, split=args.split) for e in entries) if m]
     print(f"prepared {len(made)} task(s), {sum(len(m['turns']) for m in made)} turns")
     return 0 if made else 1
 
