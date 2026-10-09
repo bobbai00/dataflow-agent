@@ -2194,19 +2194,37 @@ export class TexeraAgent {
               "model step finished"
             );
 
-            const formattedToolCalls = toolCalls?.map(tc => ({
-              toolName: tc.toolName,
-              toolCallId: tc.toolCallId,
-              input: tc.input,
-            }));
+            // Some routes repeat one tool call verbatim within a response (Qwen
+            // on DeepInfra returned 62 copies of one dataflow call). Identical
+            // copies are one decision: keep the first call and its result, so
+            // the copies neither run nor enter the replayed context.
+            const seenInputs = new Set<string>();
+            const keptCallIds = new Set<string>();
+            const formattedToolCalls = toolCalls
+              ?.filter(tc => {
+                const key = `${tc.toolName}\u0000${JSON.stringify(tc.input ?? null)}`;
+                if (seenInputs.has(key)) return false;
+                seenInputs.add(key);
+                keptCallIds.add(tc.toolCallId);
+                return true;
+              })
+              .map(tc => ({
+                toolName: tc.toolName,
+                toolCallId: tc.toolCallId,
+                input: tc.input,
+              }));
+            const duplicateCalls = (toolCalls?.length ?? 0) - (formattedToolCalls?.length ?? 0);
+            if (duplicateCalls > 0) this.log.info({ messageId, stepIndex, duplicateCalls }, "dropped duplicate tool calls");
 
             // Driver pre-computes isError using the `[ERROR] …` prefix + the
             // structured `{ error: … }` shape — passthrough is enough here.
-            const formattedToolResults = toolResults?.map(tr => ({
-              toolCallId: tr.toolCallId,
-              output: tr.output,
-              isError: tr.isError,
-            }));
+            const formattedToolResults = toolResults
+              ?.filter(tr => keptCallIds.has(tr.toolCallId))
+              .map(tr => ({
+                toolCallId: tr.toolCallId,
+                output: tr.output,
+                isError: tr.isError,
+              }));
 
             const afterStepContent = this.workflowState.getWorkflowContent();
 
@@ -2244,7 +2262,7 @@ export class TexeraAgent {
             // turns and final summaries don't own a snapshot.
             this.maybeCreateSnapshotForHead(afterStepContent);
 
-            await this.runPostStepExecution(toolCalls, toolResults);
+            await this.runPostStepExecution(formattedToolCalls, formattedToolResults);
             this.log.info({ messageId, stepIndex, postStepMs: Date.now() - finishing }, "post-step done");
 
             // Identical failures in a row spend the turn's budget on nothing:
