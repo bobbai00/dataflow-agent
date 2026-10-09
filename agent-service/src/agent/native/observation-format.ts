@@ -478,6 +478,36 @@ export function columnEntries(
   return [...shown.map(entry => entry.text), ...(more ? [`… +${more} more`] : [])];
 }
 
+/** A table's columns relative to its first input's, when that is shorter
+ * than listing them: `same as x`, then retyped, dropped or added columns. */
+export function columnsFromInput(
+  fields: readonly { name: string; type?: string }[],
+  input: readonly { name: string; type?: string }[],
+  inputName: string,
+  limit = 16
+): string | undefined {
+  const types = new Map(input.map(field => [field.name, field.type]));
+  const names = new Set(fields.map(field => field.name));
+  const kept = fields.filter(field => types.has(field.name));
+  const order = input.filter(field => names.has(field.name));
+  const firstAdded = fields.findIndex(field => !types.has(field.name));
+  if (
+    kept.some((field, i) => field.name !== order[i].name) ||
+    (firstAdded >= 0 && fields.slice(firstAdded).some(field => types.has(field.name)))
+  )
+    return undefined;
+  const retyped = kept.filter(field => field.type !== types.get(field.name));
+  const dropped = input.filter(field => !names.has(field.name));
+  const added = fields.filter(field => !types.has(field.name));
+  const text = [
+    `same as ${inlineCode(inputName)}`,
+    ...(retyped.length ? [`retyped ${columnEntries(retyped, limit).join(", ")}`] : []),
+    ...(dropped.length ? [`without ${columnEntries(dropped, limit, false).join(", ")}`] : []),
+    ...(added.length ? [`plus ${columnEntries(added, limit).join(", ")}`] : []),
+  ].join("; ");
+  return text.length < columnEntries(fields, limit).join(", ").length ? text : undefined;
+}
+
 export interface OperatorBlock {
   id: string;
   kind: string;
@@ -486,10 +516,15 @@ export interface OperatorBlock {
   functions?: string;
   description?: string;
   signature?: string;
-  inputs?: Array<{ port?: string; id: string }>;
+  /** A catalog input names the earlier task whose saved result it is. */
+  inputs?: Array<{ port?: string; id: string; taskId?: number }>;
   origin?: string;
   result?: string;
   columns?: readonly string[];
+  /** Catalog entries: the columns stated relative to the first input's. */
+  columnsFromInput?: string;
+  /** Catalog entries: a result the task's answer was drawn from. */
+  answerSource?: boolean;
   usedBy?: readonly string[];
   /** Bounded structural facts from the graph and results of this observation. */
   scope?: readonly string[];
@@ -498,7 +533,7 @@ export interface OperatorBlock {
 export function operatorBlock(block: OperatorBlock): string {
   const state = block.state === "cached" || block.state === "executed" ? "completed" : block.state;
   return [
-    `- **${block.id}** (${block.kind}, ${state})`,
+    `- **${block.id}** (${block.kind}, ${state})${block.answerSource ? " — answer source" : ""}`,
     ...(block.definition ? [`  - definition: ${inlineCode(block.definition)}`] : []),
     ...(block.description ? [`  - description: ${block.description.replace(/\n/g, " ")}`] : []),
     ...(block.signature ? [`  - signature: ${inlineCode(block.signature)}`] : []),
@@ -515,12 +550,16 @@ export function operatorBlock(block: OperatorBlock): string {
       : []),
     ...(block.inputs?.length
       ? [
-          `  - inputs: ${block.inputs.map(input => `${input.port ? `${input.port} ` : ""}${input.id === "unconnected" ? "unconnected" : inlineCode(input.id)}`).join(", ")}`,
+          `  - inputs: ${block.inputs.map(input => `${input.port ? `${input.port} ` : ""}${input.id === "unconnected" ? "unconnected" : inlineCode(input.id)}${input.taskId !== undefined ? ` (version at end of task ${input.taskId})` : ""}`).join(", ")}`,
         ]
       : []),
     ...(block.origin ? [`  - origin: ${block.origin}`] : []),
     ...(block.result ? [`  - result: ${block.result}`] : []),
-    ...(block.columns?.length ? [`  - columns: ${block.columns.join(", ")}`] : []),
+    ...(block.columnsFromInput
+      ? [`  - columns: ${block.columnsFromInput}`]
+      : block.columns?.length
+        ? [`  - columns: ${block.columns.join(", ")}`]
+        : []),
     ...(block.usedBy?.length ? [`  - used by: ${block.usedBy.map(inlineCode).join(", ")}`] : []),
     ...(block.scope ?? []).map(line => `  - scope: ${line}`),
     // An issue's own detail lines (`- at:`, `- fix:`) nest under it.
