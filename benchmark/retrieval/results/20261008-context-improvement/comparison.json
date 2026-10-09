@@ -1,0 +1,5661 @@
+{
+  "summary": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "attempts": 2,
+      "passes": 1,
+      "scored": 2,
+      "mean_score": 0.5,
+      "cost_usd": 0.024041519999999997,
+      "known_cost_usd": 0.024041519999999997,
+      "costs_known": 2,
+      "model_calls": 30,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 1
+      },
+      "retrieval_chars": 1749,
+      "reads_with_data": 2,
+      "reads_with_flow": 3,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 1,
+      "successful_reads": 3,
+      "no_answer": 1,
+      "prefix_checks": 28,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 30,
+      "provider_reported_cost_usd": 0.014453945,
+      "provider_costs_known": 2,
+      "response_providers": [
+        "Sail Research",
+        "Venice"
+      ],
+      "tool_errors": 25,
+      "envelope_errors": 0,
+      "action_errors": 46,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 291495,
+      "output_tokens": 11270,
+      "cached_tokens": 261670,
+      "reasoning_tokens": 8420,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 64.68,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 57.632,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 67.01640183350537,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.8976826360657987,
+      "cost_estimate_assumptions": [],
+      "wire_requests": 30,
+      "wire_prefix_checks": 28,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 1192691,
+      "wire_context_known": 2,
+      "format_compliant": 1,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 1,
+        "not_numeric_scalar": 1
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "system": 30,
+        "user": 344
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 49,
+        "inspect": 4,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 14,
+        "error": 46
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": null,
+      "known_cost_usd": 0.006716064,
+      "costs_known": 1,
+      "model_calls": 9,
+      "retrieval_views": {
+        "full": 3,
+        "sample_stats": 1
+      },
+      "retrieval_chars": 2509,
+      "reads_with_data": 1,
+      "reads_with_flow": 3,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 0,
+      "successful_reads": 3,
+      "no_answer": 0,
+      "prefix_checks": 7,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 1,
+      "model_requests": 10,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 1,
+      "response_providers": [
+        "DekaLLM",
+        "Wafer"
+      ],
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 88990,
+      "output_tokens": 2181,
+      "cached_tokens": 59648,
+      "reasoning_tokens": 594,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 119.87,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 107.9555,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 122.58931570802815,
+      "attempt_seconds_known": 2,
+      "cache_fraction": null,
+      "cost_estimate_assumptions": [],
+      "wire_requests": 10,
+      "wire_prefix_checks": 8,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 383336,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "system": 10,
+        "user": 10,
+        "assistant": 16,
+        "tool": 16
+      },
+      "actions": {
+        "edit": 7,
+        "execute": 7,
+        "inspect": 5,
+        "retrieve": 4,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 22,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 10,
+        "operator.updated": 1,
+        "edge.created": 5
+      },
+      "operators_created": {
+        "scan": 6,
+        "compute_ratio": 1,
+        "sort": 1,
+        "limit": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.006250160000000001,
+      "known_cost_usd": 0.006250160000000001,
+      "costs_known": 2,
+      "model_calls": 8,
+      "retrieval_views": {
+        "full": 2,
+        "sample_stats": 1
+      },
+      "retrieval_chars": 2204,
+      "reads_with_data": 1,
+      "reads_with_flow": 3,
+      "reads_with_upstream": 2,
+      "partial_full_reads": 0,
+      "successful_reads": 3,
+      "no_answer": 0,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 8,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 71830,
+      "output_tokens": 1575,
+      "cached_tokens": 55588,
+      "reasoning_tokens": 391,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 23.77,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 13.7805,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 26.839060895959847,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7738827787832382,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "wire_requests": 8,
+      "wire_prefix_checks": 6,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 321722,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "developer": 8,
+        "user": 20
+      },
+      "actions": {
+        "edit": 5,
+        "execute": 5,
+        "inspect": 4,
+        "retrieve": 3,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 19
+      },
+      "edit_operations": {
+        "operator.created": 12,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 5,
+        "project": 2,
+        "join": 1,
+        "sort": 1,
+        "limit": 1,
+        "load_identity_reports": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.0062294,
+      "known_cost_usd": 0.0062294,
+      "costs_known": 2,
+      "model_calls": 8,
+      "retrieval_views": {
+        "full": 3
+      },
+      "retrieval_chars": 2328,
+      "reads_with_data": 0,
+      "reads_with_flow": 3,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 0,
+      "successful_reads": 3,
+      "no_answer": 0,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 8,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 72322,
+      "output_tokens": 1449,
+      "cached_tokens": 55410,
+      "reasoning_tokens": 288,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 23.295,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 12.5685,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 25.855458833044395,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7661569093775061,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "wire_requests": 8,
+      "wire_prefix_checks": 6,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 323539,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "developer": 8,
+        "user": 8,
+        "assistant": 12,
+        "tool": 12
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "inspect": 6,
+        "retrieve": 3,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 23
+      },
+      "edit_operations": {
+        "operator.created": 12,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 6,
+        "project": 2,
+        "join": 1,
+        "sort": 1,
+        "limit": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.30149775,
+      "known_cost_usd": 0.30149775,
+      "costs_known": 2,
+      "model_calls": 11,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 4
+      },
+      "retrieval_chars": 4664,
+      "reads_with_data": 2,
+      "reads_with_flow": 6,
+      "reads_with_upstream": 2,
+      "partial_full_reads": 0,
+      "successful_reads": 6,
+      "no_answer": 0,
+      "prefix_checks": 9,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 11,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 2,
+      "envelope_errors": 2,
+      "action_errors": 0,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 185812,
+      "output_tokens": 2704,
+      "cached_tokens": 161263,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 24417,
+      "mean_elapsed_seconds": 31.52,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 21.4365,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 34.13888762507122,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.867882591005963,
+      "cost_estimate_assumptions": [],
+      "wire_requests": 11,
+      "wire_prefix_checks": 9,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 473135,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "system": 11,
+        "user": 42
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 6,
+        "answer": 2,
+        "inspect": 2
+      },
+      "statuses": {
+        "ok": 22
+      },
+      "edit_operations": {
+        "operator.created": 10,
+        "edge.created": 6,
+        "operator.updated": 1
+      },
+      "operators_created": {
+        "scan": 5,
+        "extract_ratio": 1,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.2069725,
+      "known_cost_usd": 0.2069725,
+      "costs_known": 2,
+      "model_calls": 6,
+      "retrieval_views": {
+        "full": 2,
+        "sample_stats": 1
+      },
+      "retrieval_chars": 1964,
+      "reads_with_data": 1,
+      "reads_with_flow": 3,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 0,
+      "successful_reads": 3,
+      "no_answer": 0,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 6,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 84922,
+      "output_tokens": 1772,
+      "cached_tokens": 64000,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 20850,
+      "mean_elapsed_seconds": 21.09,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 11.979,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 23.75339529197663,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7536327453427851,
+      "cost_estimate_assumptions": [],
+      "wire_requests": 6,
+      "wire_prefix_checks": 4,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 223781,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "system": 6,
+        "user": 6,
+        "assistant": 6,
+        "tool": 6
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 2,
+        "retrieve": 3,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 15
+      },
+      "edit_operations": {
+        "operator.created": 12,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 6,
+        "project": 2,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "compute_ratio": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.040064495,
+      "known_cost_usd": 0.040064495,
+      "costs_known": 2,
+      "model_calls": 11,
+      "retrieval_views": {
+        "full": 6
+      },
+      "retrieval_chars": 3217,
+      "reads_with_data": 0,
+      "reads_with_flow": 5,
+      "reads_with_upstream": 3,
+      "partial_full_reads": 2,
+      "successful_reads": 5,
+      "no_answer": 0,
+      "prefix_checks": 9,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 11,
+      "provider_reported_cost_usd": 0.0297469145,
+      "provider_costs_known": 2,
+      "response_providers": [
+        "Reka",
+        "Wafer"
+      ],
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 3,
+      "answered_after_tool_errors": 2,
+      "input_tokens": 121313,
+      "output_tokens": 6249,
+      "cached_tokens": 80672,
+      "reasoning_tokens": 4064,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 64.63,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 51.479,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 67.43078952096403,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.6649905616051042,
+      "cost_estimate_assumptions": [],
+      "wire_requests": 11,
+      "wire_prefix_checks": 9,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 456792,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "system": 11,
+        "user": 36
+      },
+      "actions": {
+        "edit": 8,
+        "execute": 8,
+        "inspect": 5,
+        "retrieve": 6,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 24,
+        "error": 3,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 12,
+        "operator.updated": 3,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 5,
+        "load_reports": 1,
+        "identity_ratio": 1,
+        "join": 1,
+        "sort": 1,
+        "limit": 2,
+        "cast": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.04899502,
+      "known_cost_usd": 0.04899502,
+      "costs_known": 2,
+      "model_calls": 14,
+      "retrieval_views": {
+        "full": 10
+      },
+      "retrieval_chars": 6219,
+      "reads_with_data": 0,
+      "reads_with_flow": 6,
+      "reads_with_upstream": 4,
+      "partial_full_reads": 2,
+      "successful_reads": 6,
+      "no_answer": 0,
+      "prefix_checks": 12,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 14,
+      "provider_reported_cost_usd": 0.028141154,
+      "provider_costs_known": 2,
+      "response_providers": [
+        "Reka",
+        "Wafer"
+      ],
+      "tool_errors": 4,
+      "envelope_errors": 0,
+      "action_errors": 8,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 167156,
+      "output_tokens": 5652,
+      "cached_tokens": 107232,
+      "reasoning_tokens": 2548,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 77.22,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 60.233000000000004,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 80.52347422891762,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.6415085309531217,
+      "cost_estimate_assumptions": [],
+      "wire_requests": 14,
+      "wire_prefix_checks": 12,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 620862,
+      "wire_context_known": 2,
+      "format_compliant": 1,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "system": 14,
+        "user": 14,
+        "assistant": 51,
+        "tool": 51
+      },
+      "actions": {
+        "edit": 10,
+        "execute": 10,
+        "inspect": 4,
+        "retrieve": 10,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 28,
+        "error": 8
+      },
+      "edit_operations": {
+        "operator.created": 11,
+        "edge.created": 5,
+        "operator.updated": 10
+      },
+      "operators_created": {
+        "scan": 7,
+        "identity_ratio": 1,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.1267576,
+      "known_cost_usd": 0.1267576,
+      "costs_known": 2,
+      "model_calls": 8,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 3
+      },
+      "retrieval_chars": 2600,
+      "reads_with_data": 2,
+      "reads_with_flow": 4,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 0,
+      "successful_reads": 4,
+      "no_answer": 0,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 8,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 2,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 78923,
+      "output_tokens": 1696,
+      "cached_tokens": 61904,
+      "reasoning_tokens": 293,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 25.39,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 15.408999999999999,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 28.47908458346501,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7843594389468216,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate.",
+        "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "wire_requests": 8,
+      "wire_prefix_checks": 6,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 342839,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "developer": 8,
+        "user": 21
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 5,
+        "answer": 2,
+        "inspect": 4
+      },
+      "statuses": {
+        "ok": 19,
+        "error": 2,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 12,
+        "edge.created": 8
+      },
+      "operators_created": {
+        "scan": 5,
+        "identity_theft_ratio": 1,
+        "project": 2,
+        "join": 1,
+        "cast": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.11449,
+      "known_cost_usd": 0.11449,
+      "costs_known": 2,
+      "model_calls": 7,
+      "retrieval_views": {
+        "sample_stats": 3,
+        "full": 2
+      },
+      "retrieval_chars": 3345,
+      "reads_with_data": 3,
+      "reads_with_flow": 5,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 0,
+      "successful_reads": 5,
+      "no_answer": 0,
+      "prefix_checks": 5,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 7,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 65569,
+      "output_tokens": 1356,
+      "cached_tokens": 48585,
+      "reasoning_tokens": 250,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 22.715,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 13.358,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 25.208095416543074,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7409751559425948,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate.",
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "wire_requests": 7,
+      "wire_prefix_checks": 5,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 289618,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "developer": 7,
+        "user": 7,
+        "assistant": 9,
+        "tool": 9
+      },
+      "actions": {
+        "edit": 5,
+        "execute": 5,
+        "retrieve": 5,
+        "answer": 2,
+        "inspect": 4
+      },
+      "statuses": {
+        "ok": 21
+      },
+      "edit_operations": {
+        "operator.created": 10,
+        "edge.created": 6
+      },
+      "operators_created": {
+        "scan": 5,
+        "identity_theft_ratio": 1,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.0729014,
+      "known_cost_usd": 0.0729014,
+      "costs_known": 2,
+      "model_calls": 9,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 3
+      },
+      "retrieval_chars": 6253,
+      "reads_with_data": 2,
+      "reads_with_flow": 5,
+      "reads_with_upstream": 2,
+      "partial_full_reads": 0,
+      "successful_reads": 5,
+      "no_answer": 0,
+      "prefix_checks": 7,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 9,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 90163,
+      "output_tokens": 1756,
+      "cached_tokens": 71387,
+      "reasoning_tokens": 301,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 23.744999999999997,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 12.616,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 27.365300375036895,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7917549327329393,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate.",
+        "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "wire_requests": 9,
+      "wire_prefix_checks": 7,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 389295,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "developer": 9,
+        "user": 25
+      },
+      "actions": {
+        "edit": 7,
+        "execute": 7,
+        "inspect": 6,
+        "retrieve": 5,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 24,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 13,
+        "edge.created": 8
+      },
+      "operators_created": {
+        "scan": 6,
+        "project": 3,
+        "join": 1,
+        "sort": 1,
+        "limit": 1,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "attempts": 2,
+      "passes": 2,
+      "scored": 2,
+      "mean_score": 1.0,
+      "cost_usd": 0.0650894,
+      "known_cost_usd": 0.0650894,
+      "costs_known": 2,
+      "model_calls": 8,
+      "retrieval_views": {
+        "full": 3,
+        "sample_stats": 1
+      },
+      "retrieval_chars": 1813,
+      "reads_with_data": 1,
+      "reads_with_flow": 3,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 3,
+      "no_answer": 0,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 2,
+      "model_requests": 8,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 77305,
+      "output_tokens": 1700,
+      "cached_tokens": 61067,
+      "reasoning_tokens": 413,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 23.185,
+      "elapsed_seconds_known": 2,
+      "mean_model_latency_seconds": 15.278500000000001,
+      "model_latency_seconds_known": 2,
+      "mean_attempt_seconds": 25.589509124984033,
+      "attempt_seconds_known": 2,
+      "cache_fraction": 0.7899489036931634,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate.",
+        "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "wire_requests": 8,
+      "wire_prefix_checks": 6,
+      "wire_prefix_failures": 0,
+      "wire_http_errors": 0,
+      "wire_context_bytes": 338954,
+      "wire_context_known": 2,
+      "format_compliant": 2,
+      "format_required": 2,
+      "numeric_support": {
+        "observed_result_match": 2
+      },
+      "wire_violations": {},
+      "wire_roles": {
+        "developer": 8,
+        "user": 8,
+        "assistant": 13,
+        "tool": 13
+      },
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "inspect": 4,
+        "retrieve": 4,
+        "answer": 2
+      },
+      "statuses": {
+        "ok": 19,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 3
+      },
+      "operators_created": {
+        "scan": 5,
+        "lowest_app_patient_age": 1,
+        "identity_theft_ratio": 1
+      }
+    }
+  ],
+  "contrasts": [
+    {
+      "model": "Luna",
+      "treatment": "layout_markdown",
+      "control": "layout_native",
+      "factor": "message_layout",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 0,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 0,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": 1.0380000000000155e-05,
+      "model_calls_delta": 0,
+      "input_tokens_delta": -246,
+      "output_tokens_delta": 63,
+      "cached_tokens_delta": 89,
+      "elapsed_seconds_delta": 0.47499999999999964,
+      "model_requests_delta": 0,
+      "cache_creation_tokens_delta": null,
+      "format_compliant_delta": 0,
+      "tool_errors_delta": 0,
+      "action_errors_delta": 0,
+      "wire_context_bytes_delta": -908.5
+    },
+    {
+      "model": "Terra",
+      "treatment": "layout_markdown",
+      "control": "layout_native",
+      "factor": "message_layout",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 0,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 0,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": 0.0039059999999999997,
+      "model_calls_delta": 0.5,
+      "input_tokens_delta": 6429,
+      "output_tokens_delta": 28,
+      "cached_tokens_delta": 5160,
+      "elapsed_seconds_delta": 0.5600000000000005,
+      "model_requests_delta": 0.5,
+      "cache_creation_tokens_delta": null,
+      "format_compliant_delta": 0,
+      "tool_errors_delta": 0,
+      "action_errors_delta": 0,
+      "wire_context_bytes_delta": 25170.5
+    },
+    {
+      "model": "Sol",
+      "treatment": "layout_markdown",
+      "control": "layout_native",
+      "factor": "message_layout",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 0,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 0,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": 0.006133800000000002,
+      "model_calls_delta": 0.5,
+      "input_tokens_delta": 6677,
+      "output_tokens_delta": 170,
+      "cached_tokens_delta": 6659.5,
+      "elapsed_seconds_delta": 2.675,
+      "model_requests_delta": 0.5,
+      "cache_creation_tokens_delta": null,
+      "format_compliant_delta": 0,
+      "tool_errors_delta": 1,
+      "action_errors_delta": 1,
+      "wire_context_bytes_delta": 26610.5
+    },
+    {
+      "model": "Opus48",
+      "treatment": "layout_markdown",
+      "control": "layout_native",
+      "factor": "message_layout",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 2,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 2,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": 0.047262625,
+      "model_calls_delta": 2.5,
+      "input_tokens_delta": 50445,
+      "output_tokens_delta": 466,
+      "cached_tokens_delta": 48631.5,
+      "elapsed_seconds_delta": 10.43,
+      "model_requests_delta": 2.5,
+      "cache_creation_tokens_delta": 1783.5,
+      "format_compliant_delta": 0,
+      "tool_errors_delta": 1,
+      "action_errors_delta": 0,
+      "wire_context_bytes_delta": 124677
+    },
+    {
+      "model": "Qwen38_27B",
+      "treatment": "layout_markdown",
+      "control": "layout_native",
+      "factor": "message_layout",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 2,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 2,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": -0.0044652625,
+      "model_calls_delta": -1.5,
+      "input_tokens_delta": -22921.5,
+      "output_tokens_delta": 298.5,
+      "cached_tokens_delta": -13280,
+      "elapsed_seconds_delta": -12.590000000000007,
+      "model_requests_delta": -1.5,
+      "cache_creation_tokens_delta": 0,
+      "format_compliant_delta": 0.5,
+      "tool_errors_delta": -1,
+      "action_errors_delta": -2.5,
+      "wire_context_bytes_delta": -82035
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "treatment": "layout_markdown",
+      "control": "layout_native",
+      "factor": "message_layout",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 1,
+        "model_calls": 2,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 1,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 1,
+        "model_calls": 2,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 2,
+        "model_requests": 2,
+        "cache_creation_tokens": 1,
+        "format_compliant": 2,
+        "tool_errors": 2,
+        "action_errors": 2,
+        "wire_context_bytes": 2
+      },
+      "score_delta": -0.5,
+      "cost_delta_usd": 0.0006642239999999997,
+      "model_calls_delta": 10.5,
+      "input_tokens_delta": 20011,
+      "output_tokens_delta": 954,
+      "cached_tokens_delta": 22054,
+      "elapsed_seconds_delta": -55.19,
+      "model_requests_delta": 10,
+      "cache_creation_tokens_delta": 0,
+      "format_compliant_delta": -0.5,
+      "tool_errors_delta": 12,
+      "action_errors_delta": 22.5,
+      "wire_context_bytes_delta": 404677.5
+    }
+  ],
+  "rows": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.007380288,
+      "input_tokens": 63955,
+      "provider_reported_cost_usd": 0.007451385,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Venice"
+      ],
+      "output_tokens": 1774,
+      "cached_tokens": 47398,
+      "reasoning_tokens": 853,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 32.68,
+      "model_latency_seconds": 18.708,
+      "attempt_seconds": 35.39958299999125,
+      "usage_complete": true,
+      "model_requests": 5,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "joined",
+              "result_version": "4bcaf1ecfc9a3816b9e81471f8bfc0a78efa7e56a5d5748f5e9c05d824d94f5e",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 233445,
+      "wire_roles": {
+        "system": 5,
+        "user": 15
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 2,
+        "full": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 4,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 14
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0512508,
+      "input_tokens": 21825,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 645,
+      "cached_tokens": 13597,
+      "reasoning_tokens": 121,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 16.25,
+      "model_latency_seconds": 12.033,
+      "attempt_seconds": 19.417339874897152,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio_result",
+              "result_version": "b5af896684fc3dd681ca3092ce43b742f0d66abdb1cbb9cc39eca763da75f64c",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 105673,
+      "wire_roles": {
+        "developer": 3,
+        "user": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.053744600000000003,
+      "input_tokens": 60562,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 1026,
+      "cached_tokens": 44273,
+      "reasoning_tokens": 185,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 30.22,
+      "model_latency_seconds": 14.396,
+      "attempt_seconds": 35.146685500163585,
+      "usage_complete": true,
+      "model_requests": 5,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "lowest_app_score_patient",
+              "result_version": "fff5ecdb990898e94a55451117f47546d3e84b98b4ceeeecbe6ef7632a69cac3",
+              "row": 0,
+              "column": "Age"
+            },
+            {
+              "operator_id": "answer_age",
+              "result_version": "140506983759b151b740abcdce42f0c94e1bf3cea8ed6663ee815980e5298871",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 245962,
+      "wire_roles": {
+        "developer": 5,
+        "user": 15
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "sample_stats": 1,
+        "full": 2
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 4,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 13,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 10,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 4,
+        "project": 3,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0042599000000000005,
+      "input_tokens": 42310,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 726,
+      "cached_tokens": 28185,
+      "reasoning_tokens": 146,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 26.57,
+      "model_latency_seconds": 11.76,
+      "attempt_seconds": 29.455605749972165,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "lowest",
+              "result_version": "520d9663e908c39d0d97b739fe6c9402e40343debe6c1d92a47aba53c7353587",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 179360,
+      "wire_roles": {
+        "developer": 4,
+        "user": 4,
+        "assistant": 6,
+        "tool": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 4,
+        "retrieve": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12
+      },
+      "edit_operations": {
+        "operator.created": 9,
+        "edge.created": 6
+      },
+      "operators_created": {
+        "scan": 4,
+        "project": 2,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.14851775,
+      "input_tokens": 46009,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 843,
+      "cached_tokens": 27838,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 18135,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 24.22,
+      "model_latency_seconds": 11.521,
+      "attempt_seconds": 27.188513041939586,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "result",
+              "result_version": "b1c7ef7ad0b362beb8ce64f7da50266cb6f68325b3adfd3846a8612b072b4222",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 118464,
+      "wire_roles": {
+        "system": 3,
+        "user": 3,
+        "assistant": 3,
+        "tool": 3
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "inspect": 2,
+        "retrieve": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 8
+      },
+      "edit_operations": {
+        "operator.created": 9,
+        "edge.created": 6
+      },
+      "operators_created": {
+        "scan": 4,
+        "project": 2,
+        "sort": 1,
+        "limit": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0043187600000000005,
+      "input_tokens": 42175,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 792,
+      "cached_tokens": 28148,
+      "reasoning_tokens": 224,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 29.47,
+      "model_latency_seconds": 14.709,
+      "attempt_seconds": 32.997350041987374,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "lowest",
+              "result_version": "d64f00d895850ba05414f4210244a0750815452b08ba06fffd3694c4f2331f29",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 178325,
+      "wire_roles": {
+        "developer": 4,
+        "user": 10
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 4,
+        "retrieve": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12
+      },
+      "edit_operations": {
+        "operator.created": 9,
+        "edge.created": 6
+      },
+      "operators_created": {
+        "scan": 4,
+        "project": 2,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.021692255,
+      "input_tokens": 56977,
+      "provider_reported_cost_usd": 0.016022871299999998,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Reka"
+      ],
+      "output_tokens": 3401,
+      "cached_tokens": 32928,
+      "reasoning_tokens": 2178,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 64.6,
+      "model_latency_seconds": 54.488,
+      "attempt_seconds": 67.12681837496348,
+      "usage_complete": true,
+      "model_requests": 6,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 2,
+      "model_calls": 6,
+      "prefix_checks": 5,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "5f946d053a6ca5de939a2b4163d97058114703d50f06f3e9317ecdaa68be9289",
+              "row": 0,
+              "column": "ratio"
+            },
+            {
+              "operator_id": "ratio",
+              "result_version": "5f946d053a6ca5de939a2b4163d97058114703d50f06f3e9317ecdaa68be9289",
+              "row": 0,
+              "column": "ratio_rounded"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 6,
+      "wire_prefix_checks": 5,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 223352,
+      "wire_roles": {
+        "system": 6,
+        "user": 21
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 4
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 1,
+        "retrieve": 4,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12,
+        "error": 2
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "operator.updated": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "load_reports": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0019314000000000002,
+      "input_tokens": 29655,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 783,
+      "cached_tokens": 27440,
+      "reasoning_tokens": 167,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 18.07,
+      "model_latency_seconds": 12.852,
+      "attempt_seconds": 20.68077174993232,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "answer",
+              "result_version": "ca07069bb5021d8b2b3d3323b20a71b6222b8d9e80f39d632b61ae2e34b70b8c",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 143397,
+      "wire_roles": {
+        "developer": 4,
+        "user": 10
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "load_identity_reports": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": null,
+      "input_tokens": 45046,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [
+        "DekaLLM"
+      ],
+      "output_tokens": 1361,
+      "cached_tokens": 34304,
+      "reasoning_tokens": 366,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": false,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 215.63,
+      "model_latency_seconds": 205.151,
+      "attempt_seconds": 218.07220970792696,
+      "usage_complete": false,
+      "model_requests": 6,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "d30821eea3e96e943314bb09a0d4faae4db157687d28decb94e9c4e69832ebf5",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 6,
+      "wire_prefix_checks": 5,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 214887,
+      "wire_roles": {
+        "system": 6,
+        "user": 6,
+        "assistant": 10,
+        "tool": 10
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 1,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 3
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 1,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "operator.updated": 1,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "compute_ratio": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0511036,
+      "input_tokens": 21737,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 643,
+      "cached_tokens": 13529,
+      "reasoning_tokens": 158,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 15.97,
+      "model_latency_seconds": 11.793,
+      "attempt_seconds": 18.113907624967396,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio_result",
+              "result_version": "2ef579d428e0a351ffdf6b3077bf888689b4513e15475eed38855c84ab3ebb5a",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 105433,
+      "wire_roles": {
+        "developer": 3,
+        "user": 3,
+        "assistant": 3,
+        "tool": 3
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0019695,
+      "input_tokens": 30012,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 723,
+      "cached_tokens": 27225,
+      "reasoning_tokens": 142,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 20.02,
+      "model_latency_seconds": 13.377,
+      "attempt_seconds": 22.255311916116625,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "6a4a8a0df0ed41ce2d09a29991e72c2f66b7f6c45e3bfa76afd3a9f77a0dbeab",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 144179,
+      "wire_roles": {
+        "developer": 4,
+        "user": 4,
+        "assistant": 6,
+        "tool": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 2
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 11
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.03689306,
+      "input_tokens": 117732,
+      "provider_reported_cost_usd": 0.0228407732,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Reka"
+      ],
+      "output_tokens": 4672,
+      "cached_tokens": 73696,
+      "reasoning_tokens": 2272,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 119.7,
+      "model_latency_seconds": 99.482,
+      "attempt_seconds": 123.1731294579804,
+      "usage_complete": true,
+      "model_requests": 10,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 4,
+      "envelope_errors": 0,
+      "action_errors": 8,
+      "model_calls": 10,
+      "prefix_checks": 9,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": false,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "bcf381df5532ef5c7525d81cbd2ad66b3c2eea2ec703cb95a29931125c89a8fd",
+              "row": 0,
+              "column": "ratio"
+            },
+            {
+              "operator_id": "ratio",
+              "result_version": "bcf381df5532ef5c7525d81cbd2ad66b3c2eea2ec703cb95a29931125c89a8fd",
+              "row": 0,
+              "column": "ratio_rounded"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": false,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 10,
+      "wire_prefix_checks": 9,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 439264,
+      "wire_roles": {
+        "system": 10,
+        "user": 10,
+        "assistant": 45,
+        "tool": 45
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 8
+      },
+      "actions": {
+        "edit": 8,
+        "execute": 8,
+        "inspect": 1,
+        "retrieve": 8,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 18,
+        "error": 8
+      },
+      "edit_operations": {
+        "operator.created": 4,
+        "edge.created": 1,
+        "operator.updated": 10
+      },
+      "operators_created": {
+        "scan": 3,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.12036325,
+      "input_tokens": 38716,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 848,
+      "cached_tokens": 24829,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 13851,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 15.57,
+      "model_latency_seconds": 11.319,
+      "attempt_seconds": 17.733681875048205,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "result",
+              "result_version": "8f5db13be1105bf78564730acd29b3182a719140773ebd36809c2bfc7debe4a8",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 105059,
+      "wire_roles": {
+        "system": 3,
+        "user": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "extract_ratio": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0191568,
+      "input_tokens": 29601,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 730,
+      "cached_tokens": 27114,
+      "reasoning_tokens": 116,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 17.27,
+      "model_latency_seconds": 10.836,
+      "attempt_seconds": 19.583915249910206,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "76dc91de140e4dd7ca627a6eaae06d6b988f9ad6d1ab4b8bedf446ef9021c32d",
+              "row": 0,
+              "column": "ratio_2024_vs_2001"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 143333,
+      "wire_roles": {
+        "developer": 4,
+        "user": 10
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 11
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.1811345,
+      "input_tokens": 147096,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 1856,
+      "cached_tokens": 136434,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 10566,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 47.47,
+      "model_latency_seconds": 31.554,
+      "attempt_seconds": 50.544093375094235,
+      "usage_complete": true,
+      "model_requests": 8,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 2,
+      "envelope_errors": 2,
+      "action_errors": 0,
+      "model_calls": 8,
+      "prefix_checks": 7,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "result",
+              "result_version": "ff9fde3b209d924d89fe1914787242dfda06abe56f00f785593a0a33226ad21d",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 8,
+      "wire_prefix_checks": 7,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 368076,
+      "wire_roles": {
+        "system": 8,
+        "user": 36
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 3,
+        "sample_stats": 1
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 2,
+        "retrieve": 4,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 15
+      },
+      "edit_operations": {
+        "operator.created": 8,
+        "edge.created": 5,
+        "operator.updated": 1
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0633864,
+      "input_tokens": 43832,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 713,
+      "cached_tokens": 35056,
+      "reasoning_tokens": 92,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 29.46,
+      "model_latency_seconds": 14.923,
+      "attempt_seconds": 32.30228320811875,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "answer_row",
+              "result_version": "4dd32ef3a4775ba6c6bebda68f5f7ae67be1fe87d737110de4b7618ba8e72f24",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 184185,
+      "wire_roles": {
+        "developer": 4,
+        "user": 4,
+        "assistant": 6,
+        "tool": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 2,
+        "full": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 4,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 14
+      },
+      "edit_operations": {
+        "operator.created": 8,
+        "edge.created": 5
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.05845475,
+      "input_tokens": 38913,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 929,
+      "cached_tokens": 36162,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 2715,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 17.96,
+      "model_latency_seconds": 12.437,
+      "attempt_seconds": 20.318277542013675,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "result",
+              "result_version": "f1381924a6686544d13df3f805bc18d1596dc559583dcb8e9f6b3c57ed2e862f",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 105317,
+      "wire_roles": {
+        "system": 3,
+        "user": 3,
+        "assistant": 3,
+        "tool": 3
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "compute_ratio": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "official_scores": {
+        "rae_score": 0.0
+      },
+      "cost_usd": 0.016661231999999998,
+      "input_tokens": 227540,
+      "provider_reported_cost_usd": 0.00700256,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Sail Research"
+      ],
+      "output_tokens": 9496,
+      "cached_tokens": 214272,
+      "reasoning_tokens": 7567,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 96.68,
+      "model_latency_seconds": 96.556,
+      "attempt_seconds": 98.63322066701949,
+      "usage_complete": true,
+      "model_requests": 25,
+      "no_answer": true,
+      "answer_recorded": false,
+      "native_actions_observed": true,
+      "tool_errors": 25,
+      "envelope_errors": 0,
+      "action_errors": 46,
+      "model_calls": 25,
+      "prefix_checks": 24,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": false,
+        "numeric_support": {
+          "status": "not_numeric_scalar",
+          "matches": [],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": false,
+      "numeric_support": "not_numeric_scalar",
+      "wire_requests": 25,
+      "wire_prefix_checks": 24,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 959246,
+      "wire_roles": {
+        "system": 25,
+        "user": 329
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {},
+      "actions": {
+        "execute": 46
+      },
+      "statuses": {
+        "error": 46
+      },
+      "edit_operations": {},
+      "operators_created": {}
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.01210196,
+      "input_tokens": 49424,
+      "provider_reported_cost_usd": 0.0053003808,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 980,
+      "cached_tokens": 33536,
+      "reasoning_tokens": 276,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 34.74,
+      "model_latency_seconds": 20.984,
+      "attempt_seconds": 37.87381899985485,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "answer",
+              "result_version": "900e6b89ba86ff61767b1223bd0a228fe49281fda6c23676bbfe23d406d5831d",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 181598,
+      "wire_roles": {
+        "system": 4,
+        "user": 4,
+        "assistant": 6,
+        "tool": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 2
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "inspect": 3,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 4,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.050842200000000004,
+      "input_tokens": 55659,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 1160,
+      "cached_tokens": 41331,
+      "reasoning_tokens": 334,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 33.55,
+      "model_latency_seconds": 22.207,
+      "attempt_seconds": 36.208243124885485,
+      "usage_complete": true,
+      "model_requests": 5,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "lowest_age",
+              "result_version": "ee3eb52507a34ac1df096ec6e4b01166fdf7b6a91952c30e48e3b5e06f5c3334",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 233857,
+      "wire_roles": {
+        "developer": 5,
+        "user": 5,
+        "assistant": 10,
+        "tool": 10
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 2
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 4,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 5,
+        "edge.created": 2
+      },
+      "operators_created": {
+        "scan": 4,
+        "lowest_app_patient_age": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0755068,
+      "input_tokens": 57098,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 1051,
+      "cached_tokens": 48307,
+      "reasoning_tokens": 172,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 34.53,
+      "model_latency_seconds": 18.785,
+      "attempt_seconds": 37.54082929203287,
+      "usage_complete": true,
+      "model_requests": 5,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 2,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "lowest_app_patient",
+              "result_version": "4a0eec02ad07b1099386703e001a7101165a7b870293acb605c49e648962a4fe",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 237166,
+      "wire_roles": {
+        "developer": 5,
+        "user": 15
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "sample_stats": 1,
+        "full": 2
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 4,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12,
+        "error": 2,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 10,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 4,
+        "project": 2,
+        "join": 1,
+        "cast": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.018372239999999998,
+      "input_tokens": 64336,
+      "provider_reported_cost_usd": 0.0137240432,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 2848,
+      "cached_tokens": 47744,
+      "reasoning_tokens": 1886,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 64.66,
+      "model_latency_seconds": 48.47,
+      "attempt_seconds": 67.73476066696458,
+      "usage_complete": true,
+      "model_requests": 5,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "answer_age",
+              "result_version": "6300dce6f46fcd988a737f0f98a13f37d92d5bdd3a67a8cca2d05ea3e756b8bf",
+              "row": 0,
+              "column": "Age"
+            },
+            {
+              "operator_id": "top3",
+              "result_version": "9801c16ec9b30b2e711dadd5fd5b63420c658be06bbea4558468086408054653",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 233440,
+      "wire_roles": {
+        "system": 5,
+        "user": 15
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 2
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "inspect": 4,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 9,
+        "edge.created": 6
+      },
+      "operators_created": {
+        "scan": 4,
+        "join": 1,
+        "sort": 1,
+        "limit": 2,
+        "cast": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.006716064,
+      "input_tokens": 43944,
+      "provider_reported_cost_usd": 0.001620976,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 820,
+      "cached_tokens": 25344,
+      "reasoning_tokens": 228,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": true,
+      "cost_estimate_assumptions": [],
+      "elapsed_seconds": 24.11,
+      "model_latency_seconds": 10.76,
+      "attempt_seconds": 27.106421708129346,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "joined",
+              "result_version": "a2d9f4fed4ef87fec0ebca16190af59b19e90917e80c22d4fd28fa55d6cd3a74",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 168449,
+      "wire_roles": {
+        "system": 4,
+        "user": 4,
+        "assistant": 6,
+        "tool": 6
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "inspect": 4,
+        "retrieve": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 12
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.014247200000000002,
+      "input_tokens": 21646,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 540,
+      "cached_tokens": 19736,
+      "reasoning_tokens": 79,
+      "cache_creation_tokens": 0,
+      "cache_read_usage_complete": true,
+      "cache_write_usage_complete": false,
+      "cost_estimate_assumptions": [
+        "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+      ],
+      "elapsed_seconds": 12.82,
+      "model_latency_seconds": 8.35,
+      "attempt_seconds": 14.970775125082582,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "76ca0fbbbc1f86b7295ca609b5856fca071ee32ce49c50d71fca698467239b46",
+              "row": 0,
+              "column": "ratio"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "format_compliant": true,
+      "numeric_support": "observed_result_match",
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "wire_prefix_failures": 0,
+      "wire_context_bytes": 105097,
+      "wire_roles": {
+        "developer": 3,
+        "user": 3,
+        "assistant": 3,
+        "tool": 3
+      },
+      "wire_violations": [],
+      "wire_warnings": [],
+      "wire_http_errors": 0,
+      "wire_http_status_unknown": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "identity_theft_ratio": 1
+      }
+    }
+  ],
+  "retrievals": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "apm",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "aa04a0b9d2635c85f55367948dfc70491c9fbcc88a52eb7fe25177fad82ce11d",
+      "totalRows": 95,
+      "returnedRows": 5,
+      "totalColumns": 34,
+      "columnsShown": 2,
+      "complete": false,
+      "chars": 792,
+      "data_facts": 5,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "meta",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "6f58dc4751d492dc9265654e217d9551f90ea4eed15b13e66e6019760a195e20",
+      "totalRows": 153,
+      "returnedRows": 5,
+      "totalColumns": 179,
+      "columnsShown": 2,
+      "complete": false,
+      "chars": 543,
+      "data_facts": 2,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "joined",
+      "view": "full",
+      "status": "ok",
+      "result_version": "4bcaf1ecfc9a3816b9e81471f8bfc0a78efa7e56a5d5748f5e9c05d824d94f5e",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 212,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 414,
+      "data_facts": 0,
+      "flow_facts": 6,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 1,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "5150b531fe302c7c3e1a397bf7befafb439208e4f0dcf419b036189950d3eaf0",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "ratio_result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "b5af896684fc3dd681ca3092ce43b742f0d66abdb1cbb9cc39eca763da75f64c",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 362,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "app_scores",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "c0604c75af725279db32b366d58284891bd6e8b2aa32b26b0c17c0f2a4ca3d2d",
+      "totalRows": 95,
+      "returnedRows": 1,
+      "totalColumns": 34,
+      "columnsShown": 34,
+      "complete": false,
+      "chars": 3857,
+      "data_facts": 38,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "lowest_app_score_patient",
+      "view": "full",
+      "status": "ok",
+      "result_version": "fff5ecdb990898e94a55451117f47546d3e84b98b4ceeeecbe6ef7632a69cac3",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 505,
+      "data_facts": 0,
+      "flow_facts": 4,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "answer_age",
+      "view": "full",
+      "status": "ok",
+      "result_version": "140506983759b151b740abcdce42f0c94e1bf3cea8ed6663ee815980e5298871",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 1,
+      "columnsShown": 1,
+      "complete": true,
+      "chars": 375,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "operator_id": "lowest",
+      "view": "full",
+      "status": "ok",
+      "result_version": "520d9663e908c39d0d97b739fe6c9402e40343debe6c1d92a47aba53c7353587",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 483,
+      "data_facts": 0,
+      "flow_facts": 4,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "b1c7ef7ad0b362beb8ce64f7da50266cb6f68325b3adfd3846a8612b072b4222",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 419,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "lowest",
+      "view": "full",
+      "status": "ok",
+      "result_version": "d64f00d895850ba05414f4210244a0750815452b08ba06fffd3694c4f2331f29",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 483,
+      "data_facts": 0,
+      "flow_facts": 4,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "records",
+      "view": "full",
+      "status": "ok",
+      "result_version": "e37b631272d2e3e9d68e46b32a1a27fbab1bc32c2db11bc676d3278bf665e4cb",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 325,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "records",
+      "view": "full",
+      "status": "ok",
+      "result_version": "3c652e240408ca8630ec7508bb048339932f45d5f926ec9243731848540250b0",
+      "totalRows": 28,
+      "returnedRows": 28,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1503,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 5,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "5f946d053a6ca5de939a2b4163d97058114703d50f06f3e9317ecdaa68be9289",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 6,
+      "columnsShown": 6,
+      "complete": true,
+      "chars": 634,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 1,
+      "operator_id": "records",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "eb352f3707bd25c2f727bdff0069a86dbf8cf6cc290baa824689de6cbb7383bf",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "answer",
+      "view": "full",
+      "status": "ok",
+      "result_version": "ca07069bb5021d8b2b3d3323b20a71b6222b8d9e80f39d632b61ae2e34b70b8c",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 482,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 1
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "data",
+      "view": "full",
+      "status": "ok",
+      "result_version": "21c6676b519874067e9a88d733b939fe84e07ae628a2fba64d3a789fc3022d59",
+      "totalRows": 28,
+      "returnedRows": 28,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1497,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 4,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "d30821eea3e96e943314bb09a0d4faae4db157687d28decb94e9c4e69832ebf5",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 313,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 1,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "bb9b2089a9a1d0f3f8ae2c4983f32825ab6dc2c3cc4ba467ff06198992ab96a3",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "ratio_result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "2ef579d428e0a351ffdf6b3077bf888689b4513e15475eed38855c84ab3ebb5a",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 362,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "records",
+      "view": "full",
+      "status": "ok",
+      "result_version": "5313281845f85bdc66193c1a1e4d2a2162567ba474d6e21a2ed41d5c75c35d20",
+      "totalRows": 28,
+      "returnedRows": 28,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1503,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "6a4a8a0df0ed41ce2d09a29991e72c2f66b7f6c45e3bfa76afd3a9f77a0dbeab",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 342,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "raw",
+      "view": "full",
+      "status": "ok",
+      "result_version": "0d735eeeb02d5de4c40693213e65d6b8a5e96236ae281233cc356d4a78909f16",
+      "totalRows": 29,
+      "returnedRows": 29,
+      "totalColumns": 2,
+      "columnsShown": 2,
+      "complete": true,
+      "chars": 1451,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 4,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 5,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 6,
+      "operator_id": "data",
+      "view": "full",
+      "status": "ok",
+      "result_version": "e2c118afc6e46051e23db503c193997efc8107e05992b03adc619174c2aa2b55",
+      "totalRows": 26,
+      "returnedRows": 26,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1505,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 7,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 8,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "2f39329d7cfb346190de04ff8d508e2871a617ce22df6d86fa21071d4f2e900b",
+      "totalRows": 26,
+      "returnedRows": 26,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1467,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 9,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "bcf381df5532ef5c7525d81cbd2ad66b3c2eea2ec703cb95a29931125c89a8fd",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 515,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 1,
+      "operator_id": "records",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "2114348deda404069c944dce77a8b78b46833999caabfc963a8f06f1ff368787",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "8f5db13be1105bf78564730acd29b3182a719140773ebd36809c2bfc7debe4a8",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 314,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "2fca8cc287e162fc1af0ebd246a0c0af4411594ea3b8a5e1a9fe1e4688c2ed5d",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "76dc91de140e4dd7ca627a6eaae06d6b988f9ad6d1ab4b8bedf446ef9021c32d",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 1,
+      "columnsShown": 1,
+      "complete": true,
+      "chars": 277,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "operator_id": "apm_lowest",
+      "view": "full",
+      "status": "ok",
+      "result_version": "baef39ea04379fd1be289dfa005a49ff266cf6224ecedb62d5a8bed02088f16e",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 34,
+      "columnsShown": 34,
+      "complete": true,
+      "chars": 1847,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "27570cfadbb88936616e87d30e7880002331ee22dce0f59e647a3b240643e4f2",
+      "totalRows": 0,
+      "returnedRows": 0,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 318,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 5,
+      "operator_id": "meta",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "02b18eaf39798cd9ebc48aeb0d4e53b1ac5cc45ab87977caf9fe4ef614f774dd",
+      "totalRows": 153,
+      "returnedRows": 5,
+      "totalColumns": 179,
+      "columnsShown": 2,
+      "complete": false,
+      "chars": 629,
+      "data_facts": 2,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 7,
+      "operator_id": "result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "ff9fde3b209d924d89fe1914787242dfda06abe56f00f785593a0a33226ad21d",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 317,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "metadata",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "27e9d9b67a4974f8e1daffb3d0805b349c71bd0bc75a46964cdef9c1880b320c",
+      "totalRows": 153,
+      "returnedRows": 5,
+      "totalColumns": 179,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 667,
+      "data_facts": 3,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "apm",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "ad61d8a70bc300f0488a48977339427fb648ccb8325fc2635437c0454f45adf9",
+      "totalRows": 95,
+      "returnedRows": 5,
+      "totalColumns": 34,
+      "columnsShown": 2,
+      "complete": false,
+      "chars": 741,
+      "data_facts": 5,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "operator_id": "answer_row",
+      "view": "full",
+      "status": "ok",
+      "result_version": "4dd32ef3a4775ba6c6bebda68f5f7ae67be1fe87d737110de4b7618ba8e72f24",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 336,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 1,
+      "operator_id": "records",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "891c7a0cf374a1c093dcb3f2f5d7595b2271924861357847e5a54d9d6faf4c53",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "f1381924a6686544d13df3f805bc18d1596dc559583dcb8e9f6b3c57ed2e862f",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 306,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "answer",
+      "view": "full",
+      "status": "ok",
+      "result_version": "900e6b89ba86ff61767b1223bd0a228fe49281fda6c23676bbfe23d406d5831d",
+      "totalRows": 1,
+      "returnedRows": 0,
+      "totalColumns": 212,
+      "columnsShown": 212,
+      "complete": false,
+      "chars": 627,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "operator_id": "answer",
+      "view": "full",
+      "status": "ok",
+      "result_version": "900e6b89ba86ff61767b1223bd0a228fe49281fda6c23676bbfe23d406d5831d",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 212,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 654,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 4,
+      "operator_id": "lowest_age",
+      "view": "full",
+      "status": "ok",
+      "result_version": "ee3eb52507a34ac1df096ec6e4b01166fdf7b6a91952c30e48e3b5e06f5c3334",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 323,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "metadata",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "2543e8a8d97749ad84de8dc59083845f568648968cd44023c9916bd2a1f6dcb5",
+      "totalRows": 153,
+      "returnedRows": 5,
+      "totalColumns": 179,
+      "columnsShown": 2,
+      "complete": false,
+      "chars": 501,
+      "data_facts": 2,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "operator_id": "apm",
+      "view": "sample_stats",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "lowest_app_patient",
+      "view": "full",
+      "status": "ok",
+      "result_version": "4a0eec02ad07b1099386703e001a7101165a7b870293acb605c49e648962a4fe",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 498,
+      "data_facts": 0,
+      "flow_facts": 4,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "answer_age",
+      "view": "full",
+      "status": "ok",
+      "result_version": "6300dce6f46fcd988a737f0f98a13f37d92d5bdd3a67a8cca2d05ea3e756b8bf",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 212,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 383,
+      "data_facts": 0,
+      "flow_facts": 3,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "operator_id": "top3",
+      "view": "full",
+      "status": "ok",
+      "result_version": "9801c16ec9b30b2e711dadd5fd5b63420c658be06bbea4558468086408054653",
+      "totalRows": 3,
+      "returnedRows": 3,
+      "totalColumns": 212,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 372,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "operator_id": "joined",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "a2d9f4fed4ef87fec0ebca16190af59b19e90917e80c22d4fd28fa55d6cd3a74",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 212,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 699,
+      "data_facts": 7,
+      "flow_facts": 6,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 1,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "74358cb00868724f924491555741e4c485047407acdfb32237b7f803e8cf2965",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1239,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 2,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "76ca0fbbbc1f86b7295ca609b5856fca071ee32ce49c50d71fca698467239b46",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 1,
+      "columnsShown": 1,
+      "complete": true,
+      "chars": 251,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    }
+  ],
+  "errors": [
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set patient_ages: project(patient_metadata, keep=['idx', 'Age'])\nset app_score_keys: project(app_scores, keep=['idx', 'APP_Z_score'])\nset scored_patients: join(app_score_keys, patient_ages, on='idx', how='inner', validate='one_to_one', doc='APP-Z scores linked to patient ages by the shared patient index.')\nset lowest_app_score_patient: limit(sort(scored_patients, by=['APP_Z_score']), n=1)\nset answer_age: project(lowest_app_score_patient, keep=['Age'])"
+      },
+      "error": "ValueError: Line 4: positional arguments must be input operator IDs; settings use keywords."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': \"- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 14: `new = float(table.loc[table['Year'] == year_new, 'Identity Theft'].iloc[0])`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}, {'id': 'reports', 'status': 'ok', 'state': 'executed', 'rows': 24}], 'execution_runs': [{'targets': ['ratio', 'reports'], 'executionId': '265', 'success': False, 'state': 'Failed', 'phaseMetrics': {'version': 1, 'compilation': 'passed', 'compilationDurationMs': 0.748042, 'runtimeStartAttempted': True}, 'clientTiming': {'requestToHeadersMs': 2373.4943750000093, 'responseBodyDecodeMs': 0.2217920001130551, 'resultPreparationMs': 1.055707999970764, 'snapshotStoreMs': 3.540874999947846}}], 'operator_blocks': [{'id': 'reports', 'kind': 'load_reports', 'state': 'executed', 'inputs': [], 'result': '24 rows × 4 columns', 'columns': ['Year str', 'Fraud int64', 'Identity Theft int64', 'Other int64'], 'scope': ['load_reports \"reports\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- flow: load_reports input rows=[], output=24; row/column mapping unknown.']}, {'id': 'ratio', 'kind': 'identity_ratio', 'state': 'failed', 'inputs': [{'id': 'reports'}], 'result': 'failed', 'columns': [], 'scope': ['identity_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': [\"- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio l"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': \"RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 14: `new = float(table.loc[table['Year'] == year_new, 'Identity Theft'].iloc[0])`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}]}"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set data: scan(files='data/legal/input/2024_CSN_Number_of_Reports_by_Type.csv', skip_lines=2)\nset clean: filter(data, predicate='is_year')\nset ratio: aggregate(clean, outputs={'r2024': max('Identity Theft'), 'r2001': min('Identity Theft')})"
+      },
+      "error": "ValueError: clean: 'is_year' is not a registered public function."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': '- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Number of Reports by Type\" at position 0\\n  - at: identity_ratio line 5: `df[\\'Year\\'] = pd.to_numeric(df[\\'Year\\'], errors=\\'raise\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}, {'id': 'data', 'status': 'ok', 'state': 'executed', 'rows': 29}], 'execution_runs': [{'targets': ['ratio', 'data'], 'executionId': '275', 'success': False, 'state': 'Failed', 'phaseMetrics': {'version': 1, 'compilation': 'passed', 'compilationDurationMs': 0.658458, 'runtimeStartAttempted': True}, 'clientTiming': {'requestToHeadersMs': 2355.2016660000663, 'responseBodyDecodeMs': 0.23816599999554455, 'resultPreparationMs': 0.8316250001080334, 'snapshotStoreMs': 2.4255830000620335}}], 'operator_blocks': [{'id': 'data', 'kind': 'scan', 'state': 'executed', 'inputs': [], 'result': '29 rows × 4 columns', 'columns': ['Year str', 'Fraud str', 'Identity Theft str', 'Other str'], 'issues': ['- flow: Scan parsed selected sources; files selected=1/1, omitted=0; output=29 rows.']}, {'id': 'ratio', 'kind': 'identity_ratio', 'state': 'failed', 'inputs': [{'id': 'data'}], 'result': 'failed', 'columns': [], 'scope': ['identity_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Number of Reports by Type\" at position 0\\n  - at: identity_ratio line 5: `df[\\'Year\\'] = pd.to_numeric(df[\\'Year\\'], errors=\\'raise\\')`\\n  - fix: Repair "
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': 'RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Number of Reports by Type\" at position 0\\n  - at: identity_ratio line 5: `df[\\'Year\\'] = pd.to_numeric(df[\\'Year\\'], errors=\\'raise\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': '- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: identity_ratio line 11: `df[\\'Year\\'] = pd.to_numeric(df[\\'Year\\'], errors=\\'raise\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}, {'id': 'data', 'status': 'ok', 'state': 'executed', 'rows': 26}], 'execution_runs': [{'targets': ['ratio', 'data'], 'executionId': '278', 'success': False, 'state': 'Failed', 'phaseMetrics': {'version': 1, 'compilation': 'passed', 'compilationDurationMs': 0.788042, 'runtimeStartAttempted': True}, 'clientTiming': {'requestToHeadersMs': 2391.165917000035, 'responseBodyDecodeMs': 0.11166599998250604, 'resultPreparationMs': 0.6528329998254776, 'snapshotStoreMs': 1.9224579997826368}}], 'operator_blocks': [{'id': 'data', 'kind': 'load_csn', 'state': 'executed', 'inputs': [], 'result': '26 rows × 4 columns', 'columns': ['Year str', 'Fraud str', 'Identity Theft str', 'Other str'], 'scope': ['load_csn \"data\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- flow: load_csn input rows=[], output=26; row/column mapping unknown.']}, {'id': 'ratio', 'kind': 'identity_ratio', 'state': 'failed', 'inputs': [{'id': 'data'}], 'result': 'failed', 'columns': [], 'scope': ['identity_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer S"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 4,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': 'RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: identity_ratio line 11: `df[\\'Year\\'] = pd.to_numeric(df[\\'Year\\'], errors=\\'raise\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 5,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': \"- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 8: `num = df.loc[df['Year'] == year_num, 'Identity Theft'].iloc[0]`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}, {'id': 'data', 'status': 'ok', 'state': 'executed', 'rows': 26}], 'execution_runs': [{'targets': ['ratio', 'data'], 'executionId': '280', 'success': False, 'state': 'Failed', 'phaseMetrics': {'version': 1, 'compilation': 'passed', 'compilationDurationMs': 0.864958, 'runtimeStartAttempted': True}, 'clientTiming': {'requestToHeadersMs': 2399.1171249998733, 'responseBodyDecodeMs': 0.21137499995529652, 'resultPreparationMs': 0.743332999991253, 'snapshotStoreMs': 2.0776249999180436}}], 'operator_blocks': [{'id': 'data', 'kind': 'load_csn', 'state': 'executed', 'inputs': [], 'result': '26 rows × 4 columns', 'columns': ['Year str', 'Fraud str', 'Identity Theft str', 'Other str'], 'scope': ['load_csn \"data\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- flow: load_csn input rows=[], output=26; row/column mapping unknown.']}, {'id': 'ratio', 'kind': 'identity_ratio', 'state': 'failed', 'inputs': [{'id': 'data'}], 'result': 'failed', 'columns': [], 'scope': ['identity_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': [\"- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 8: `num = df.loc[df['Year'] == year_num, "
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 5,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': \"RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 8: `num = df.loc[df['Year'] == year_num, 'Identity Theft'].iloc[0]`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 7,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': \"- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 9: `num = df.loc[df['Year'] == year_num, 'Identity Theft'].iloc[0]`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}, {'id': 'data', 'status': 'ok', 'state': 'executed', 'rows': 26}], 'execution_runs': [{'targets': ['ratio', 'data'], 'executionId': '283', 'success': False, 'state': 'Failed', 'phaseMetrics': {'version': 1, 'compilation': 'passed', 'compilationDurationMs': 0.903959, 'runtimeStartAttempted': True}, 'clientTiming': {'requestToHeadersMs': 2319.1497909999453, 'responseBodyDecodeMs': 0.1559999999590218, 'resultPreparationMs': 0.918874999973923, 'snapshotStoreMs': 2.2814589999616146}}], 'operator_blocks': [{'id': 'data', 'kind': 'load_csn', 'state': 'executed', 'inputs': [], 'result': '26 rows × 4 columns', 'columns': ['Year str', 'Fraud str', 'Identity Theft str', 'Other str'], 'scope': ['load_csn \"data\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- flow: load_csn input rows=[], output=26; row/column mapping unknown.']}, {'id': 'ratio', 'kind': 'identity_ratio', 'state': 'failed', 'inputs': [{'id': 'data'}], 'result': 'failed', 'columns': [], 'scope': ['identity_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': [\"- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 9: `num = df.loc[df['Year'] == year_num, '"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 7,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': \"RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: IndexError: single positional indexer is out-of-bounds\\n  - at: identity_ratio line 9: `num = df.loc[df['Year'] == year_num, 'Identity Theft'].iloc[0]`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}]}"
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Invalid registered dataflow arguments: data/actions must be array. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 6,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Invalid registered dataflow arguments: data/actions must be array. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 1,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 1,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 1,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 5,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 5,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 6,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 6,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 7,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 7,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 8,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 8,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 9,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 10,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 10,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 11,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 11,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 12,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 12,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 13,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 13,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 14,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 14,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 15,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 15,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 15,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 16,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 16,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 17,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 17,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 18,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 18,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 19,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 20,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 20,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 21,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 22,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 24,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 25,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 25,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 27,
+      "action": {
+        "type": "execute"
+      },
+      "error": "The dataflow is empty. Add an operator before execute."
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1",
+      "step": 3,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set lowest_app: limit(sort(app_scores, by=['APP_Z_score']), n=1, doc='Patient record with the lowest APP-Z score.')\nset lowest_with_age: join(lowest_app, clinical, on='idx', how='inner', validate='one_to_one')\nset lowest_age_text: project(lowest_with_age, keep=['idx','APP_Z_score','Age'])\nset lowest_age: cast(lowest_age_text, columns={'Age': 'int64'})"
+      },
+      "error": "ValueError: Line 1: positional arguments must be input operator IDs; settings use keywords."
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 2,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "metadata",
+          "apm"
+        ],
+        "view": "sample_stats",
+        "columns": [
+          "idx",
+          "Age"
+        ]
+      },
+      "error": "{'results': [{'status': 'ok', 'operator_blocks': [{'id': 'metadata', 'kind': 'scan', 'state': 'executed', 'inputs': [], 'result': '153 rows × 179 columns', 'columns': ['idx str', 'Proteomics_Participant_ID str', 'Case_excluded str', 'Proteomics_TMT_batch int64', 'Proteomics_TMT_plex int64', 'Proteomics_TMT_channel str', 'Proteomics_Parent_Sample_IDs str', 'Proteomics_Aliquot_ID str', 'Proteomics_Tumor_Normal str', 'Proteomics_OCT str', 'Country str', 'Histologic_Grade_FIGO str', 'Myometrial_invasion_Specify str', 'Histologic_type str', 'Treatment_naive str', 'Tumor_purity str', '… +163 more']}], 'operator_id': 'metadata', 'revision': 'aadf141df554ca6b', 'result_version': '2543e8a8d97749ad84de8dc59083845f568648968cd44023c9916bd2a1f6dcb5', 'view': 'sample_stats', 'table': {'totalRows': 153, 'returnedRows': 5, 'totalColumns': 179, 'columnsShown': 2, 'complete': False}, 'evidence': ['data.column.idx.counts', 'data.column.Age.counts', 'flow.scan'], 'text': 'columns: idx str, Age str, … +177 more\\nrecords: sample_stats; 5 of 153 rows, 2 of 179 columns (first and last retained records; … marks omitted rows; columns requested)\\n| idx | Age |\\n|---|---|\\n| S001 | \"64\" |\\n| S002 | \"58\" |\\n| S003 | \"50\" |\\n| … | … |\\n| S152 | NA |\\n| S153 | NA |\\nstatistics: full table, 153 of 153 rows, 2 of 179 columns\\n| column | type | nulls | distinct | values |\\n|---|---|---|---|---|\\n| idx | str | 0 | 153 |  |\\n| Age | str | 0 | 38 |  |\\n- flow (metadata): see action 2 / metadata.'}, {'operator_id': 'apm', 'status': 'error', 'error': 'UNKNOWN_COLUMN: `apm` has no column \"Age\". Its columns: idx, "
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set apm_key: project(apm, keep=['idx', 'APP_Z_score'])\nset metadata_key: project(metadata, keep=['idx', 'Age'])\nset scored_patients: join(apm_key, metadata_key, on='idx', how='inner', validate='one_to_one', doc='APM-scored patients matched to metadata age by unique patient ID.')\nset scored_patients_typed: cast(scored_patients, columns={'Age': 'int64'}, errors='raise')\nset ranked_app: sort(scored_patients_typed, by=[('APP_Z_score', 'asc')])\nset lowest_app_patient: limit(ranked_app, n=1)"
+      },
+      "error": "Invalid cast arguments: columns[\"Age\"] must be a dtype (str, int64, float64, bool, datetime), got \"int64\". Use unquoted dtype descriptors. Signature: cast(t, columns={\"column\": dtype}, errors=\"raise\")"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1",
+      "step": 3,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set joined: join(meta, app, on='idx', how='inner', validate='many_to_one')\nset lowest: sort(joined, by=['APP_Z_score'])\nset answer: limit(lowest, n=1)\nset answer_age: cast(answer, columns={'Age': 'int64'})"
+      },
+      "error": "Invalid cast arguments: columns[\"Age\"] must be a dtype (str, int64, float64, bool, datetime), got \"int64\". Use unquoted dtype descriptors. Signature: cast(t, columns={\"column\": dtype}, errors=\"raise\")"
+    }
+  ]
+}

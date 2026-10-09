@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-10-09T01:32:40.601Z",
+  "units": [
+    {
+      "cuid": 20,
+      "status": "Running",
+      "terminateTime": 1791508631000,
+      "logical_termination_recorded": true
+    },
+    {
+      "cuid": 21,
+      "status": "Running",
+      "terminateTime": 1791508659000,
+      "logical_termination_recorded": true
+    },
+    {
+      "cuid": 22,
+      "status": "Running",
+      "terminateTime": 1791508626000,
+      "logical_termination_recorded": true
+    },
+    {
+      "cuid": 23,
+      "status": "Running",
+      "terminateTime": 1791509276000,
+      "logical_termination_recorded": true
+    }
+  ],
+  "interpretation": "Local CU status is hardcoded Running (ComputingUnitHelpers.singleUnitStatus). Nonnull terminateTime records logical termination; local units share the retained engine process."
+}

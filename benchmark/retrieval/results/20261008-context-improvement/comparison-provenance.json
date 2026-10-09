@@ -1,0 +1,370 @@
+{
+  "agent_revision": "84e93fcae",
+  "engine_revision": "e031c69df",
+  "gateway_revision": "57ee38a28",
+  "runner_revision": "84e93fcae3644cd97ee61461ebe9d6e0f2a45f77",
+  "harness_revision": "be9c5fbae252158e2590ff41cf5093f3900a2dd5",
+  "endpoint": "http://localhost:3001",
+  "task_ids": [
+    "legal-easy-3",
+    "biomedical-hard-3"
+  ],
+  "repetitions": 1,
+  "models": {
+    "Luna": "gpt-5.6-luna",
+    "Terra": "gpt-5.6-terra",
+    "Sol": "gpt-5.6-sol",
+    "Opus48": "claude-opus-4.8",
+    "Qwen38_27B": "qwen3.8-27b",
+    "DeepSeek41Flash": "deepseek-v4.1-flash"
+  },
+  "pricing_overrides": {},
+  "pricing_schedules": {
+    "gpt-5.6-luna": {
+      "model": "gpt-5.6-luna",
+      "kind": "token_estimate",
+      "currency": "USD",
+      "unit": "per_token",
+      "verified_on": "2026-10-08",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "rates": {
+        "input": 2.0000000000000002e-07,
+        "output": 1.2e-06,
+        "cache_read": 2e-08,
+        "cache_creation": 2.5e-07
+      },
+      "long_context_threshold": 272000,
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    },
+    "gpt-5.6-terra": {
+      "model": "gpt-5.6-terra",
+      "kind": "token_estimate",
+      "currency": "USD",
+      "unit": "per_token",
+      "verified_on": "2026-10-08",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "rates": {
+        "input": 2e-06,
+        "output": 1.2e-05,
+        "cache_read": 2.0000000000000002e-07,
+        "cache_creation": 2.5e-06
+      },
+      "long_context_threshold": 272000,
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    },
+    "gpt-5.6-sol": {
+      "model": "gpt-5.6-sol",
+      "kind": "token_estimate",
+      "currency": "USD",
+      "unit": "per_token",
+      "verified_on": "2026-10-08",
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "rates": {
+        "input": 4e-06,
+        "output": 2e-05,
+        "cache_read": 4.0000000000000003e-07,
+        "cache_creation": 5e-06
+      },
+      "long_context_threshold": 272000,
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    },
+    "claude-opus-4.8": {
+      "model": "claude-opus-4.8",
+      "kind": "token_estimate",
+      "currency": "USD",
+      "unit": "per_token",
+      "verified_on": "2026-10-08",
+      "source": "https://platform.claude.com/docs/en/models/opus-4-8/overview",
+      "rates": {
+        "input": 5e-06,
+        "output": 2.5e-05,
+        "cache_read": 5e-07,
+        "cache_creation": 6.25e-06
+      },
+      "long_context_threshold": null,
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    },
+    "qwen3.8-27b": {
+      "model": "qwen3.8-27b",
+      "kind": "token_estimate",
+      "currency": "USD",
+      "unit": "per_token",
+      "verified_on": "2026-10-08",
+      "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+      "rates": {
+        "input": 4.25e-07,
+        "output": 2.5499999999999997e-06,
+        "cache_read": 8.500000000000001e-08,
+        "cache_creation": 5.3125e-07
+      },
+      "long_context_threshold": null,
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    },
+    "deepseek-v4.1-flash": {
+      "model": "deepseek-v4.1-flash",
+      "kind": "token_estimate",
+      "currency": "USD",
+      "unit": "per_token",
+      "verified_on": "2026-10-08",
+      "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+      "rates": {
+        "input": 3e-07,
+        "output": 1.2e-06,
+        "cache_read": 6e-09,
+        "cache_creation": null
+      },
+      "long_context_threshold": null,
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    }
+  },
+  "wire_directory": "/private/tmp/registered-python-matrix-wire",
+  "working_tree_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "working_tree_sources_sha256": "1e1fde776cc24e9cfd0da6362e33c9370bbc1a4331129afa0ef0e3c38337b7d9",
+  "source_paths": [
+    "agent-service/src",
+    "amber/src",
+    "access-control-service/src",
+    "benchmark/retrieval",
+    "bin/strict_tools.py",
+    "bin/litellm-config.yaml",
+    "bin/single-node/litellm-config.yaml"
+  ],
+  "arms": {
+    "layout_native": {
+      "messageLayout": "native",
+      "retrievalViews": [
+        "sample_stats",
+        "full"
+      ],
+      "dataEvidence": true,
+      "flowEvidence": true,
+      "nativeProfileScope": "full"
+    },
+    "layout_markdown": {
+      "messageLayout": "markdown",
+      "retrievalViews": [
+        "sample_stats",
+        "full"
+      ],
+      "dataEvidence": true,
+      "flowEvidence": true,
+      "nativeProfileScope": "full"
+    }
+  },
+  "pass_threshold": 1.0,
+  "settings": {
+    "agentMode": "native",
+    "contextMode": "delta",
+    "nativeProfileCollection": true,
+    "maxSteps": 25,
+    "maxOperatorResultCharLimit": 2000,
+    "maxResultRows": 5,
+    "fullResultCharLimit": 5000,
+    "dataEvidenceCharLimit": 2000,
+    "flowEvidenceCharLimit": 2000,
+    "thoughtReplay": false,
+    "enableCodeInSnapshot": false
+  },
+  "selection": "Matched diagnostic layout pilot: two prespecified tasks, one repetition; not a general accuracy estimate.",
+  "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
+  "task_timeout_seconds": 900,
+  "workers": 3,
+  "large_input_bytes": 100000000,
+  "large_workers": 1,
+  "direct_artifacts": false,
+  "jobs": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Luna",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Opus48",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_markdown",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Sol",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "layout_markdown",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_native_markdown_layout_layout_markdown_Rep1"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "layout_native",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1"
+    },
+    {
+      "model": "Terra",
+      "arm": "layout_native",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_native_markdown_layout_layout_native_Rep1"
+    }
+  ],
+  "input_inventory_sha256": "51192e8a280eac547644ffcee0407f275c4706a26fe45c33aa6b3988795cc226",
+  "source_snapshot": {
+    "captured_at": "2026-10-09T01:11:08.148746+00:00",
+    "sha256": "1e1fde776cc24e9cfd0da6362e33c9370bbc1a4331129afa0ef0e3c38337b7d9",
+    "matches_launch_manifest": true
+  },
+  "source_snapshot_file_sha256": "07495d176680e0ef8eec3dbf252f7b829ed9a9da4c82d25be0205c07755bb444",
+  "source_snapshot_files": 1172,
+  "campaign": {
+    "started_at": "2026-10-09T01:11:08.199858+00:00",
+    "finished_at": "2026-10-09T01:17:38.909813+00:00",
+    "status": "complete",
+    "worker_errors": [],
+    "active": {},
+    "waiting": {}
+  },
+  "raw_artifact_directory": "benchmark/retrieval/runs/20261008-native-markdown-layout",
+  "post_pilot_agent_fix_revision": "1160d3ab3",
+  "post_pilot_paid_reruns": 0
+}

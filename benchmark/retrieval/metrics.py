@@ -18,6 +18,14 @@ from pathlib import Path
 import shutil
 
 
+def cost_totals(values):
+    """A group total is unknown if any attempt cost is unknown."""
+    known = [value for value in values if value is not None]
+    subtotal = sum(known) if known else None
+    return {"cost_usd": subtotal if len(known) == len(values) else None,
+            "known_cost_usd": subtotal, "costs_known": len(known)}
+
+
 def current_price_schedule(model):
     """Frozen standard-tier token estimates, verified 2026-10-08; not invoices."""
     providers = {

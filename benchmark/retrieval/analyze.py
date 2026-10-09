@@ -19,7 +19,7 @@ from pathlib import Path
 import random
 import statistics
 import sys
-from metrics import retrieval_results, tool_error_counts, edit_operations
+from metrics import retrieval_results, tool_error_counts, edit_operations, cost_totals
 from comparison import evidence_matrix_contrasts, layout_contrasts
 from matrix_audit import audit_attempt as audit_wire_attempt
 
@@ -169,14 +169,13 @@ def main():
              manifest["selection"], "", "Model | Arm | Passes/attempts | Scored | Mean score | Total USD | Mean agent seconds | Calls | Retrieve views"]
     for (model, arm), items in sorted(groups.items()):
         scores = [r["score"] for r in items if r["score"] is not None]
-        costs = [r["cost_usd"] for r in items if r["cost_usd"] is not None]
         views = Counter()
         for row in items:
             views.update(row["views"])
         successful_reads = [r for r in retrievals if r["model"] == model and r["arm"] == arm and r["status"] == "ok"]
         s = {"model": model, "arm": arm, "attempts": len(items), "passes": sum(r["pass"] for r in items),
              "scored": len(scores), "mean_score": statistics.mean(scores) if scores else None,
-             "cost_usd": sum(costs) if costs else None, "costs_known": len(costs), "model_calls": sum(r["model_calls"] for r in items),
+             **cost_totals([r["cost_usd"] for r in items]), "model_calls": sum(r["model_calls"] for r in items),
              "retrieval_views": dict(views), "retrieval_chars": sum(r["chars"] for r in successful_reads),
              "reads_with_data": sum(r["data_facts"] > 0 for r in successful_reads),
              "reads_with_flow": sum(r["flow_facts"] > 0 for r in successful_reads),
@@ -217,17 +216,20 @@ def main():
             s[key] = dict(counts)
         summary.append(s)
         mean = f"{s['mean_score']:.1%}" if s["mean_score"] is not None else "unknown"
-        cost = f"${sum(costs):.6f}" if costs else "unknown"
+        cost = f"${s['cost_usd']:.6f}" if s["cost_usd"] is not None else "unknown"
+        if s["cost_usd"] is None and s["known_cost_usd"] is not None:
+            cost += f" (known subset ${s['known_cost_usd']:.6f})"
         elapsed = f"{s['mean_elapsed_seconds']:.1f}" if s["mean_elapsed_seconds"] is not None else "unknown"
-        lines.append(f"{model} | {arm} | {s['passes']}/{len(items)} | {len(scores)} | {mean} | {cost} ({len(costs)} known) | {elapsed} | {s['model_calls']} | {dict(views)}")
-    lines += ["", "Token totals (cache reads/writes are subsets of input; reasoning is a subset of output)",
+        lines.append(f"{model} | {arm} | {s['passes']}/{len(items)} | {len(scores)} | {mean} | {cost} ({s['costs_known']} known) | {elapsed} | {s['model_calls']} | {dict(views)}")
+    lines += ["", "Reported token sums (partial when usage attempts are incomplete; optional cache fields require their separate availability flags)",
+              "Cache reads/writes are subsets of input; reasoning is a subset of output.",
               "Model | Arm | Input | Cached input | Cache writes | Output | Reasoning | Complete usage attempts"]
     for item in summary:
         lines.append(f"{item['model']} | {item['arm']} | {item['input_tokens']} | {item['cached_tokens']} | {item['cache_creation_tokens']} | {item['output_tokens']} | {item['reasoning_tokens']} | {item['usage_complete_attempts']}/{item['attempts']}")
-    lines += ["", "Failures and provider-reported cost", "Model | Failed calls | Before-action rejections | Failed actions | Provider USD | Providers"]
+    lines += ["", "Failures and provider-reported cost", "Model | Arm | Failed calls | Before-action rejections | Failed actions | Provider USD | Providers"]
     for item in summary:
         cost = f"${item['provider_reported_cost_usd']:.6f}" if item["provider_reported_cost_usd"] is not None else "unknown"
-        lines.append(f"{item['model']} | {item['tool_errors']} | {item['envelope_errors']} | {item['action_errors']} | {cost} | {', '.join(item['response_providers']) or 'not reported'}")
+        lines.append(f"{item['model']} | {item['arm']} | {item['tool_errors']} | {item['envelope_errors']} | {item['action_errors']} | {cost} | {', '.join(item['response_providers']) or 'not reported'}")
     lines += ["", "Captured wire context and answer contract",
               "Wire requests include retries; agent calls count recorded model decisions. Context bytes are canonical compact UTF-8 JSON messages/tools, not provider token counts.",
               "Numeric cell matches establish visible support, not correctness; missing bounded cells are inconclusive. Official scores do not enforce final-line formatting.",
@@ -274,12 +276,12 @@ def main():
                   "Same tasks/repetition/model with both evidence channels and full profiling fixed. One repetition on two tasks does not estimate general accuracy or significance.",
                   "Task means receive equal weight; missing metrics are excluded independently with pair counts in analysis.json. Live token/call differences also reflect model behavior, not only serialization.",
                   "Cache reads depend on provider routing, warm prefixes and run order; shuffled jobs do not control initial provider cache state. Frozen-rate estimates are not invoices.",
-                  "Model | Matched tasks | Score delta | Mean USD delta | API requests delta | Input tokens delta | Output tokens delta | Cache reads delta | Format delta"]
+                  "Model | Matched tasks | Cost pairs | Score delta | Mean USD delta | API requests delta | Input tokens delta | Output tokens delta | Cache reads delta | Format delta"]
         for contrast in layout_pairs:
             values = [f"{contrast[key]:+.6f}" if contrast[key] is not None else "unknown" for key in
                       ["score_delta", "cost_delta_usd", "model_requests_delta", "input_tokens_delta",
                        "output_tokens_delta", "cached_tokens_delta", "format_compliant_delta"]]
-            lines.append(f"{contrast['model']} | {contrast['tasks']} | " + " | ".join(values))
+            lines.append(f"{contrast['model']} | {contrast['tasks']} | {contrast['metric_pairs']['cost_usd']} | " + " | ".join(values))
     report = {"summary": summary, "contrasts": contrasts, "rows": rows, "retrievals": retrievals, "errors": errors}
     (directory / "analysis.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     (directory / "REPORT.txt").write_text("\n".join(lines) + "\n")

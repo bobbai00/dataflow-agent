@@ -1,0 +1,102 @@
+[
+  {
+    "model": "DeepSeek41Flash",
+    "arm": "layout_native",
+    "task": "legal-easy-3",
+    "score": 1.0,
+    "model_calls": 5,
+    "model_requests": 6,
+    "usage_complete": false,
+    "cost_usd": null,
+    "action_errors": 1,
+    "wire_http_status_unknown": 1,
+    "first_request_message_roles": [
+      "system",
+      "user"
+    ],
+    "tool_schema_sha256": "792ef3d43d82ecd95186e7acefc302d70616e4e836c8fac3e675a41f05b1a426",
+    "response_providers": [
+      "DekaLLM"
+    ],
+    "raw_artifact_directory": "benchmark/retrieval/runs/20261008-native-markdown-layout/system_scratch/DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1/legal-easy-3"
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "arm": "layout_native",
+    "task": "biomedical-hard-3",
+    "score": 1.0,
+    "model_calls": 4,
+    "model_requests": 4,
+    "usage_complete": true,
+    "cost_usd": 0.006716064,
+    "action_errors": 0,
+    "wire_http_status_unknown": 0,
+    "first_request_message_roles": [
+      "system",
+      "user"
+    ],
+    "tool_schema_sha256": "792ef3d43d82ecd95186e7acefc302d70616e4e836c8fac3e675a41f05b1a426",
+    "response_providers": [
+      "Wafer"
+    ],
+    "raw_artifact_directory": "benchmark/retrieval/runs/20261008-native-markdown-layout/system_scratch/DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_native_Rep1/biomedical-hard-3"
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "arm": "layout_markdown",
+    "task": "legal-easy-3",
+    "score": 0.0,
+    "model_calls": 25,
+    "model_requests": 25,
+    "usage_complete": true,
+    "cost_usd": 0.016661231999999998,
+    "action_errors": 46,
+    "wire_http_status_unknown": 0,
+    "first_request_message_roles": [
+      "system",
+      "user"
+    ],
+    "tool_schema_sha256": "792ef3d43d82ecd95186e7acefc302d70616e4e836c8fac3e675a41f05b1a426",
+    "response_providers": [
+      "Sail Research"
+    ],
+    "raw_artifact_directory": "benchmark/retrieval/runs/20261008-native-markdown-layout/system_scratch/DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1/legal-easy-3",
+    "first_raw_tool_arguments": {
+      "actions": [
+        {
+          "type": "execute"
+        },
+        {
+          "type": "execute"
+        },
+        {
+          "type": "execute"
+        }
+      ],
+      "reasoning": "Inspect the CSV file structure first."
+    },
+    "all_responses_only_execute": true,
+    "all_responses_provider": "Sail Research"
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "arm": "layout_markdown",
+    "task": "biomedical-hard-3",
+    "score": 1.0,
+    "model_calls": 5,
+    "model_requests": 5,
+    "usage_complete": true,
+    "cost_usd": 0.007380288,
+    "action_errors": 0,
+    "wire_http_status_unknown": 0,
+    "first_request_message_roles": [
+      "system",
+      "user"
+    ],
+    "tool_schema_sha256": "792ef3d43d82ecd95186e7acefc302d70616e4e836c8fac3e675a41f05b1a426",
+    "response_providers": [
+      "Venice"
+    ],
+    "raw_artifact_directory": "benchmark/retrieval/runs/20261008-native-markdown-layout/system_scratch/DataflowSystemDeepSeek41Flash_20261008_native_markdown_layout_layout_markdown_Rep1/biomedical-hard-3"
+  }
+]

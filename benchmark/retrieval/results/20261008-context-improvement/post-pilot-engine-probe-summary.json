@@ -1,0 +1,56 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "name": "register before graph construction",
+      "newExecutions": 0
+    },
+    {
+      "name": "zero, one and multiple inputs with keyword settings",
+      "newExecutions": 2
+    },
+    {
+      "name": "mixed retrieval preserves valid targets",
+      "newExecutions": 0
+    },
+    {
+      "name": "helper update invalidates without automatic execution",
+      "newExecutions": 0
+    },
+    {
+      "name": "explicit execution uses the new shared definition",
+      "newExecutions": 1
+    },
+    {
+      "name": "documentation-only edit preserves materialization",
+      "newExecutions": 0
+    },
+    {
+      "name": "execution error retains independent reads",
+      "newExecutions": 1
+    },
+    {
+      "name": "replace the same function and refine its settings",
+      "newExecutions": 1
+    },
+    {
+      "name": "invalid signature rejects namespace and graph together",
+      "newExecutions": 0
+    },
+    {
+      "name": "answer is a sole content action",
+      "newExecutions": 0
+    }
+  ],
+  "cleanup": {
+    "resource": {
+      "agentId": "agent-5ld9u3-1",
+      "wid": 177,
+      "cuid": 23
+    },
+    "removed": true,
+    "computingUnitTerminated": true
+  },
+  "artifact_directory": "/var/folders/3m/vml6z71d6q11ypk7hv81ctj40000gn/T/registered-python-live-dvbwiu",
+  "purpose": "Post-pilot deterministic validation of trace-driven fixes; no model calls."
+}

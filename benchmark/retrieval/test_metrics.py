@@ -16,11 +16,19 @@ import json
 from pathlib import Path
 import tempfile
 
-from benchmark.retrieval.metrics import cost_for_usage, normalize_usage, retrieval_results, reconcile_run, edit_operations
+from benchmark.retrieval.metrics import cost_for_usage, normalize_usage, retrieval_results, reconcile_run, edit_operations, cost_totals
 from benchmark.retrieval.audit import audit
 
 
 class MetricsTests(unittest.TestCase):
+    def test_group_cost_does_not_label_known_subset_as_total(self):
+        self.assertEqual(cost_totals([.02, None]),
+                         {"cost_usd": None, "known_cost_usd": .02, "costs_known": 1})
+        self.assertEqual(cost_totals([None, None]),
+                         {"cost_usd": None, "known_cost_usd": None, "costs_known": 0})
+        self.assertEqual(cost_totals([0, .02]),
+                         {"cost_usd": .02, "known_cost_usd": .02, "costs_known": 2})
+
     def test_reasoning_is_not_added_to_output_and_cache_writes_are_separate(self):
         usage = normalize_usage({"prompt_tokens": 1000, "completion_tokens": 200,
             "prompt_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 100},
