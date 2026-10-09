@@ -60,6 +60,10 @@ export type GraphChangeReceipt =
       operator_id: string;
       operator: string;
       action: "created" | "updated" | "unchanged" | "deleted";
+      /** An update's previous statement, when the statement itself changed. */
+      was?: string;
+      /** An update that kept its statement: the Python definitions it reaches changed. */
+      definitions_changed?: boolean;
     }
   | { change: "edge"; edge: string; action: "created" | "removed" };
 export interface GraphEditPlan {
@@ -139,7 +143,9 @@ export async function planRegisteredGraphEdit(
   original: WorkflowContent,
   python: string,
   changes: string,
-  context: ToolContext
+  context: ToolContext,
+  /** The workflow an earlier task left, for `name@N` inputs. */
+  savedWorkflow?: (task: number) => WorkflowContent | undefined
 ): Promise<GraphEditPlan> {
   if (!context.metadataStore) throw new Error("Metadata store not available for graph editing.");
   const originalViews: Record<string, NativeOpView> = Object.create(null);
@@ -152,6 +158,14 @@ export async function planRegisteredGraphEdit(
     changes,
     namespace: original.nativeNamespace,
     operators: originalViews,
+    saved: task => {
+      const workflow = savedWorkflow?.(task);
+      return workflow
+        ? Object.fromEntries(
+            workflow.operators.flatMap(op => (op.nativeOp ? [[op.operatorID, structuredClone(op.nativeOp)]] : []))
+          )
+        : undefined;
+    },
     profileCollection: context.settings?.nativeProfileCollection,
     profileScope: context.settings?.nativeProfileScope === "full" ? "full" : undefined,
   });
@@ -222,7 +236,17 @@ export async function planRegisteredGraphEdit(
   for (const [id, view] of nodes) {
     const old = originalViews[id];
     if (old && JSON.stringify(old) === JSON.stringify(view)) continue;
-    receipts.push({ change: "operator", operator_id: id, operator: names(view), action: old ? "updated" : "created" });
+    // An update says what it replaced, so a setting that fell back to its
+    // default or a rewired input is visible where the change happened.
+    const statement = (view: NativeOpView) => view.source?.replace(/\s+/g, " ").trim();
+    receipts.push({
+      change: "operator",
+      operator_id: id,
+      operator: names(view),
+      action: old ? "updated" : "created",
+      ...(old && statement(old) && statement(old) !== statement(view) ? { was: statement(old) } : {}),
+      ...(old && view.properties.registered && statement(old) === statement(view) ? { definitions_changed: true } : {}),
+    });
     outcomes.push({
       id,
       op: names(view),

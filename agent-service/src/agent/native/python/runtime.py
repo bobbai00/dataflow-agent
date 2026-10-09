@@ -196,8 +196,13 @@ def validate_native(spec):
     if kind not in ROW_EFFECTS:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Unknown operator type {kind!r}.", stage="validate")
     inputs = spec.get("inputs", [])
+    # Explicit ports never turn IDs into Python names, so there an ID may also
+    # be `name@N`: the version an earlier task left.
+    versions = bool(spec.get("graph"))
     for name in [spec.get("id", "operator"), *inputs]:
-        if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
+        base, at, task = name.partition("@") if isinstance(name, str) else ("", "", "")
+        if (not base.isidentifier() or keyword.iskeyword(base)
+                or (at and not (versions and task.isdigit() and int(task) >= 1))):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
     if len(set(inputs)) != len(inputs) and kind != "Join" and not spec.get("graph"):
         raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
@@ -295,6 +300,8 @@ def validate_native(spec):
         if not aggregates:
             raise _error(spec, "AGGREGATE_ARGUMENT", "Provide at least one aggregation.", stage="validate")
         names = list(props.get("groupBy", []))
+        if not isinstance(props.get("complete", False), bool):
+            raise _error(spec, "AGGREGATE_ARGUMENT", "complete must be True or False.", stage="validate")
         for item in aggregates:
             if item.get("fn") not in (
                 "count",
@@ -685,6 +692,15 @@ def _aggregate(spec, frame, operations):
             frame[name] = pd.Series([None if _scalar(v) is None else int(_scalar(v)) for v in frame[name]], dtype="Int64")
         operations["boolAsInt"] = bool_as_int
     grouped = _groups(frame, keys)
+    if props.get("complete") and len(keys) > 1:
+        # Every combination of the observed key values, empty ones included.
+        import itertools
+
+        seen = {key for key, _ in grouped}
+        levels = [list(dict.fromkeys(key[i] for key, _ in grouped)) for i in range(len(keys))]
+        empty = [(key, []) for key in itertools.product(*levels) if key not in seen]
+        grouped = grouped + empty
+        operations["emptyGroups"] = len(empty)
     values = {name: [] for name in [*keys, *(item["as"] for item in aggregates)]}
     denominators = {item["as"]: {"total": 0, "min": None, "max": None} for item in aggregates}
     sizes = []

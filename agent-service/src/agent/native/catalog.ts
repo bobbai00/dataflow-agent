@@ -81,6 +81,10 @@ export interface NativeOpView {
   registeredName?: string;
   /** Universal display metadata; intentionally excluded from computational identity. */
   doc?: string;
+  /** A read-only copy of operator `id` as task `task` left it, read through a
+   * `name@N` input. It keeps that version's definitions and is removed once
+   * nothing reads it. */
+  savedFrom?: { task: number; id: string };
 }
 
 /* ----------------------------------------------------------------------------
@@ -622,13 +626,14 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "collapse",
     signature: 'aggregate(T, by=[], name=reducer("col"), ...)',
-    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
+    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. `complete=True` also emits every combination of the observed values of the `by` columns that has no rows, with counts 0 and other reductions null. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
     schema: object(
       {
         groupBy: NAMES,
         aggregations: list(
           object({ fn: { type: "string", enum: [...AGGREGATE_FUNCTIONS] }, col: S, as: S }, ["fn", "as"])
         ),
+        complete: { type: "boolean" },
       },
       ["aggregations"]
     ),
@@ -639,6 +644,10 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       for (const [key, value] of Object.entries(kwargs)) {
         if (key === "by") {
           props.groupBy = strList(value, "by");
+          continue;
+        }
+        if (key === "complete") {
+          if (bool(value, "complete")) props.complete = true;
           continue;
         }
         if (value.kind !== "call" || !(AGGREGATE_FUNCTIONS as readonly string[]).includes(value.name))

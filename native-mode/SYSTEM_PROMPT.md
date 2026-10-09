@@ -47,8 +47,8 @@ cast(t, columns={"column": dtype}, errors="raise")
 filter(t, predicate="name", settings={})
     Apply a registered predicate to each read-only row mapping, forwarding settings as keyword arguments. True keeps; False or null drops. Preserves columns and order; measures kept/rejected/null counts and bounded rejected-value frequencies.
 
-aggregate(t, by=[], outputs={"output": reducer(...)})
-    One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.
+aggregate(t, by=[], outputs={"output": reducer(...)}, complete=False)
+    One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation. complete=True adds every combination of the observed by values that has no rows, with counts 0 and other reductions null.
 
 join(left, right, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
     on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.

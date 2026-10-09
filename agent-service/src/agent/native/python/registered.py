@@ -78,6 +78,20 @@ def _validate_definition_tree(tree):
         statement(node)
 
 
+def _bound_names(node):
+    """The top-level names one definition statement binds."""
+    import ast
+
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return [alias.asname or alias.name.split('.')[0] for alias in node.names]
+    if isinstance(node, (ast.Assign, ast.AnnAssign)):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return [child.id for target in targets for child in ast.walk(target) if isinstance(child, ast.Name)]
+    return []
+
+
 def _registered_declarations(cells):
     import ast
 
@@ -86,21 +100,16 @@ def _registered_declarations(cells):
         tree = ast.parse(cell, filename=f"<definitions:{index + 1}>")
         _validate_definition_tree(tree)
         for node in tree.body:
-            names = []
+            names = _bound_names(node)
             kind = "constant"
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names = [node.name]
                 kind = "class" if isinstance(node, ast.ClassDef) else "function"
                 if isinstance(node, ast.AsyncFunctionDef):
                     raise ValueError(f"{node.name}: async functions cannot be registered operators.")
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                names = [alias.asname or alias.name.split('.')[0] for alias in node.names]
                 if '*' in names:
                     raise ValueError("Wildcard imports are not supported in definition cells.")
                 kind = "import"
-            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                names = [child.id for target in targets for child in ast.walk(target) if isinstance(child, ast.Name)]
             for name in names:
                 if name in REGISTERED_RESERVED:
                     raise ValueError(f"{name!r} is a reserved operator name.")
@@ -109,6 +118,63 @@ def _registered_declarations(cells):
                     "cell": index + 1,
                 }
     return declarations
+
+
+# Names that reach definitions by string rather than by name; a function using
+# one keeps the whole namespace.
+_DYNAMIC_LOOKUPS = frozenset(("globals", "locals", "vars", "eval", "exec", "__import__", "importlib"))
+
+
+def registered_closures(cells):
+    """Each function's definitions: the authored cells reduced to the statements it reaches by name.
+
+    An operator carries this reduction and is identified by it, so an unrelated
+    definition, or one re-sent verbatim, changes neither its code nor its result's
+    validity. Kept statements stay at their cell and line (the rest become blank
+    lines), so runtime errors still point at the authored source.
+    """
+    import ast
+
+    statements = []  # (cell, first line, last line, source, bound names, names used)
+    functions = set()
+    for index, cell in enumerate(cells):
+        for node in ast.parse(cell).body:
+            bound = _bound_names(node)
+            if not bound:
+                continue
+            if isinstance(node, ast.FunctionDef):
+                functions.add(node.name)
+            used = frozenset(child.id for child in ast.walk(node) if isinstance(child, ast.Name))
+            statements.append((index, node.lineno, node.end_lineno, ast.get_source_segment(cell, node) or "", bound, used))
+    binders = {}
+    for statement in statements:
+        for name in statement[4]:
+            binders.setdefault(name, []).append(statement)
+
+    def closure(entry):
+        needed, frontier = {entry}, [entry]
+        while frontier:
+            for statement in binders.get(frontier.pop(), ()):
+                if statement[5] & _DYNAMIC_LOOKUPS:
+                    return list(cells)
+                fresh = [name for name in statement[5] if name in binders and name not in needed]
+                needed.update(fresh)
+                frontier.extend(fresh)
+        latest, lines = {}, {}
+        for cell, first, last, source, bound, _ in statements:
+            names = [name for name in bound if name in needed]
+            if names and any(latest.get(name) != source for name in names):
+                lines.setdefault(cell, set()).update(range(first, last + 1))
+                latest.update((name, source) for name in names)
+        reduced = [
+            "\n".join(line if number in lines.get(index, ()) else "" for number, line in enumerate(cell.splitlines(), 1)).rstrip()
+            for index, cell in enumerate(cells)
+        ]
+        while reduced and not reduced[-1]:
+            reduced.pop()
+        return reduced
+
+    return {name: closure(name) for name in functions}
 
 
 def registered_namespace(cells):
@@ -179,8 +245,19 @@ def parse_registered_changes(source):
                 raise ValueError(f"Changes line {error_line}, operator {identifier}: {error.msg}") from error
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 raise ValueError(f"Line {line}: the definition must call an operator type by name.")
-            if any(not isinstance(arg, ast.Name) for arg in node.args):
-                raise ValueError(f"Line {line}: positional arguments must be input operator IDs; settings use keywords. "
+            def input_id(arg):
+                if isinstance(arg, ast.Name):
+                    return arg.id
+                # `name@N`, an earlier request's version (Python reads `@` as a product).
+                if (isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.MatMult) and isinstance(arg.left, ast.Name)
+                        and isinstance(arg.right, ast.Constant) and type(arg.right.value) is int and arg.right.value >= 1):
+                    return f"{arg.left.id}@{arg.right.value}"
+                return None
+
+            inputs = [input_id(arg) for arg in node.args]
+            if None in inputs:
+                raise ValueError(f"Line {line}: positional arguments must be input operator IDs, or name@N for the "
+                                 "version request N left; settings use keywords. "
                                  "Declare a nested call as its own set statement and pass its ID.")
             if any(kw.arg is None for kw in node.keywords):
                 raise ValueError(f"Line {line}: keyword unpacking is not supported.")
@@ -196,7 +273,7 @@ def parse_registered_changes(source):
                             raise ValueError(f"Line {line}: numeric settings must be finite.")
             statement = {
                 "kind": "set", "id": identifier, "op": node.func.id, "line": line,
-                "source": text, "inputs": [arg.id for arg in node.args],
+                "source": text, "inputs": inputs,
                 "kwargs": {kw.arg: _encode(expression, kw.value) for kw in node.keywords},
             }
         if identifier in seen:
@@ -220,7 +297,8 @@ def registered_request(request):
             except Exception as error:
                 # The cells parsed: report what the rejected edit would have registered.
                 return {"ok": False, "error": f"{type(error).__name__}: {error}", "declarations": declarations}
-            return {"ok": True, "statements": statements, "declarations": declarations}
+            return {"ok": True, "statements": statements, "declarations": declarations,
+                    "closures": registered_closures(cells)}
         scope, functions, bindings = registered_namespace(cells)
         for node in request.get("operators", []):
             name = node["entry"]

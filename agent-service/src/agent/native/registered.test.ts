@@ -495,3 +495,162 @@ except Exception as error: print(str(error))`,
     expect(diagnostic.source).toMatchObject({ cell: 1, entry: "broken", line: 2 });
   }
 );
+
+test("an operator carries the definitions its function reaches; unrelated or re-sent definitions leave it current", async () => {
+  const first = await stageRegisteredEdit({
+    operators: {},
+    python: `import pandas as pd
+RATE = 2
+def _scale(values):
+    return values * RATE
+def priced(table):
+    return table.assign(value=_scale(table['value']))
+def counted(table):
+    return pd.DataFrame({'rows': [len(table)]})
+`,
+    changes: "set raw: scan(files='data.csv')\nset a: priced(raw)\nset b: counted(raw)",
+  });
+  const cellsOf = (state: typeof first, id: string) =>
+    (state.operators[id].properties.registered as { cells: string[] }).cells;
+  expect(cellsOf(first, "a")[0]).not.toContain("def counted");
+  expect(cellsOf(first, "b")[0]).not.toContain("RATE");
+  // A new function, with the import every cell repeats, changes no existing operator.
+  const unrelated = await stageRegisteredEdit({
+    ...first,
+    python: "import pandas as pd\ndef other(table):\n    return table",
+    changes: "",
+  });
+  expect(unrelated.changedIds).toEqual([]);
+  expect(unrelated.operators.a.revision).toBe(first.operators.a.revision);
+  expect(unrelated.operators.b.revision).toBe(first.operators.b.revision);
+  // Redefining a helper changes exactly the operators whose function reaches it.
+  const helper = await stageRegisteredEdit({ ...unrelated, python: "RATE = 3", changes: "" });
+  expect(helper.changedIds).toEqual(["a"]);
+  expect(helper.operators.b.revision).toBe(first.operators.b.revision);
+  // Kept statements stay at their cell and line, so errors keep pointing at authored source.
+  const cells = cellsOf(helper, "a");
+  expect(cells).toEqual([expect.any(String), "", "RATE = 3"]);
+  expect(cells[0].split("\n").slice(0, 2)).toEqual(["", "RATE = 2"]);
+  const run = spawnSync(
+    nativePython(),
+    [
+      "-c",
+      `import json,sys,pandas as pd
+scope={}
+exec(json.load(sys.stdin),scope)
+print(json.dumps(scope['process'](pd.DataFrame({'value':[1,2]}))['value'].tolist()))`,
+    ],
+    { input: JSON.stringify(compileNativeOp(helper.operators.a, "a").code), encoding: "utf8" }
+  );
+  expect(run.status, run.stderr).toBe(0);
+  expect(JSON.parse(run.stdout)).toEqual([3, 6]);
+});
+
+test("a function that looks definitions up by string keeps the whole namespace", async () => {
+  const state = await stageRegisteredEdit({
+    operators: {},
+    python: "def pick(table):\n    return globals()['_named'](table)\ndef _named(table):\n    return table",
+    changes: "set raw: scan(files='data.csv')\nset picked: pick(raw)",
+  });
+  const next = await stageRegisteredEdit({ ...state, python: "def unrelated(table):\n    return table", changes: "" });
+  expect(next.changedIds).toEqual(["picked"]);
+  expect((next.operators.picked.properties.registered as { cells: string[] }).cells).toEqual(next.namespace.cells);
+});
+
+test("name@N reads the version task N left: the current operator when unchanged, else a read-only copy", async () => {
+  const task1 = await stageRegisteredEdit({
+    operators: {},
+    python: "RATE = 2\ndef priced(table):\n    return table.assign(value=table['value'] * RATE)",
+    changes: "set raw: scan(files='data.csv')\nset prices: priced(raw)",
+  });
+  const saved = structuredClone(task1.operators);
+  const at = (task: number) => (task === 1 ? saved : undefined);
+  // Unchanged since task 1, so the reference is the current operator itself.
+  const same = await stageRegisteredEdit({
+    ...task1,
+    saved: at,
+    python: "",
+    changes: "set first: limit(prices@1, n=1)",
+  });
+  expect(same.operators.first.inputs).toEqual(["prices"]);
+  expect(Object.keys(same.operators).filter(id => id.includes("@"))).toEqual([]);
+  // After its helper changes, task 1's version is a copy that keeps task 1's definitions.
+  const changed = await stageRegisteredEdit({ ...task1, saved: at, python: "RATE = 3", changes: "" });
+  const compare = await stageRegisteredEdit({
+    ...changed,
+    saved: at,
+    python: "",
+    changes: "set both: union(prices@1, prices)",
+  });
+  expect(compare.operators.both.inputs).toEqual(["prices@1", "prices"]);
+  expect(compare.operators["prices@1"]).toMatchObject({ inputs: ["raw"], savedFrom: { task: 1, id: "prices" } });
+  expect(compare.operators["prices@1"].properties.registered).toEqual(saved.prices.properties.registered);
+  expect(compare.operators["prices@1"].revision).toBe(saved.prices.revision);
+  const run = spawnSync(
+    nativePython(),
+    [
+      "-c",
+      `import json,sys,pandas as pd
+out=[]
+for code in json.load(sys.stdin):
+    scope={}
+    exec(code,scope)
+    out.append(scope['process'](pd.DataFrame({'value':[1,2]}))['value'].tolist())
+print(json.dumps(out))`,
+    ],
+    {
+      input: JSON.stringify([
+        compileNativeOp(compare.operators["prices@1"], "prices@1").code,
+        compileNativeOp(compare.operators.prices, "prices").code,
+      ]),
+      encoding: "utf8",
+    }
+  );
+  expect(run.status, run.stderr).toBe(0);
+  expect(JSON.parse(run.stdout)).toEqual([
+    [2, 4],
+    [3, 6],
+  ]);
+  // Once nothing reads the copy, it is gone.
+  const cleared = await stageRegisteredEdit({ ...compare, saved: at, python: "", changes: "delete both" });
+  expect(cleared.operators["prices@1"]).toBeUndefined();
+  await expect(
+    stageRegisteredEdit({ ...task1, saved: at, python: "", changes: "set x: limit(prices@4, n=1)" })
+  ).rejects.toThrow("prices@4: task 4 has no saved state");
+  await expect(
+    stageRegisteredEdit({ ...task1, saved: at, python: "", changes: "set x: limit(missing@1, n=1)" })
+  ).rejects.toThrow("missing did not exist at the end of task 1");
+  await expect(
+    stageRegisteredEdit({ ...task1, saved: at, python: "", changes: "set x: limit(prices@0, n=1)" })
+  ).rejects.toThrow("name@N");
+});
+
+test("aggregate complete=True also emits the observed key combinations that have no rows", async () => {
+  const state = await stageRegisteredEdit({
+    operators: {},
+    python: "",
+    changes:
+      "set raw: scan(files='data.csv')\n" +
+      "set counts: aggregate(raw, by=['region', 'kind'], outputs={'n': count(), 'total': sum('value')}, complete=True)",
+  });
+  expect(state.operators.counts.properties.complete).toBe(true);
+  const run = spawnSync(
+    nativePython(),
+    [
+      "-c",
+      `import json,sys,pandas as pd
+scope={}
+exec(json.load(sys.stdin),scope)
+out=scope['process'](pd.DataFrame({'region':['a','a','b'],'kind':['x','y','x'],'value':[1,2,3]}))
+print(json.dumps(out.astype(object).where(pd.notna(out), None).to_dict('records')))`,
+    ],
+    { input: JSON.stringify(compileNativeOp(state.operators.counts, "counts").code), encoding: "utf8" }
+  );
+  expect(run.status, run.stderr).toBe(0);
+  expect(JSON.parse(run.stdout)).toEqual([
+    { region: "a", kind: "x", n: 1, total: 1 },
+    { region: "a", kind: "y", n: 1, total: 2 },
+    { region: "b", kind: "x", n: 1, total: 3 },
+    { region: "b", kind: "y", n: 0, total: null },
+  ]);
+});
