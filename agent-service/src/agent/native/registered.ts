@@ -43,6 +43,8 @@ export interface RegisteredStageInput {
   changes: string;
   namespace?: RegisteredNamespace;
   operators: Record<string, NativeOpView>;
+  /** Operator views as an earlier task left them, for `name@N` inputs. */
+  saved?: (task: number) => Record<string, NativeOpView> | undefined;
   profileCollection?: boolean;
   profileScope?: "full";
 }
@@ -139,7 +141,7 @@ function normalizeBuiltin(statement: SetStatement, options: RegisteredStageInput
       statement.op === "cast"
         ? ["columns", "errors"]
         : statement.op === "aggregate"
-          ? ["by", "outputs"]
+          ? ["by", "outputs", "complete"]
           : ["partition_by", "order_by", "outputs"];
     const unexpected = Object.keys(kwargs).filter(key => !allowed.includes(key));
     if (unexpected.length)
@@ -182,9 +184,14 @@ function normalizeBuiltin(statement: SetStatement, options: RegisteredStageInput
   return view;
 }
 
+/** A registered operator's identity: its entry, settings and the definition cells that entry reaches. */
+function registeredProperties(cells: string[], entry: string, settings: Record<string, unknown>) {
+  return { registered: { cells, entry, settings } };
+}
+
 function normalizeRegisteredFilter(
   statement: SetStatement,
-  cells: string[],
+  definitions: (entry: string) => string[],
   options: RegisteredStageInput
 ): NativeOpView {
   const invalid = (message: string): never => {
@@ -202,12 +209,13 @@ function normalizeRegisteredFilter(
   const settings = kwargs.settings ? literal(kwargs.settings) : {};
   if (!settings || typeof settings !== "object" || Array.isArray(settings))
     invalid("filter settings must be a dictionary of keyword arguments.");
+  const entry = predicate as string;
   return {
     type: "Filter",
     inputs: statement.inputs,
     source: statement.source,
     graph: { inputPorts: ["input-0"] },
-    properties: { registered: { cells, entry: predicate, settings, namespaceRevision: hash(cells) } },
+    properties: registeredProperties(definitions(entry), entry, settings as Record<string, unknown>),
     ...(options.profileCollection
       ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
       : {}),
@@ -229,7 +237,11 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     error?: string;
     statements: Array<SetStatement | { kind: "delete"; id: string; line: number }>;
     declarations?: Record<string, RegisteredBinding>;
+    closures?: Record<string, string[]>;
   };
+  // An operator carries only the definitions its function reaches by name. An
+  // unknown entry keeps every cell so that validation names the actual problem.
+  const definitions = (entry: string): string[] => parsed.closures?.[entry] ?? cells;
   // A rejected edit registers nothing, so a later call that names one of its
   // functions fails again (archeology-hard-12 lost two calls this way). Name
   // them in the rejection. Diagnostic envelopes carry their own structure.
@@ -254,7 +266,39 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   );
   const changedIds = new Set<string>();
   const deletedIds: string[] = [];
-  for (const statement of parsed.statements) {
+  // `name@N` reads name as task N left it: the current operator when that
+  // version and its whole ancestry are unchanged, otherwise a read-only copy
+  // (`name@N` and its ancestors) that keeps task N's definitions.
+  const version = (id: string, task: number, saved: Record<string, NativeOpView>): string => {
+    const view = saved[id];
+    const inputs = view.inputs.map(input => version(input, task, saved));
+    const current = operators[id];
+    if (
+      current &&
+      !current.savedFrom &&
+      current.revision === view.revision &&
+      inputs.every((input, index) => input === current.inputs[index])
+    )
+      return id;
+    const copy = `${id}@${task}`;
+    if (!operators[copy]) {
+      const { savedFrom: _savedFrom, ...definition } = structuredClone(view);
+      operators[copy] = { ...definition, inputs, savedFrom: { task, id } };
+      operators[copy].revision = nativeRevision(operators[copy]);
+    }
+    return copy;
+  };
+  const resolveInput = (input: string): string => {
+    const at = input.lastIndexOf("@");
+    if (at < 0) return input;
+    const [name, task] = [input.slice(0, at), Number(input.slice(at + 1))];
+    const saved = options.saved?.(task);
+    if (!saved) throw new Error(`${input}: task ${task} has no saved state; name a completed earlier task.`);
+    if (!saved[name]) throw new Error(`${input}: ${name} did not exist at the end of task ${task}.`);
+    return version(name, task, saved);
+  };
+  for (const entry of parsed.statements) {
+    let statement = entry;
     try {
       if (statement.kind === "delete") {
         if (!operators[statement.id]) throw new Error(`Cannot delete missing operator ${statement.id}.`);
@@ -262,6 +306,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
         deletedIds.push(statement.id);
         continue;
       }
+      statement = { ...statement, inputs: statement.inputs.map(resolveInput) };
       const kwargs = { ...statement.kwargs };
       let doc: string | undefined;
       if (kwargs.doc) {
@@ -272,7 +317,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       }
       let view: NativeOpView;
       if (statement.op === "filter") {
-        view = normalizeRegisteredFilter({ ...statement, kwargs }, cells, options);
+        view = normalizeRegisteredFilter({ ...statement, kwargs }, definitions, options);
       } else if (REGISTERED_OPERATOR_NAMES.includes(statement.op)) {
         view = normalizeBuiltin({ ...statement, kwargs }, options);
       } else {
@@ -287,14 +332,11 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
           inputs: statement.inputs,
           source: statement.source,
           graph: { inputPorts: statement.inputs.map((_, index) => `input-${index}`) },
-          properties: {
-            registered: {
-              cells,
-              entry: statement.op,
-              settings: Object.fromEntries(Object.entries(kwargs).map(([key, value]) => [key, literal(value)])),
-              namespaceRevision: hash(cells),
-            },
-          },
+          properties: registeredProperties(
+            definitions(statement.op),
+            statement.op,
+            Object.fromEntries(Object.entries(kwargs).map(([key, value]) => [key, literal(value)]))
+          ),
           ...(options.profileCollection
             ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
             : {}),
@@ -308,6 +350,15 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       throw unregistered(declarationError(statement, error));
     }
   }
+  // A saved version stays only while something current reads it.
+  const read = new Set<string>();
+  const markRead = (id: string): void => {
+    if (read.has(id) || !operators[id]) return;
+    read.add(id);
+    operators[id].inputs.forEach(markRead);
+  };
+  for (const [id, view] of Object.entries(operators)) if (!view.savedFrom) markRead(id);
+  for (const [id, view] of Object.entries(operators)) if (view.savedFrom && !read.has(id)) delete operators[id];
   const declarations = new Map(parsed.statements.map(statement => [statement.id, statement]));
   const visiting = new Set<string>(),
     visited = new Set<string>();
@@ -331,20 +382,23 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   } catch (error) {
     throw unregistered(error);
   }
+  // Rebind every registered operator to the definitions its function now
+  // reaches. Only operators whose definitions changed get a new revision.
   for (const [id, view] of Object.entries(operators)) {
-    if (!view.properties.registered) continue;
-    const registration = view.properties.registered as Record<string, unknown>;
-    registration.cells = cells;
-    registration.namespaceRevision = hash(cells);
-    view.revision = nativeRevision(view);
-    if (pythonChanged) changedIds.add(id);
+    // A saved version keeps the definitions its task had.
+    if (!view.properties.registered || view.savedFrom) continue;
+    const registration = view.properties.registered as { cells: string[]; entry: string };
+    registration.cells = definitions(registration.entry);
+    const revision = nativeRevision(view);
+    if (revision !== view.revision) changedIds.add(id);
+    view.revision = revision;
   }
   const checked = (await runNativePython({
     registered: true,
     phase: "validate",
     cells,
     operators: Object.entries(operators)
-      .filter(([, view]) => view.properties.registered)
+      .filter(([, view]) => view.properties.registered && !view.savedFrom)
       .map(([id, view]) => ({ id, inputs: view.inputs, ...(view.properties.registered as object) })),
   })) as {
     ok: boolean;
@@ -371,7 +425,7 @@ const signatures: Record<string, string> = {
   filter: 'filter(t, predicate="name", settings={})',
   project: "project(t, keep=None, drop=None, rename=None)",
   cast: 'cast(t, columns={"column": dtype}, errors="raise")',
-  aggregate: 'aggregate(t, by=[], outputs={"output": reducer(...)})',
+  aggregate: 'aggregate(t, by=[], outputs={"output": reducer(...)}, complete=False)',
   join: 'join(left, right, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")',
   union: 'union(first, second, ..., schema="strict")',
   distinct: 'distinct(t, columns=None, keep="first")',
@@ -387,7 +441,7 @@ const briefOverrides: Record<string, string> = {
     "Apply a registered predicate to each read-only row mapping, forwarding settings as keyword arguments. True keeps; False or null drops. Preserves columns and order; measures kept/rejected/null counts and bounded rejected-value frequencies.",
   cast: 'Convert named columns to str, int64, float64, bool, or datetime(format=..., tz=...). Failed conversions raise, or become null with errors="null"; naive timestamps require a timezone. Normalize text in a custom function before casting.',
   aggregate:
-    "One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.",
+    "One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation. complete=True adds every combination of the observed by values that has no rows, with counts 0 and other reductions null.",
   window:
     "Add named outputs using lag, lead, row_number, rank, or dense_rank within ordered partitions; ranks start at 1 and output retains input row order.",
 };

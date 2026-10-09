@@ -222,6 +222,8 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   resume?: boolean;
   compact?: boolean;
   multiTask?: boolean;
+  /** Later requests begin with the state they inherit (registered protocol). */
+  sessionState?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
@@ -522,7 +524,11 @@ export function buildRegisteredNativeSystemPrompt(
     CONTEXT_LAYOUT:
       context +
       (flags.multi
-        ? " Earlier tasks share the current graph and registered definitions. Reuse relevant operators; earlier observations remain historical evidence, not current results."
+        ? " Requests in this session share one graph and one set of registered definitions; each request is a task, numbered from 1." +
+          (options.sessionState
+            ? " Each later request begins with the session state it inherits: every registered function, and every operator with its definition, current result, the task that set it, and its column names."
+            : "") +
+          " Setting an existing operator ID replaces that operator for everything that reads it; a new ID keeps both. An input written `name@N` reads `name` as task N left it, unaffected by later edits."
         : ""),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
     RETRIEVAL: nativeRetrievalText(options),

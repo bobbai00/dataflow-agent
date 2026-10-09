@@ -571,7 +571,11 @@ export async function executeDataflowActionBatch(
           state.getWorkflowContent(),
           action.python ?? "",
           action.changes,
-          context
+          context,
+          task => {
+            const saved = (runtime.historicalTasks ?? []).find(item => item.taskId === task);
+            return saved && storage.hasSnapshotFor(saved.stepId) ? storage.getWorkflow(saved.stepId) : undefined;
+          }
         );
         assertCurrent();
         state.setWorkflowContent(plan.workflow);

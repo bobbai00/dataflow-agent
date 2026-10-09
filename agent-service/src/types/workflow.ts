@@ -77,6 +77,8 @@ export interface OperatorPredicate {
     registeredName?: string;
     /** Operator documentation is metadata, excluded from computational revisions. */
     doc?: string;
+    /** A read-only copy of operator `id` as task `task` left it (`name@N` inputs). */
+    savedFrom?: { task: number; id: string };
     properties: Record<string, unknown>;
     inputs: string[];
     /** Public graph ports in logical input order. */
