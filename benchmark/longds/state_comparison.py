@@ -73,7 +73,9 @@ def build_prompts(manifest):
         "Data files available (use these paths verbatim; never modify input files):\n"
         + "\n".join(" - " + f for f in manifest["files"])
         + "\n\nYour analytical state persists across requests. Name reusable calculations and working tables "
-        "meaningfully. Keep complete working tables separately from ranked answer selections. "
+        "meaningfully. Discover headers and small samples yourself before choosing input files or parsing options; "
+        "filenames alone do not establish contents or relevance. Account for every potentially relevant source. "
+        "Keep complete working tables separately from ranked answer selections. "
         "Preserve rules and historical results when later requests need them.\n"
         "Use code for every calculation. Do not use plotting libraries. Answer after checking the computed evidence. "
         "Return a single-line JSON object containing exactly the requested quantities, following the task's "
