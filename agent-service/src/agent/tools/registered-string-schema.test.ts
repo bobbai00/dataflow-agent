@@ -30,7 +30,6 @@ test("nonblank schema strings admit complete values under constrained-decoder fu
   expect(strings.some(entry => entry.path.endsWith("properties.reasoning"))).toBe(true);
   expect(strings.some(entry => entry.path.endsWith("properties.content"))).toBe(true);
   expect(strings.some(entry => entry.path.endsWith("properties.operator_ids.items"))).toBe(true);
-  expect(strings.some(entry => entry.path.endsWith("properties.names.items"))).toBe(true);
   for (const { path, pattern } of strings) {
     // JSON Schema normally searches. Some strict provider decoders instead
     // require the pattern to describe the whole string, so exercise both.

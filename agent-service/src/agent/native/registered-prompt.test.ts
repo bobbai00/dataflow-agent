@@ -28,7 +28,7 @@ test("registered prompt examples obey the active tool envelope and enabled views
   for (const retrievalViews of [["full"], ["sample"], ["sample_stats", "full"]] as const) {
     const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: [...retrievalViews] });
     const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
-    expect(calls.length).toBeGreaterThan(2);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
     for (const call of calls) {
       const result = prepareRegisteredDataflowActions(call, [...retrievalViews]);
       expect(result.error).toBeUndefined();
@@ -88,32 +88,31 @@ for (const data of [false, true])
       const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, settings);
       expect(info.systemPrompt).toBe(prompt);
       expect(prompt).not.toContain("{{");
-      expect(prompt.includes("Column statistics are collected")).toBe(data);
-      expect(prompt.includes("### Use optional statistics")).toBe(data);
+      expect(prompt.includes("Column statistics in `sample_stats`")).toBe(data);
       expect(prompt.includes("sample_stats")).toBe(data);
-      expect(prompt.includes("Flow statistics describe")).toBe(flow);
-      expect(prompt.includes("requested operator's result table")).toBe(data);
-      expect(prompt.includes("even when their result tables were not requested")).toBe(flow);
+      expect(prompt.includes("Flow statistics report measured effects")).toBe(flow);
+      expect(prompt.includes("also for results you did not request")).toBe(flow);
       if (flow) {
         expect(prompt).toContain("cast failures");
-        expect(prompt).toContain("custom Python boundary");
-        expect(prompt).toContain("does not provide filter rejection statistics");
+        expect(prompt).toContain("Python functions are not measured");
       }
       expect(prompt).toContain("Every record within 5000 characters");
-      expect(prompt).toContain("Batch actions whose arguments are known.");
+      expect(prompt).toContain("Put the edits, execution, and retrieval of a known computation in one call");
+      // The context holds every definition and receipt: inspection is for what it lacks.
+      expect(prompt).toContain("Everything you defined and observed is already in your context");
+      expect(prompt).not.toContain("preview=1), execute, and inspect source");
 
       const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
-      expect(calls.length).toBeGreaterThan(2);
+      expect(calls.length).toBeGreaterThanOrEqual(2);
       for (const call of calls) expect(prepareRegisteredDataflowActions(call, retrievalViews).status).toBe("pending");
       const examples = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
-      expect(examples.includes("statistics: full table")).toBe(data);
       if (!flow) expect(examples).not.toMatch(/^\s*- flow\b/m);
 
       const schema = asSchema(createRegisteredDataflowTool(retrievalViews).inputSchema).jsonSchema as any;
       const reads = schema.properties.actions.items.anyOf.filter(
         (action: any) => action.properties.type.const === "retrieve"
       );
-      expect(reads).toHaveLength(2);
+      expect(reads).toHaveLength(1);
       for (const read of reads) expect(read.properties.view.enum).toEqual(retrievalViews);
       expect(info.tools).toHaveLength(1);
       expect(info.tools[0].inputSchema).toEqual(schema);

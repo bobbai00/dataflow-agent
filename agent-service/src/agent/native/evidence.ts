@@ -369,7 +369,6 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
       Window: `Window partition keys=${json(p.partitionBy ?? [])}, order=${json(p.orderBy ?? [])}`,
-      Process: `${view.registeredName ?? view.type} row/column mapping unknown`,
     };
     // Continue past nearby projections to find measured conversion losses.
     // The graph walk and the number of displayed summaries stay bounded.
@@ -543,7 +542,6 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Window: `row identities preserved, input order restored; partition keys=${json(p.partitionBy ?? [])}; stable order=${json(p.orderBy ?? [])}, nulls last; outputs=${json(p.columns ?? [])}`,
     Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
     Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
-    Process: "row/column mapping unknown; equal row counts do not prove preservation",
   };
   // Contracts that only restate what the operator name says (a sort keeps
   // rows, a project keeps order) are not rendered. Author descriptions express
@@ -907,15 +905,19 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       count(scan.omittedFiles) &&
       scan.selectedFiles + scan.omittedFiles === scan.resolvedFiles
     ) {
-      add(
-        "flow.scan",
-        "flow",
-        "measurement",
-        `Scan ${scan.preview ? "preview only (not full source)" : "parsed selected sources"}; files selected=${scan.selectedFiles}/${scan.resolvedFiles}, omitted=${scan.omittedFiles}; output=${out} rows.`,
-        // Ahead of the per-file lines: with many files, their findings fill
-        // the budget, and the file and row counts must not be what is cut.
-        98
-      );
+      // Only a scan that read less than every resolved file, previewed, or
+      // returned nothing reports coverage; "selected=1/1" was 20–30% of all
+      // flow lines and measured nothing.
+      if (scan.preview || scan.omittedFiles > 0 || out === 0)
+        add(
+          "flow.scan",
+          "flow",
+          "measurement",
+          `Scan ${scan.preview ? "preview only (not full source)" : "parsed selected sources"}; files selected=${scan.selectedFiles}/${scan.resolvedFiles}, omitted=${scan.omittedFiles}; output=${out} rows.`,
+          // Ahead of the per-file lines: with many files, their findings fill
+          // the budget, and the file and row counts must not be what is cut.
+          98
+        );
       // Per source, only what the parse found: a header row that reads as
       // data (with the nearby row that reads as a header) and empty sources.
       // Paths, sizes and mtimes stay in the audit metadata.
@@ -934,15 +936,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           );
       }
     } else omissions.push("scan_coverage_unavailable");
-  } else if (view.type === "Process") {
-    add(
-      "flow.process.counts",
-      "flow",
-      "measurement",
-      `${view.registeredName ?? view.type} input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
-      75
-    );
   }
+  // A registered function reports no flow line: its input and output row counts
+  // are already in the receipts, and its row mapping is not measured.
   if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")
       for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {

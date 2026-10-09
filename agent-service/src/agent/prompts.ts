@@ -531,10 +531,10 @@ export function buildRegisteredNativeSystemPrompt(
         ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
         : `Records use ${table} at any width.`,
     DATA_STATISTICS: flags.data
-      ? "Column statistics are collected separately from displayed records. Retrieve `sample_stats` for a compact sample plus statistics about the requested operator's result table: row counts, nulls, distinct values, ranges, and value frequencies when available. Check full/partial row and column coverage. `all` covers only the profiled rows; `top` is not exhaustive. Profiles do not establish row associations or order. Unknown or omitted facts remain unknown; complete small records may suppress redundant statistics. Compute exact answer quantities in the graph, not from rounded summaries."
+      ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Use them to check missing values, codes, and populations; compute exact answer quantities in the graph, not from rounded statistics."
       : "",
     FLOW_STATISTICS: flags.flow
-      ? "Flow statistics describe measured built-in effects, including filter retention/rejection and bounded rejected values, join matches/unmatched keys, cast failures, and aggregate denominators. Execution reports these for executed operators even when their result tables were not requested. Retrieval also includes bounded summaries from relevant upstream operators. Across a custom Python boundary, row/column correspondence to the requested output remains unknown. Compare these measurements with the requested population. Custom Python filtering does not provide filter rejection statistics, and names or docstrings do not prove row preservation or a formula. Return diagnostics as columns when needed; absent or bounded evidence is not exhaustive."
+      ? "Flow statistics report measured effects of built-in operators, also for results you did not request: filter kept and rejected rows, join unmatched keys, cast failures, and aggregate denominators. Compare them with the requested population. Python functions are not measured; return diagnostic columns when you need their counts."
       : "",
   };
   let prompt = nativeFragment("native-registered.md").replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
@@ -542,7 +542,8 @@ export function buildRegisteredNativeSystemPrompt(
     return fields[key];
   });
   // Both prompt detail settings use the same short built-in contracts. The
-  // on-demand variant omits the longer worked repair, available in the docs.
+  // on-demand variant once omitted a longer worked repair; the prompt no
+  // longer carries one, so the two currently render alike.
   if (options.nativePromptDetail === "on_demand") {
     prompt = prompt.replace(/### Repair a function and refine its downstream summary[\s\S]*?(?=\{\{#data\}\}|$)/, "");
   }

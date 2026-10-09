@@ -268,7 +268,7 @@ print(json.dumps(records, default=str))
   expect(facts.get("limited")).toContain("retained=1/6, removed=5");
   expect(facts.get("empty_groups")).toContain("groups=0 from 0 rows");
   expect(facts.get("empty_global")).toContain("groups=1 from 0 rows");
-  expect(facts.get("udf")).toContain("row/column mapping unknown");
+  expect(facts.get("udf")).toContain("row/column correspondence to this output unknown");
   expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");
   expect(facts.get("window")).toContain("partitions=3, ties beyond first=0");
   expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');

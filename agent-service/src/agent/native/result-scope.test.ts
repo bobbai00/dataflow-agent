@@ -72,7 +72,8 @@ test("scope traces filters and limits through projections, sorting, and reductio
 test("opaque Python is a boundary, not an inferred filter or a claim about a complete population", () => {
   const f = fixture();
   const text = f.scope("custom").join("\n");
-  expect(text).toContain('process "custom": row selection inside Python is unknown');
+  // A registered function adds no scope line: nothing about its row selection is measured.
+  expect(text).toBe("");
   expect(text).not.toContain('limit "top"');
   expect(text).not.toContain('filter "eligible"');
 });

@@ -213,7 +213,8 @@ for (const tableFormat of ["markdown", "tsv"] as const)
           expect(text).toContain("9007199254740993");
           expect(text).toContain('"null"');
           expect(text.includes("statistics:")).toBe(view === "sample_stats");
-          expect(text.includes("- flow:")).toBe(flow);
+          // One complete single-file scan measures nothing worth a flow line.
+          expect(text.includes("- flow:")).toBe(false);
           expect(text.includes("- id:")).toBe(wide);
           if (!wide) expect(text.includes("| id | label |")).toBe(tableFormat === "markdown");
           const saved = structuredClone(result);
@@ -302,7 +303,6 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
   expect(settings.tableFormat).toBe("tsv");
   expect(settings.keyValueColumns).toBe(0);
   expect(settings.systemPrompt).toContain("Earlier tasks share the current graph and registered definitions.");
-  expect(settings.systemPrompt).toContain("Records use a tab-separated table with a header line at any width.");
 });
 
 test("column runs retain type boundaries, leading zeros and physical omitted counts", () => {

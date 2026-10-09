@@ -73,9 +73,9 @@ export function resultScope(
     const inputs = view.inputs.filter(Boolean);
     let line: string | undefined;
     if (view.type === "Process") {
-      line = `${view.registeredName ?? "process"} ${name(id)}: row selection inside Python is unknown; inspect its definition.`;
       // The result need not be a subset of its inputs. Do not infer its
       // population from upstream filters or limits, even if counts match.
+      // No line: the definition is in the context and says nothing measured.
     } else {
       if (["Filter", "Limit", "Distinct"].includes(view.type)) {
         const parameters =

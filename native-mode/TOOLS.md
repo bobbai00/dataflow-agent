@@ -6,7 +6,7 @@ One static dataflow tool; registered-python-v1. All examples use the currently e
 
 ## dataflow
 
-Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer actions. Python definitions share a namespace; each operator invocation is isolated and exchanges tables only through graph edges. Edits commit atomically and never run the graph. Retrieve accepts multiple operator_ids and never executes. Earlier committed edits survive later failures. After execution failure, later requested executions and reads can continue; edits are skipped, and a skipped edit also blocks subsequent executions. Answer content must be the sole action.
+Build, execute, read and answer from a Dataflow with an ordered list of actions.
 
 ```json
 {
@@ -23,307 +23,9 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
-      "description": "Actions run in order; decide on returned results in the next call.",
+      "description": "Run in order; decide on new results in the next call.",
       "items": {
         "anyOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "schema"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id"
-            ],
-            "description": "List exact column names and types from a current completed result, independently of displayed samples. Default: first 200 columns; follow next_offset for more. Never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "schema"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-              },
-              "offset": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 200
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id",
-              "offset",
-              "limit"
-            ],
-            "description": "List exact column names and types from a current completed result, independently of displayed samples. Default: first 200 columns; follow next_offset for more. Never executes. Read a zero-based page; limit is 1..200."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "source"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id"
-            ],
-            "description": "Discover retained scan source paths and workbook sheet names, with each sheet's first raw preview row. Use scan(preview=1), execute, then this inspection in one call. Raw rows are layout hints, not parsed schemas. Never opens files or executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "source"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-              },
-              "offset": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 200
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id",
-              "offset",
-              "limit"
-            ],
-            "description": "Discover retained scan source paths and workbook sheet names, with each sheet's first raw preview row. Use scan(preview=1), execute, then this inspection in one call. Raw rows are layout hints, not parsed schemas. Never opens files or executes. Read a zero-based page; limit is 1..200."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "graph"
-              }
-            },
-            "required": [
-              "type",
-              "target"
-            ],
-            "description": "List current operator IDs, ordered inputs, and result status. Never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "graph"
-              },
-              "operator_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                },
-                "minItems": 1
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_ids"
-            ],
-            "description": "Inspect the selected current graph nodes and their direct input references. Never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "operator"
-              },
-              "operator_id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-              },
-              "include_implementation": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id",
-              "include_implementation"
-            ],
-            "description": "Read an instance's definition, current function signature, consumers and result status. Include authored Python source when requested."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "namespace"
-              }
-            },
-            "required": [
-              "type",
-              "target"
-            ],
-            "description": "List the shared registered Python definitions, including functions not used by a graph node. Reads saved metadata, never executes Python."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "namespace"
-              },
-              "names": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                },
-                "minItems": 1
-              },
-              "include_implementation": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "names",
-              "include_implementation"
-            ],
-            "description": "Read selected Python declarations and optionally their authored source. Execution-time variables are not shared or inspected."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "const": "reference"
-              },
-              "topic": {
-                "type": "string",
-                "const": "operators"
-              },
-              "operator_names": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "scan",
-                    "project",
-                    "cast",
-                    "filter",
-                    "aggregate",
-                    "join",
-                    "union",
-                    "distinct",
-                    "sort",
-                    "limit",
-                    "window",
-                    "unpivot",
-                    "pivot"
-                  ]
-                },
-                "minItems": 1
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "topic",
-              "operator_names"
-            ],
-            "description": "Read detailed built-in operator contracts, defaults and accepted settings. Never executes or retrieves data."
-          },
           {
             "type": "object",
             "additionalProperties": false,
@@ -334,11 +36,11 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
               },
               "python": {
                 "type": "string",
-                "description": "Cumulative imports, helpers and synchronous function definitions. Public functions become operator types."
+                "description": "Function definitions and imports, or \"\"."
               },
               "changes": {
                 "type": "string",
-                "description": "One statement per operator: set id: type(input1, input2, setting=value), or delete id. A set replaces the complete definition. Positional inputs are graph IDs; keywords are settings. Forward references resolve against the final graph."
+                "description": "One statement per line: set id: type(inputs, setting=value), or delete id. Or \"\"."
               }
             },
             "required": [
@@ -346,21 +48,7 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
               "python",
               "changes"
             ],
-            "description": "Atomically register Python definitions and edit the graph. Neither field runs graph operators. Use an empty string for an unused field."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "execute"
-              }
-            },
-            "required": [
-              "type"
-            ],
-            "description": "Ensure the whole graph has current results. Report completion or errors; retrieve tables separately."
+            "description": "Commit Python definitions and graph statements; does not run the graph."
           },
           {
             "type": "object",
@@ -371,52 +59,27 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
                 "const": "execute"
               },
               "operator_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                },
-                "minItems": 1
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+                    },
+                    "minItems": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
               "type",
               "operator_ids"
             ],
-            "description": "Ensure selected operators and ancestors have current results. Other branches do not run. Retrieve tables separately."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "retrieve"
-              },
-              "operator_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                },
-                "minItems": 1
-              },
-              "view": {
-                "type": "string",
-                "enum": [
-                  "sample_stats",
-                  "full"
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "operator_ids",
-              "view"
-            ],
-            "description": "Read current results in request order; missing or stale targets have individual errors. Each result has its own budget. Never executes."
+            "description": "Compute the listed operators and their ancestors; null runs the whole graph."
           },
           {
             "type": "object",
@@ -443,13 +106,20 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
                 ]
               },
               "columns": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                },
-                "minItems": 1
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+                    },
+                    "minItems": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -458,7 +128,98 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
               "view",
               "columns"
             ],
-            "description": "Read selected columns of current results. The view and column selection apply to every target. Never executes."
+            "description": "Read current results of the listed operators; never executes."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "inspect"
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "schema",
+                  "source",
+                  "reference"
+                ]
+              },
+              "operator_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "operator_names": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "scan",
+                        "project",
+                        "cast",
+                        "filter",
+                        "aggregate",
+                        "join",
+                        "union",
+                        "distinct",
+                        "sort",
+                        "limit",
+                        "window",
+                        "unpivot",
+                        "pivot"
+                      ]
+                    },
+                    "minItems": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "offset": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "operator_id",
+              "operator_names",
+              "offset",
+              "limit"
+            ],
+            "description": "Read what the context lacks: schema (column names of a result), source (sheet names of a scanned workbook), or reference (a built-in's full contract). Never executes."
           },
           {
             "type": "object",
@@ -478,7 +239,7 @@ Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer
               "type",
               "content"
             ],
-            "description": "Return the final response and finish the turn. Must be the sole action; base the response on results already checked."
+            "description": "Return the final response; must be the only action."
           }
         ]
       }

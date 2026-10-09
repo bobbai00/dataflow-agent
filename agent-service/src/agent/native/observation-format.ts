@@ -35,7 +35,7 @@ export type ObservationFormatOptions = Partial<ObservationFormatSettings>;
 export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
   tableFormat: "markdown",
   keyValueColumns: 12,
-  columnsShown: 16,
+  columnsShown: 40,
   definitionChars: 200,
   cellChars: 160,
   topValues: 4,

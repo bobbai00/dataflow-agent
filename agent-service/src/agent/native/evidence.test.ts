@@ -663,16 +663,16 @@ test("guarantees describe contracts, UDF remains unknown at equal row counts", (
   }
   const f = fixture("Process");
   f.info.totalRowCount = 5;
-  expect(factText(f)).toContain("row/column mapping unknown");
+  expect(factText(f)).not.toContain("mapping unknown");
   expect(factText(f)).not.toContain("row identities preserved");
 });
 
-test("registered function flow evidence uses its public name and keeps unknown mapping explicit", () => {
+test("a registered function adds no flow line: its row mapping is not measured", () => {
   const f = fixture("Process");
   f.op.nativeOp!.registeredName = "select_records";
   const text = factText(f);
-  expect(text).toContain("select_records input rows=[5], output=3; row/column mapping unknown.");
-  expect(text).toContain("select_records: row/column mapping unknown; equal row counts do not prove preservation.");
+  expect(text).not.toContain("select_records");
+  expect(text).not.toContain("mapping unknown");
   expect(text).not.toContain("Process");
 });
 
@@ -681,10 +681,8 @@ test("an author's description is never presented as an engine guarantee", () => 
     const f = fixture(type, { doc: "Every excluded participant has been removed" });
     const text = factText(f);
     expect(text).not.toContain("Every excluded participant has been removed");
-    if (type === "Process") {
-      expect(text).toContain("Flow warning: Process");
-      expect(text).not.toContain("Flow guarantee: Process");
-    }
+    // A registered function gets neither a warning nor a guarantee line.
+    if (type === "Process") expect(text).not.toMatch(/Flow (?:warning|guarantee): Process/);
   }
 });
 
@@ -1085,7 +1083,7 @@ test("upstream summaries stop at stale edges and preserve opaque UDF semantics",
     registeredName: "summarize_records",
   });
   const text = observe(f).text;
-  expect(text).toContain("summarize_records row/column mapping unknown");
+  expect(text).not.toContain("mapping unknown");
   expect(text).not.toContain("summary stops here");
   expect(text).not.toContain("Process");
   expect(text).not.toContain("groups=5 from 10 rows");
@@ -1096,7 +1094,6 @@ test("an observed UDF includes measured input ancestors without inferring row co
   const f = calculationFixture();
   f.op.nativeOp!.type = "Process";
   const selection = observe(f);
-  expect(selection.text).toContain("mapping unknown");
   expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
   expect(selection.text).toContain("groups=5 from 10 rows");
   expect(selection.text).toContain("row/column correspondence to this output unknown");
@@ -1141,7 +1138,7 @@ function opaqueAncestorFixture() {
 test("downstream retrieval crosses a custom operator using version-bound graph dependencies only", () => {
   const f = opaqueAncestorFixture();
   const selection = observe(f, { data: false });
-  expect(selection.text).toContain("choose_rows row/column mapping unknown");
+  expect(selection.text).not.toContain("mapping unknown");
   expect(selection.text).toContain("groups=5 from 10 rows");
   expect(selection.text).toContain("row/column correspondence to this output unknown");
   expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
@@ -1278,12 +1275,12 @@ test("per-file scan findings cannot push the file and row counts out of the flow
     headerCheck: { blank: 3, suggest: { skipLines: 2, header: ["Year", "Category", "# of Reports", "Percentage"] } },
   }));
   f.info.tableProfile!.native!.operations = {
-    scan: { preview: false, resolvedFiles: 30, selectedFiles: 30, omittedFiles: 0, sources },
+    scan: { preview: false, resolvedFiles: 32, selectedFiles: 30, omittedFiles: 2, sources },
   };
   // The execute receipt's selection: flow only, the operator's own facts.
   const own = observe(f, { data: false, flowMaxChars: 2000, upstream: false });
   const flow = own.chunks.filter(chunk => chunk.id.startsWith("flow."));
-  expect(flow[0].text).toBe("- flow: Scan parsed selected sources; files selected=30/30, omitted=0; output=3 rows.");
+  expect(flow[0].text).toBe("- flow: Scan parsed selected sources; files selected=30/32, omitted=2; output=3 rows.");
   expect(flow.at(-1)!.text).toBe(FLOW_OMITTED_NOTICE);
   expect(own.omitted.some(item => item.reason === "budget" && item.id.startsWith("flow.scan.header."))).toBe(true);
   expect(own.text.length).toBeLessThanOrEqual(2000 + own.chunks[0].text.length + 1);

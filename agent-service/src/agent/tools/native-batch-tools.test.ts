@@ -212,7 +212,11 @@ describe("native dataflow tool", () => {
         .filter((action: any) => action.properties.type.const === "edit")
         .every((action: any) => action.required.includes("python"))
     ).toBe(true);
-    expect(actions.some((action: any) => action.properties.target?.const === "namespace")).toBe(true);
+    expect(actions.find((action: any) => action.properties.type.const === "inspect").properties.target.enum).toEqual([
+      "schema",
+      "source",
+      "reference",
+    ]);
     expect(agent.getSettings().systemPrompt).toContain("retrieve");
     agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
     expect((agent as any).tools.createOrModifyOperator).toBeDefined();

@@ -589,6 +589,160 @@ export const REGISTERED_DATAFLOW_ACTIONS_SCHEMA = object({
 const registeredValidator = ajv.compile(REGISTERED_DATAFLOW_ACTIONS_SCHEMA);
 export const EMPTY_DATAFLOW_ERROR = "The dataflow is empty. Add an operator before execute.";
 
+// The schema the model sees: one variant per action type. Strict mode allows
+// no optional properties, so optional fields are nullable instead of being
+// spelled out as separate variants (the validation schema above had 16, 9.2k
+// characters sent on every call). Graph, operator and namespace inspection stay
+// accepted for compatibility but are not offered: the context already holds
+// every definition and receipt.
+const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: "null" }] });
+const operatorIds = { type: "array", items: text, minItems: 1 };
+export const REGISTERED_TOOL_SCHEMA = object({
+  reasoning: { ...text, description: "One brief sentence stating the next objective." },
+  actions: {
+    type: "array",
+    minItems: 1,
+    maxItems: 32,
+    description: "Run in order; decide on new results in the next call.",
+    items: {
+      anyOf: [
+        action("edit", "Commit Python definitions and graph statements; does not run the graph.", {
+          python: { type: "string", description: 'Function definitions and imports, or "".' },
+          changes: {
+            type: "string",
+            description: 'One statement per line: set id: type(inputs, setting=value), or delete id. Or "".',
+          },
+        }),
+        action("execute", "Compute the listed operators and their ancestors; null runs the whole graph.", {
+          operator_ids: nullable(operatorIds),
+        }),
+        action("retrieve", "Read current results of the listed operators; never executes.", {
+          operator_ids: operatorIds,
+          view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
+          columns: nullable(operatorIds),
+        }),
+        action(
+          "inspect",
+          "Read what the context lacks: schema (column names of a result), source (sheet names of a scanned workbook), or reference (a built-in's full contract). Never executes.",
+          {
+            target: { type: "string", enum: ["schema", "source", "reference"] },
+            operator_id: nullable(text),
+            operator_names: nullable({
+              type: "array",
+              items: { type: "string", enum: NATIVE_OPERATOR_NAMES.filter(name => !["map", "process"].includes(name)) },
+              minItems: 1,
+            }),
+            offset: nullable({ type: "integer", minimum: 0 }),
+            limit: nullable({ type: "integer", minimum: 1, maximum: 200 }),
+          }
+        ),
+        action("answer", "Return the final response; must be the only action.", { content: text }),
+      ],
+    },
+  },
+});
+
+/** An action list sent as a string: a JSON array, optionally followed by the
+ * object's own closing brace (Opus closed the outer object inside the string in
+ * all 103 campaign cases). Anything else is not decoded. */
+function decodeActionList(text: string): unknown[] | undefined {
+  const start = text.search(/\S/);
+  if (start < 0 || text[start] !== "[") return undefined;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') quoted = false;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === "[" || c === "{") depth++;
+    else if (c === "]" || c === "}") {
+      depth--;
+      if (depth === 0) {
+        if (!/^[\s}]*$/.test(text.slice(i + 1))) return undefined;
+        try {
+          const parsed = JSON.parse(text.slice(start, i + 1));
+          return Array.isArray(parsed) ? parsed : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Normalize the shapes models send outside the strict decoders (Anthropic and
+ * OpenRouter routes do not enforce the schema): `actions` as a JSON string,
+ * explicit nulls for unused fields, an edit without one of its two fields, and
+ * a reference inspection without its single topic. Nothing else is repaired. */
+function normalizeRegisteredInput(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const raw = { ...(input as Record<string, unknown>) };
+  if (typeof raw.actions === "string") {
+    const parsed = decodeActionList(raw.actions);
+    if (parsed) raw.actions = parsed;
+  }
+  if (!Array.isArray(raw.actions)) return raw;
+  raw.actions = raw.actions.map(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    const action = Object.fromEntries(
+      Object.entries(item as Record<string, unknown>).filter(([, value]) => value !== null)
+    );
+    if (action.type === "edit") {
+      action.python ??= "";
+      action.changes ??= "";
+    }
+    if (action.type === "inspect" && action.target === "reference") action.topic ??= "operators";
+    return action;
+  });
+  return raw;
+}
+
+const statementIds = (changes: string) =>
+  new Set([...changes.matchAll(/^\s*(?:set|delete)\s+([A-Za-z_]\w*)/gm)].map(match => match[1]));
+const definedNames = (python: string) =>
+  new Set(
+    [...python.matchAll(/^(?:async\s+def|def|class)\s+([A-Za-z_]\w*)|^([A-Za-z_]\w*)\s*=/gm)].map(
+      match => match[1] ?? match[2]
+    )
+  );
+const overlaps = (a: Set<string>, b: Set<string>) => [...a].some(name => b.has(name));
+
+/** An edit whose statements use a function that the next edit in the same call
+ * defines commits together with it, definitions first. Models split one edit
+ * into a statement and the function it uses, in that order (Opus 90 of 124 "not
+ * a registered public function" failures, DeepSeek 30 of 58); the first half
+ * then failed alone and skipped the rest of the call. Other consecutive edits
+ * stay separate, so a failure in one does not undo the other. */
+function mergeConsecutiveEdits(actions: DataflowAction[]): DataflowAction[] {
+  const merged: DataflowAction[] = [];
+  for (const action of actions) {
+    const previous = merged.at(-1);
+    if (
+      action.type === "edit" &&
+      previous?.type === "edit" &&
+      [...definedNames(action.python ?? "")].some(name => new RegExp(`\\b${name}\\b`).test(previous.changes)) &&
+      !overlaps(statementIds(previous.changes), statementIds(action.changes)) &&
+      !overlaps(definedNames(previous.python ?? ""), definedNames(action.python ?? ""))
+    ) {
+      merged[merged.length - 1] = {
+        type: "edit",
+        python: [previous.python ?? "", action.python ?? ""].filter(part => part.trim()).join("\n\n"),
+        changes: [previous.changes, action.changes].filter(part => part.trim()).join("\n"),
+      };
+      continue;
+    }
+    merged.push(action);
+  }
+  return merged;
+}
+
 export function prepareRegisteredDataflowActions(
   input: unknown,
   views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
@@ -608,15 +762,16 @@ export function prepareRegisteredDataflowActions(
     result.error = `${message} No actions ran.`;
     return result;
   };
-  // Opus 4.8 sent `actions` as a JSON string twice in the 2026-10-08 layout
-  // comparison. Name the shape; never decode or repair the arguments.
+  input = normalizeRegisteredInput(input);
+  // A string that does not decode to an action list is named, not guessed at.
   if (typeof (input as any)?.actions === "string")
     return reject(
-      'Invalid registered dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Inspect the graph.","actions":[{"type":"inspect","target":"graph"}]}. Only edit.python and edit.changes contain source strings.'
+      'Invalid registered dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Read the schema.","actions":[{"type":"inspect","target":"schema","operator_id":"records"}]}. Only edit.python and edit.changes contain source strings.'
     );
   if (!registeredValidator(input))
     return reject(`Invalid registered dataflow arguments: ${ajv.errorsText(registeredValidator.errors?.slice(0, 1))}.`);
   const request = input as unknown as DataflowActionsInput;
+  request.actions = mergeConsecutiveEdits(request.actions);
   for (const action of request.actions) {
     if (action.type === "edit" && !action.python?.trim() && !action.changes.trim())
       return reject("An edit needs nonempty python or changes.");
@@ -642,12 +797,11 @@ export function createRegisteredDataflowTool(
   stateHistory = false,
   _multiTask = stateHistory
 ) {
-  const schema = structuredClone(REGISTERED_DATAFLOW_ACTIONS_SCHEMA);
+  const schema = structuredClone(REGISTERED_TOOL_SCHEMA);
   for (const entry of schema.properties.actions.items.anyOf)
     if (entry.properties.type.const === "retrieve") (entry.properties as any).view.enum = [...views];
   return tool({
-    description:
-      "Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer actions. Python definitions share a namespace; each operator invocation is isolated and exchanges tables only through graph edges. Edits commit atomically and never run the graph. Retrieve accepts multiple operator_ids and never executes. Earlier committed edits survive later failures. After execution failure, later requested executions and reads can continue; edits are skipped, and a skipped edit also blocks subsequent executions. Answer content must be the sole action.",
+    description: "Build, execute, read and answer from a Dataflow with an ordered list of actions.",
     strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(schema as any),
     execute: async input => prepareRegisteredDataflowActions(input, views, stateHistory),

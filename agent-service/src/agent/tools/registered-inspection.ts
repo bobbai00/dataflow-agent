@@ -256,7 +256,7 @@ export function inspectRegisteredSource(
           ),
         ]
       : [
-          "No worksheet names were retained. For workbook discovery, create scan(files=..., preview=1), execute it, then inspect source in the same call.",
+          "No worksheet names were retained; a workbook preview scan keeps them.",
         ]),
     ...(scan.omittedFiles > 0
       ? [
@@ -271,7 +271,6 @@ export function inspectRegisteredSource(
       : [
           `More sheets: inspect target="source", operator_id=${JSON.stringify(op.operatorID)}, offset=${next}, limit=${limit}.`,
         ]),
-    "Use scan(..., sheet='name') without preview for analysis; inspect schema after execution for exact parsed column names and types.",
   ];
   return {
     operator_id: op.operatorID,

@@ -98,7 +98,8 @@ test("prompt detail updates are validated atomically and rebuild the prompt", ()
   const before = a.getSystemInfo().systemPrompt;
   a.updateSettings({ nativePromptDetail: "on_demand" } as any);
   expect((a.getSettings() as any).nativePromptDetail).toBe("on_demand");
-  expect(a.getSystemInfo().systemPrompt.length).toBeLessThan(before.length);
+  // The worked repair example it dropped is gone from both; the setting stays accepted.
+  expect(a.getSystemInfo().systemPrompt.length).toBeLessThanOrEqual(before.length);
   const settings = structuredClone(a.getSettings());
   expect(() => a.updateSettings({ maxSteps: 7, nativePromptDetail: "unknown" } as any)).toThrow();
   expect(a.getSettings()).toEqual(settings);
