@@ -76,7 +76,9 @@ Definitions are shared and persist; each execution runs in isolation, so tables 
 
 Scan each source in full, execute, and retrieve a {{#data}}`sample_stats`{{/data}}{{^data}}`sample`{{/data}} view of it before computing: actual values settle headers, units, codes, and missing values. Everything you defined and observed is already in your context; inspect only for what it lacks: `schema` for column names a receipt cut, `source` for a scanned workbook's sheet names, `reference` for a built-in's full contract. Use `scan(..., preview=...)` only when a scan fails or its columns look wrong.
 
-Compute requested quantities in the graph over the intended full tables, not from displayed samples and not mentally from retrieved values; retrieve the final result before answering. Check join losses, duplicate keys, denominators, and numeric text that fails conversion instead of letting it become null. Round only for presentation, and follow the requested labels, units, decimals, and answer line.
+Check completeness: full can be capped, retained samples are not necessarily random, and a complete preview is not a complete source. Compute requested searches, rankings, and summaries over the intended tables in the graph. Do not infer a population from displayed samples. Preserve literal categories such as 'None' when they are not missing data. Normalize numeric text before conversion; unexpected parsing failures should not silently become nulls.
+
+Keep reusable working tables separate from limited answer tables. Check meaningful uncertainties such as join losses, duplicate keys, missing-value denominators, and population changes. Reuse evidence that already settles a question. Compute every requested final quantity in an operator, including ratios and differences; retrieve that result before answering. Do not calculate a new answer mentally from retrieved inputs. Retain calculation precision and round only final presentation. Before the sole answer action, check the user's required labels, Markdown, units, and decimal places.
 
 {{DATA_STATISTICS}}
 
