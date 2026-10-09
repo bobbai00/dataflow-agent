@@ -92,3 +92,36 @@ test("a definition cell identical to the last one is neither appended nor a defi
   expect(back.namespace.cells).toHaveLength(3);
   expect(back.changedIds).toEqual(["out"]);
 });
+
+test("a rejected edit names the public functions it did not register", async () => {
+  const python = "def classify(table):\n    return table\ndef _helper(x):\n    return x\n";
+  const nested = await stageRegisteredEdit({
+    operators: {},
+    python,
+    changes: "set top: sort(scan(files='d.csv'), by=['a'])",
+  }).then(
+    () => undefined,
+    error => error as Error
+  );
+  expect(nested!.message).toContain("Declare a nested call as its own set statement");
+  expect(nested!.message).toContain("Nothing from this edit was registered, including classify;");
+  expect(nested!.message).not.toContain("_helper");
+  const unknown = await stageRegisteredEdit({
+    operators: {},
+    python,
+    changes: "set raw: scan(files='d.csv')\nset x: missing(raw)",
+  }).then(
+    () => undefined,
+    error => error as Error
+  );
+  expect(unknown!.message).toContain("Unknown operator type missing");
+  expect(unknown!.message).toContain("including classify");
+  // Graph-only edits and successful edits carry no such note.
+  const graphOnly = await stageRegisteredEdit({ operators: {}, python: "", changes: "set x: missing()" }).then(
+    () => undefined,
+    error => error as Error
+  );
+  expect(graphOnly!.message).not.toContain("Nothing from this edit was registered");
+  const accepted = await stageRegisteredEdit({ operators: {}, python, changes: "set raw: scan(files='d.csv')\nset c: classify(raw)" });
+  expect(accepted.registrations).toEqual([{ name: "classify", kind: "registered" }]);
+});

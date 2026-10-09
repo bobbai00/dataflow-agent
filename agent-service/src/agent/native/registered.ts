@@ -228,9 +228,25 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     ok: boolean;
     error?: string;
     statements: Array<SetStatement | { kind: "delete"; id: string; line: number }>;
-    declarations: Record<string, RegisteredBinding>;
+    declarations?: Record<string, RegisteredBinding>;
   };
-  if (!parsed.ok) throw new Error(parsed.error);
+  // A rejected edit registers nothing, so a later call that names one of its
+  // functions fails again (archeology-hard-12 lost two calls this way). Name
+  // them in the rejection. Diagnostic envelopes carry their own structure.
+  const unregistered = (error: unknown): Error => {
+    const message = error instanceof Error ? error.message : String(error);
+    const names = pythonChanged
+      ? Object.values(parsed.declarations ?? {})
+          .filter(d => d.kind === "function" && d.cell === cells.length && !d.name.startsWith("_"))
+          .map(d => d.name)
+      : [];
+    if (!names.length || message.startsWith("NATIVE_ERROR_V2:")) return error instanceof Error ? error : new Error(message);
+    return new Error(
+      `${message} Nothing from this edit was registered, including ${names.join(", ")}; resend the definitions with the corrected changes.`
+    );
+  };
+  if (!parsed.ok) throw unregistered(parsed.error);
+  const declared = parsed.declarations ?? {};
   // Graph IDs are Python identifiers, including names inherited by JS objects.
   const operators: Record<string, NativeOpView> = Object.assign(
     Object.create(null),
@@ -262,7 +278,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       } else {
         if (retired.has(statement.op))
           throw new Error(`${statement.op} is retired; call a registered table function directly.`);
-        const binding = parsed.declarations[statement.op];
+        const binding = declared[statement.op];
         if (!binding || binding.kind !== "function" || statement.op.startsWith("_"))
           throw new Error(`Unknown operator type ${statement.op}. Register a public synchronous function first.`);
         view = {
@@ -289,7 +305,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       operators[statement.id] = view;
       changedIds.add(statement.id);
     } catch (error) {
-      throw declarationError(statement, error);
+      throw unregistered(declarationError(statement, error));
     }
   }
   const declarations = new Map(parsed.statements.map(statement => [statement.id, statement]));
@@ -310,7 +326,11 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     visiting.delete(id);
     visited.add(id);
   }
-  Object.keys(operators).forEach(visit);
+  try {
+    Object.keys(operators).forEach(visit);
+  } catch (error) {
+    throw unregistered(error);
+  }
   for (const [id, view] of Object.entries(operators)) {
     if (!view.properties.registered) continue;
     const registration = view.properties.registered as Record<string, unknown>;
@@ -332,13 +352,13 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     functions: Record<string, RegisteredFunction>;
     bindings: Record<string, RegisteredBinding>;
   };
-  if (!checked.ok) throw new Error(checked.error);
+  if (!checked.ok) throw unregistered(checked.error);
   const diagnostics = await validateNativeOperators(Object.entries(operators).map(([id, view]) => ({ id, view })));
   const diagnostic = diagnostics.find(Boolean);
   if (diagnostic) throw new Error(`NATIVE_ERROR_V2:${JSON.stringify(diagnostic)}`);
   const namespace = { cells, functions: checked.functions, bindings: checked.bindings, revision: hash(cells) };
   const registrations: RegisteredStageResult["registrations"] = Object.values(checked.functions)
-    .filter(fn => fn.exported && pythonChanged && parsed.declarations[fn.name]?.cell === cells.length)
+    .filter(fn => fn.exported && pythonChanged && declared[fn.name]?.cell === cells.length)
     .map(fn => ({
       name: fn.name,
       kind: options.namespace && Object.hasOwn(options.namespace.functions, fn.name) ? "updated" : "registered",

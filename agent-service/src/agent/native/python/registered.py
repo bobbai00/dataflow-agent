@@ -215,8 +215,12 @@ def registered_request(request):
         cells = request.get("cells", [])
         if request["phase"] == "parse":
             declarations = _registered_declarations(cells)
-            return {"ok": True, "statements": parse_registered_changes(request.get("changes", "")),
-                    "declarations": declarations}
+            try:
+                statements = parse_registered_changes(request.get("changes", ""))
+            except Exception as error:
+                # The cells parsed: report what the rejected edit would have registered.
+                return {"ok": False, "error": f"{type(error).__name__}: {error}", "declarations": declarations}
+            return {"ok": True, "statements": statements, "declarations": declarations}
         scope, functions, bindings = registered_namespace(cells)
         for node in request.get("operators", []):
             name = node["entry"]
