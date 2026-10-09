@@ -79,9 +79,6 @@ export interface ReActStep {
   timestamp: number;
   role: "user" | "agent";
   content: string;
-  /** On a later request: the definitions and results it inherits, rendered
-   *  once when it arrived and replayed with the request, never re-rendered. */
-  sessionState?: string;
   /** Reasoning summary the provider returned for this step, when it exposes
    *  one (OpenAI reasoning models, Anthropic extended thinking). Kept out of
    *  `content` on purpose: `content` is replayed to the model as context,
@@ -171,8 +168,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   taskContext?: "trajectory" | "dependencies";
   /** Include the persistent-session instructions from the first request. */
   multiTask: boolean;
-  /** Show each later request the definitions and results it inherits. */
-  sessionState: boolean;
   systemPrompt: string;
   disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
@@ -551,7 +546,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   taskContext: "trajectory",
   ...DEFAULT_OBSERVATION_FORMAT,
   multiTask: false,
-  sessionState: false,
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
@@ -679,7 +673,6 @@ export interface AgentDelegateConfig {
 export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
   taskContext?: "trajectory" | "dependencies";
   multiTask?: boolean;
-  sessionState?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
@@ -788,7 +781,6 @@ export interface CreateAgentRequest {
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
   taskContext?: "trajectory" | "dependencies";
   multiTask?: boolean;
-  sessionState?: boolean;
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";

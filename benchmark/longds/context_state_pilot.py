@@ -59,8 +59,7 @@ CASES = {
         'turns': 3, 'rationale': 'Q2 asks for the original score after Q1 replaces it; Q3 must keep the recomputed rule.'},
 }
 MODELS = ('gpt-5.6-terra', 'gpt-5.6-luna')
-# `state`: the trajectory, with each later request opening on the session state it inherits.
-CONTEXTS = ('catalog', 'trajectory', 'state')
+CONTEXTS = ('catalog', 'trajectory')
 AGENTS = ('dataflow', 'python')
 DEFAULT_JUDGE = 'gpt-5.2'
 
@@ -96,7 +95,7 @@ def native_settings(context):
     if context not in CONTEXTS:
         raise ValueError('Unknown context policy')
     return {**SETTINGS, 'taskContext': 'dependencies' if context == 'catalog' else 'trajectory',
-            'sessionState': context == 'state', 'catalogRecords': 0, 'stateLedger': False,
+            'catalogRecords': 0, 'stateLedger': False,
             'contextWindowTokens': 0, 'thoughtReplay': False, 'maxSteps': 40}
 
 

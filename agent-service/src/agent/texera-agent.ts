@@ -160,8 +160,7 @@ import {
   type DriverRunTurnResult,
 } from "./llm-drivers/types";
 import { forkState, historicalTask } from "./state-history";
-import { originTask, restoreAssignment, splitVersionCommands } from "./state-ledger";
-import { renderSessionState } from "./native/session-state";
+import { restoreAssignment, splitVersionCommands } from "./state-ledger";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -607,7 +606,6 @@ export class TexeraAgent {
         // system prompt that changes mid-session invalidates the whole cached
         // prefix and gives the first task different instructions.
         multiTask: this.settings.multiTask || this.taskNumberOffset > 0,
-        sessionState: this.settings.sessionState === true,
         taskContext: this.settings.taskContext,
         resume: this.settings.enableResumeTool === true,
         compact: this.settings.enableCompactTool === true,
@@ -963,39 +961,6 @@ export class TexeraAgent {
     return first
       ? (this.reActStepsByMessageId.get(first) ?? []).find(step => step.role === "user")?.parentId
       : undefined;
-  }
-
-  /** What a new request inherits from earlier ones, rendered once as it arrives
-   * from the state it starts from, so every later call replays the same bytes. */
-  private sessionStateText(): string | undefined {
-    const stepId = this.head;
-    if (!this.settings.sessionState || this.settings.agentMode !== AgentMode.NATIVE) return undefined;
-    if (!stepId || !this.snapshotStorage.hasSnapshotFor(stepId)) return undefined;
-    const storage = this.snapshotStorage;
-    const workflow = storage.getWorkflow(stepId);
-    const ledger = {
-      storage,
-      historicalTasks: this.archivedTaskHistory(),
-      taskNumberOffset: this.taskNumberOffset,
-      loadedStepId: this.loadedStepId(),
-    };
-    const text = renderSessionState({
-      workflow,
-      result: id => storage.getOperatorResult(stepId, id),
-      hadResult: id => {
-        for (let snapshot = storage.getAssociatedSnapshot(stepId); snapshot.parentId; ) {
-          const parent = storage.getSnapshotById(snapshot.parentId);
-          if (!parent) return false;
-          if (parent.results.has(id)) return true;
-          snapshot = parent;
-        }
-        return false;
-      },
-      origin: id =>
-        originTask(ledger, id, workflow.operators.find(op => op.operatorID === id)?.nativeOp?.revision)?.taskId,
-      tableFormat: this.settings.tableFormat,
-    });
-    return text || undefined;
   }
 
   /** The number of the task a step belongs to, counted like `completedStateTasks`. */
@@ -1605,7 +1570,7 @@ export class TexeraAgent {
       indexThinObservations?: boolean;
       tunerConfig?: TunerConfig | null;
     } & RetrievalSettings &
-      ObservationFormatOptions & { multiTask?: boolean; sessionState?: boolean }
+      ObservationFormatOptions & { multiTask?: boolean }
   ): void {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
@@ -1635,10 +1600,6 @@ export class TexeraAgent {
     }
     if (updates.multiTask !== undefined) {
       this.settings.multiTask = updates.multiTask;
-      promptNeedsRebuild = true;
-    }
-    if (updates.sessionState !== undefined) {
-      this.settings.sessionState = updates.sessionState;
       promptNeedsRebuild = true;
     }
     for (const key of [
@@ -2064,7 +2025,6 @@ export class TexeraAgent {
 
     try {
       const estimatedInputTokens = Math.ceil(userMessage.length / 4);
-      const sessionState = this.sessionStateText();
       const userStepId = this.generateStepId();
       const userStep: ReActStep = {
         id: userStepId,
@@ -2074,7 +2034,6 @@ export class TexeraAgent {
         timestamp: Date.now(),
         role: "user",
         content: userMessage,
-        ...(sessionState ? { sessionState } : {}),
         isBegin: true,
         isEnd: true,
         messageSource,
@@ -3580,8 +3539,6 @@ export class TexeraAgent {
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
 
-        // A replayed request inherits the same session state as a live one.
-        const sessionState = this.sessionStateText();
         const userStepId = this.generateStepId();
         const userStep: ReActStep = {
           id: userStepId,
@@ -3591,7 +3548,6 @@ export class TexeraAgent {
           timestamp: Date.now(),
           role: "user",
           content,
-          ...(sessionState ? { sessionState } : {}),
           isBegin: true,
           isEnd: true,
           messageSource,

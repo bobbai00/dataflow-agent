@@ -648,7 +648,6 @@ const OBSERVATION_SETTINGS_SCHEMA = {
   ),
   answerEcho: t.Optional(t.Boolean()),
   multiTask: t.Optional(t.Boolean()),
-  sessionState: t.Optional(t.Boolean()),
   taskContext: t.Optional(t.Union([t.Literal("trajectory"), t.Literal("dependencies")])),
 };
 
@@ -657,7 +656,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   return {
     ...observationFormat(agentSettings),
     multiTask: agentSettings.multiTask,
-    sessionState: agentSettings.sessionState,
     taskContext: agentSettings.taskContext,
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
@@ -911,7 +909,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           agent.updateSettings({
             ...observationFormatPatch(settings),
             multiTask: settings.multiTask,
-            sessionState: settings.sessionState,
             taskContext: settings.taskContext,
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
@@ -1447,7 +1444,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       agent.updateSettings({
         ...observationFormatPatch(settings),
         multiTask: settings.multiTask,
-        sessionState: settings.sessionState,
         taskContext: settings.taskContext,
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,

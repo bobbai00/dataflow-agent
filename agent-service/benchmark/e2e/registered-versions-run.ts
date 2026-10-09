@@ -16,9 +16,9 @@
  */
 
 /** Two-task registered-Python probe through the live agent and Amber engine,
- * with no model request: the session state a later request inherits, an
- * unrelated definition leaving results current, and a `name@N` input that
- * computes the earlier version beside the current one. Run from agent-service:
+ * with no model request: an unrelated definition leaving results current, and
+ * a `name@N` input that computes the earlier version beside the current one.
+ * Run from agent-service:
  * bun benchmark/e2e/registered-versions-run.ts
  * Requires bin/local-dev.sh services from this checkout.
  */
@@ -141,7 +141,6 @@ try {
       messageLayout: "native",
       retrievalViews: ["full"],
       multiTask: true,
-      sessionState: true,
     },
   });
   resource.agentId = agent.id;
@@ -156,14 +155,7 @@ try {
   await call("answer task one", [{ type: "answer", content: "2 and 4." }]);
   log("PASS task one computed and answered");
 
-  const context = await debug("Task two: compare with the first rate.");
-  const requests = (await getReActSteps(agent.id, baseUrl)).steps.filter(s => s.role === "user" && s.isBegin);
-  const state = requests.at(-1)?.sessionState ?? "";
-  assert.match(state, /## Session state at the start of this request/);
-  assert.match(state, /- `priced\(table\)`: Multiply value by the rate\./);
-  assert.match(state, /\| prices \| `priced\(raw\)` \| 2 rows, 1 column \| 1 \| as raw \|/);
-  assert.ok(context.includes(state), "The next context must carry the inherited state with the request.");
-  log("PASS the later request carries its inherited state");
+  await debug("Task two: compare with the first rate.");
 
   const before = (await history()).length;
   const unrelated = await call("register an unrelated function", [

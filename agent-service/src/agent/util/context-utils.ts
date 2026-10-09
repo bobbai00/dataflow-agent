@@ -590,7 +590,7 @@ export function renderContextCore(
   // event inline in the events list. Older user messages (multi-task
   // continuation) still render inline as `## User Event N`.
   const latestUserStep = findLatestUserStepInPath(path);
-  const latestUserContent = latestUserStep ? requestText(latestUserStep.step) : undefined;
+  const latestUserContent = latestUserStep?.step.content;
   const latestUserStepId = latestUserStep?.step.id;
 
   const tasks = groupIntoTasks(path);
@@ -3250,15 +3250,8 @@ function serializeUserEventInline(node: PathNode): string {
   const lines: string[] = [];
   lines.push(`## User Event ${node.eventIndex}`);
   lines.push("");
-  const text = requestText(node.step);
-  if (text) lines.push(text);
+  if (node.step.content) lines.push(node.step.content);
   return lines.join("\n").trimEnd();
-}
-
-/** A request as the model sees it: the user's words, then the session state it
- *  inherited, frozen when it arrived. */
-function requestText(step: ReActStep): string {
-  return step.sessionState ? `${step.content}\n\n${step.sessionState}` : step.content;
 }
 
 /**

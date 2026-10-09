@@ -115,14 +115,10 @@ class PilotContractTest(unittest.TestCase):
             validate_case(manifest, {'d/x/t'}, 1)
 
     def test_context_ablation_changes_only_context_policy(self):
-        catalog, trajectory, state = (native_settings(name) for name in ('catalog', 'trajectory', 'state'))
-        policy = {'taskContext', 'sessionState'}
-        self.assertEqual({k: v for k, v in catalog.items() if k not in policy},
-                         {k: v for k, v in trajectory.items() if k not in policy})
-        self.assertEqual({k: v for k, v in trajectory.items() if k not in policy},
-                         {k: v for k, v in state.items() if k not in policy})
-        self.assertEqual([s['taskContext'] for s in (catalog, trajectory, state)], ['dependencies', 'trajectory', 'trajectory'])
-        self.assertEqual([s['sessionState'] for s in (catalog, trajectory, state)], [False, False, True])
+        catalog, trajectory = (native_settings(name) for name in ('catalog', 'trajectory'))
+        self.assertEqual({k: v for k, v in catalog.items() if k != 'taskContext'},
+                         {k: v for k, v in trajectory.items() if k != 'taskContext'})
+        self.assertEqual([s['taskContext'] for s in (catalog, trajectory)], ['dependencies', 'trajectory'])
         self.assertEqual(catalog['contextWindowTokens'], 0)
         self.assertEqual(catalog['catalogRecords'], 0)
 
