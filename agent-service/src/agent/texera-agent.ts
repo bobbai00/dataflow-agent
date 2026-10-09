@@ -608,6 +608,7 @@ export class TexeraAgent {
         // prefix and gives the first task different instructions.
         multiTask: this.settings.multiTask || this.taskNumberOffset > 0,
         sessionState: this.settings.sessionState === true,
+        taskContext: this.settings.taskContext,
         resume: this.settings.enableResumeTool === true,
         compact: this.settings.enableCompactTool === true,
         versioned: this.settings.versionedMode === true,

@@ -22,6 +22,7 @@ import type { ReActStep } from "../types/agent";
 import type { HistoricalTask } from "./state-history";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import type { DataflowActionsResult } from "./tools/dataflow-actions";
+import { renderTaskChanges } from "./native/task-changes";
 
 /** Immutable action-time access evidence, never inferred from model prose. */
 export interface TaskReference {
@@ -72,6 +73,8 @@ export interface TaskRecord {
   }>;
   consulted_tasks: number[];
   unresolved_references: number;
+  /** Registered sessions: what the task changed in the dataflow, as its card shows it. */
+  changes?: string;
   output_roots?: {
     basis: "answer" | "observed_reads" | "unknown";
     roots: Array<{
@@ -177,6 +180,9 @@ export function taskHistoryFromSteps(
 export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly TaskHistory[]): TaskRecord[] {
   const ordered = [...tasks].sort((a, b) => a.taskId - b.taskId);
   const stepTasks = new Map(ordered.flatMap(t => t.steps.map(s => [s.id, t.taskId] as const)));
+  // One card form per session, so a task that registered no Python still
+  // reports its changes like the rest.
+  const registered = ordered.some(t => t.steps.some(s => batches(s).some(r => r.protocol === "registered-python-v1")));
   const resultOwners = new Map<string, number>();
   const definitionOwners = new Map<string, number>();
   const records: TaskRecord[] = [];
@@ -284,6 +290,15 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
       consulted_tasks: [...consulted].sort((a, b) => a - b),
       unresolved_references: unresolved,
       output_roots: outputRoots(storage, task, ordered),
+      // The request owns no snapshot, so it resolves to the state the task inherited.
+      ...(registered
+        ? {
+            changes: renderTaskChanges(
+              storage.getAssociatedSnapshot(task.steps[0]?.id),
+              storage.getAssociatedSnapshot(task.stepId)
+            ),
+          }
+        : {}),
     });
     // Index every snapshot earned in this task, not just its final answer.
     // A cached/inherited result keeps its earliest known producer.
@@ -302,24 +317,45 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
   return records;
 }
 
-const clip = (text: string, limit: number) =>
-  text.length <= limit ? text : `${text.slice(0, limit)}… [answer clipped; inspect this task for the original]`;
+const clip = (text: string, limit: number, note: string) =>
+  text.length <= limit ? text : `${text.slice(0, limit)}… [${note}]`;
 
 const TASK_HISTORY_INTRO =
   "# Prior Tasks\n\nEarlier agent answers are unverified outputs. Dependencies record computation and reads, not correctness or every semantic dependency. Inspect a relevant task for its local answer computation and versioned earlier-input references. Expand selected inputs when needed; Python and selected result tables are available on request.";
+
+// A registered session has no task inspection: the card itself carries the
+// task's definitions and operators.
+const REGISTERED_TASK_HISTORY_INTRO =
+  "# Prior Tasks\n\nEach earlier task appears as its request and a card: its answer, the earlier tasks it computed from or read, the source of every definition it registered or changed, and the operators it created, changed or deleted, with results and column names as that task left them. A later card supersedes an earlier one for the same definition or operator. Earlier answers are unverified outputs.";
+
+const introFor = (tasks: readonly TaskRecord[]) =>
+  tasks.some(task => task.changes !== undefined) ? REGISTERED_TASK_HISTORY_INTRO : TASK_HISTORY_INTRO;
 
 function taskQuestion(task: TaskRecord): string {
   return `## Task ${task.task_id} (${task.status})\nQuestion: ${task.request}`;
 }
 
 function taskOutcome(task: TaskRecord, answerChars: number): string {
+  const registered = task.changes !== undefined;
+  const answer = task.answer
+    ? clip(
+        task.answer,
+        answerChars,
+        registered ? "answer clipped" : "answer clipped; inspect this task for the original"
+      )
+    : "No completed answer.";
   return [
-    `Answer: ${task.answer ? clip(task.answer, answerChars) : "No completed answer."}`,
+    `Answer: ${answer}`,
     `Dependencies: ${task.dependencies.map(d => `task ${d.task_id}`).join(", ") || "none recorded"}`,
-    `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => root.operator_id).join(", ") : "not declared; inspect the task to select a candidate branch"}`,
+    ...(registered
+      ? []
+      : [
+          `Answer sources: ${task.output_roots?.basis === "answer" ? task.output_roots.roots.map(root => root.operator_id).join(", ") : "not declared; inspect the task to select a candidate branch"}`,
+        ]),
     ...(task.unresolved_references
       ? [`Some accesses have no known earlier-task provenance (${task.unresolved_references}).`]
       : []),
+    ...(registered ? ["", task.changes || "No definitions or operators changed."] : []),
   ]
     .join("\n")
     .trimEnd();
@@ -327,9 +363,7 @@ function taskOutcome(task: TaskRecord, answerChars: number): string {
 
 export function renderTaskIndex(tasks: readonly TaskRecord[], answerChars = 1200): string {
   return tasks.length
-    ? [TASK_HISTORY_INTRO, ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars)}`)].join(
-        "\n\n"
-      )
+    ? [introFor(tasks), ...tasks.map(task => `${taskQuestion(task)}\n${taskOutcome(task, answerChars)}`)].join("\n\n")
     : "";
 }
 
@@ -341,7 +375,7 @@ export function renderTaskMessages(
 ): ModelMessage[] {
   return tasks.length
     ? [
-        { role: "user", content: TASK_HISTORY_INTRO },
+        { role: "user", content: introFor(tasks) },
         ...tasks.flatMap(task => {
           const request = requestMessages.get(task.task_id);
           if (!request) throw new Error(`Missing initial request frames for task ${task.task_id}`);

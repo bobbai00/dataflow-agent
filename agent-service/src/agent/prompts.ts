@@ -224,6 +224,8 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   multiTask?: boolean;
   /** Later requests begin with the state they inherit (registered protocol). */
   sessionState?: boolean;
+  /** `dependencies`: earlier tasks appear as cards in place of their calls. */
+  taskContext?: AgentSettings["taskContext"];
   messageLayout?: AgentSettings["messageLayout"];
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
@@ -519,7 +521,9 @@ export function buildRegisteredNativeSystemPrompt(
   const context =
     contextMode === ContextMode.LATEST
       ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
-      : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
+      : flags.multi && options.taskContext === "dependencies"
+        ? "Your context contains the current task's calls and observations. Each earlier task appears as its request and a card instead: its answer, the source of the definitions it registered or changed, and the operators it created, changed or deleted, with results and column names as that task left them. Each observation describes the graph at that time; later edits may have made its results stale."
+        : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
   const fields: Record<string, string> = {
     CONTEXT_LAYOUT:
       context +
