@@ -64,8 +64,10 @@ def main():
     parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
     parser.add_argument("--large-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=900)
-    parser.add_argument("--full-result-char-limit", type=full_result_char_limit, default=100000,
-                        help="Full retrieval display cap, 128..100000 characters (historical default: 100000; service default: 5000)")
+    parser.add_argument("--full-result-char-limit", type=full_result_char_limit, default=5000,
+                        help="Full retrieval display cap, 128..100000 characters (service default: 5000; the 2026-10-08 pilots used 100000)")
+    parser.add_argument("--sample-char-limit", type=int, default=1000,
+                        help="Record budget per retrieved sample/sample_stats result, characters (service default: 2000)")
     parser.add_argument("--selection", default="Diagnostic pilot selected before runs for large tables, parsing, joins and known sampling mistakes; not a representative full-benchmark estimate.")
     parser.add_argument("--source-manifest", type=Path, help="Frozen input inventory and task-selection rationale")
     parser.add_argument("--tasks", nargs="+", default=["archeology-easy-6", "astronomy-easy-1",
@@ -140,7 +142,7 @@ def main():
         "working_tree_sources_sha256": source_hash.hexdigest(),
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
         "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
-                     "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
+                     "maxSteps": 25, "maxOperatorResultCharLimit": args.sample_char_limit, "maxResultRows": 5,
                      "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
                      "thoughtReplay": False, "enableCodeInSnapshot": False},
         "selection": args.selection,

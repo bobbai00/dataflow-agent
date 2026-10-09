@@ -177,8 +177,20 @@ model_list:
       model: openrouter/qwen/qwen3.8-27b
       api_base: "os.environ/OPENROUTER_BASE_URL"
       api_key: "os.environ/OPENROUTER_API_KEY"
+      # Pin the serving providers so a campaign measures one model, not the
+      # router: unquantized or fp8 weights with structured-output support, in
+      # price order, no fallback outside the list. The fp4 routes (Sail
+      # Research, Decart) and InferenceNet produced the 2026-10-08 failure loops.
+      extra_body:
+        provider:
+          order: ["deepinfra", "dekallm", "wafer"]
+          allow_fallbacks: false
   - model_name: deepseek-v4.1-flash
     litellm_params:
       model: openrouter/deepseek/deepseek-v4.1-flash
       api_base: "os.environ/OPENROUTER_BASE_URL"
       api_key: "os.environ/OPENROUTER_API_KEY"
+      extra_body:
+        provider:
+          order: ["deepinfra", "morph", "wafer"]
+          allow_fallbacks: false
