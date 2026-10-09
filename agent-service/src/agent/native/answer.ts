@@ -207,6 +207,26 @@ export function statedDecimals(texts: string[]): number[] {
   return [...found];
 }
 
+/** Why an answer written by the model lacks the marker line a request asks for
+ * (`**Final Answer: <value>**`), or undefined when it has it or no request asks.
+ * A grader reads the value after the marker; prose without it, or a value cut
+ * short ("27 states had " for 27, "S" for São Paulo), loses a computed value,
+ * and so does text after the closing bold ("**Final Answer: 1097.47**."). */
+export function answerLineProblem(content: string, requestTexts: readonly string[]): string | undefined {
+  if (!requestTexts.some(text => text.includes(ANSWER_MARKER))) return undefined;
+  const line = content.split("\n").find(text => text.includes(ANSWER_MARKER));
+  if (line === undefined)
+    return `this request asks for the line **${ANSWER_MARKER} <value>**, and the answer has none. Send the answer again ending with that line.`;
+  const value = line
+    .slice(line.indexOf(ANSWER_MARKER) + ANSWER_MARKER.length)
+    .trim()
+    .replace(/\*\*$/, "")
+    .trim();
+  if (!value || value.includes("**"))
+    return `the line ${JSON.stringify(line.trim().slice(0, 120))} has no value or has text after it. Send the answer again ending with **${ANSWER_MARKER} <value>**.`;
+  return undefined;
+}
+
 function fractional(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value) && !Number.isInteger(cleanNumber(value));
 }

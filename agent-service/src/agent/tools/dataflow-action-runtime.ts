@@ -38,7 +38,7 @@ import {
 } from "../native/observation-format";
 import { loadedRevision, originTask } from "../state-ledger";
 import { nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
-import { composeAnswerParts, parseAnswerFromParts, statedDecimals } from "../native/answer";
+import { answerLineProblem, composeAnswerParts, parseAnswerFromParts, statedDecimals } from "../native/answer";
 import { edgeEnds, planGraphEdit, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import {
   inspectRegisteredNamespace,
@@ -995,6 +995,10 @@ export async function executeDataflowActionBatch(
         );
       for (const part of parsed.parts) recordReference(part.id, "read", index);
       composed = { answer_from: parsed.parts.map(part => part.id).join(", "), answer: outcome.json };
+    }
+    if (!composed && "content" in action) {
+      const problem = answerLineProblem(String(action.content ?? ""), runtime.requestTexts ?? []);
+      if (problem) throw new Error(`answer not accepted: ${problem}`);
     }
     if (settings.stateLedger) {
       // The answer is recorded in the step; the receipt carries the task's

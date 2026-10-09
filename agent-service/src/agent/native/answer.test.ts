@@ -17,6 +17,7 @@
 import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import {
+  answerLineProblem,
   composeAnswer,
   composeAnswerParts,
   parseAnswerFrom,
@@ -135,4 +136,20 @@ test("several tables compose one answer with a key per part", () => {
   expect("reason" in composeAnswerParts((parseAnswerFromParts("top; n=count_row") as any).parts, id => tables[id])).toBe(true);
   expect("error" in parseAnswerFromParts("a; a")).toBe(true);
   expect("error" in parseAnswerFromParts(" ; ")).toBe(true);
+});
+
+test("an answer needs the marker line its request asks for, with nothing after the value", () => {
+  const asks = ["Question: How many states?\n\nYour last line MUST BE: **Final Answer: <value>**"];
+  expect(answerLineProblem("**Final Answer: 27**", asks)).toBeUndefined();
+  expect(answerLineProblem("27 rows match.\nFinal Answer: 27", asks)).toBeUndefined();
+  expect(answerLineProblem("The ratio rounds to **Final Answer: 1097.47**", asks)).toBeUndefined();
+  expect(answerLineProblem("**Final Answer: São Paulo**", asks)).toBeUndefined();
+  // Prose or a value cut short has no marker line.
+  expect(answerLineProblem("27 states had ", asks)).toContain("has none");
+  expect(answerLineProblem("S", asks)).toContain("has none");
+  // Text after the closing bold, or no value.
+  expect(answerLineProblem("The ratio rounds to **Final Answer: 1097.47**.", asks)).toContain("text after it");
+  expect(answerLineProblem("**Final Answer: **", asks)).toContain("no value");
+  // Requests that state no marker line accept any answer.
+  expect(answerLineProblem("27 states had ", ["How many states?"])).toBeUndefined();
 });
