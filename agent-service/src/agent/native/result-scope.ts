@@ -73,7 +73,7 @@ export function resultScope(
     const inputs = view.inputs.filter(Boolean);
     let line: string | undefined;
     if (view.type === "Process") {
-      line = `process ${name(id)}: row selection inside Python is unknown; inspect its definition.`;
+      line = `${view.registeredName ?? "process"} ${name(id)}: row selection inside Python is unknown; inspect its definition.`;
       // The result need not be a subset of its inputs. Do not infer its
       // population from upstream filters or limits, even if counts match.
     } else {
@@ -82,7 +82,7 @@ export function resultScope(
           view.type === "Limit" ? `n=${view.properties.n}, offset=${view.properties.offset ?? 0}; ` : "";
         line = `${view.type.toLowerCase()} ${name(id)}: ${parameters}input ${inputs[0] ? inputShape(item, inputs[0]) : "unconnected"}; output ${rows(completed(id))}.`;
       } else if (view.type === "Scan" && view.properties.preview !== undefined) {
-        line = `preview ${name(id)}: at most ${view.properties.preview} source rows; not a full scan.`;
+        line = `preview ${name(id)}: ${view.properties.preview}-row budget per file/sheet/table; headers or metadata may add rows; not a full scan.`;
       }
       if (includeUpstream) pending.push(...inputs);
     }

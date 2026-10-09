@@ -16,6 +16,11 @@ from collections import Counter, defaultdict
 import json
 from pathlib import Path
 
+try:
+    from .metrics import retrieval_results
+except ImportError:
+    from metrics import retrieval_results
+
 
 def audit(directory):
     analysis = json.loads((directory / "analysis.json").read_text())
@@ -51,19 +56,20 @@ def audit(directory):
                     continue
                 rationale = calls.get(result.get("toolCallId"), {}).get("reasoning", "")
                 for item in output.get("actions", []):
-                    action, observation = item.get("action", {}), item.get("output", {})
-                    if action.get("type") != "retrieve" or item.get("status") != "ok":
-                        continue
-                    text, facts = observation.get("text", ""), observation.get("evidence", [])
-                    reads.append({"model": row["model"], "arm": row["arm"], "task": row["task"],
-                        "rep": row["rep"], "sut": row["sut"], "step": step.get("stepId"),
-                        "operator": action["operator_id"], "view": action["view"], "rationale": rationale,
-                        "chars": len(text), "table": observation.get("table"),
-                        "data_facts": sum(f.startswith("data.") for f in facts),
-                        "full_scope_data": "column counts (full=" in text,
-                        "partial_scope_data": "column counts (partial prefix=" in text,
-                        "coverage_notice": "Data statistics:" in text,
-                        "source_preview_label": "source preview only" in text})
+                    action = item.get("action", {})
+                    for observation in retrieval_results(item):
+                        if observation.get("status") != "ok":
+                            continue
+                        text, facts = observation.get("text", ""), observation.get("evidence", [])
+                        reads.append({"model": row["model"], "arm": row["arm"], "task": row["task"],
+                            "rep": row["rep"], "sut": row["sut"], "step": step.get("stepId"),
+                            "operator": observation["operator_id"], "view": action["view"], "rationale": rationale,
+                            "chars": len(text), "table": observation.get("table"),
+                            "data_facts": sum(f.startswith("data.") for f in facts),
+                            "full_scope_data": "column counts (full=" in text or "statistics: full table" in text,
+                            "partial_scope_data": "column counts (partial prefix=" in text or "statistics: partial" in text,
+                            "coverage_notice": "Data statistics:" in text or "statistics:" in text,
+                            "source_preview_label": "source preview" in text})
     groups = defaultdict(list)
     for read in reads:
         if read["arm"].startswith("adaptive"):

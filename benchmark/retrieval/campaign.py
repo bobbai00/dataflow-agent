@@ -13,6 +13,12 @@
 """Resource limits and deterministic checks for long retrieval campaigns."""
 import json
 import threading
+try:
+    from .metrics import retrieval_results, tool_error_counts
+    from .answer_diagnostics import diagnose_answer
+except ImportError:
+    from metrics import retrieval_results, tool_error_counts
+    from answer_diagnostics import diagnose_answer
 
 
 def install_provider_prices(cost_module, models):
@@ -90,6 +96,7 @@ def audit_attempt(path, settings):
     steps = raw if isinstance(raw, list) else (raw or {}).get("steps", [])
     previous, prefix_checks, action_errors, reads = None, 0, 0, 0
     answered, text_replies = False, 0
+    tool_errors = envelope_errors = 0
     for step in steps:
         messages = step.get("inputMessages")
         if settings.get("agentMode") == "native" and step.get("role") == "agent" and messages is not None and not step.get("toolCalls") and step.get("content"):
@@ -101,6 +108,9 @@ def audit_attempt(path, settings):
                     violations.append("context_prefix_changed")
             previous = messages
         for result in step.get("toolResults", []):
+            counts = tool_error_counts(result)
+            tool_errors += counts["tool_errors"]
+            envelope_errors += counts["envelope_errors"]
             output = result.get("output")
             if not isinstance(output, dict):
                 continue
@@ -108,16 +118,19 @@ def audit_attempt(path, settings):
                 action_errors += item.get("status") == "error"
                 action, observed = item.get("action", {}), item.get("output", {})
                 answered |= action.get("type") == "answer" and item.get("status") == "ok"
-                if action.get("type") != "retrieve" or item.get("status") != "ok":
+                if action.get("type") != "retrieve":
                     continue
-                reads += 1
-                if action.get("view") not in settings["retrievalViews"]:
-                    violations.append("unexpected_retrieval_view")
-                facts = observed.get("evidence", [])
-                if not settings["flowEvidence"] and any(f.startswith("flow.") for f in facts):
-                    violations.append("flow_evidence_leak")
-                if action.get("view") != "sample_stats" and any(f.startswith("data.") for f in facts):
-                    violations.append("data_evidence_leak")
+                for target in retrieval_results(item):
+                    if target.get("status") != "ok":
+                        continue
+                    reads += 1
+                    if action.get("view") not in settings["retrievalViews"]:
+                        violations.append("unexpected_retrieval_view")
+                    facts = target.get("evidence", [])
+                    if not settings["flowEvidence"] and any(f.startswith("flow.") for f in facts):
+                        violations.append("flow_evidence_leak")
+                    if action.get("view") != "sample_stats" and any(f.startswith("data.") for f in facts):
+                        violations.append("data_evidence_leak")
     if settings.get("agentMode") == "native" and raw is not None:
         if text_replies:
             warnings.append("text_without_dataflow")
@@ -141,5 +154,10 @@ def audit_attempt(path, settings):
             frequencies = data.get("frequencies")
             if frequencies and sum(v["count"] for v in frequencies["values"]) + frequencies["otherCount"] != data["nonnullCount"]:
                 violations.append("frequency_equation")
-    return {"violations": sorted(set(violations)), "warnings": warnings, "prefix_checks": prefix_checks,
-            "action_errors": action_errors, "text_replies": text_replies, "retrievals": reads, "profiles": profiles, "columns": columns}
+    diagnostics = diagnose_answer(
+        (path / "prompt.txt").read_text() if (path / "prompt.txt").exists() else "",
+        (path / "response.txt").read_text() if (path / "response.txt").exists() else "",
+        steps, read("snapshot.json", {}))
+    return {"answer_diagnostics": diagnostics, "violations": sorted(set(violations)), "warnings": warnings, "prefix_checks": prefix_checks,
+            "action_errors": action_errors, "tool_errors": tool_errors, "envelope_errors": envelope_errors,
+            "text_replies": text_replies, "retrievals": reads, "profiles": profiles, "columns": columns}

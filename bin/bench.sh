@@ -27,6 +27,7 @@
 #   bin/bench.sh longds judge --sut <SUT> [--judge-model MODEL]
 #   bin/bench.sh longds analyze --sut <SUT> --task <key>
 #   bin/bench.sh longds download --task <domain/dataset/task>   fetch one more task from HF
+#   bin/bench.sh retrieval run|analyze <args...>  matched native campaigns and reports
 #
 set -euo pipefail
 
@@ -182,10 +183,23 @@ cmd_longds() {
     esac
 }
 
+cmd_retrieval() {
+    need_venv
+    local sub="${1:-}"; shift || true
+    case "$sub" in
+        run)     "$PY" -u "$BENCH_DIR/retrieval/run.py" "$@" ;;
+        analyze) "$PY" "$BENCH_DIR/retrieval/analyze.py" "$@" ;;
+        reconcile) "$PY" "$BENCH_DIR/retrieval/metrics.py" "$@" ;;
+        audit) "$PY" "$BENCH_DIR/retrieval/audit.py" "$@" ;;
+        *) die "retrieval subcommand must be run, reconcile, analyze or audit" ;;
+    esac
+}
+
 case "${1:-}" in
     setup)  shift; cmd_setup "$@" ;;
     kb)     shift; cmd_kb "$@" ;;
     longds) shift; cmd_longds "$@" ;;
+    retrieval) shift; cmd_retrieval "$@" ;;
     *)
         sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
         exit 1

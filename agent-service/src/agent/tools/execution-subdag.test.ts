@@ -199,3 +199,108 @@ describe("execution plan carries only the targets' upstream closure", () => {
     }
   });
 });
+
+describe("execution phase metrics survive persistence summaries", () => {
+  const phaseMetrics = {
+    version: 1,
+    compilation: "passed",
+    compilationDurationMs: 7,
+    runtimeStartAttempted: true,
+  } as const;
+
+  test.each([true, false])("single execution records engine metrics, success=%s", async success => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        success,
+        state: success ? "Completed" : "Failed",
+        operators: {},
+        executionId: "e1",
+        phaseMetrics,
+        ...(success ? {} : { errors: ["worker failed"] }),
+      })
+    );
+    const runs: unknown[] = [];
+    try {
+      const outcome = await executeWorkflowAndPersist(
+        makeState(),
+        { userToken: "test", workflowId: 792 },
+        {
+          opsToViewResult: ["c"],
+          onExecution: run => runs.push(run),
+        }
+      );
+      expect(outcome.executionRuns).toEqual([
+        { targets: ["c"], executionId: "e1", success, state: success ? "Completed" : "Failed", phaseMetrics },
+      ]);
+      expect(runs).toEqual(outcome.executionRuns!);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  test("independent groups retain failed and successful run metrics and results", async () => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const persisted: string[] = [];
+    const fetch = spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        Response.json({
+          success: false,
+          state: "CompilationFailed",
+          operators: {},
+          executionId: "bad",
+          compilationErrors: { c: "invalid type" },
+          phaseMetrics: { ...phaseMetrics, compilation: "failed", runtimeStartAttempted: false },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          state: "Completed",
+          executionId: "good",
+          phaseMetrics,
+          operators: {
+            y: { state: "Completed", resultMode: "table", inputTuples: 0, outputTuples: 1, result: [{ x: 1 }] },
+          },
+        })
+      );
+    try {
+      const outcome = await executeWorkflowAndPersist(
+        makeState(),
+        { userToken: "test", workflowId: 793 },
+        {
+          opsToViewResult: ["c", "y"],
+          onResult: id => persisted.push(id),
+        }
+      );
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(outcome.success).toBe(false);
+      expect(outcome.executionRuns?.map(run => [run.targets, run.executionId, run.phaseMetrics?.compilation])).toEqual([
+        [["c"], "bad", "failed"],
+        [["y"], "good", "passed"],
+      ]);
+      expect(persisted).toEqual(["y"]);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  test("missing backend measurements are null, never fabricated zero", async () => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: false, state: "Error", operators: {}, errors: ["offline"] })
+    );
+    try {
+      const outcome = await executeWorkflowAndPersist(
+        makeState(),
+        { userToken: "test", workflowId: 794 },
+        { opsToViewResult: ["c"] }
+      );
+      expect(outcome.executionRuns).toEqual([
+        { targets: ["c"], executionId: null, success: false, state: "Error", phaseMetrics: null },
+      ]);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+});

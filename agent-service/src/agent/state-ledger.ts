@@ -123,7 +123,7 @@ export function operatorLine(
   options: { width?: number; marker?: string; definitionChars?: number; schemaChars?: number } = {}
 ): string {
   const view = op.nativeOp;
-  const kind = view ? nativeOperatorName(view.type) : op.operatorType;
+  const kind = view ? (view.registeredName ?? nativeOperatorName(view.type)) : op.operatorType;
   const inputs = (view?.inputs ?? []).filter(Boolean);
   const rows = rowsOf(info);
   const tags: string[] = [];
@@ -145,8 +145,7 @@ export function operatorLine(
 /** The definition of an operator in the loaded state, if it was loaded. */
 export function loadedRevision(ctx: LedgerContext, operatorId: string): string | undefined {
   if (!ctx.loadedStepId || !ctx.storage.hasSnapshotFor(ctx.loadedStepId)) return undefined;
-  return ctx.storage.getWorkflow(ctx.loadedStepId).operators.find(o => o.operatorID === operatorId)?.nativeOp
-    ?.revision;
+  return ctx.storage.getWorkflow(ctx.loadedStepId).operators.find(o => o.operatorID === operatorId)?.nativeOp?.revision;
 }
 
 /** The most recent task that changed this definition to the current revision;
@@ -275,7 +274,7 @@ export function taskLedger(
     lines.push(
       operatorBlock({
         id: op.operatorID,
-        kind: op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType,
+        kind: op.nativeOp ? (op.nativeOp.registeredName ?? nativeOperatorName(op.nativeOp.type)) : op.operatorType,
         state: "deleted",
       })
     );
@@ -368,7 +367,7 @@ export function executionNotes(
     const view = byId.get(id)?.nativeOp;
     if (!view || !["Filter", "Limit"].includes(view.type)) return undefined;
     const parent = view.inputs.find(Boolean);
-    return parent ? { parent, kind: nativeOperatorName(view.type) } : undefined;
+    return parent ? { parent, kind: view.registeredName ?? nativeOperatorName(view.type) } : undefined;
   };
   const consumersOf = (id: string) =>
     workflow.operators.filter(op => (op.nativeOp?.inputs ?? []).includes(id)).map(op => op.operatorID);

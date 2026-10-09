@@ -1,0 +1,83 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Opt-in local-dev infrastructure with project-scoped container/network names.
+# Use TEXERA_DOCKER_OVERLAY_FILE=bin/local-dev/docker-compose.isolated.yml.
+# Host ports remain standard and must be free. Existing deployments are untouched.
+
+services:
+  postgres:
+    ports:
+    - 5432:5432
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-postgres
+    networks:
+      default:
+        aliases:
+        - texera-postgres
+  lakefs:
+    ports:
+    - 8000:8000
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-lakefs
+    networks:
+      default:
+        aliases:
+        - texera-lakefs
+  lakekeeper:
+    ports:
+    - 8181:8181
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-lakekeeper
+    networks:
+      default:
+        aliases:
+        - texera-lakekeeper
+  litellm:
+    ports:
+    - 4000:4000
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-litellm
+    networks:
+      default:
+        aliases:
+        - litellm
+  lakekeeper-init:
+    environment:
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-http://localhost:9000}
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-lakekeeper-init
+    networks:
+      default:
+        aliases:
+        - texera-lakekeeper-init
+  minio:
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-minio
+    networks:
+      default:
+        aliases:
+        - texera-minio
+  minio-init:
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-minio-init
+    networks:
+      default:
+        aliases:
+        - texera-minio-init
+  lakekeeper-migrate:
+    container_name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}-lakekeeper-migrate
+    networks:
+      default:
+        aliases:
+        - texera-lakekeeper-migrate
+networks:
+  default:
+    name: ${TEXERA_DOCKER_PROJECT:-texera-local-dev}

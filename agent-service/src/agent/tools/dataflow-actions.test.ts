@@ -30,6 +30,7 @@ import {
   runDataflowActions,
 } from "./dataflow-actions";
 import { TexeraAgent } from "../texera-agent";
+import { createLegacyNativeAgent } from "../test-support/legacy-native-agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { assembleContext } from "../util/context-utils";
@@ -556,7 +557,7 @@ function session(batches: DataflowAction[][]) {
   const outcomes: DataflowActionsResult[] = [];
   const contexts: ReturnType<typeof assembleContext>[] = [];
   let executions = 0;
-  const agent = new TexeraAgent({
+  const agent = createLegacyNativeAgent({
     agentId: "action-test",
     modelType: "test",
     contextAssembler: () => [],

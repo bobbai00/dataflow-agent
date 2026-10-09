@@ -19,6 +19,15 @@
 
 # Data and flow evidence: computation and model context
 
+**Historical calculation reference.** The configuration, action names, shared
+budget, defaults, and filter availability below describe the older expression
+protocol. For the current registered-Python protocol, use
+[retrieval views](retrieval-views.md) and the
+[registered-Python design](native-registered-python-design.md). Current data
+statistics accompany explicitly retrieved result samples; automatic flow evidence
+describes measured operator effects, including relevant non-retrieved ancestors.
+The two evidence budgets are separate from the record budget.
+
 This document describes the implemented **Python-native V2, batch + explicit
 observe** path. The calculation and selection reference was checked against
 implementation commit `c5620b9b43f21ee2aa222bfc4ff0c5faf0958ede` on 2026-09-16.

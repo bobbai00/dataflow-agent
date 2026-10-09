@@ -1603,7 +1603,7 @@ infra_up() {
     # `_compose_s3_endpoint`; the exported value stays the host's view.
     STORAGE_S3_ENDPOINT="$(_compose_s3_endpoint)" \
     docker compose --progress auto -p "$DOCKER_PROJECT" --env-file "$DOCKER_ENV_FILE" "${files[@]}" \
-        up -d "${DOCKER_INFRA_SERVICES[@]}"
+        up -d "${DOCKER_INFRA_SERVICES[@]}" || return $?
     tui_ok "infra: ${#DOCKER_INFRA_LONGLIVED[@]} containers up"
 }
 
@@ -2330,19 +2330,11 @@ svc_src_changed() {
     case "$(amap_get SVC_TYPE "$svc")" in
         jvm)
             local stamp="$BUILD_STAMP_DIR/$svc"
-            # Lazy seed: if we have a jar but no stamp, assume the jar matches
-            # current sources and seed with the hash. First REPL after a fresh
-            # checkout pays this once (~100 ms) and is clean afterwards.
+            # Existing jars do not prove which source produced them. A missing
+            # build stamp requires one verified build; never bless a stale dist
+            # by hashing current sources without actually rebuilding it.
             if [[ ! -s "$stamp" ]]; then
-                local jar=""
-                if [[ "$svc" == "texera-web" || "$svc" == "computing-unit-master" ]]; then
-                    jar="amber/target/amber-${TEXERA_VERSION}/lib/org.apache.texera.amber-${TEXERA_VERSION}.jar"
-                else
-                    jar="target/${svc}-${TEXERA_VERSION}/lib/org.apache.texera.${svc}-${TEXERA_VERSION}.jar"
-                fi
-                [[ ! -f "$jar" ]] && return 0   # no jar, definitely dirty
-                svc_source_hash "$svc" > "$stamp"
-                return 1
+                return 0
             fi
 
             # Fast path: any tracked source mtime newer than stamp's mtime?
@@ -2850,8 +2842,9 @@ cmd_up() {
         case "$(infra_state)" in
             running)    tui_ok "infra: already running" ;;
             external:*) tui_err "infra: ports taken by non-script containers"
-                        printf "  ${DIM}docker compose -p texera-dev down${RESET}\n" ;;
-            *)          infra_up || true ;;
+                        printf "  ${DIM}Use an isolated project or stop the conflicting deployment first.${RESET}\n"
+                        return 1 ;;
+            *)          infra_up || return $? ;;
         esac
         infra_ensure_db_schema
     fi

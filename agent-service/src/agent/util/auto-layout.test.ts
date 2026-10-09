@@ -104,6 +104,24 @@ describe("autoLayoutWorkflow", () => {
     expect(b.x - a.x).toBe(300);
   });
 
+  test("lays out prototype-like operator IDs and preserves their saved positions", () => {
+    const state = new WorkflowState();
+    const names = ["__proto__", "constructor", "toString"];
+    names.forEach(id => state.addOperator(makeOperator(id), SENTINEL_POS));
+    state.addLink(makeLink("l1", names[0], names[1]));
+    state.addLink(makeLink("l2", names[1], names[2]));
+    autoLayoutWorkflow(state);
+    const saved = state.getWorkflowContent();
+    const restored = new WorkflowState();
+    restored.setWorkflowContent(JSON.parse(JSON.stringify(saved)));
+    for (const id of names) {
+      expect(Object.hasOwn(saved.operatorPositions!, id)).toBe(true);
+      expect(restored.getOperatorPosition(id)).toEqual(state.getOperatorPosition(id));
+      expect(Number.isFinite(restored.getOperatorPosition(id)?.x)).toBe(true);
+    }
+    expect(restored.getOperatorPosition(names[0])!.x).toBeLessThan(restored.getOperatorPosition(names[1])!.x);
+  });
+
   test("assigns positions to disconnected operators as well", () => {
     const state = new WorkflowState();
     // Seeding each disconnected node with the same sentinel forces the

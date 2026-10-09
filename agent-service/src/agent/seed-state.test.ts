@@ -17,7 +17,7 @@
  * under the License.
  */
 import { expect, test } from "bun:test";
-import { TexeraAgent } from "./texera-agent";
+import { createLegacyNativeAgent } from "./test-support/legacy-native-agent";
 import { AgentMode, ContextMode } from "../types/agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { assembleContext } from "./util/context-utils";
@@ -29,7 +29,7 @@ function agentWith(batches: DataflowAction[][]) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   const outcomes: DataflowActionsResult[] = [];
   let executions = 0;
-  const agent = new TexeraAgent({
+  const agent = createLegacyNativeAgent({
     agentId: "seed-state-test",
     modelType: "test",
     contextAssembler: () => [],

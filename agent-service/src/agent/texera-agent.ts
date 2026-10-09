@@ -48,7 +48,7 @@ import type { RolePolicyConfig } from "./context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "./context/select/revision-folds";
 import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
-import type { OperatorInfo } from "../types/execution";
+import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import {
   AgentMode,
   AgentState as AgentStateEnum,
@@ -102,11 +102,11 @@ import {
 } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeSettings, validateTaskContextSettings } from "./native/settings";
 import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
-import { planSeedSources } from "./native/seed-sources";
+import { planSeedSources, registeredSeedStatement } from "./native/seed-sources";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
-import { buildNativeModeSystemPrompt } from "./prompts";
+import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
@@ -127,11 +127,15 @@ import {
   shouldNudge,
 } from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
-import { createDataflowTool, asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
+import {
+  createRegisteredDataflowTool,
+  asDataflowActionsResult,
+  type DataflowActionsResult,
+} from "./tools/dataflow-actions";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
-import { planGraphEdit } from "./tools/graph-edits";
+import { planGraphEdit, planRegisteredGraphEdit } from "./tools/graph-edits";
 import {
   executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
@@ -587,7 +591,7 @@ export class TexeraAgent {
         compactionEnabled
       );
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      this.systemPrompt = buildNativeModeSystemPrompt(this.settings.contextMode, {
+      this.systemPrompt = buildRegisteredNativeSystemPrompt(this.settings.contextMode, {
         ...observationFormatPatch(this.settings),
         // Decided when the session starts (the setting, or state loaded before
         // the first request), never by the arrival of a later request: a
@@ -711,11 +715,10 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
+      tools[TOOL_NAME_DATAFLOW] = createRegisteredDataflowTool(
         availableRetrievalViews(this.settings),
         this.settings.stateHistory,
-        this.settings.multiTask || this.settings.stateHistory,
-        this.settings.nativePromptDetail === "on_demand"
+        this.settings.multiTask || this.settings.stateHistory
       );
     }
 
@@ -2104,8 +2107,11 @@ export class TexeraAgent {
             if (this.workflowState.getAllOperators().length > 0) {
               try {
                 const logicalPlan = this.workflowState.toLogicalPlan();
-                compilationResult = await compileWorkflowAsync(logicalPlan, this.delegateConfig?.userToken);
+                compilationResult = await compileWorkflowAsync(logicalPlan, this.delegateConfig?.userToken, {
+                  abortSignal: this.abortController?.signal,
+                });
               } catch (e: any) {
+                this.abortController?.signal.throwIfAborted();
                 this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
               }
             }
@@ -2662,6 +2668,16 @@ export class TexeraAgent {
                   this.workflowState.setWorkflowContent(plan.workflow);
                 } else if (item.action.type === "edit" && "changes" in item.action) {
                   if (item.status === "ok") {
+                    if (saved?.protocol === "registered-python-v1") {
+                      const plan = await planRegisteredGraphEdit(
+                        this.workflowState.getWorkflowContent(),
+                        item.action.python ?? "",
+                        item.action.changes,
+                        { metadataStore: this.metadataStore, settings: this.settings }
+                      );
+                      this.workflowState.setWorkflowContent(plan.workflow);
+                      continue;
+                    }
                     const { rest, versions } = splitVersionCommands(item.action.changes);
                     const tasks = this.completedStateTasks().filter(task =>
                       this.snapshotStorage.hasSnapshotFor(task.stepId)
@@ -2899,7 +2915,7 @@ export class TexeraAgent {
       const toolCallId = `call-${stepId}-state`;
       const input = {
         reasoning: "Load the tables in force from the completed tasks.",
-        actions: [{ type: "edit", changes }, { type: "execute" }],
+        actions: [{ type: "edit", python: "", changes }, { type: "execute" }],
       };
       const output = (await tool.execute(input, { toolCallId, messages: [] })) as DataflowActionsResult;
       const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
@@ -2965,9 +2981,9 @@ export class TexeraAgent {
     const input = {
       reasoning: "Load the supplied source files.",
       actions: [
-        { type: "edit", changes: plan.program },
+        { type: "edit", python: "", changes: plan.operators.map(registeredSeedStatement).join("\n") },
         { type: "execute" },
-        ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id, view })),
+        { type: "retrieve", operator_ids: plan.observe, view },
       ],
     };
     let output: unknown;
@@ -3045,7 +3061,7 @@ export class TexeraAgent {
             nativeValidationRepair: this.nativeValidationRepair,
             settings: this.settings,
           },
-          execute: operatorIds => this.executePostStepChanges([], [], true, operatorIds),
+          execute: (operatorIds, onExecution) => this.executePostStepChanges([], [], true, operatorIds, onExecution),
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
@@ -3164,7 +3180,8 @@ export class TexeraAgent {
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
     executeAll = false,
-    operatorIds?: readonly string[]
+    operatorIds?: readonly string[],
+    onExecution?: (run: ExecutionRunMetrics) => void
   ): Promise<void> {
     if (!toolCalls || !toolResults) return;
 
@@ -3328,6 +3345,9 @@ export class TexeraAgent {
       const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
         abortSignal: owningSignal,
         opsToViewResult: [...targets],
+        onExecution: run => {
+          if (stillOwned()) onExecution?.(run);
+        },
         onResult: (opId, operatorInfo) => {
           if (!stillOwned()) return;
           if (finished(operatorInfo)) produced.add(opId);

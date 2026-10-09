@@ -17,14 +17,25 @@
   ~ under the License.
 -->
 
-# Native mode: editing a dataflow graph
+# Historical native expression protocol
+
+> Historical expression-mode contract. The active protocol is now
+> [Registered Python Dataflows](native-registered-python-design.md).
+> The declarations and optional history actions below describe older traces,
+> not the current model-facing tool.
+> Current native mode uses thirteen built-ins, including
+> `filter(t, predicate="name", settings={})` with registered row predicates,
+> and paginated `inspect` targets `schema` and `source`. Use the linked current
+> design and generated references for new work; the historical examples below
+> require their recorded service revision.
 
 Native mode exposes one `dataflow(reasoning, actions)` tool. The model edits
 operator definitions and edges, explicitly executes the graph, and retrieves
 stored results. The service compiles catalog operators to Python for the engine.
 Code mode continues to expose free Python operators through its existing tools.
 
-The generated references are the source of truth for the public interface:
+The generated references describe the current public interface, not the
+historical grammar preserved below:
 
 - [Exact system prompt](../native-mode/SYSTEM_PROMPT.txt)
 - [Tool schema](../native-mode/TOOLS.md)

@@ -1,0 +1,104 @@
+{
+  "verified_at": "2026-10-08T21:57:58.877042+00:00",
+  "inference_calls": 0,
+  "providers": [
+    {
+      "provider": "openai",
+      "endpoint": "https://api.openai.com/v1/models",
+      "status": 200,
+      "models": [
+        {
+          "id": "gpt-5.6-luna"
+        },
+        {
+          "id": "gpt-5.6-sol"
+        },
+        {
+          "id": "gpt-5.6-terra"
+        }
+      ]
+    },
+    {
+      "provider": "anthropic",
+      "endpoint": "https://api.anthropic.com/v1/models",
+      "status": 200,
+      "models": [
+        {
+          "id": "claude-opus-4-8",
+          "display_name": "Claude Opus 4.8"
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "endpoint": "https://openrouter.ai/api/v1/models",
+      "status": 200,
+      "models": [
+        {
+          "id": "deepseek/deepseek-v4.1-flash",
+          "name": "DeepSeek: DeepSeek V4.1 Flash",
+          "pricing": {
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.000000006"
+          },
+          "supported_parameters": [
+            "frequency_penalty",
+            "include_reasoning",
+            "logit_bias",
+            "logprobs",
+            "max_tokens",
+            "min_p",
+            "presence_penalty",
+            "reasoning",
+            "reasoning_effort",
+            "repetition_penalty",
+            "response_format",
+            "seed",
+            "stop",
+            "structured_outputs",
+            "temperature",
+            "tool_choice",
+            "tools",
+            "top_k",
+            "top_logprobs",
+            "top_p"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.8-27b",
+          "name": "Qwen: Qwen3.8 27B",
+          "pricing": {
+            "prompt": "0.000000425",
+            "completion": "0.00000255",
+            "input_cache_read": "0.000000085",
+            "input_cache_write": "0.00000053125"
+          },
+          "supported_parameters": [
+            "frequency_penalty",
+            "include_reasoning",
+            "logit_bias",
+            "logprobs",
+            "max_tokens",
+            "min_p",
+            "presence_penalty",
+            "reasoning",
+            "reasoning_effort",
+            "repetition_penalty",
+            "response_format",
+            "seed",
+            "stop",
+            "structured_outputs",
+            "temperature",
+            "tool_choice",
+            "tools",
+            "top_a",
+            "top_k",
+            "top_logprobs",
+            "top_p"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -77,6 +77,10 @@ export interface NativeOpView {
   source?: string;
   /** Top-level `def` sources the statement refers to, by name. */
   functions?: Record<string, string>;
+  /** Public custom type in the registered-Python protocol (runtime uses Process). */
+  registeredName?: string;
+  /** Universal display metadata; intentionally excluded from computational identity. */
+  doc?: string;
 }
 
 /* ----------------------------------------------------------------------------
@@ -968,6 +972,10 @@ export function catalogIndexText(): string {
  * inputs because edges own them. */
 export function nativeAssignmentText(id: string, view: NativeOpView): string | undefined {
   if (!view.source) return undefined;
+  // Registered statements already include positional inputs and keyword settings.
+  if (/^set\s+[A-Za-z_][A-Za-z0-9_]*\s*:/.test(view.source)) {
+    return view.source.replace(/^set\s+[A-Za-z_][A-Za-z0-9_]*\s*:/, `set ${id}:`);
+  }
   // Expression-mode programs stored the whole assignment, inputs included.
   if (!view.graph) return view.source;
   const inputs = view.inputs.map(input => input || "?");

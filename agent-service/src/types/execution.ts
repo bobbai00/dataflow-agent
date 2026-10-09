@@ -86,7 +86,17 @@ export interface OperatorInfo {
   tableProfile?: TableProfile & { resultVersion: string };
 }
 
+/** Agent-side wall times; waiting includes engine work and network latency.
+ * These are not a disjoint engine compute/transfer/persistence breakdown. */
+export interface ExecutionClientTiming {
+  requestToHeadersMs: number | null;
+  responseBodyDecodeMs: number | null;
+  resultPreparationMs: number | null;
+  snapshotStoreMs: number | null;
+}
+
 export interface SyncExecutionResult {
+  clientTiming?: ExecutionClientTiming;
   success: boolean;
   state: string;
   operators: Record<string, OperatorInfo>;
@@ -104,4 +114,15 @@ export interface SyncExecutionResult {
   capabilities?: string[];
   /** Producing identities for inputs whose table bodies were not requested. */
   inputMaterializations?: Record<string, NonNullable<OperatorInfo["materialization"]>>;
+}
+
+/** One actual engine request, including failed independent execution groups.
+ * Null measurements mean the backend did not report them, not zero work. */
+export interface ExecutionRunMetrics {
+  clientTiming?: ExecutionClientTiming;
+  targets: string[];
+  executionId: string | null;
+  success: boolean;
+  state: string;
+  phaseMetrics: NonNullable<SyncExecutionResult["phaseMetrics"]> | null;
 }

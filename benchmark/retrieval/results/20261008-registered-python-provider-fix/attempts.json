@@ -1,0 +1,582 @@
+[
+  {
+    "model": "DeepSeek41Flash",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 64109,
+      "output_tokens": 961,
+      "total_tokens": 65070,
+      "reasoning_tokens": 384,
+      "cached_tokens": 42240,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.00796734,
+      "num_steps": 4,
+      "elapsed_seconds": 31.96,
+      "reported_usage_cost_usd": 0.00796734,
+      "provider_reported_cost_usd": 0.003227065,
+      "partial_provider_reported_cost_usd": 0.003227065,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 4,
+      "response_providers": [
+        "Wafer"
+      ],
+      "pricing": {
+        "model": "deepseek-v4.1-flash",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+        "rates": {
+          "input": 3e-07,
+          "output": 1.2e-06,
+          "cache_read": 6e-09,
+          "cache_creation": null
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 4,
+      "model_responses_with_usage": 4,
+      "model_latency_seconds": 17.18,
+      "response_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "requested_model": "deepseek-v4.1-flash"
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 3,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 5,
+      "profiles": 7,
+      "columns": 552
+    },
+    "final_answer": "The patient with the lowest APP-Z score is S019 (C3L-00413), with an APP-Z score of -2.153 and an age of 60.\n\n**Final Answer: 60**",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "60"
+      },
+      "code": "",
+      "token_usage_sut": 65070,
+      "token_usage_sut_input": 64109,
+      "token_usage_sut_output": 961,
+      "token_usage_sut_reasoning": 384,
+      "token_usage_sut_cached": 42240,
+      "cost_usd_sut": 0.0,
+      "runtime": 32.22843909263611,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 38722,
+      "output_tokens": 957,
+      "total_tokens": 39679,
+      "reasoning_tokens": 216,
+      "cached_tokens": 34304,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.002679624,
+      "num_steps": 5,
+      "elapsed_seconds": 10.27,
+      "reported_usage_cost_usd": 0.002679624,
+      "provider_reported_cost_usd": 0.002679624,
+      "partial_provider_reported_cost_usd": 0.002679624,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 5,
+      "response_providers": [
+        "Together"
+      ],
+      "pricing": {
+        "model": "deepseek-v4.1-flash",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+        "rates": {
+          "input": 3e-07,
+          "output": 1.2e-06,
+          "cache_read": 6e-09,
+          "cache_creation": null
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 5,
+      "model_responses_with_usage": 5,
+      "model_latency_seconds": 4.296,
+      "response_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "requested_model": "deepseek-v4.1-flash"
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 4,
+      "action_errors": 1,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 2,
+      "columns": 22
+    },
+    "final_answer": "**Final Answer: S\u00e3o Paulo**",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 39679,
+      "token_usage_sut_input": 38722,
+      "token_usage_sut_output": 957,
+      "token_usage_sut_reasoning": 216,
+      "token_usage_sut_cached": 34304,
+      "cost_usd_sut": 0.0,
+      "runtime": 10.44203805923462,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Qwen38_27B",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 63166,
+      "output_tokens": 1330,
+      "total_tokens": 64496,
+      "reasoning_tokens": 552,
+      "cached_tokens": 53504,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.01204569,
+      "num_steps": 8,
+      "elapsed_seconds": 34.13,
+      "reported_usage_cost_usd": 0.01204569,
+      "provider_reported_cost_usd": 0.0051463348,
+      "partial_provider_reported_cost_usd": 0.0051463348,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 8,
+      "response_providers": [
+        "Wafer"
+      ],
+      "pricing": {
+        "model": "qwen3.8-27b",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+        "rates": {
+          "input": 4.25e-07,
+          "output": 2.5499999999999997e-06,
+          "cache_read": 8.500000000000001e-08,
+          "cache_creation": 5.3125e-07
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 8,
+      "model_responses_with_usage": 8,
+      "model_latency_seconds": 24.418,
+      "response_models": [
+        "qwen3.8-27b"
+      ],
+      "requested_model": "qwen3.8-27b"
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 7,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 5,
+      "columns": 55
+    },
+    "final_answer": "S\u00e3o Paulo\n\n**Final Answer: S\u00e3o Paulo**",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 64496,
+      "token_usage_sut_input": 63166,
+      "token_usage_sut_output": 1330,
+      "token_usage_sut_reasoning": 552,
+      "token_usage_sut_cached": 53504,
+      "cost_usd_sut": 0.0,
+      "runtime": 34.339701890945435,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Qwen38_27B",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 150744,
+      "output_tokens": 1587,
+      "total_tokens": 152331,
+      "reasoning_tokens": 716,
+      "cached_tokens": 119296,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.02755241,
+      "num_steps": 8,
+      "elapsed_seconds": 45.48,
+      "reported_usage_cost_usd": 0.02755241,
+      "provider_reported_cost_usd": 0.0077128232,
+      "partial_provider_reported_cost_usd": 0.0077128232,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 8,
+      "response_providers": [
+        "Wafer"
+      ],
+      "pricing": {
+        "model": "qwen3.8-27b",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+        "rates": {
+          "input": 4.25e-07,
+          "output": 2.5499999999999997e-06,
+          "cache_read": 8.500000000000001e-08,
+          "cache_creation": 5.3125e-07
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 8,
+      "model_responses_with_usage": 8,
+      "model_latency_seconds": 33.697,
+      "response_models": [
+        "qwen3.8-27b"
+      ],
+      "requested_model": "qwen3.8-27b"
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 7,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 5,
+      "columns": 546
+    },
+    "final_answer": "60",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "60"
+      },
+      "code": "",
+      "token_usage_sut": 152331,
+      "token_usage_sut_input": 150744,
+      "token_usage_sut_output": 1587,
+      "token_usage_sut_reasoning": 716,
+      "token_usage_sut_cached": 119296,
+      "cost_usd_sut": 0.0,
+      "runtime": 45.69925117492676,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 48423,
+      "output_tokens": 1677,
+      "total_tokens": 50100,
+      "reasoning_tokens": 336,
+      "cached_tokens": 41216,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.0044217959999999995,
+      "num_steps": 6,
+      "elapsed_seconds": 21.42,
+      "reported_usage_cost_usd": 0.0044217959999999995,
+      "provider_reported_cost_usd": 0.004245384,
+      "partial_provider_reported_cost_usd": 0.004245384,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 6,
+      "response_providers": [
+        "Makora"
+      ],
+      "pricing": {
+        "model": "deepseek-v4.1-flash",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+        "rates": {
+          "input": 3e-07,
+          "output": 1.2e-06,
+          "cache_read": 6e-09,
+          "cache_creation": null
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 6,
+      "model_responses_with_usage": 6,
+      "model_latency_seconds": 13.884,
+      "response_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "requested_model": "deepseek-v4.1-flash"
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 5,
+      "action_errors": 3,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 3,
+      "columns": 13
+    },
+    "final_answer": "Identity theft reports: 86,250 in 2001 and 1,135,291 in 2024. Ratio (2024 vs 2001) = 1,135,291 / 86,250 = 13.1628.\n\n**Final Answer: 13.1628**",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 50100,
+      "token_usage_sut_input": 48423,
+      "token_usage_sut_output": 1677,
+      "token_usage_sut_reasoning": 336,
+      "token_usage_sut_cached": 41216,
+      "cost_usd_sut": 0.0,
+      "runtime": 21.586448192596436,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Qwen38_27B",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 109944,
+      "output_tokens": 2928,
+      "total_tokens": 112872,
+      "reasoning_tokens": 1253,
+      "cached_tokens": 97984,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.02087804,
+      "num_steps": 12,
+      "elapsed_seconds": 78.19,
+      "reported_usage_cost_usd": 0.02087804,
+      "provider_reported_cost_usd": 0.0107159312,
+      "partial_provider_reported_cost_usd": 0.0107159312,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 12,
+      "response_providers": [
+        "Wafer"
+      ],
+      "pricing": {
+        "model": "qwen3.8-27b",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+        "rates": {
+          "input": 4.25e-07,
+          "output": 2.5499999999999997e-06,
+          "cache_read": 8.500000000000001e-08,
+          "cache_creation": 5.3125e-07
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 12,
+      "model_responses_with_usage": 12,
+      "model_latency_seconds": 68.499,
+      "response_models": [
+        "qwen3.8-27b"
+      ],
+      "requested_model": "qwen3.8-27b"
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 11,
+      "action_errors": 4,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 2,
+      "columns": 5
+    },
+    "final_answer": "The identity theft reports in 2024 were 1,135,291 and in 2001 were 86,250. The ratio (2024 vs 2001) is 1,135,291 / 86,250 = 13.1628.\n\n**Final Answer: 13.1628**",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 112872,
+      "token_usage_sut_input": 109944,
+      "token_usage_sut_output": 2928,
+      "token_usage_sut_reasoning": 1253,
+      "token_usage_sut_cached": 97984,
+      "cost_usd_sut": 0.0,
+      "runtime": 78.36144781112671,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  }
+]

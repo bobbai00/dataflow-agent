@@ -19,6 +19,13 @@
 
 # System prompt
 
+> Historical expression-mode prompt notes. The active prompt now follows four
+> parts: role and objective, resources, working with Dataflows, and general
+> examples. `buildRegisteredNativeSystemPrompt` renders
+> [native-registered.md](../../agent-service/src/agent/prompts/native-registered.md).
+> Read [the current generated prompt](../../native-mode/SYSTEM_PROMPT.txt) and
+> [registered-Python design](../native-registered-python-design.md).
+
 The native system prompt has three parts, in this order:
 
 1. **Role and the dataflow tool.** The role and objective, then the actions

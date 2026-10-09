@@ -203,10 +203,13 @@ export function buildTaskGraph(storage: WorkflowSnapshotStorage, tasks: readonly
     for (const step of task.steps)
       for (const receipt of batches(step)) {
         for (const item of receipt.actions) {
+          if (item.action.type === "retrieve" && "operator_ids" in item.action)
+            for (const read of (item.output as any)?.results ?? [])
+              if (read.status === "ok") touched.set(read.operator_id, touched.get(read.operator_id) ?? "read");
           if (item.status !== "ok") continue;
           if (item.action.type === "edit")
             for (const block of (item.output as any)?.operator_blocks ?? []) touched.set(block.id, block.state);
-          if (item.action.type === "retrieve")
+          if (item.action.type === "retrieve" && "operator_id" in item.action)
             touched.set(item.action.operator_id, touched.get(item.action.operator_id) ?? "read");
           if (item.action.type === "execute")
             for (const id of item.action.operator_ids ?? []) touched.set(id, touched.get(id) ?? "executed");

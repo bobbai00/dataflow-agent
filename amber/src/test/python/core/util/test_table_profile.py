@@ -184,7 +184,7 @@ def test_payload_budget_preserves_small_frequencies_and_exact_counts():
     assert profile.snapshot() == original
 
 
-@pytest.mark.parametrize("kind", ["Cast", "Join"])
+@pytest.mark.parametrize("kind", ["Cast", "Join", "Filter"])
 def test_optional_witnesses_cannot_displace_native_counters(kind):
     witness = {"values": [scalar("str", "x" * 96)], "count": 1, "truncated": False}
     operations = (
@@ -200,6 +200,12 @@ def test_optional_witnesses_cannot_displace_native_counters(kind):
             }
         }
     )
+    if kind == "Filter":
+        operations = {
+            "keptRows": 3, "rejectedRows": 3, "nullPredicates": 1,
+            "filterRejectedValues": {"rejectedRows": 3, "columnsObserved": 1,
+                                     "columns": {"value": {"examples": [witness] * 3, "otherCount": 0}}},
+        }
     metadata = {
         "operatorId": "value",
         "operatorRevision": "0123456789abcdef",
@@ -216,6 +222,7 @@ def test_optional_witnesses_cannot_displace_native_counters(kind):
     baseline = json.loads(json.dumps(original))
     native = baseline["native"]["operations"]
     native.pop("conversionFailureExamples", None)
+    native.pop("filterRejectedValues", None)
     for side in native.get("join", {}).values():
         if isinstance(side, dict):
             side.pop("unmatchedExamples", None)
@@ -238,6 +245,21 @@ def test_collection_time_budget_stops_optional_work_not_execution():
     profile.finish()
     result = profile.snapshot()
     assert not result["coverage"]["complete"] and "time_budget" in result["omissions"]
+
+
+def test_profile_snapshot_timing_excludes_accumulation_and_serialization():
+    ticks = iter([0.0, 0.01, 0.03, 1.0, 1.02])
+    profile = ProfileAccumulator("w", {}, clock=lambda: next(ticks, 2.0))
+    profile.add(pd.DataFrame({"x": [1]}))
+    profile.finish()
+    before = profile.snapshot()
+    payload = profile.encode()
+    result = json.loads(payload)
+    assert result["cost"]["collectionMs"] == 30.0
+    assert result["cost"]["snapshotMs"] == 20.0
+    assert "snapshotMs" not in before["cost"]
+    assert profile.snapshot() == before
+    assert result["cost"]["payloadBytes"] == len(payload.encode("utf-8"))
 
 
 def test_snapshot_cannot_mutate_later_profile_or_clear_completion():
@@ -312,8 +334,14 @@ def test_per_file_scan_details_cannot_displace_native_counters():
         "inputRows": [],
         "outputRows": 3,
         "operations": {
-            "scan": {"preview": False, "complete": True, "resolvedFiles": 700, "selectedFiles": 700,
-                     "omittedFiles": 0, "sources": sources}
+            "scan": {
+                "preview": False,
+                "complete": True,
+                "resolvedFiles": 700,
+                "selectedFiles": 700,
+                "omittedFiles": 0,
+                "sources": sources,
+            }
         },
     }
     profile = ProfileAccumulator("worker-0", metadata)
@@ -325,9 +353,13 @@ def test_per_file_scan_details_cannot_displace_native_counters():
     assert len(payload.encode()) <= profile.limits.max_payload_bytes
     scan = result["native"]["operations"]["scan"]
     assert {k: scan[k] for k in ("resolvedFiles", "selectedFiles", "omittedFiles")} == {
-        "resolvedFiles": 700, "selectedFiles": 700, "omittedFiles": 0}
-    assert [s["path"] for s in scan["sources"]] == [sources[5]["path"], sources[9]["path"]]
-    assert scan["sourcesOmitted"] == 698
+        "resolvedFiles": 700,
+        "selectedFiles": 700,
+        "omittedFiles": 0,
+    }
+    assert sources[5] in scan["sources"] and sources[9] in scan["sources"]
+    assert 2 < len(scan["sources"]) <= 256
+    assert scan["sourcesOmitted"] + len(scan["sources"]) == 700
     assert "scan_sources_payload_budget" in result["omissions"]
     assert result["columns"]["flag"]["frequencies"] == original["columns"]["flag"]["frequencies"]
     assert profile.snapshot() == original
@@ -335,8 +367,15 @@ def test_per_file_scan_details_cannot_displace_native_counters():
 
 def test_scan_findings_outlast_value_dictionaries():
     sources = [
-        {"path": f"/data/legal/report_{i:02d}.csv", "format": "csv", "sizeBytes": 2048, "mtimeNs": "1",
-         "skipLines": 0, "outputRows": 80, "headerCheck": {"blank": 3, "suggest": {"skipLines": 2, "header": ["Year", "State"]}}}
+        {
+            "path": f"/data/legal/report_{i:02d}.csv",
+            "format": "csv",
+            "sizeBytes": 2048,
+            "mtimeNs": "1",
+            "skipLines": 0,
+            "outputRows": 80,
+            "headerCheck": {"blank": 3, "suggest": {"skipLines": 2, "header": ["Year", "State"]}},
+        }
         for i in range(27)
     ]
     metadata = {
@@ -347,8 +386,14 @@ def test_scan_findings_outlast_value_dictionaries():
         "inputRows": [],
         "outputRows": 240,
         "operations": {
-            "scan": {"preview": False, "complete": True, "resolvedFiles": 27, "selectedFiles": 27,
-                     "omittedFiles": 0, "sources": sources}
+            "scan": {
+                "preview": False,
+                "complete": True,
+                "resolvedFiles": 27,
+                "selectedFiles": 27,
+                "omittedFiles": 0,
+                "sources": sources,
+            }
         },
     }
     frame = pd.DataFrame({f"c{j}": [f"value {j}-{i}-{'w' * 40}" for i in range(240)] for j in range(35)})
@@ -361,6 +406,53 @@ def test_scan_findings_outlast_value_dictionaries():
     scan = result["native"]["operations"]["scan"]
     assert scan["sources"] == sources and "sourcesOmitted" not in scan
     assert "payload_budget" in result["omissions"] and "scan_sources_payload_budget" not in result["omissions"]
+
+
+def test_wide_scan_preserves_compact_source_identity_when_statistics_overflow():
+    source = {
+        "path": "/data/wide.xlsx",
+        "sizeBytes": 12345,
+        "mtimeNs": "987654321",
+        "format": "excel",
+        "sheet": "metadata",
+        "outputRows": 153,
+    }
+    metadata = {
+        "operatorType": "Scan",
+        "inputRows": [],
+        "outputRows": 153,
+        "operations": {"scan": {"sources": [source], "selectedFiles": 1}},
+    }
+    frame = pd.DataFrame({f"column_{j}": [f"value_{j}_{i}" for i in range(153)] for j in range(179)})
+    profile = ProfileAccumulator("worker-0", metadata, limits=ProfileLimits(max_seconds=10))
+    profile.add(frame)
+    profile.finish()
+    original = profile.snapshot()
+    result = json.loads(profile.encode())
+    scan = result["native"]["operations"]["scan"]
+    assert scan["sources"] == [{k: source[k] for k in ("path", "sizeBytes", "mtimeNs")}]
+    assert scan.get("sourcesOmitted", 0) == 0
+    assert scan["sourceDetailsOmitted"] == 1
+    assert "scan_source_details_payload_budget" in result["omissions"]
+    assert "payload_budget" in result["omissions"]
+    assert profile.snapshot() == original
+
+
+def test_source_identity_outlasts_unavailable_statistics():
+    source = {"path": "/data/values.csv", "sizeBytes": 12, "mtimeNs": "123"}
+    profile = ProfileAccumulator(
+        "worker-0",
+        {"operatorType": "Scan", "operations": {"scan": {"sources": [source]}}},
+        limits=ProfileLimits(max_payload_bytes=1600, max_seconds=10),
+    )
+    profile.add(pd.DataFrame({f"column_{i}": [i] for i in range(100)}))
+    profile.finish()
+    payload = profile.encode()
+    result = json.loads(payload)
+    assert len(payload.encode()) <= 1600
+    assert result["native"]["operations"]["scan"]["sources"] == [source]
+    assert result["status"] == "unavailable"
+    assert not result["coverage"]["complete"]
 
 
 def collect_full(*frames, limits=None):
@@ -376,20 +468,25 @@ def collect_full(*frames, limits=None):
 
 
 EQUIVALENCE_FRAMES = [
-    pd.DataFrame({
-        "id": pd.Series([9007199254740993, None, 9007199254740993], dtype="Int64"),
-        "name": pd.Series(["a", "b", None], dtype="string"),
-        "nothing": pd.Series([None] * 3, dtype="Float64"),
-    }),
-    pd.DataFrame({
-        "when": pd.to_datetime(["2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z", None]),
-        "local": pd.to_datetime(["2026-01-02 08:00", None, "2025-12-31 23:00"]),
-        "flag": pd.Series([True, None, False], dtype="boolean"),
-        "text": ["NULL", "NA", ""],
-    }),
+    pd.DataFrame(
+        {
+            "id": pd.Series([9007199254740993, None, 9007199254740993], dtype="Int64"),
+            "name": pd.Series(["a", "b", None], dtype="string"),
+            "nothing": pd.Series([None] * 3, dtype="Float64"),
+        }
+    ),
+    pd.DataFrame(
+        {
+            "when": pd.to_datetime(["2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z", None]),
+            "local": pd.to_datetime(["2026-01-02 08:00", None, "2025-12-31 23:00"]),
+            "flag": pd.Series([True, None, False], dtype="boolean"),
+            "text": ["NULL", "NA", ""],
+        }
+    ),
     pd.DataFrame({"x": pd.Series([-0.0, 0.0, 1.5, None], dtype="float64")}),
-    pd.DataFrame({"a": [1, 1, 2, None, None, 3], "b": ["x", "x", "y", None, None, "x"],
-                  "tie": ["q", "p", "q", "p", "r", "s"]}),
+    pd.DataFrame(
+        {"a": [1, 1, 2, None, None, 3], "b": ["x", "x", "y", None, None, "x"], "tie": ["q", "p", "q", "p", "r", "s"]}
+    ),
 ]
 
 
@@ -450,8 +547,12 @@ def test_full_scope_duplicate_rows_are_exact_and_skip_hashing_with_a_unique_colu
 
 
 def test_full_scope_infers_types_from_every_value():
-    frame = pd.DataFrame({"late": pd.Series([None] * 200 + ["a", "b", "a"], dtype=object),
-                          "mixed": pd.Series([1] * 128 + [1.5], dtype=object).reindex(range(203))})
+    frame = pd.DataFrame(
+        {
+            "late": pd.Series([None] * 200 + ["a", "b", "a"], dtype=object),
+            "mixed": pd.Series([1] * 128 + [1.5], dtype=object).reindex(range(203)),
+        }
+    )
     _, bounded = collect(frame, limits=ProfileLimits(max_seconds=10))
     _, full = collect_full(frame)
     assert bounded["columns"]["late"]["type"] == "unknown"

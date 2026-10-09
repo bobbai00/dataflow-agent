@@ -56,6 +56,7 @@ export class WorkflowState {
   private operatorPositions: Map<string, Point> = new Map();
   private commentBoxes: CommentBox[] = [];
   private settings: WorkflowSettings = { ...DEFAULT_WORKFLOW_SETTINGS };
+  private nativeNamespace: WorkflowContent["nativeNamespace"];
   private operatorsToViewResult: Set<string> = new Set();
 
   private operatorIdCounter: number = 0;
@@ -75,7 +76,7 @@ export class WorkflowState {
     newUnviewResultOps: string[];
   }>();
 
-  private validationErrors: Record<string, ValidationError> = {};
+  private validationErrors: Record<string, ValidationError> = Object.create(null);
   private workflowEmpty: boolean = true;
 
   private readonly validationChangedSubject = new Subject<ValidationOutput>();
@@ -402,9 +403,7 @@ export class WorkflowState {
       if (!op || op.isDisabled) continue;
 
       const outgoing = allLinks.filter(
-        link =>
-          link.source.operatorID === opId &&
-          !this.getOperator(link.target.operatorID)?.isDisabled
+        link => link.source.operatorID === opId && !this.getOperator(link.target.operatorID)?.isDisabled
       );
 
       if (outgoing.length === 0) {
@@ -510,7 +509,7 @@ export class WorkflowState {
   }
 
   setAllValidationErrors(errors: Record<string, ValidationError>): void {
-    this.validationErrors = { ...errors };
+    this.validationErrors = Object.assign(Object.create(null), errors);
     this.updateWorkflowEmptyState();
     this.emitValidationChanged();
   }
@@ -532,10 +531,7 @@ export class WorkflowState {
   }
 
   getWorkflowContent(): WorkflowContent {
-    const positionsObj: { [key: string]: Point } = {};
-    for (const [id, pos] of this.operatorPositions) {
-      positionsObj[id] = pos;
-    }
+    const positionsObj: { [key: string]: Point } = Object.fromEntries(this.operatorPositions);
 
     return {
       operators: this.getAllOperators(),
@@ -543,6 +539,7 @@ export class WorkflowState {
       links: this.getAllLinks(),
       commentBoxes: [...this.commentBoxes],
       settings: { ...this.settings },
+      ...(this.nativeNamespace ? { nativeNamespace: structuredClone(this.nativeNamespace) } : {}),
     };
   }
 
@@ -567,6 +564,7 @@ export class WorkflowState {
     this.commentBoxes = content.commentBoxes ? [...content.commentBoxes] : [];
 
     this.settings = content.settings ? { ...content.settings } : { ...DEFAULT_WORKFLOW_SETTINGS };
+    this.nativeNamespace = content.nativeNamespace ? structuredClone(content.nativeNamespace) : undefined;
   }
 
   toLogicalPlan(targetOperatorId?: string): LogicalPlan {
@@ -617,8 +615,9 @@ export class WorkflowState {
     this.operatorPositions.clear();
     this.commentBoxes = [];
     this.settings = { ...DEFAULT_WORKFLOW_SETTINGS };
+    this.nativeNamespace = undefined;
     this.operatorsToViewResult.clear();
-    this.validationErrors = {};
+    this.validationErrors = Object.create(null);
     this.workflowEmpty = true;
   }
 

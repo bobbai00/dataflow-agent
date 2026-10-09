@@ -119,7 +119,12 @@ const workerSchema = z.object({
     topK: count.refine(v => v <= 32),
   }),
   omissions,
-  cost: z.object({ collectionMs: z.number().finite().min(0), cellsProcessed: count, payloadBytes: count }),
+  cost: z.object({
+    collectionMs: z.number().finite().min(0),
+    snapshotMs: z.number().finite().min(0).optional(),
+    cellsProcessed: count,
+    payloadBytes: count,
+  }),
 });
 type WorkerProfile = z.infer<typeof workerSchema>;
 
@@ -142,7 +147,7 @@ export interface TableProfile {
   native: z.infer<typeof nativeSchema> | null;
   producerIds: string[];
   omissions: string[];
-  cost: { collectionMs: number; cellsProcessed: number; payloadBytes: number };
+  cost: { collectionMs: number; snapshotMs?: number; cellsProcessed: number; payloadBytes: number };
 }
 
 function validWorker(w: WorkerProfile): boolean {
@@ -262,7 +267,37 @@ export function mergeTableProfiles(
   if (!Number.isSafeInteger(expected.expectedWorkers) || expected.expectedWorkers! < 1)
     return fail("expected_workers_unknown");
   if (workers.length > expected.expectedWorkers!) return fail("profile_worker_count_mismatch");
-  if (workers.some(w => w.status === "unavailable")) return fail("worker_profile_unavailable");
+  if (workers.some(w => w.status === "unavailable")) {
+    const unavailable = fail("worker_profile_unavailable");
+    unavailable.omissions = [...new Set([...unavailable.omissions, ...workers.flatMap(w => w.omissions)])];
+    // Statistics can exhaust their budget independently of compact source
+    // identity. Preserve only that identity from one verified, complete worker
+    // set; never merge opaque native operation counters across workers.
+    const native = workers[0].native;
+    const scan = native?.operations?.scan;
+    if (
+      workers.length === 1 &&
+      expected.expectedWorkers === 1 &&
+      scan &&
+      typeof scan === "object" &&
+      !Array.isArray(scan)
+    ) {
+      const value = scan as Record<string, unknown>;
+      if (Array.isArray(value.sources))
+        unavailable.native = {
+          operatorType: native?.operatorType,
+          inputOperators: native?.inputOperators,
+          operations: {
+            scan: Object.fromEntries(
+              ["sources", "sourcesOmitted", "sourceDetailsOmitted"]
+                .filter(key => key in value)
+                .map(key => [key, value[key]])
+            ),
+          },
+        };
+    }
+    return unavailable;
+  }
   const first = workers[0];
   const sameSchema = workers.every(
     w =>
@@ -299,6 +334,7 @@ export function mergeTableProfiles(
   if (workers.length > 1) missing.add("cross_worker_native_unavailable");
   result.cost = {
     collectionMs: sum(w => w.cost.collectionMs),
+    ...(workers.every(w => w.cost.snapshotMs !== undefined) ? { snapshotMs: sum(w => w.cost.snapshotMs!) } : {}),
     cellsProcessed: sum(w => w.cost.cellsProcessed),
     payloadBytes: bytes,
   };

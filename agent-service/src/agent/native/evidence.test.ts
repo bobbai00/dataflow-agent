@@ -21,7 +21,12 @@ import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ProfileColumn } from "./profiles";
-import { collectNativeEvidence, FLOW_OMITTED_NOTICE, restrictNativeObservation, selectNativeObservation } from "./evidence";
+import {
+  collectNativeEvidence,
+  FLOW_OMITTED_NOTICE,
+  restrictNativeObservation,
+  selectNativeObservation,
+} from "./evidence";
 import { downstreamRelevantColumns } from "./evidence-lineage";
 
 function column(rows = 5, nulls = 1): ProfileColumn {
@@ -161,6 +166,20 @@ test("sample_stats preserves the sample and has its own statistics budget", () =
   expect(records(stats)).toEqual(records(sample));
   expect(stats.text).toContain("statistics:");
   expect(sample.text).not.toContain("statistics:");
+});
+
+test("sample statistics preserve exact floating-point extrema", () => {
+  const f = fixture();
+  f.info.resultSchema = [{ name: "x", type: "float64", encoding: "number-or-special-string" }];
+  f.info.tableProfile!.columns.x = {
+    ...column(3, 0),
+    type: "float64",
+    min: { type: "float64", value: -2.15300777 },
+    max: { type: "float64", value: 0.0000123456789 },
+  };
+  const result = observe(f, { view: "sample_stats", flow: false });
+  expect(result.text).toContain("-2.15300777 to 0.0000123456789");
+  expect(result.text).not.toContain("-2.153 to");
 });
 
 test("partial records do not obscure exhaustive full-table value statistics", () => {
@@ -648,6 +667,15 @@ test("guarantees describe contracts, UDF remains unknown at equal row counts", (
   expect(factText(f)).not.toContain("row identities preserved");
 });
 
+test("registered function flow evidence uses its public name and keeps unknown mapping explicit", () => {
+  const f = fixture("Process");
+  f.op.nativeOp!.registeredName = "select_records";
+  const text = factText(f);
+  expect(text).toContain("select_records input rows=[5], output=3; row/column mapping unknown.");
+  expect(text).toContain("select_records: row/column mapping unknown; equal row counts do not prove preservation.");
+  expect(text).not.toContain("Process");
+});
+
 test("an author's description is never presented as an engine guarantee", () => {
   for (const type of ["Map", "Filter", "Process"]) {
     const f = fixture(type, { doc: "Every excluded participant has been removed" });
@@ -959,68 +987,74 @@ test("observed final count includes bound upstream group grain, not hidden table
   expect(selection.text.length).toBeLessThanOrEqual(2000);
 });
 
-test("upstream conversion losses survive nearby summaries and remain version bound", () => {
-  const f = calculationFixture();
-  const raw = f.workflow.operators.find(op => op.operatorID === "raw")!;
-  const source = { ...structuredClone(raw), operatorID: "source" };
-  f.workflow.operators.unshift(source);
-  Object.assign(raw.nativeOp!, {
-    type: "Cast",
-    inputs: ["source"],
-    properties: { columns: [{ column: "x", dtype: "int64" }], errors: "null" },
-  });
-  const rawInfo = f.results.get("raw")!;
-  const sourceInfo = structuredClone(rawInfo);
-  Object.assign(sourceInfo.resultVersion!, { id: "source".padEnd(64, "0"), operatorId: "source", inputs: [] });
-  sourceInfo.tableProfile!.resultVersion = sourceInfo.resultVersion!.id;
-  f.results.set("source", sourceInfo);
-  rawInfo.resultVersion!.inputs = [
-    { inputIndex: 0, operatorId: "source", outputPort: 0, resultVersion: sourceInfo.resultVersion!.id },
-  ];
-  rawInfo.tableProfile!.native = {
-    operatorType: "Cast",
-    inputOperators: ["source"],
-    inputRows: [10],
-    outputRows: 10,
-    operations: {
-      conversionFailures: { x: 6 },
-      conversionFailureExamples: {
-        x: { examples: [{ values: [{ type: "str", value: "1,299" }], count: 4, truncated: false }], otherCount: 2 },
-      },
-    },
-  };
-  // Add enough nearby projections to exhaust the old first-three-ancestors rule.
-  for (let i = 0; i < 3; i++) {
-    const id = `project${i}`;
-    const previous = f.op.nativeOp!.inputs[0];
-    const previousInfo = f.results.get(previous)!;
-    const op = { ...structuredClone(source), operatorID: id };
-    Object.assign(op.nativeOp!, { type: "Project", inputs: [previous], properties: { keep: ["x"] } });
-    const info = structuredClone(previousInfo);
-    Object.assign(info.resultVersion!, {
-      id: id.padEnd(64, "0"),
-      operatorId: id,
-      inputs: [{ inputIndex: 0, operatorId: previous, outputPort: 0, resultVersion: previousInfo.resultVersion!.id }],
+test.each([false, true])(
+  "upstream conversion losses survive nearby summaries and remain version bound (custom=%s)",
+  custom => {
+    const f = calculationFixture();
+    const raw = f.workflow.operators.find(op => op.operatorID === "raw")!;
+    const source = { ...structuredClone(raw), operatorID: "source" };
+    f.workflow.operators.unshift(source);
+    Object.assign(raw.nativeOp!, {
+      type: "Cast",
+      inputs: ["source"],
+      properties: { columns: [{ column: "x", dtype: "int64" }], errors: "null" },
     });
-    info.tableProfile!.resultVersion = info.resultVersion!.id;
-    info.tableProfile!.native = null;
-    f.workflow.operators.push(op);
-    f.results.set(id, info);
-    f.op.nativeOp!.inputs = [id];
-    f.info.resultVersion!.inputs = [
-      { inputIndex: 0, operatorId: id, outputPort: 0, resultVersion: info.resultVersion!.id },
+    const rawInfo = f.results.get("raw")!;
+    const sourceInfo = structuredClone(rawInfo);
+    Object.assign(sourceInfo.resultVersion!, { id: "source".padEnd(64, "0"), operatorId: "source", inputs: [] });
+    sourceInfo.tableProfile!.resultVersion = sourceInfo.resultVersion!.id;
+    f.results.set("source", sourceInfo);
+    rawInfo.resultVersion!.inputs = [
+      { inputIndex: 0, operatorId: "source", outputPort: 0, resultVersion: sourceInfo.resultVersion!.id },
     ];
+    rawInfo.tableProfile!.native = {
+      operatorType: "Cast",
+      inputOperators: ["source"],
+      inputRows: [10],
+      outputRows: 10,
+      operations: {
+        conversionFailures: { x: 6 },
+        conversionFailureExamples: {
+          x: { examples: [{ values: [{ type: "str", value: "1,299" }], count: 4, truncated: false }], otherCount: 2 },
+        },
+      },
+    };
+    // Add enough nearby projections to exhaust the old first-three-ancestors rule.
+    for (let i = 0; i < 3; i++) {
+      const id = `project${i}`;
+      const previous = f.op.nativeOp!.inputs[0];
+      const previousInfo = f.results.get(previous)!;
+      const op = { ...structuredClone(source), operatorID: id };
+      Object.assign(op.nativeOp!, { type: "Project", inputs: [previous], properties: { keep: ["x"] } });
+      if (custom && i === 1)
+        Object.assign(op.nativeOp!, { type: "Process", registeredName: "reshape_values", properties: {} });
+      const info = structuredClone(previousInfo);
+      Object.assign(info.resultVersion!, {
+        id: id.padEnd(64, "0"),
+        operatorId: id,
+        inputs: [{ inputIndex: 0, operatorId: previous, outputPort: 0, resultVersion: previousInfo.resultVersion!.id }],
+      });
+      info.tableProfile!.resultVersion = info.resultVersion!.id;
+      info.tableProfile!.native = null;
+      f.workflow.operators.push(op);
+      f.results.set(id, info);
+      f.op.nativeOp!.inputs = [id];
+      f.info.resultVersion!.inputs = [
+        { inputIndex: 0, operatorId: id, outputPort: 0, resultVersion: info.resultVersion!.id },
+      ];
+    }
+    const selected = observe(f, { data: false, flowMaxChars: 1000 });
+    expect(selected.text).toContain("- flow (raw):");
+    expect(selected.text).toContain('"x" conversion failures=6/10');
+    expect(selected.text).toContain('"1,299" × 4');
+    if (custom) expect(selected.text).toContain("row/column correspondence to this output unknown");
+    expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
+    expect(selected.text).not.toContain("UNOBSERVED_ROW_CANARY");
+    rawInfo.resultVersion!.inputs[0].resultVersion = "stale";
+    expect(observe(f).text).not.toContain("conversion failures");
+    expect(observe(f).text).not.toContain("1,299");
   }
-  const selected = observe(f, { data: false, flowMaxChars: 1000 });
-  expect(selected.text).toContain("- flow (raw):");
-  expect(selected.text).toContain('"x" conversion failures=6/10');
-  expect(selected.text).toContain('"1,299" × 4');
-  expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
-  expect(selected.text).not.toContain("UNOBSERVED_ROW_CANARY");
-  rawInfo.resultVersion!.inputs[0].resultVersion = "stale";
-  expect(observe(f).text).not.toContain("conversion failures");
-  expect(observe(f).text).not.toContain("1,299");
-});
+);
 
 test("invalid cast witnesses cannot remove valid conversion counts", () => {
   const f = fixture("Cast", { columns: [{ column: "x", dtype: "int64" }], errors: "null" });
@@ -1041,26 +1075,95 @@ test("invalid cast witnesses cannot remove valid conversion counts", () => {
   expect(factText(f)).not.toContain("failed-value examples");
 });
 
-test("upstream summaries stop at stale edges and opaque UDFs", () => {
+test("upstream summaries stop at stale edges and preserve opaque UDF semantics", () => {
   const f = calculationFixture();
   f.info.resultVersion!.inputs[0].resultVersion = "older";
   expect(observe(f).text).not.toContain("account");
   f.info.resultVersion!.inputs[0].resultVersion = f.results.get("left")!.resultVersion!.id;
-  f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!.type = "Process";
+  Object.assign(f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!, {
+    type: "Process",
+    registeredName: "summarize_records",
+  });
   const text = observe(f).text;
-  expect(text).toContain("mapping unknown");
+  expect(text).toContain("summarize_records row/column mapping unknown");
+  expect(text).not.toContain("summary stops here");
+  expect(text).not.toContain("Process");
   expect(text).not.toContain("groups=5 from 10 rows");
   expect(text).not.toContain("UNOBSERVED_ROW_CANARY");
 });
 
-test("an observed UDF itself is an opaque calculation boundary", () => {
+test("an observed UDF includes measured input ancestors without inferring row correspondence", () => {
   const f = calculationFixture();
   f.op.nativeOp!.type = "Process";
   const selection = observe(f);
   expect(selection.text).toContain("mapping unknown");
-  expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(false);
-  expect(selection.text).not.toContain("account");
+  expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
+  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain("row/column correspondence to this output unknown");
+  expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
+  expect(selection.selected.some(id => id.startsWith("flow.filter"))).toBe(false);
 });
+
+function opaqueAncestorFixture() {
+  const f = calculationFixture();
+  const upstream = f.results.get("left")!;
+  const custom = { ...structuredClone(f.op), operatorID: "custom" };
+  Object.assign(custom.nativeOp!, {
+    type: "Process",
+    registeredName: "choose_rows",
+    inputs: ["left"],
+    properties: {},
+  });
+  const info = structuredClone(upstream);
+  Object.assign(info.resultVersion!, {
+    id: "custom".padEnd(64, "0"),
+    operatorId: "custom",
+    inputs: [{ inputIndex: 0, operatorId: "left", outputPort: 0, resultVersion: upstream.resultVersion!.id }],
+  });
+  info.tableProfile!.resultVersion = info.resultVersion!.id;
+  info.totalRowCount = info.tableProfile!.rowCount = 2;
+  info.tableProfile!.native = {
+    operatorType: "Process",
+    inputOperators: ["left"],
+    inputRows: [5],
+    outputRows: 2,
+    operations: {},
+  };
+  f.workflow.operators.push(custom);
+  f.results.set("custom", info);
+  f.op.nativeOp!.inputs = ["custom"];
+  f.info.resultVersion!.inputs = [
+    { inputIndex: 0, operatorId: "custom", outputPort: 0, resultVersion: info.resultVersion!.id },
+  ];
+  return f;
+}
+
+test("downstream retrieval crosses a custom operator using version-bound graph dependencies only", () => {
+  const f = opaqueAncestorFixture();
+  const selection = observe(f, { data: false });
+  expect(selection.text).toContain("choose_rows row/column mapping unknown");
+  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain("row/column correspondence to this output unknown");
+  expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
+  expect(selection.selected.some(id => id.startsWith("flow.filter"))).toBe(false);
+  expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
+  expect(selection.chunks.filter(chunk => chunk.upstream).length).toBeLessThanOrEqual(3);
+  expect(observe(f, { flow: false }).text).not.toContain("groups=5 from 10 rows");
+  expect(observe(f, { upstream: false }).text).not.toContain("groups=5 from 10 rows");
+});
+
+test.each(["input version", "input revision", "failed custom", "incomplete custom"])(
+  "custom dependency traversal refuses an invalid %s",
+  corruption => {
+    const f = opaqueAncestorFixture();
+    const custom = f.results.get("custom")!;
+    if (corruption === "input version") custom.resultVersion!.inputs[0].resultVersion = "old";
+    if (corruption === "input revision") f.results.get("left")!.resultVersion!.operatorRevision = "old";
+    if (corruption === "failed custom") custom.error = "custom operator failed";
+    if (corruption === "incomplete custom") custom.resultVersion!.complete = false;
+    expect(observe(f).text).not.toContain("groups=5 from 10 rows");
+  }
+);
 
 test("missing evidence is not an execution error and never triggers hidden work", () => {
   const f = fixture();
@@ -1184,4 +1287,26 @@ test("per-file scan findings cannot push the file and row counts out of the flow
   expect(flow.at(-1)!.text).toBe(FLOW_OMITTED_NOTICE);
   expect(own.omitted.some(item => item.reason === "budget" && item.id.startsWith("flow.scan.header."))).toBe(true);
   expect(own.text.length).toBeLessThanOrEqual(2000 + own.chunks[0].text.length + 1);
+});
+
+test("filter rejected-value frequencies are optional, validated and scoped to rejected rows", () => {
+  const f = fixture();
+  const operations = f.info.tableProfile!.native!.operations!;
+  const rejected = {
+    rejectedRows: 2,
+    columnsObserved: 1,
+    columns: {
+      x: { examples: [{ values: [{ type: "str", value: "missing" }], count: 1, truncated: false }], otherCount: 1 },
+    },
+  };
+  operations.filterRejectedValues = rejected;
+  let text = factText(f);
+  expect(text).toContain("rejected rows, including null-predicate drops");
+  expect(text).toContain('"missing"');
+  expect(text).toContain("other=1");
+  expect(text).toContain("not causes");
+  rejected.columns.x.otherCount = 2;
+  text = factText(f);
+  expect(text).not.toContain('"missing"');
+  expect(text).toContain("Filter kept=3/5");
 });

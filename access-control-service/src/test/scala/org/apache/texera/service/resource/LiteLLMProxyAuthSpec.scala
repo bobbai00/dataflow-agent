@@ -30,12 +30,16 @@ import org.apache.texera.auth.{JwtAuth, JwtAuthFilter, UnauthorizedExceptionMapp
 import org.apache.texera.dao.jooq.generated.enums.UserRoleEnum
 import org.apache.texera.dao.jooq.generated.tables.pojos.User
 import org.glassfish.jersey.server.filter.RolesAllowedDynamicFeature
+import org.glassfish.jersey.test.TestProperties
+import org.glassfish.jersey.test.jetty.JettyTestContainerFactory
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.{CountDownLatch, TimeUnit}
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 // Wires the LiteLLM proxy resources through the same Jersey auth pipeline
 // production uses and fires HTTP requests with no / wrong-role / right-role
@@ -56,6 +60,8 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
 
   private val resources: ResourceExtension = ResourceExtension
     .builder()
+    .setTestContainerFactory(new JettyTestContainerFactory())
+    .addProperty(TestProperties.CONTAINER_PORT, 0)
     .setMapper(testMapper)
     .addProvider(classOf[JwtAuthFilter])
     .addProvider(classOf[UnauthorizedExceptionMapper])
@@ -80,6 +86,8 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
   // the resource's early-exit branch that returns "Copilot feature is disabled".
   private val resourcesCopilotDisabled: ResourceExtension = ResourceExtension
     .builder()
+    .setTestContainerFactory(new JettyTestContainerFactory())
+    .addProperty(TestProperties.CONTAINER_PORT, 0)
     .setMapper(testMapper)
     .addProvider(classOf[JwtAuthFilter])
     .addProvider(classOf[UnauthorizedExceptionMapper])
@@ -107,8 +115,32 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
   private val mockModelsBody = """{"data":[{"id":"mock-gpt"}]}"""
 
   private val mockLiteLLM: HttpServer = HttpServer.create(new InetSocketAddress(0), 0)
-  mockLiteLLM.createContext("/chat/completions", respondWith(200, mockChatBody))
-  mockLiteLLM.createContext("/models", respondWith(200, mockModelsBody))
+  private val chatRequests = new AtomicInteger()
+  private val forwardedAuthorization = new AtomicReference[String]()
+  private val forwardedDeadline = new AtomicReference[String]()
+  private val slowRequests = new AtomicInteger()
+  private val releaseSlowResponse = new CountDownLatch(1)
+  mockLiteLLM.createContext(
+    "/v1/chat/completions",
+    (exchange: HttpExchange) => {
+      chatRequests.incrementAndGet()
+      forwardedAuthorization.set(exchange.getRequestHeaders.getFirst("Authorization"))
+      forwardedDeadline.set(exchange.getRequestHeaders.getFirst(LLMProxyRequest.DeadlineHeader))
+      respondWith(200, mockChatBody).handle(exchange)
+    }
+  )
+  mockLiteLLM.createContext("/v1/models", respondWith(200, mockModelsBody))
+  mockLiteLLM.createContext(
+    "/v1/chat/slow",
+    (exchange: HttpExchange) => {
+      slowRequests.incrementAndGet()
+      exchange.getResponseHeaders.add("Content-Type", MediaType.APPLICATION_JSON)
+      exchange.sendResponseHeaders(200, 100)
+      // Headers arrive, but the entity never completes before the gateway deadline.
+      try releaseSlowResponse.await(5, TimeUnit.SECONDS)
+      finally exchange.close()
+    }
+  )
 
   private def respondWith(status: Int, body: String): HttpHandler =
     (exchange: HttpExchange) => {
@@ -126,6 +158,8 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
   // because litellmBaseUrl depends on the mock server's bound port.
   private lazy val resourcesMockLiteLLM: ResourceExtension = ResourceExtension
     .builder()
+    .setTestContainerFactory(new JettyTestContainerFactory())
+    .addProperty(TestProperties.CONTAINER_PORT, 0)
     .setMapper(testMapper)
     .addProvider(classOf[JwtAuthFilter])
     .addProvider(classOf[UnauthorizedExceptionMapper])
@@ -251,9 +285,46 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
       .target("/chat/completions")
       .request(MediaType.APPLICATION_JSON)
       .header("Authorization", s"Bearer ${token(UserRoleEnum.REGULAR)}")
+      .header(LLMProxyRequest.DeadlineHeader, (System.currentTimeMillis() + 5000).toString)
       .post(Entity.json(chatBody))
     response.getStatus shouldBe 200
     response.readEntity(classOf[String]) shouldBe mockChatBody
+    forwardedAuthorization.get() shouldBe "Bearer test"
+    forwardedDeadline.get() shouldBe null
+  }
+
+  it should "reject invalid and expired deadlines without forwarding a request" in {
+    val before = chatRequests.get()
+    Seq("not-a-deadline" -> 400, "1" -> 504).foreach {
+      case (deadline, status) =>
+        val response = resourcesMockLiteLLM
+          .target("/chat/completions")
+          .request(MediaType.APPLICATION_JSON)
+          .header("Authorization", s"Bearer ${token(UserRoleEnum.REGULAR)}")
+          .header(LLMProxyRequest.DeadlineHeader, deadline)
+          .post(Entity.json(chatBody))
+        try response.getStatus shouldBe status
+        finally response.close()
+    }
+    chatRequests.get() shouldBe before
+  }
+
+  it should "time out a stalled response body and explicitly leave provider usage unknown" in {
+    val started = System.nanoTime()
+    try {
+      val response = resourcesMockLiteLLM
+        .target("/chat/slow")
+        .request(MediaType.APPLICATION_JSON)
+        .header("Authorization", s"Bearer ${token(UserRoleEnum.REGULAR)}")
+        .header(LLMProxyRequest.DeadlineHeader, (System.currentTimeMillis() + 300).toString)
+        .post(Entity.json(chatBody))
+      try {
+        response.getStatus shouldBe 504
+        response.readEntity(classOf[String]) shouldBe LLMProxyRequest.TimeoutBody
+        slowRequests.get() shouldBe 1
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) should be < 2500L
+      } finally response.close()
+    } finally releaseSlowResponse.countDown()
   }
 
   "GET /models" should "forward the upstream response when copilot is on and upstream is reachable" in {

@@ -484,6 +484,8 @@ export interface OperatorBlock {
   state: string;
   definition?: string;
   functions?: string;
+  description?: string;
+  signature?: string;
   inputs?: Array<{ port?: string; id: string }>;
   origin?: string;
   result?: string;
@@ -497,6 +499,8 @@ export function operatorBlock(block: OperatorBlock): string {
   return [
     `- **${block.id}** (${block.kind}, ${block.state})`,
     ...(block.definition ? [`  - definition: ${inlineCode(block.definition)}`] : []),
+    ...(block.description ? [`  - description: ${block.description.replace(/\n/g, " ")}`] : []),
+    ...(block.signature ? [`  - signature: ${inlineCode(block.signature)}`] : []),
     ...(block.functions
       ? (() => {
           const fence = "`".repeat(Math.max(3, ...(block.functions.match(/`+/g) ?? []).map(run => run.length + 1)));
@@ -546,6 +550,7 @@ export function describeOperator(
     definitionLimit?: boolean;
     /** The result is the one an earlier task saved for this copy's original. */
     savedBy?: number;
+    namespace?: import("./registered").RegisteredNamespace;
   } = {}
 ): OperatorBlock {
   const config = observationFormat(options);
@@ -580,8 +585,13 @@ export function describeOperator(
   let definition = view ? nativeAssignmentText(op.operatorID, view) : undefined;
   if (definition && options.definitionLimit && config.definitionChars > 0 && definition.length > config.definitionChars)
     definition = definition.slice(0, config.definitionChars) + "… (definition clipped; inspect for full text)";
+  const predicate =
+    view?.type === "Filter" ? (view.properties.registered as { entry?: unknown } | undefined)?.entry : undefined;
+  const registeredName = view?.registeredName ?? (typeof predicate === "string" ? predicate : undefined);
+  const registeredFunction = registeredName ? options.namespace?.functions[registeredName] : undefined;
   const functions = options.implementation
-    ? Object.values(view?.functions ?? {})
+    ? registeredFunction?.source ||
+      Object.values(view?.functions ?? {})
         .filter(Boolean)
         .join("\n\n") ||
       (typeof view?.properties.code === "string"
@@ -593,10 +603,16 @@ export function describeOperator(
   const schema = ready ? (info!.resultSchema ?? []) : [];
   return {
     id: op.operatorID,
-    kind: view ? nativeOperatorName(view.type) : op.operatorType,
+    kind: view ? (view.registeredName ?? nativeOperatorName(view.type)) : op.operatorType,
     state,
     ...(options.definition !== false && definition ? { definition } : {}),
     ...(functions ? { functions } : {}),
+    ...(options.definition !== false && (view?.doc ?? registeredFunction?.doc)
+      ? { description: view?.doc ?? registeredFunction?.doc }
+      : {}),
+    ...(options.definition !== false && registeredFunction?.signature
+      ? { signature: registeredFunction.signature }
+      : {}),
     inputs,
     ...(options.origin ? { origin: options.origin } : {}),
     result: ready

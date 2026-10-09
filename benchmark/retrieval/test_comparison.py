@@ -10,67 +10,58 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Check accounting when script transport retries or a task reaches its limit."""
-import json
-from pathlib import Path
-import sys
-import tempfile
+"""Matched matrix reporting without benchmark imports or provider calls."""
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_comparison import audit_script
-from evaluate_script_task import save_full_memory
+from benchmark.retrieval.comparison import evidence_matrix_contrasts
 
 
-class ScriptAuditTests(unittest.TestCase):
-    def write_fixture(self, path, stats, events):
-        (path / "stats.json").write_text(json.dumps(stats))
-        (path / "model-request-trace.jsonl").write_text(
-            "\n".join(json.dumps(event) for event in events) + "\n")
+class ComparisonTests(unittest.TestCase):
+    def test_four_contrasts_change_one_factor_and_are_descriptive(self):
+        rows = [{"model": "Luna", "arm": f"evidence_data{data}_flow{flow}",
+                 "task": "a", "rep": 1, "score": data * 0.4 + flow * 0.1,
+                 "cost_usd": data * 0.02 + flow * 0.01, "model_calls": 8 - data - flow}
+                for data in [0, 1] for flow in [0, 1]]
+        contrasts = evidence_matrix_contrasts(rows, ["Luna"])
+        self.assertEqual(len(contrasts), 4)
+        for contrast in contrasts:
+            self.assertTrue(contrast["descriptive_only"])
+            self.assertIsNone(contrast["score_delta_ci95"])
+            self.assertIsNone(contrast["cost_delta_ci95"])
+            self.assertEqual(contrast["tasks"], 1)
+            self.assertEqual(contrast["matched_attempts"], 1)
+            self.assertAlmostEqual(contrast["score_delta"],
+                                   0.4 if contrast["factor"] == "data" else 0.1)
+            self.assertEqual(contrast["model_calls_delta"], -1)
 
-    def test_transport_retry_does_not_double_count_returned_usage(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp)
-            stats = {"input_tokens": 1000, "output_tokens": 20,
-                     "cached_tokens": 800, "cache_creation_tokens": 100}
-            events = [{"phase": "request", "call": 1},
-                      {"phase": "transport_request", "call": 1},
-                      {"phase": "transport_request", "call": 1},
-                      {"phase": "transport_headers", "call": 1, "status": 200},
-                      {"phase": "response", "call": 1, "usage": {
-                          "prompt_tokens": 1000, "completion_tokens": 20,
-                          "prompt_tokens_details": {"cached_tokens": 800,
-                                                    "cache_creation_tokens": 100}}}]
-            self.write_fixture(path, stats, events)
-            result = audit_script(path)
-            self.assertEqual(result["violations"], [])
-            self.assertEqual(result["provider_calls"], 1)
-            self.assertEqual(result["input_tokens"], 1000)
+    def test_missing_cost_does_not_drop_score_and_unmatched_tasks_are_excluded(self):
+        rows = [
+            {"model": "Luna", "arm": "evidence_data1_flow0", "task": "a", "rep": 1,
+             "score": 1.0, "cost_usd": None},
+            {"model": "Luna", "arm": "evidence_data0_flow0", "task": "a", "rep": 1,
+             "score": 0.0, "cost_usd": 0.1},
+            {"model": "Luna", "arm": "evidence_data1_flow0", "task": "b", "rep": 1,
+             "score": 0.0, "cost_usd": 3.0},
+        ]
+        contrast, = evidence_matrix_contrasts(rows, ["Luna"])
+        self.assertEqual(contrast["score_delta"], 1.0)
+        self.assertIsNone(contrast["cost_delta_usd"])
+        self.assertEqual(contrast["metric_pairs"]["score"], 1)
+        self.assertEqual(contrast["metric_pairs"]["cost_usd"], 0)
+        self.assertEqual(contrast["tasks"], 1)
 
-    def test_wall_clock_stop_without_response_has_incomplete_usage(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp)
-            stats = {"input_tokens": 0, "output_tokens": 0,
-                     "cached_tokens": 0, "cache_creation_tokens": 0}
-            self.write_fixture(path, stats, [{"phase": "request", "call": 1},
-                {"phase": "error", "call": 1, "exception": "SystemExit"}])
-            (path / "wall-clock-stop.json").write_text(json.dumps({"signal": 15}))
-            result = audit_script(path)
-            self.assertEqual(result["violations"], [])
-            self.assertIn("task_timeout_usage_incomplete", result["warnings"])
-            self.assertEqual(result["provider_calls"], 0)
-
-    def test_optional_memory_export_does_not_block_grading(self):
-        class CyclicMemory:
-            def get_full_steps(self):
-                raise RecursionError("cyclic object in recorded variables")
-
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp)
-            save_full_memory(path, CyclicMemory())
-            diagnostic = json.loads((path / "trace-export-error.json").read_text())
-            self.assertEqual(diagnostic["exception"], "RecursionError")
-            self.assertFalse((path / "full-memory.json").exists())
+    def test_repetitions_are_averaged_within_task_before_across_tasks(self):
+        rows = []
+        for task, repetitions, delta in [("a", [1, 2], 1.0), ("b", [1], 0.0)]:
+            for rep in repetitions:
+                for data in [0, 1]:
+                    rows.append({"model": "Luna", "arm": f"evidence_data{data}_flow0",
+                                 "task": task, "rep": rep, "score": data * delta})
+        contrast, = evidence_matrix_contrasts(rows, ["Luna"])
+        self.assertEqual(contrast["matched_attempts"], 3)
+        self.assertEqual(contrast["tasks"], 2)
+        self.assertEqual(contrast["score_delta"], 0.5)
+        self.assertEqual(evidence_matrix_contrasts(rows, ["Terra"]), [])
 
 
 if __name__ == "__main__":

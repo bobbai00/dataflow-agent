@@ -6,10 +6,15 @@ Native agents choose a `view` on each `retrieve` action:
 {
   "reasoning": "Check the output's missing values and range.",
   "actions": [
-    {"type": "retrieve", "operator_id": "joined", "view": "sample_stats"}
+    {"type": "retrieve", "operator_ids": ["joined", "checks"], "view": "sample_stats"}
   ]
 }
 ```
+
+The current registered protocol retrieves a nonempty list of operator IDs.
+The view and optional columns apply to every target; each target has its own
+status and result block, so a missing or stale target does not hide valid reads.
+Use separate actions when results need different views or column selections.
 
 | View | Records | Data statistics |
 | --- | --- | --- |
@@ -38,20 +43,57 @@ marked unavailable. Independently measured operator counters remain usable.
 The default views are `sample_stats` and `full`. The prompt starts with samples
 and statistics; when they suffice, no full read is needed. Project relevant
 columns and compute aggregates in the graph before requesting individual
-records. The default full display cap is 5,000 characters. Workbook header inspection uses a one-row preview; increasing
-its length reads data rows from each sheet as well.
+records. The default full display cap is 5,000 characters. Workbook header
+inspection uses a one-row preview; increasing its length reads data rows from
+each sheet as well.
 
-`flowEvidence` independently appends bounded metadata about the requested
-operator and its producing ancestors, including intermediate projections,
-joins, filters and aggregates. Its `flowEvidenceCharLimit` is independent of
-the record view and data-statistics budget. Traversal follows exact result
-versions, includes at most three ancestors, and stops at opaque custom stages.
-The metadata describes the executed calculation; it does not certify that the
+For complete column discovery, inspect `target:"schema"` with `operator_id`.
+This reads the stored result schema independently of record and statistics
+budgets. For workbook discovery, execute `scan(..., preview=1)` and inspect
+`target:"source"` to read retained paths, sheet names, and first raw rows. Neither
+inspection opens files or executes. Both use optional `offset`/`limit` pages
+(default 200 entries, limit 1–200) and return `next_offset` when more retained
+entries remain. Source inspection distinguishes known sheet names from a complete
+workbook list; raw rows are layout hints, not parsed schema. Missing, failed, or
+stale materializations must be executed before these inspections can succeed.
+
+Data statistics describe an explicitly requested operator's output table.
+`flowEvidence` independently exposes operator runtime measurements: filter
+retention and rejections, join matches and unmatched keys, cast failures, scan diagnostics, and aggregate
+denominators. Execution receipts report each newly executed operator's own
+measurements even when its table was not requested. Retrieval adds bounded
+summaries from the requested operator's producing ancestors. Its
+`flowEvidenceCharLimit` is independent of the record and data-statistics budgets.
+The measurements describe executed operations; they do not certify that the
 calculation answers the task.
+
+Traversal follows exact producing input versions, visits at most 32 nodes to
+depth eight, and selects at most three ancestor summaries within the flow
+budget. It can cross custom Python operators because their input dependencies
+are explicit. Measurements from before custom processing are labeled with
+unknown row/column correspondence to the requested output; graph ancestry does
+not prove that particular rows survived. Stale, failed, or unbound results do
+not contribute ancestor measurements.
+
+The measured filter contract is `filter(t, predicate="name", settings={})`.
+The named registered function receives a read-only row mapping and returns True,
+False, or a scalar missing value. True retains the row; False/null rejects it,
+with null verdicts counted separately. Output columns and retained row order
+are preserved. The execution records columns actually read by the predicate.
+Filtering inside an unrestricted table function remains opaque, as do custom
+pandas joins and conversions: they do not inherit built-in filter/join/cast
+measurements. Names and docstrings cannot establish those semantics.
 
 ### Bounded failure and key examples
 
-With profile collection enabled, Cast retains examples for at most eight
+With profile collection enabled, Filter retains three first-encountered distinct
+source values for each of up to eight predicate-read columns, plus their counts
+and the remaining `otherCount`. Counts cover **all rejected rows**, including
+null-verdict drops, even if a column was read only conditionally. Null is distinct
+from a literal `"null"` string. These distributions do not establish why an
+individual row was rejected.
+
+Cast retains examples for at most eight
 converted columns: the first three distinct failed values, their occurrence
 counts, and the remaining failure count. Join retains up to three eligible
 unmatched keys and three duplicate keys on each side. These are examples in
@@ -100,11 +142,12 @@ single-element list creates a fixed-view experimental arm. The system prompt
 describes only the enabled views, their budgets and the enabled evidence.
 Unavailable views reject the entire action envelope before any edits run.
 
-If `retrievalViews` is omitted, the default exposes `full` and `sample`;
-`dataEvidence: true` additionally enables `sample_stats`. Explicit
-`retrievalViews` takes precedence over this default. In the native action
-interface, data statistics are shown only when the selected view is
-`sample_stats`. Historical runs must use their recorded revisions.
+If `retrievalViews` is omitted, the default exposes `sample_stats` and `full`.
+Explicit `retrievalViews` controls availability; the legacy `dataEvidence`
+boolean does not change it. Thus `dataEvidence: false` alone is not a data-off
+configuration. In the native action interface, data statistics are shown only
+when the selected view is `sample_stats`. Historical runs must use their
+recorded revisions.
 
 The three new character limits default to 5,000 / 2,000 / 2,000 respectively
 and accept integers from 128 through 100,000. `maxResultRows: 0` leaves sample
@@ -126,6 +169,15 @@ the last successful observation per operator in the call, provided no later
 action invalidated that result. Profile collection is separate from exposure
 and must be configured before operators are created.
 
+Native timings remain saved telemetry rather than automatic model-facing
+evidence. With collection enabled, `native.operations.timing.operatorBodyMs`
+measures successful operator work, definition replay, source I/O, and native
+counters. The optional `filterRejectedValuesMs` is a separately measured pass
+excluded from body time. Profile `cost.collectionMs` measures accumulation;
+optional `cost.snapshotMs` measures building its immutable summary. These fields
+exclude input/output validation, JSON encoding/trimming, transfer, and persistence.
+Unknown phases remain absent; cached results keep their original measurements.
+
 ## Experiments
 
 The pilot driver in `benchmark/retrieval/run.py` crosses four policies with
@@ -134,6 +186,14 @@ automatic flow evidence off/on: fixed `full`, fixed `sample`, fixed
 schema, traces, producing versions, official KramaBench scores and costs. The
 original task evaluator is unchanged; full pass means official score >= 1.0.
 Independent repetitions retain failures and use no outcome-selected retries.
+
+The matched `evidence_data{0,1}_flow{0,1}` arms offer sample/full when data is off
+and sample_stats/full when it is on, with flow independently toggled. All four
+collect full-row profiles internally, so they compare exposure rather than
+profiling overhead. Pass `--full-result-char-limit 5000` to use the current
+service display cap; the runner's historical default remains 100,000. Current
+inspection/filter contracts do not change the interpretation of frozen earlier
+campaigns.
 
 ```bash
 benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run.py \

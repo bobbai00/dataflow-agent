@@ -96,8 +96,8 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -d '{"username":"texera","password":"texera"}' | jq -r .accessToken)
 
 # 1. create an agent bound to a workflow + computing unit
-#    (no `settings` = the defaults below: native mode, DELTA context, evidence off;
-#     pass e.g. {"agentMode":"code"} or {"dataEvidence":true,"flowEvidence":true} to change them)
+#    (no `settings` = native mode, DELTA context, sample_stats/full retrieval, flow evidence off;
+#     pass e.g. {"agentMode":"code"} or {"flowEvidence":true} to change them)
 AGENT=$(curl -s -X POST $BASE/agents/ \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"modelType":"gpt-5.2","workflowId":1,"computingUnitId":1}' | jq -r .id)
@@ -126,19 +126,28 @@ automatically after operator edits.
 
 | Mode | Tools the model sees | What one call does |
 |---|---|---|
-| `native` (default) | `dataflow` | `dataflow({reasoning, actions})`: an ordered list of `inspect`, `edit`, `execute`, `retrieve`, or `answer`. Edits use explicit `create/update/delete operator` and `create/delete edge` commands over the 15-operator catalog. Operator expressions contain parameters; named ports define connections. Each Edit is atomic, and deleting an operator also deletes its incident edges. `filter`, `map`, and `process` carry Python functions and a required `doc`. Edits do not execute; retrieval reads stored results; Answer ends the loop. |
+| `native` (default) | `dataflow` | Ordered `inspect`, `edit`, `execute`, `retrieve`, and `answer` actions. Atomic edits register Python definitions and declare operators with `set id: type(inputs, settings)` or `delete id`. Thirteen built-ins and registered table functions share this graph. Execution is explicit; retrieval reads several stored results; Answer ends the turn. |
 | `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
 
 Optional pull tools in either mode, all off by default: `recallState`
 (`enableRecallTool`), `resumeFrom` (`enableResumeTool`), `compactContext`
 (`enableCompactTool`). Native mode forces provider parallel tool calls off;
-the action list is the batch. Actions stop at the first failure; completed
-edits remain. Decisions based on returned results belong in the next call. See
-[docs/native-expression-mode.md](docs/native-expression-mode.md) for the
-expression syntax, the operator reference and the error taxonomy, and
+the action list is the batch. Completed edits remain after failure; inspection
+and retrieval may still read independent results after an execution error.
+Decisions based on returned results belong in the next call. See
+[Registered Python Dataflows](docs/native-registered-python-design.md) for
+declarations, namespace isolation, actions, and inspection, and
 [native-mode/](native-mode/) for the complete system prompt, the exact tool
 definitions and the operator reference as the model receives them (generated
 from the code; `bun run render:native-reference` in `agent-service/`).
+
+For measured filtering, declare `filter(rows, predicate="keep", settings={...})`
+with a registered row predicate; its boolean/null verdicts produce retained,
+rejected, and null counts plus bounded rejected-value frequencies. Custom table
+functions remain available for general pandas work. Inspect `target:"schema"`
+for exact parsed column names, or `target:"source"` for retained workbook discovery
+metadata after executing a one-row scan preview. Both inspect targets paginate
+without executing or reading files.
 
 ### Default configuration
 
@@ -149,9 +158,9 @@ An agent created with no `settings` uses
 |---|---|---|
 | `agentMode` | `native` | the operator expressions above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `false` | other modes use it to expose data measurements; native actions select data statistics through `sample_stats` |
-| `retrievalViews` | `["sample_stats", "full"]` | inspect samples and statistics first; `sample` can be enabled explicitly |
-| `flowEvidence` | `false` | automatically adds selected flow measurements and operator contracts, including producing ancestors, to retrieved results |
+| `dataEvidence` | `false` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
+| `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
+| `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
 | `dataflowReasoning` | `true` | retained for archived settings; native action calls always require a brief rationale and normalize this setting to true |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
@@ -160,9 +169,9 @@ An agent created with no `settings` uses
 | `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
 | `maxOperatorResultCellCharLimit` | `2000` | sample cells are clipped and marked; native full retrieval preserves retained cell contents |
 | `maxSteps` | `100` | per-turn step budget |
-| `stateHistory` | `false` | native actions can inspect named operators at completed tasks, read saved views in the same inspection, and fork historical operator branches; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
-| `taskContext` | `"trajectory"` | opt-in `"dependencies"` keeps current-task ReAct and replaces earlier trajectories with questions, answers and parent task IDs; inspect a task to retrieve its saved answer sub-DAG; requires native DELTA context and `stateHistory`; see [task context](docs/observation-format/task-dependency-context.md) |
-| `nativePromptDetail` | `"full"` | opt-in `"on_demand"` keeps signatures and shorter generic examples initially; reference inspections retrieve selected operator contracts or feature-matched examples; see [prompt reference](docs/native-expression-mode.md#optional-prompt-reference) |
+| `stateHistory` | `false` | retained for historical configurations; the registered tool exposes current graph, operator, namespace, schema, source, and reference inspection |
+| `taskContext` | `"trajectory"` | earlier task trajectories remain visible; historical `"dependencies"` layouts do not add task-restoration actions to the registered tool |
+| `nativePromptDetail` | `"full"` | `"on_demand"` omits the longer repair example; both variants show concise built-in signatures and can inspect complete operator contracts |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |

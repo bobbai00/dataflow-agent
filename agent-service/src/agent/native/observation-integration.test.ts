@@ -237,7 +237,13 @@ test("every prompt capability combination matches its schema and keeps the commo
               tableFormat,
             });
             // Role and actions, then solving a task, then examples.
-            const order = ["## Role and objective", "## Actions and their effects", "### Understanding observations", "## Solving a task", "## Examples"];
+            const order = [
+              "## Role and objective",
+              "## Actions and their effects",
+              "### Understanding observations",
+              "## Solving a task",
+              "## Examples",
+            ];
             expect(prompt.startsWith(order[0])).toBe(true);
             for (let i = 1; i < order.length; i++)
               expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
@@ -295,7 +301,7 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
   const settings = agent.getSettings();
   expect(settings.tableFormat).toBe("tsv");
   expect(settings.keyValueColumns).toBe(0);
-  expect(settings.systemPrompt).toContain("### Earlier tasks in the session");
+  expect(settings.systemPrompt).toContain("Earlier tasks share the current graph and registered definitions.");
   expect(settings.systemPrompt).toContain("Records use a tab-separated table with a header line at any width.");
 });
 

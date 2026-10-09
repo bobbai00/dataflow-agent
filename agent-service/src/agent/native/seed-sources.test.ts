@@ -60,7 +60,7 @@ test("the seed program is a valid dataflow: tabular files auto-detect, text file
   expect(plan.operators.map(o => o.id)).toEqual(["cities", "climate", "notes", "orbit"]);
   expect(plan.operators.map(o => o.format)).toEqual([undefined, undefined, "lines", "lines"]);
   expect(plan.observe).toEqual(["cities", "climate", "notes", "orbit"]);
-  expect(plan.skipped).toEqual([{ path: "data/a/regions.gpkg", reason: "binary format needs a process loader" }]);
+  expect(plan.skipped).toEqual([{ path: "data/a/regions.gpkg", reason: "binary format needs a custom Python loader" }]);
   expect(plan.program.split("\n")).toEqual([
     'cities = scan("data/a/cities.csv")',
     'climate = scan("data/a/climate.xlsx")',
@@ -164,12 +164,12 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
       actions: [
         {
           type: "edit",
+          python: "",
           changes:
-            'roman_cities = scan("data/archeology/input/roman_cities.csv")\nnotes = scan("data/archeology/input/notes.txt", format="lines")',
+            'set roman_cities: scan(files="data/archeology/input/roman_cities.csv")\nset notes: scan(files="data/archeology/input/notes.txt", format="lines")',
         },
         { type: "execute" },
-        { type: "retrieve", operator_id: "roman_cities", view: "sample_stats" },
-        { type: "retrieve", operator_id: "notes", view: "sample_stats" },
+        { type: "retrieve", operator_ids: ["roman_cities", "notes"], view: "sample_stats" },
       ],
     });
     const batch = seed!.toolResults![0]!.output as {
@@ -177,18 +177,13 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
       observe: string[];
     };
     expect(batch.operators.map(o => `${o.status}: ${o.message}`)).toEqual([
-      "added: added scan operator `roman_cities`",
-      "added: added scan operator `notes`",
+      "added: created operator `roman_cities`",
+      "added: created operator `notes`",
     ]);
     // This fixture has no engine connection: execution is an explicit error,
     // retrieval reports unavailable results, and the sources remain available for repair.
     expect(batch.observe).toEqual([]);
-    expect((seed!.toolResults![0]!.output as any).actions.map((a: any) => a.status)).toEqual([
-      "ok",
-      "error",
-      "error",
-      "error",
-    ]);
+    expect((seed!.toolResults![0]!.output as any).actions.map((a: any) => a.status)).toEqual(["ok", "error", "error"]);
     expect(seed!.operatorAccess?.[0]?.addedOperatorIds).toEqual(["roman_cities", "notes"]);
     // The scans are real operators of the DAG the model then builds on.
     expect(agent.getWorkflowState().getOperator("roman_cities")).toBeDefined();

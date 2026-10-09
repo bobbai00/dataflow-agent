@@ -150,23 +150,24 @@ def test_is_dirty_docker_always_clean(tui):
     assert tui.is_dirty(svc) is False
 
 
-def test_is_dirty_after_seed_then_edit(tmp_path, monkeypatch, tui):
+def test_is_dirty_until_verified_build_then_after_edit(tmp_path, monkeypatch, tui):
     monkeypatch.setattr(tui, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(tui, "BUILD_STAMP_DIR", tmp_path / "stamps")
     (tmp_path / "stamps").mkdir()
     _seed_jvm_layout(tmp_path, "config-service/src")
 
-    # Drop in a "jar" so the lazy seed path kicks in (it just needs to exist;
-    # the file's content isn't read by the dirty check, only the stamp's).
+    # A prebuilt jar alone cannot establish correspondence with the sources.
     svc = tui.SERVICES_BY_NAME["config-service"]
     jar = tmp_path / svc.artifact_jar
     jar.parent.mkdir(parents=True, exist_ok=True)
     jar.write_bytes(b"fake-jar-bytes")
 
-    # First call seeds the stamp and reports clean.
-    assert tui.is_dirty(svc) is False
+    assert tui.is_dirty(svc) is True
     stamp = tmp_path / "stamps" / svc.name
-    assert stamp.exists()
+    assert not stamp.exists()
+    # Only a successful launcher build records the source hash.
+    stamp.write_text(tui.source_hash(svc))
+    assert tui.is_dirty(svc) is False
     seeded_hash = stamp.read_text().strip()
     assert len(seeded_hash) == 40
 
@@ -179,7 +180,7 @@ def test_is_dirty_when_edit_shares_the_stamp_mtime(tmp_path, monkeypatch, tui):
     """An edit landing in the same filesystem timestamp tick as the stamp write
     must still be seen.
 
-    `test_is_dirty_after_seed_then_edit` above hits this by accident wherever
+    `test_is_dirty_until_verified_build_then_after_edit` above hits this by accident wherever
     the filesystem's granularity is coarser than its two consecutive writes;
     here the collision is forced with os.utime, so it holds on every platform.
     The fast mtime filter must not answer "definitely clean" without consulting
@@ -194,8 +195,9 @@ def test_is_dirty_when_edit_shares_the_stamp_mtime(tmp_path, monkeypatch, tui):
     jar.parent.mkdir(parents=True, exist_ok=True)
     jar.write_bytes(b"fake-jar-bytes")
 
-    assert tui.is_dirty(svc) is False
     stamp = tmp_path / "stamps" / svc.name
+    stamp.write_text(tui.source_hash(svc))
+    assert tui.is_dirty(svc) is False
 
     # Change the content, then force the source's mtime to exactly the stamp's.
     src = tmp_path / "config-service/src/Main.scala"
@@ -221,7 +223,7 @@ def test_is_dirty_mtime_bump_without_content_change_stays_clean(tmp_path, monkey
     jar.parent.mkdir(parents=True, exist_ok=True)
     jar.touch()
 
-    tui.is_dirty(svc)  # seed
+    (tmp_path / "stamps" / svc.name).write_text(tui.source_hash(svc))
 
     # Simulate `git checkout` by touching all source files to "now" without
     # changing content.

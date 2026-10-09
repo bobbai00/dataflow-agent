@@ -504,7 +504,11 @@ class ProfileAccumulator:
         )
 
     def encode(self):
+        started = self.clock()
         result = self.snapshot()
+        # Time summary construction separately from row/column collection.
+        # Encoding, payload trimming, transfer and persistence are excluded.
+        result["cost"]["snapshotMs"] = round(max(0.0, self.clock() - started) * 1000, 3)
 
         def encode_with_size():
             for _ in range(6):
@@ -527,6 +531,9 @@ class ProfileAccumulator:
                 if "conversionFailureExamples" in operations:
                     del operations["conversionFailureExamples"]
                     removed = True
+                if "filterRejectedValues" in operations:
+                    del operations["filterRejectedValues"]
+                    removed = True
                 join = operations.get("join")
                 if isinstance(join, dict):
                     for port in ("left", "right"):
@@ -539,21 +546,43 @@ class ProfileAccumulator:
             if removed:
                 result["omissions"] = sorted(set(result["omissions"]) | {"native_witness_payload_budget"})
                 payload = encode_with_size()
-        # Per-file scan details are optional as well: the file counters stay
-        # exact without them, and a glob over a few hundred files otherwise
-        # overflows the envelope and loses every native counter. Files without
-        # a finding (a header check, no data rows) go first; the findings go
-        # only after the value dictionaries, before the native counters.
+        # Source identity is independent of optional per-file findings and
+        # statistics. Compact ordinary records first; never erase the only
+        # source merely because a wide table's value dictionaries overflow.
         native = result.get("native") or {}
         scan = (native.get("operations") or {}).get("scan")
         if not (isinstance(scan, dict) and isinstance(scan.get("sources"), list)):
             scan = None
         if scan is not None and len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             sources = scan["sources"]
-            kept = [s for s in sources if isinstance(s, dict) and (s.get("headerCheck") or s.get("outputRows") == 0)]
-            if len(kept) < len(sources):
-                scan["sources"] = kept
-                scan["sourcesOmitted"] = len(sources) - len(kept)
+            compact = [
+                (
+                    s
+                    if not isinstance(s, dict) or s.get("headerCheck") or s.get("outputRows") == 0
+                    else {k: s[k] for k in ("path", "sizeBytes", "mtimeNs") if k in s}
+                )
+                for s in sources
+            ]
+            removed = sum(a != b for a, b in zip(sources, compact))
+            if removed:
+                scan["sources"] = compact
+                scan["sourceDetailsOmitted"] = scan.get("sourceDetailsOmitted", 0) + removed
+                result["omissions"] = sorted(set(result["omissions"]) | {"scan_source_details_payload_budget"})
+                payload = encode_with_size()
+            # A very large source list is itself bounded. Prefer records with
+            # findings, then original order; explicitly mark incomplete identity.
+            while len(scan["sources"]) > 256:
+                sources = scan["sources"]
+                ranked = sorted(
+                    range(len(sources)),
+                    key=lambda i: not (
+                        isinstance(sources[i], dict)
+                        and (sources[i].get("headerCheck") or sources[i].get("outputRows") == 0)
+                    ),
+                )
+                keep = set(ranked[: len(sources) // 2])
+                scan["sources"] = [s for i, s in enumerate(sources) if i in keep]
+                scan["sourcesOmitted"] = scan.get("sourcesOmitted", 0) + len(sources) - len(keep)
                 result["omissions"] = sorted(set(result["omissions"]) | {"scan_sources_payload_budget"})
                 payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
@@ -580,6 +609,16 @@ class ProfileAccumulator:
                 if size + 32 <= self.limits.max_payload_bytes:
                     break
             payload = encode_with_size()
+        if scan is None and len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
+            result["native"] = None
+            result["omissions"] = sorted(set(result["omissions"]) | {"native_metadata_payload_budget"})
+            payload = encode_with_size()
+        if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
+            result.update(
+                {"schema": [], "schemaComplete": False, "columns": {}, "structure": {}, "status": "unavailable"}
+            )
+            result["coverage"]["complete"] = False
+            payload = encode_with_size()
         while scan is not None and scan["sources"] and len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             keep = len(scan["sources"]) // 2
             scan["sourcesOmitted"] = scan.get("sourcesOmitted", 0) + len(scan["sources"]) - keep
@@ -589,12 +628,6 @@ class ProfileAccumulator:
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             result["native"] = None
             result["omissions"] = sorted(set(result["omissions"]) | {"native_metadata_payload_budget"})
-            payload = encode_with_size()
-        if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
-            result.update(
-                {"schema": [], "schemaComplete": False, "columns": {}, "structure": {}, "status": "unavailable"}
-            )
-            result["coverage"]["complete"] = False
             payload = encode_with_size()
         if len(payload.encode("utf-8")) > self.limits.max_payload_bytes:
             raise ValueError("Profile identity exceeds payload budget")

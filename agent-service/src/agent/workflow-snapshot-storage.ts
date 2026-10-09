@@ -893,7 +893,17 @@ function operatorPredicateEqual(a: OperatorPredicate, b: OperatorPredicate): boo
   if (JSON.stringify(a.operatorProperties) !== JSON.stringify(b.operatorProperties)) return false;
   if (JSON.stringify(a.inputPorts) !== JSON.stringify(b.inputPorts)) return false;
   if (JSON.stringify(a.outputPorts) !== JSON.stringify(b.outputPorts)) return false;
-  if (JSON.stringify(a.nativeOp) !== JSON.stringify(b.nativeOp)) return false;
+  // Registered definitions carry authored source and doc overrides as metadata.
+  // Their revision and generated code cover executable semantics; changing only
+  // prose or source formatting must not discard current numerical results.
+  const registered = a.nativeOp?.source?.startsWith("set ") && b.nativeOp?.source?.startsWith("set ");
+  if (registered) {
+    const semanticView = (op: OperatorPredicate) => {
+      const { source: _source, doc: _doc, ...view } = op.nativeOp!;
+      return view;
+    };
+    if (JSON.stringify(semanticView(a)) !== JSON.stringify(semanticView(b))) return false;
+  } else if (JSON.stringify(a.nativeOp) !== JSON.stringify(b.nativeOp)) return false;
   return true;
 }
 

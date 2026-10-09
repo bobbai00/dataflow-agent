@@ -19,6 +19,13 @@
 
 # Observation format: specification
 
+> This folder records the 2026-10-03 observation design. Its expression syntax,
+> operator catalog, and history actions are historical. The current
+> [registered-Python contract](../native-registered-python-design.md) retains
+> Markdown reporting and coverage labels, with batched result retrieval and
+> function registration receipts. Read the generated prompt below for the
+> active interface.
+
 Status: implemented, 2026-10-03. The approved format is used by native action
 receipts, retrieved results, task catalogs and gold-prefix request listings.
 See [validation.md](validation.md) for regression coverage and real Luna

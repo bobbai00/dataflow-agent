@@ -35,6 +35,7 @@ import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
+import { stageRegisteredEdit } from "../native/registered";
 
 type Edge = { source: string; sourcePort: string; target: string; targetPort: string };
 
@@ -67,6 +68,7 @@ export interface GraphEditPlan {
   changes: GraphChangeReceipt[];
   unconnected_inputs: string[];
   invalidated_results: string[];
+  registrations?: Array<{ name: string; kind: "registered" | "updated" }>;
 }
 
 const edgeKey = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;
@@ -116,7 +118,7 @@ export function inspectGraph(workflow: WorkflowContent) {
   return {
     operators: workflow.operators.map(op => ({
       id: op.operatorID,
-      type: op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType,
+      type: op.nativeOp ? (op.nativeOp.registeredName ?? nativeOperatorName(op.nativeOp.type)) : op.operatorType,
       ports: { inputs: op.nativeOp ? ports(op.nativeOp) : op.inputPorts.map(p => p.portID), outputs: ["out"] },
     })),
     edges: edges.map(e => edgeLabel(e, portsOf.get(e.target)?.length ?? 1)),
@@ -127,6 +129,130 @@ export function inspectGraph(workflow: WorkflowContent) {
             .map(port => `${op.operatorID}.${port}`)
         : []
     ),
+  };
+}
+
+/** Stage a cumulative namespace and complete final graph before publishing
+ * either. Generated engine code is private to the draft until the caller checks
+ * snapshot ownership and commits. Python registration never executes the DAG. */
+export async function planRegisteredGraphEdit(
+  original: WorkflowContent,
+  python: string,
+  changes: string,
+  context: ToolContext
+): Promise<GraphEditPlan> {
+  if (!context.metadataStore) throw new Error("Metadata store not available for graph editing.");
+  const originalViews: Record<string, NativeOpView> = Object.create(null);
+  for (const op of original.operators) {
+    if (!op.nativeOp) throw new Error(`Operator ${op.operatorID} is not a native operator.`);
+    originalViews[op.operatorID] = structuredClone(op.nativeOp);
+  }
+  const staged = await stageRegisteredEdit({
+    python,
+    changes,
+    namespace: original.nativeNamespace,
+    operators: originalViews,
+    profileCollection: context.settings?.nativeProfileCollection,
+    profileScope: context.settings?.nativeProfileScope === "full" ? "full" : undefined,
+  });
+  const nodes = new Map(Object.entries(staged.operators));
+  const pending = new Set(nodes.keys());
+  const ordered: string[] = [];
+  while (pending.size) {
+    const roots = [...pending].filter(id => !nodes.get(id)!.inputs.some(up => pending.has(up)));
+    if (!roots.length)
+      throw new Error(`The inputs form a cycle among ${[...pending].join(", ")}. No changes were applied.`);
+    for (const id of roots) {
+      const missing = nodes.get(id)!.inputs.find(up => !nodes.has(up));
+      if (missing)
+        throw new Error(
+          `${id}'s input ${missing} does not exist. Rewire or delete its consumers in the same edit. No changes were applied.`
+        );
+      pending.delete(id);
+      ordered.push(id);
+    }
+  }
+  const draft = new WorkflowState();
+  draft.setWorkflowContent({ ...original, nativeNamespace: staged.namespace });
+  for (const old of draft.getAllOperators()) if (!nodes.has(old.operatorID)) draft.deleteOperator(old.operatorID);
+  for (const link of draft.getAllLinks()) draft.deleteLink(link.linkID);
+  const util = new WorkflowUtilService(context.metadataStore, draft);
+  for (const id of ordered) {
+    const view = nodes.get(id)!;
+    if (context.settings?.nativeChecks) view.lineage = nativeLineage(draft, view);
+    const compiled = compileNativeOp(view, id);
+    const old = draft.getOperator(id);
+    const template =
+      old?.operatorType === compiled.operatorType ? old : util.getNewOperatorPredicate(compiled.operatorType, id);
+    draft.addOperator(
+      {
+        ...template,
+        operatorID: id,
+        nativeOp: view,
+        customDisplayName: `${id}: ${view.source ?? view.registeredName ?? nativeOperatorName(view.type)}`,
+        operatorProperties: { ...template.operatorProperties, code: compiled.code },
+        inputPorts: ports(view).map((name, i) => ({
+          portID: `input-${i}`,
+          displayName: name,
+          disallowMultiInputs: true,
+          isDynamicPort: i > 0,
+        })),
+        outputPorts: [{ portID: "output-0", displayName: "out" }],
+      },
+      draft.getOperatorPosition(id)
+    );
+    view.inputs.forEach((source, index) =>
+      draft.addLink({
+        linkID: `${source}.out -> ${id}.${ports(view)[index]}`,
+        source: { operatorID: source, portID: "output-0" },
+        target: { operatorID: id, portID: `input-${index}` },
+      })
+    );
+  }
+  autoLayoutWorkflow(draft);
+  const workflow = draft.getWorkflowContent();
+  const receipts: GraphChangeReceipt[] = [];
+  const outcomes: NativeBatchOutcome[] = [];
+  const names = (view: NativeOpView) => view.registeredName ?? nativeOperatorName(view.type);
+  for (const [id, old] of Object.entries(originalViews))
+    if (!nodes.has(id)) {
+      receipts.push({ change: "operator", operator_id: id, operator: names(old), action: "deleted" });
+      outcomes.push({ id, op: names(old), status: "deleted", message: `deleted operator \`${id}\`` });
+    }
+  for (const [id, view] of nodes) {
+    const old = originalViews[id];
+    if (old && JSON.stringify(old) === JSON.stringify(view)) continue;
+    receipts.push({ change: "operator", operator_id: id, operator: names(view), action: old ? "updated" : "created" });
+    outcomes.push({
+      id,
+      op: names(view),
+      status: old ? "modified" : "added",
+      message: `${old ? "updated" : "created"} operator \`${id}\``,
+    });
+  }
+  const beforeEdges = new Map(edgesOf(original).map(edge => [edgeKey(edge), edge]));
+  const afterEdges = new Map(edgesOf(workflow).map(edge => [edgeKey(edge), edge]));
+  for (const [key, edge] of beforeEdges)
+    if (!afterEdges.has(key))
+      receipts.push({
+        change: "edge",
+        edge: edgeLabel(edge, ports(originalViews[edge.target]).length),
+        action: "removed",
+      });
+  for (const [key, edge] of afterEdges)
+    if (!beforeEdges.has(key))
+      receipts.push({
+        change: "edge",
+        edge: edgeLabel(edge, ports(nodes.get(edge.target)!).length),
+        action: "created",
+      });
+  return {
+    workflow,
+    operators: outcomes,
+    changes: receipts,
+    registrations: staged.registrations,
+    unconnected_inputs: [],
+    invalidated_results: [...computeStaleResultOps(original, workflow)].filter(id => id in originalViews),
   };
 }
 export function missingGraphInputs(workflow: WorkflowContent): string[] {

@@ -54,7 +54,14 @@ describe("nativeCheckLines", () => {
     const [line] = nativeCheckLines(
       op("Aggregate"),
       info({
-        repeatedRecords: { rows: 49, of: 90, records: 21, sources: 17, ignoring: ["source"], example: "Philadelphia, 28438" },
+        repeatedRecords: {
+          rows: 49,
+          of: 90,
+          records: 21,
+          sources: 17,
+          ignoring: ["source"],
+          example: "Philadelphia, 28438",
+        },
       })
     );
     expect(line).toBe(
@@ -89,5 +96,18 @@ describe("nativeCheckLines", () => {
   test("no violation, no line", () => {
     expect(nativeCheckLines(op("Filter"), info({ keptRows: 3 }))).toEqual([]);
     expect(nativeCheckLines(op("Scan"), info({ scan: { sources: [{ path: "/a.csv" }] } }))).toEqual([]);
+  });
+
+  test("registered event locations disambiguate definition cells", () => {
+    expect(
+      nativeCheckLines(
+        op("Process"),
+        info({
+          process: {
+            events: [{ cell: 2, line: 4, op: "filter", in: [8], out: 0, issue: "empty" }],
+          },
+        })
+      )
+    ).toEqual(["inside the function, definition cell 2, line 4: a row selection kept 0 of 8 rows."]);
   });
 });

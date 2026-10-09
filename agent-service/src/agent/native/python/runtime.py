@@ -29,6 +29,7 @@ import keyword
 import linecache
 import math
 import numbers
+import time
 import traceback
 from collections.abc import Mapping
 from collections import Counter
@@ -54,14 +55,15 @@ class _Row(Mapping):
     a distinguishable KeyError so the diagnostic can list the real columns.
     """
 
-    __slots__ = ("_index", "_order", "_values", "_reads", "_copy")
+    __slots__ = ("_index", "_order", "_values", "_reads", "_copy", "_suppress_copy_reads")
 
-    def __init__(self, index, values, reads, order=None):
+    def __init__(self, index, values, reads, order=None, suppress_copy_reads=True):
         self._index = index
         self._order = order if order is not None else tuple(index)
         self._values = values
         self._reads = reads
         self._copy = None
+        self._suppress_copy_reads = suppress_copy_reads
 
     def __getitem__(self, key):
         position = self._index.get(key)
@@ -79,23 +81,23 @@ class _Row(Mapping):
         return self._values[position]
 
     def keys(self):
-        self._copy = 0
+        self._copy = 0 if self._suppress_copy_reads else None
         return list(self._order)
 
     def __iter__(self):
-        self._copy = 0
+        self._copy = 0 if self._suppress_copy_reads else None
         return iter(self._order)
 
     def __len__(self):
         return len(self._index)
 
 
-def _rows(frame, reads):
+def _rows(frame, reads, *, suppress_copy_reads=True):
     """Yield one `_Row` per input row over every column, cheaply."""
     index = {name: position for position, name in enumerate(frame.columns)}
     order = tuple(frame.columns)
     for values in frame.itertuples(index=False, name=None):
-        yield _Row(index, tuple(map(_scalar, values)), reads, order)
+        yield _Row(index, tuple(map(_scalar, values)), reads, order, suppress_copy_reads)
 
 
 def _error(spec, code, message, *, stage="execute", field=None, source=None):
@@ -283,10 +285,11 @@ def validate_native(spec):
                 )
         if len(set(names)) != len(names):
             raise _error(spec, "COLUMN_COLLISION", "Submit each output column once.", stage="validate", field="columns")
-    if kind in ("Filter", "Map"):
+    if kind in ("Filter", "Map") and "registered" not in props:
         _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
     elif kind == "Process":
-        _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
+        if "registered" not in props:
+            _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -1078,7 +1081,7 @@ def _validate_scan_options(spec, fmt):
         reject("sheet selects an Excel sheet or a numeric HTML table index.")
     if fmt in ("binary", "parquet") and props.get("preview") and props.get("skipLines", 0):
         reject(
-            "Binary pointer previews cannot use skipLines; inspect metadata without an offset or load the file with a process function."
+            "Binary pointer previews cannot use skipLines; inspect metadata without an offset or load the file with a custom Python loader."
         )
     common = {"files", "format", "preview", "fileColumn", "allText"}
     allowed = {
@@ -1104,7 +1107,7 @@ def _validate_scan_options(spec, fmt):
         raise _error(
             spec,
             "SCAN_FORMAT",
-            "This binary format needs a process loader (a Python function); Scan preview can show its file metadata.",
+            "This binary format needs a custom Python loader; Scan preview can show its file metadata.",
             stage="validate",
         )
 
@@ -1281,7 +1284,7 @@ def _scan_read(spec, path, fmt, source_meta):
                 "file": [path.name],
                 "size_bytes": [path.stat().st_size],
                 "note": [
-                    "Binary file metadata only; not parsed data rows. Use full Scan for parquet or a process loader for other binary formats."
+                    "Binary file metadata only; not parsed data rows. Use full Scan for parquet or a custom Python loader for other binary formats."
                 ],
             }
         )
@@ -1400,7 +1403,7 @@ def _scan_read(spec, path, fmt, source_meta):
                             else:
                                 if name in flat:
                                     raise ValueError(
-                                        f"Flattened JSON field collision at {name!r}; use a process parser with explicit names"
+                                        f"Flattened JSON field collision at {name!r}; use a custom Python parser with explicit names"
                                     )
                                 flat[name] = value
 
@@ -1409,7 +1412,7 @@ def _scan_read(spec, path, fmt, source_meta):
                 output = pd.DataFrame(flattened, dtype=object)
             else:
                 raise ValueError(
-                    "JSON Scan expects records, one object, or a dictionary of column arrays; use a process loader for other layouts"
+                    "JSON Scan expects records, one object, or a dictionary of column arrays; use a custom Python loader for other layouts"
                 )
             _frame(spec, output)
             return _scan_infer(output, props.get("allText", False), infer_text=False)
@@ -1516,7 +1519,7 @@ def _scan(spec, operations):
             raise _error(
                 spec,
                 "PYTHON_IMPORT",
-                f"Reader for {fmt} is unavailable: {error}. Install its worker dependency or load the file with a process function.",
+                f"Reader for {fmt} is unavailable: {error}. Install its worker dependency or load the file with a custom Python loader.",
                 field="files",
             ) from error
         except Exception as error:
@@ -1749,14 +1752,61 @@ def _cast(spec, source, operations):
     return output
 
 
+def _registered_failure(spec, error):
+    """Point runtime failures at the shared authored definition, not the adapter."""
+    frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+              if frame.filename.startswith("<definitions:")]
+    location = None
+    if frames:
+        frame = frames[-1]
+        cell = int(frame.filename.removeprefix("<definitions:").removesuffix(">"))
+        location = _location(spec["properties"]["registered"]["cells"][cell - 1], frame.name, frame.lineno)
+        location["cell"] = cell
+    hint = getattr(error, "_native_column_hint", "")
+    return _error(spec, "CALLBACK_RUNTIME", f"{type(error).__name__}: {error}{hint}", field="python", source=location)
+
+
+def _filter_rejected_values(source, positions, reads):
+    """Bound first-seen examples while counting their original scalar identities.
+
+    Values come from every rejected row, including null verdicts. A column need
+    only have been read on one row; these are distributions, not explanations.
+    """
+    columns = {}
+    for name in sorted(reads)[:_WITNESS_WIDTH]:
+        witnessed = {}
+        for raw in source[name].iloc[positions]:
+            value = _scalar(raw)
+            key = (type(value), value)
+            if key in witnessed:
+                witnessed[key]["count"] += 1
+            elif len(witnessed) < _WITNESS_LIMIT:
+                example = _witness([value], 1)
+                if example is not None:
+                    witnessed[key] = example
+        columns[name] = {"examples": list(witnessed.values()),
+                         "otherCount": len(positions) - sum(item["count"] for item in witnessed.values())}
+    return {"rejectedRows": len(positions), "columnsObserved": len(reads), "columns": columns}
+
+
 def _filter(spec, source, operations):
     props = spec["properties"]
     entry = props.get("entry", "apply")
-    function = _function(spec, props["func"], "func", entry)
+    registered = "registered" in props
+    function = registered_callable(spec) if registered else _function(spec, props["func"], "func", entry)
     mask, missing = [], 0
     reads = set()
-    for row in _rows(source, reads):
-        value = _scalar(function(row))
+    # Mapping copies/iteration can feed a predicate. Unlike Map's pass-through
+    # row-copy heuristic, every value fetched here is an observed read.
+    for row in _rows(source, reads, suppress_copy_reads=False):
+        try:
+            value = _scalar(function(row))
+        except NativeError:
+            raise
+        except Exception as error:
+            if registered:
+                raise _registered_failure(spec, error) from error
+            raise
         if value is None:
             # None means "no verdict": the row is dropped, and the count is reported.
             missing += 1
@@ -1767,8 +1817,8 @@ def _filter(spec, source, operations):
                 "CALLBACK_RETURN_TYPE",
                 f"Filter requires bool or None, got {type(value).__name__}.",
                 stage="contract",
-                field="func",
-                source=_location(props["func"], entry, 1),
+                field="python" if registered else "func",
+                source=None if registered else _location(props["func"], entry, 1),
             )
         mask.append(value)
     operations.update(
@@ -1779,6 +1829,11 @@ def _filter(spec, source, operations):
             "predicateColumns": sorted(reads),
         }
     )
+    if spec.get("profileCollection") is True:
+        started = time.perf_counter()
+        operations["filterRejectedValues"] = _filter_rejected_values(
+            source, [i for i, keep in enumerate(mask) if not keep], reads)
+        operations["timing"] = {"filterRejectedValuesMs": (time.perf_counter() - started) * 1000}
     return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
 
 
@@ -2166,7 +2221,9 @@ class _ProcessTrace:
     """
 
     def __init__(self, filename):
-        self.filename, self.reads, self.events, self._saved, self._depth = filename, [], [], [], 0
+        self.filenames = filename if isinstance(filename, dict) else {filename: None}
+        self.reads, self.events, self._saved, self._depth = [], [], [], 0
+        self.reads_omitted, self.events_omitted = 0, 0
 
     def _line(self):
         import sys
@@ -2174,7 +2231,47 @@ class _ProcessTrace:
         # Only calls written in the function itself; pandas calling its own
         # API (a groupby selecting columns) is not the function's intent.
         frame = sys._getframe(2)
-        return frame.f_lineno if frame.f_code.co_filename == self.filename else None
+        if frame.f_code.co_filename not in self.filenames:
+            return None
+        cell = self.filenames[frame.f_code.co_filename]
+        return {"line": frame.f_lineno, **({"cell": cell} if cell is not None else {})}
+
+    def _append(self, collection, event):
+        target, limit = (self.reads, 16) if collection == "reads" else (self.events, 8)
+        if len(target) < limit:
+            target.append(event)
+        elif collection == "reads":
+            self.reads_omitted += 1
+        else:
+            self.events_omitted += 1
+
+    def snapshot(self):
+        return {
+            "reads": self.reads,
+            "events": self.events,
+            "lineage": "unknown",
+            **({"readsOmitted": self.reads_omitted} if self.reads_omitted else {}),
+            **({"eventsOmitted": self.events_omitted} if self.events_omitted else {}),
+        }
+
+    def _column_hint(self, error, owner, name, args):
+        # Only a witnessed pandas column lookup, never an arbitrary dictionary
+        # KeyError or a row-label lookup. No names or user data are rewritten.
+        if name != "__getitem__" or len(args) < 2:
+            return
+        if owner is pd.DataFrame:
+            frame, key = args[0], args[1]
+        elif hasattr(args[0], "obj") and isinstance(args[1], tuple) and len(args[1]) == 2:
+            frame, key = args[0].obj, args[1][1]
+        else:
+            return
+        if not isinstance(frame, pd.DataFrame) or not isinstance(key, str) or error.args != (key,):
+            return
+        matches = [name for name in frame.columns if isinstance(name, str) and name.strip() == key.strip()]
+        if len(matches) == 1 and matches[0] != key:
+            error._native_column_hint = (
+                f" Exact column name: {json.dumps(matches[0], ensure_ascii=True)} (whitespace differs)."
+            )
 
     def _wrap(self, owner, name, record):
         import functools
@@ -2189,6 +2286,13 @@ class _ProcessTrace:
             trace._depth += 1
             try:
                 result = original(*args, **kwargs)
+            except KeyError as error:
+                if trace._line() is not None:
+                    try:
+                        trace._column_hint(error, owner, name, args)
+                    except Exception:
+                        pass  # Optional diagnostics cannot replace the original failure.
+                raise
             finally:
                 trace._depth -= 1
             line = trace._line()
@@ -2212,7 +2316,10 @@ class _ProcessTrace:
         frames = result.values() if isinstance(result, dict) else [result]
         rows = sum(len(f) for f in frames if isinstance(f, pd.DataFrame))
         name = os.path.basename(str(source)) if isinstance(source, (str, os.PathLike)) else type(source).__name__
-        self.reads.append({"line": line, "file": name, "rows": rows})
+        self._append(
+            "reads",
+            {**line, "file": name[:1024], "rows": rows, **({"fileTruncated": True} if len(name) > 1024 else {})},
+        )
 
     def _merge(self, line, args, kwargs, result):
         left = args[0]
@@ -2220,9 +2327,9 @@ class _ProcessTrace:
         if not all(isinstance(x, pd.DataFrame) for x in (left, right, result)):
             return
         how = kwargs.get("how", "inner")
-        event = {"line": line, "op": "merge", "how": how, "in": [len(left), len(right)], "out": len(result)}
+        event = {**line, "op": "merge", "how": how, "in": [len(left), len(right)], "out": len(result)}
         if len(result) == 0 and len(left) and len(right):
-            self.events.append({**event, "issue": "empty"})
+            self._append("events", {**event, "issue": "empty"})
 
     def _select(self, line, frame, key, result):
         import numpy as np
@@ -2234,7 +2341,7 @@ class _ProcessTrace:
             return
         if isinstance(key, str) or not len(frame) or len(result):
             return
-        self.events.append({"line": line, "op": "filter", "in": [len(frame)], "out": 0, "issue": "empty"})
+        self._append("events", {**line, "op": "filter", "in": [len(frame)], "out": 0, "issue": "empty"})
 
     def _getitem(self, line, args, kwargs, result):
         self._select(line, args[0], args[1] if len(args) > 1 else None, result)
@@ -2245,7 +2352,7 @@ class _ProcessTrace:
 
     def _query(self, line, args, kwargs, result):
         if isinstance(result, pd.DataFrame) and len(args[0]) and not len(result):
-            self.events.append({"line": line, "op": "query", "in": [len(args[0])], "out": 0, "issue": "empty"})
+            self._append("events", {**line, "op": "query", "in": [len(args[0])], "out": 0, "issue": "empty"})
 
     def _concat(self, line, args, kwargs, result):
         objs = args[0] if args else kwargs.get("objs")
@@ -2255,8 +2362,16 @@ class _ProcessTrace:
             return
         duplicates = _cross_source_duplicates(parts, [])
         if duplicates:
-            self.events.append(
-                {"line": line, "op": "concat", "in": [len(p) for p in parts], "out": len(result), "issue": "duplicates", **duplicates}
+            self._append(
+                "events",
+                {
+                    **line,
+                    "op": "concat",
+                    "in": [len(p) for p in parts],
+                    "out": len(result),
+                    "issue": "duplicates",
+                    **duplicates,
+                },
             )
 
     def __enter__(self):
@@ -2347,6 +2462,7 @@ def execute_native(spec, inputs):
     kind, props = spec["type"], spec["properties"]
     source = inputs[0] if inputs else None
     operations = {}
+    body_started = time.perf_counter()
     lineage = spec.get("lineage") or {}
     if kind in ("Aggregate", "Process") and lineage.get("multiSource") and inputs:
         repeated = _repeated_records(inputs[0], lineage.get("provenanceColumns", []))
@@ -2404,14 +2520,36 @@ def execute_native(spec, inputs):
         output = source.iloc[start : start + props["n"]].copy().reset_index(drop=True)
         operations["removedRows"] = len(source) - len(output)
     elif kind == "Process":
-        entry = props.get("entry", "process" if inputs else "load")
-        function = _function(spec, props["code"], "code", entry)
-        with _ProcessTrace(_filename(spec, "code")) as trace:
-            output = _frame(spec, function(*[_process_input(frame) for frame in inputs]))
-        if trace.reads or trace.events:
-            operations["process"] = {"reads": trace.reads[:16], "events": trace.events[:8]}
+        if "registered" in props:
+            try:
+                with _ProcessTrace(
+                    {f"<definitions:{i + 1}>": i + 1 for i in range(len(props["registered"]["cells"]))}
+                ) as trace:
+                    output = _frame(spec, execute_registered(spec, [_process_input(frame) for frame in inputs]))
+                if trace.reads or trace.events:
+                    operations["process"] = trace.snapshot()
+            except NativeError:
+                raise
+            except Exception as error:
+                raise _registered_failure(spec, error) from error
+        else:
+            entry = props.get("entry", "process" if inputs else "load")
+            function = _function(spec, props["code"], "code", entry)
+            with _ProcessTrace(_filename(spec, "code")) as trace:
+                output = _frame(spec, function(*[_process_input(frame) for frame in inputs]))
+            if trace.reads or trace.events:
+                operations["process"] = trace.snapshot()
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
+    if spec.get("profileCollection") is True:
+        # Operator body includes namespace initialization, source I/O and native
+        # counters. Exclude the separately timed filter witness pass. Neither
+        # value includes input/output validation, table profiling or transport.
+        timing = operations.setdefault("timing", {})
+        timing["operatorBodyMs"] = max(0.0, (time.perf_counter() - body_started) * 1000
+                                       - timing.get("filterRejectedValuesMs", 0.0))
+        for key, value in timing.items():
+            timing[key] = round(value, 3)
     _frame(spec, output)
     if ROW_EFFECTS[kind] == "none" and len(output) != len(source):
         raise _error(spec, "ROW_CONTRACT", "A row-preserving operator changed the row count.", stage="contract")
@@ -2435,7 +2573,11 @@ if __name__ == "__main__":
     import sys
 
     request = json.load(sys.stdin)
-    if isinstance(request, dict) and "changes" in request:
+    if isinstance(request, dict) and request.get("registered"):
+        from registered import registered_request
+
+        print(json.dumps(registered_request(request), ensure_ascii=True))
+    elif isinstance(request, dict) and "changes" in request:
         # Parse a graph edit (see graph_parser.py); no operator semantics.
         from graph_parser import parse_graph_edit
 

@@ -143,7 +143,10 @@ test("saved scopes use the supplied snapshot, preserve earlier receipts, and rem
 test("preview counts describe a preview, and long or cyclic ancestry stays bounded", () => {
   const f = fixture();
   f.op("orders").nativeOp!.properties.preview = 3;
-  expect(f.scope("orders").join("\n")).toContain('preview "orders": at most 3 source rows');
+  const preview = f.scope("orders").join("\n");
+  expect(preview).toContain('preview "orders": 3-row budget per file/sheet/table');
+  expect(preview).toContain("headers or metadata may add rows; not a full scan");
+  expect(preview).not.toContain("at most 3 source rows");
   const chain = Array.from({ length: 100 }, (_, i) => ({
     operatorID: `f${i}`,
     nativeOp: { type: "Filter", inputs: [i ? `f${i - 1}` : "f99"], properties: {} },

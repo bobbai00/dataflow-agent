@@ -1,0 +1,86 @@
+[
+  {
+    "task": "biomedical-hard-3",
+    "model": "gpt-5.6-luna",
+    "score": 1,
+    "metrics": {
+      "model_requests": 4,
+      "input_tokens": 42277,
+      "cached_tokens": 28163,
+      "output_tokens": 742,
+      "elapsed_seconds": 28.43,
+      "cost_usd": 0.00427646,
+      "usage_complete": true
+    },
+    "audit": {
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "lowest",
+              "result_version": "bbe68e9dc7fee98928fb1ee92ca10d16af69919b445db660e732c331c38e82a0",
+              "row": 0,
+              "column": "Age"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 3,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 1,
+      "profiles": 9,
+      "columns": 181
+    }
+  },
+  {
+    "task": "legal-easy-3",
+    "model": "gpt-5.6-luna",
+    "score": 1,
+    "metrics": {
+      "model_requests": 3,
+      "input_tokens": 21825,
+      "cached_tokens": 19750,
+      "output_tokens": 741,
+      "elapsed_seconds": 15.77,
+      "cost_usd": 0.0016991999999999999,
+      "usage_complete": true
+    },
+    "audit": {
+      "answer_diagnostics": {
+        "format_contract": "bold_final_answer_last_line",
+        "format_compliant": true,
+        "numeric_support": {
+          "status": "observed_result_match",
+          "matches": [
+            {
+              "operator_id": "ratio",
+              "result_version": "da83fb0eb51ac8787196675afcda40033b45a64f8df6a6e14ac171074b975dab",
+              "row": 0,
+              "column": "ratio_2024_to_2001"
+            }
+          ],
+          "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."
+        }
+      },
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 3,
+      "columns": 11
+    }
+  }
+]

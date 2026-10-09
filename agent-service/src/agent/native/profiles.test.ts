@@ -87,6 +87,50 @@ test("single worker counts, ratios and exact values are preserved", () => {
   expect(result.structure.duplicateRows).toBe(1);
 });
 
+test("profile summary timing merges only when every received worker reports it", () => {
+  const first = worker([1]);
+  const second = worker([2], "w1");
+  Object.assign(first.cost, { snapshotMs: 1.25 });
+  Object.assign(second.cost, { snapshotMs: 2.5 });
+  expect(mergeTableProfiles(payload(first), expected).cost.snapshotMs).toBe(1.25);
+  expect(mergeTableProfiles(payload(first, second), { ...expected, expectedWorkers: 2 }).cost.snapshotMs).toBe(3.75);
+  delete (second.cost as { snapshotMs?: number }).snapshotMs;
+  expect(
+    mergeTableProfiles(payload(first, second), { ...expected, expectedWorkers: 2 }).cost.snapshotMs
+  ).toBeUndefined();
+  expect(mergeTableProfiles(payload(worker([1])), expected).cost.snapshotMs).toBeUndefined();
+});
+
+test("an unavailable statistics envelope retains independently bounded source identity", () => {
+  const source = { path: "/data/wide.xlsx", sizeBytes: 123, mtimeNs: "456" };
+  const unavailable = {
+    ...worker([1]),
+    status: "unavailable",
+    schema: [],
+    schemaComplete: false,
+    columns: {},
+    coverage: { ...worker([1]).coverage, complete: false },
+    native: {
+      operatorType: "Scan",
+      inputOperators: [],
+      outputRows: 1,
+      operations: { scan: { sources: [source], sourceDetailsOmitted: 1, selectedFiles: 1 } },
+    },
+    omissions: ["payload_budget"],
+  };
+  const result = mergeTableProfiles(payload(unavailable), expected);
+  expect(result.status).toBe("unavailable");
+  expect(result.native).toEqual({
+    operatorType: "Scan",
+    inputOperators: [],
+    operations: { scan: { sources: [source], sourceDetailsOmitted: 1 } },
+  });
+  expect(result.omissions).toContain("payload_budget");
+  expect(result.omissions).toContain("worker_profile_unavailable");
+  expect(result.rowCount).toBeNull();
+  expect(mergeTableProfiles(payload(unavailable), { ...expected, expectedWorkers: 2 }).native).toBeNull();
+});
+
 test("disjoint worker partitions sum counts but union distinct values", () => {
   const result = mergeTableProfiles(payload(worker([1, 2, null]), worker([2, 3, null], "w1")), {
     ...expected,

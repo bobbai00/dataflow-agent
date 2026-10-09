@@ -1,0 +1,3736 @@
+{
+  "attempts_expected": 72,
+  "attempts_present": 25,
+  "violation_attempts": 0,
+  "summary": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow0",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 7,
+      "wire_prefix_checks": 6,
+      "execution_runs": 3,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow1",
+      "expected": 3,
+      "present": 0,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 0,
+      "wire_requests": 0,
+      "wire_prefix_checks": 0,
+      "execution_runs": 0,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow0",
+      "expected": 3,
+      "present": 2,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 2,
+      "wire_requests": 8,
+      "wire_prefix_checks": 6,
+      "execution_runs": 5,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "execution_runs": 5,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow0",
+      "expected": 3,
+      "present": 3,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 3,
+      "wire_requests": 13,
+      "wire_prefix_checks": 10,
+      "execution_runs": 11,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow1",
+      "expected": 3,
+      "present": 0,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 0,
+      "wire_requests": 0,
+      "wire_prefix_checks": 0,
+      "execution_runs": 0,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow0",
+      "expected": 3,
+      "present": 2,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 2,
+      "wire_requests": 6,
+      "wire_prefix_checks": 4,
+      "execution_runs": 4,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "execution_runs": 2,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow0",
+      "expected": 3,
+      "present": 0,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 0,
+      "wire_requests": 0,
+      "wire_prefix_checks": 0,
+      "execution_runs": 0,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 10,
+      "wire_prefix_checks": 9,
+      "execution_runs": 6,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow0",
+      "expected": 3,
+      "present": 2,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 2,
+      "wire_requests": 6,
+      "wire_prefix_checks": 4,
+      "execution_runs": 4,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "execution_runs": 2,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow0",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 5,
+      "wire_prefix_checks": 4,
+      "execution_runs": 2,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 11,
+      "wire_prefix_checks": 10,
+      "execution_runs": 6,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow0",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 12,
+      "wire_prefix_checks": 11,
+      "execution_runs": 8,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow1",
+      "expected": 3,
+      "present": 0,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 0,
+      "wire_requests": 0,
+      "wire_prefix_checks": 0,
+      "execution_runs": 0,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow0",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "execution_runs": 2,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 7,
+      "wire_prefix_checks": 6,
+      "execution_runs": 6,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow0",
+      "expected": 3,
+      "present": 0,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 0,
+      "wire_requests": 0,
+      "wire_prefix_checks": 0,
+      "execution_runs": 0,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow1",
+      "expected": 3,
+      "present": 2,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 2,
+      "wire_requests": 10,
+      "wire_prefix_checks": 8,
+      "execution_runs": 8,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow0",
+      "expected": 3,
+      "present": 0,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 0,
+      "wire_requests": 0,
+      "wire_prefix_checks": 0,
+      "execution_runs": 0,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow1",
+      "expected": 3,
+      "present": 2,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 2,
+      "wire_requests": 10,
+      "wire_prefix_checks": 8,
+      "execution_runs": 10,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow0",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 6,
+      "wire_prefix_checks": 5,
+      "execution_runs": 7,
+      "phase_metrics_unknown": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow1",
+      "expected": 3,
+      "present": 1,
+      "violation_attempts": 0,
+      "warning_attempts": 0,
+      "answers": 1,
+      "wire_requests": 3,
+      "wire_prefix_checks": 2,
+      "execution_runs": 2,
+      "phase_metrics_unknown": 0
+    }
+  ],
+  "rows": [
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 4,
+        "wire_prefix_checks": 3,
+        "system_prompt_hashes": [
+          "1f9465df3a46506aebdf3df909fe6a61c18a1eb833d1927b9eccaab211ef0111"
+        ],
+        "answers": 1,
+        "action_failures": 1,
+        "observations": {
+          "tool_messages": 3,
+          "characters": 3971,
+          "max_characters": 2029,
+          "with_flow": 2,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 3,
+          "execute_blocks": 3,
+          "retrieve_blocks": 3
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 1785,
+          "max_characters": 1399,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 2,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 3,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.012042
+        },
+        "profiles": {
+          "retained": 3,
+          "available": 3,
+          "schema_fields": 11,
+          "scans": 2,
+          "source_identities": 2,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 4,
+          "input_tokens": 26151,
+          "output_tokens": 777,
+          "cached_tokens": 18143,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 113,
+          "cost_usd": 0.05482920000000001,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 4,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 4,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 18.62,
+          "model_latency_seconds": 13.305,
+          "known_usage_cache_read_fraction": 0.6937784405950059,
+          "cache_read_fraction": 0.6937784405950059
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 26928,
+        "token_usage_sut_input": 26151,
+        "token_usage_sut_output": 777,
+        "token_usage_sut_reasoning": 113,
+        "token_usage_sut_cached": 18143,
+        "cost_usd_sut": 0.0,
+        "runtime": 18.800121784210205,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 4,
+        "wire_prefix_checks": 3,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 3,
+          "characters": 2470,
+          "max_characters": 1214,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "inspect_blocks": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "targets": 2,
+          "view_sample": 1,
+          "characters": 1249,
+          "max_characters": 969,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 1,
+          "partial_full": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.1089579999999999,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 22,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 4,
+          "input_tokens": 22981,
+          "output_tokens": 549,
+          "cached_tokens": 16179,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 153,
+          "cost_usd": 0.00234278,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 4,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 4,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 16.57,
+          "model_latency_seconds": 11.081,
+          "known_usage_cache_read_fraction": 0.7040163613419782,
+          "cache_read_fraction": 0.7040163613419782
+        }
+      },
+      "official_evaluation": {
+        "task_id": "archeology-easy-6",
+        "model_output": {
+          "id": "main-task",
+          "answer": "São Paulo"
+        },
+        "code": "",
+        "token_usage_sut": 23530,
+        "token_usage_sut_input": 22981,
+        "token_usage_sut_output": 549,
+        "token_usage_sut_reasoning": 153,
+        "token_usage_sut_cached": 16179,
+        "cost_usd_sut": 0.002343,
+        "runtime": 16.730485916137695,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 11,
+        "wire_prefix_checks": 10,
+        "system_prompt_hashes": [
+          "c37b646c22a7ffc705f98f9c754bf78022e927035c70eb30dabfd87c03db829f"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 10,
+          "characters": 20845,
+          "max_characters": 9275,
+          "with_flow": 5,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "inspect_blocks": 1,
+          "edit_blocks": 4,
+          "execute_blocks": 4,
+          "retrieve_blocks": 5
+        },
+        "retrievals": {
+          "actions_requested": 5,
+          "targets_requested": 6,
+          "targets": 6,
+          "view_full": 4,
+          "characters": 15029,
+          "max_characters": 4846,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 6,
+          "partial_full": 4,
+          "view_sample": 2
+        },
+        "execution": {
+          "actions": 4,
+          "operators_executed": 8,
+          "runs": 6,
+          "succeeded": 6,
+          "with_phase_metrics": 6,
+          "compilationDurationMs": 4.069958,
+          "operators_cached": 2
+        },
+        "profiles": {
+          "retained": 8,
+          "available": 8,
+          "schema_fields": 858,
+          "scans": 5,
+          "source_identities": 5,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 11,
+          "input_tokens": 130100,
+          "output_tokens": 1979,
+          "cached_tokens": 112320,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 730,
+          "cost_usd": 0.02215015,
+          "provider_reported_cost_usd": 0.0083862,
+          "usage_complete": true,
+          "provider_cost_complete": true,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 11,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 11,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 62.26,
+          "model_latency_seconds": 45.591,
+          "known_usage_cache_read_fraction": 0.8633358954650269,
+          "cache_read_fraction": 0.8633358954650269
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 132079,
+        "token_usage_sut_input": 130100,
+        "token_usage_sut_output": 1979,
+        "token_usage_sut_reasoning": 730,
+        "token_usage_sut_cached": 112320,
+        "cost_usd_sut": 0.0,
+        "runtime": 62.46265387535095,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 4,
+        "wire_prefix_checks": 3,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 3,
+          "characters": 3161,
+          "max_characters": 1585,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 3
+        },
+        "retrievals": {
+          "actions_requested": 3,
+          "targets_requested": 3,
+          "targets": 3,
+          "view_sample": 1,
+          "characters": 2124,
+          "max_characters": 1461,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 2,
+          "complete": 2
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 0.9686250000000001,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 5,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 4,
+          "input_tokens": 24352,
+          "output_tokens": 686,
+          "cached_tokens": 22085,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 242,
+          "cost_usd": 0.0017182999999999999,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 4,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 4,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 4 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 16.82,
+          "model_latency_seconds": 12.295,
+          "known_usage_cache_read_fraction": 0.9069070302233903,
+          "cache_read_fraction": 0.9069070302233903
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 25038,
+        "token_usage_sut_input": 24352,
+        "token_usage_sut_output": 686,
+        "token_usage_sut_reasoning": 242,
+        "token_usage_sut_cached": 22085,
+        "cost_usd_sut": 0.001718,
+        "runtime": 16.99010920524597,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 7,
+        "wire_prefix_checks": 6,
+        "system_prompt_hashes": [
+          "c37b646c22a7ffc705f98f9c754bf78022e927035c70eb30dabfd87c03db829f"
+        ],
+        "answers": 1,
+        "action_failures": 4,
+        "observations": {
+          "tool_messages": 6,
+          "characters": 18988,
+          "max_characters": 10231,
+          "with_flow": 4,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 6,
+          "execute_blocks": 6,
+          "retrieve_blocks": 6
+        },
+        "retrievals": {
+          "actions_requested": 6,
+          "targets_requested": 8,
+          "targets": 6,
+          "view_full": 6,
+          "characters": 11747,
+          "max_characters": 4846,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 6,
+          "partial_full": 2,
+          "complete": 4
+        },
+        "execution": {
+          "actions": 6,
+          "operators_executed": 6,
+          "runs": 8,
+          "succeeded": 6,
+          "with_phase_metrics": 8,
+          "compilationDurationMs": 2.5087079999999995,
+          "operators_failed": 2,
+          "failed": 2
+        },
+        "profiles": {
+          "retained": 3,
+          "available": 3,
+          "schema_fields": 10,
+          "scans": 2,
+          "source_identities": 2,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 7,
+          "input_tokens": 77727,
+          "output_tokens": 2276,
+          "cached_tokens": 63075,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 461,
+          "cost_usd": 0.069231,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 7,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 7,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 7 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 42.71,
+          "model_latency_seconds": 24.856,
+          "known_usage_cache_read_fraction": 0.8114940754178085,
+          "cache_read_fraction": 0.8114940754178085
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 80003,
+        "token_usage_sut_input": 77727,
+        "token_usage_sut_output": 2276,
+        "token_usage_sut_reasoning": 461,
+        "token_usage_sut_cached": 63075,
+        "cost_usd_sut": 0.069231,
+        "runtime": 42.872010707855225,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 7,
+        "wire_prefix_checks": 6,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 1,
+        "action_failures": 1,
+        "observations": {
+          "tool_messages": 6,
+          "characters": 7303,
+          "max_characters": 2348,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 3,
+          "retrieve_blocks": 4,
+          "execute_blocks": 3,
+          "inspect_blocks": 1
+        },
+        "retrievals": {
+          "actions_requested": 4,
+          "targets_requested": 4,
+          "targets": 3,
+          "view_full": 3,
+          "characters": 3407,
+          "max_characters": 1833,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "complete": 3
+        },
+        "execution": {
+          "actions": 3,
+          "operators_executed": 3,
+          "runs": 3,
+          "succeeded": 3,
+          "with_phase_metrics": 3,
+          "compilationDurationMs": 1.320751,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 7,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 7,
+          "input_tokens": 54647,
+          "output_tokens": 1447,
+          "cached_tokens": 36864,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 423,
+          "cost_usd": 0.007292483999999999,
+          "provider_reported_cost_usd": 0.006797236,
+          "usage_complete": true,
+          "provider_cost_complete": true,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 7,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 7,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 16.8,
+          "model_latency_seconds": 10.424,
+          "known_usage_cache_read_fraction": 0.674584149175618,
+          "cache_read_fraction": 0.674584149175618
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 56094,
+        "token_usage_sut_input": 54647,
+        "token_usage_sut_output": 1447,
+        "token_usage_sut_reasoning": 423,
+        "token_usage_sut_cached": 36864,
+        "cost_usd_sut": 0.0,
+        "runtime": 16.956075191497803,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "1f9465df3a46506aebdf3df909fe6a61c18a1eb833d1927b9eccaab211ef0111"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 3050,
+          "max_characters": 2029,
+          "with_flow": 2,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 1684,
+          "max_characters": 1399,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 2,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.137251,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 5,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 19492,
+          "output_tokens": 526,
+          "cached_tokens": 12079,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 59,
+          "cost_usd": 0.0235538,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 3,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 11.7,
+          "model_latency_seconds": 7.051,
+          "known_usage_cache_read_fraction": 0.6196901292838087,
+          "cache_read_fraction": 0.6196901292838087
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 20018,
+        "token_usage_sut_input": 19492,
+        "token_usage_sut_output": 526,
+        "token_usage_sut_reasoning": 59,
+        "token_usage_sut_cached": 12079,
+        "cost_usd_sut": 0.023554,
+        "runtime": 11.865875244140625,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 6,
+        "wire_prefix_checks": 5,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 5,
+          "characters": 16295,
+          "max_characters": 5391,
+          "with_flow": 0,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 5,
+          "execute_blocks": 5,
+          "retrieve_blocks": 5
+        },
+        "retrievals": {
+          "actions_requested": 5,
+          "targets_requested": 6,
+          "targets": 6,
+          "view_full": 4,
+          "characters": 12080,
+          "max_characters": 4754,
+          "with_data_facts": 2,
+          "with_statistics_caption": 2,
+          "with_table_statistics": 2,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "partial_full": 3,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 2,
+          "view_sample_stats": 2,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 5,
+          "operators_executed": 9,
+          "runs": 7,
+          "succeeded": 7,
+          "with_phase_metrics": 7,
+          "compilationDurationMs": 4.761457,
+          "operators_cached": 4
+        },
+        "profiles": {
+          "retained": 9,
+          "available": 9,
+          "schema_fields": 503,
+          "scans": 4,
+          "source_identities": 4,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 6,
+          "input_tokens": 59291,
+          "output_tokens": 1075,
+          "cached_tokens": 46011,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 224,
+          "cost_usd": 0.0486622,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 6,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 6,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 6 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 34.22,
+          "model_latency_seconds": 15.808,
+          "known_usage_cache_read_fraction": 0.7760199693039416,
+          "cache_read_fraction": 0.7760199693039416
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 60366,
+        "token_usage_sut_input": 59291,
+        "token_usage_sut_output": 1075,
+        "token_usage_sut_reasoning": 224,
+        "token_usage_sut_cached": 46011,
+        "cost_usd_sut": 0.048662,
+        "runtime": 34.40677499771118,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 12,
+        "wire_prefix_checks": 11,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 2,
+        "observations": {
+          "tool_messages": 11,
+          "characters": 17854,
+          "max_characters": 5682,
+          "with_flow": 0,
+          "with_statistics_caption": 2,
+          "with_table_statistics": 2,
+          "inspect_blocks": 1,
+          "edit_blocks": 5,
+          "execute_blocks": 5,
+          "retrieve_blocks": 5
+        },
+        "retrievals": {
+          "actions_requested": 5,
+          "targets_requested": 8,
+          "stats_actions_requested": 2,
+          "stats_targets_requested": 3,
+          "targets": 7,
+          "view_sample_stats": 3,
+          "characters": 13388,
+          "max_characters": 3970,
+          "with_data_facts": 2,
+          "with_statistics_caption": 3,
+          "with_table_statistics": 2,
+          "statistics_suppressed_complete": 1,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "complete": 4,
+          "complete_small_without_stats": 1,
+          "view_full": 4,
+          "partial_full": 1
+        },
+        "execution": {
+          "actions": 5,
+          "operators_executed": 9,
+          "runs": 8,
+          "succeeded": 7,
+          "with_phase_metrics": 8,
+          "compilationDurationMs": 4.790291,
+          "operators_failed": 1,
+          "failed": 1,
+          "operators_cached": 2
+        },
+        "profiles": {
+          "retained": 8,
+          "available": 8,
+          "schema_fields": 497,
+          "scans": 3,
+          "source_identities": 3,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 12,
+          "input_tokens": 130059,
+          "output_tokens": 2635,
+          "cached_tokens": 108672,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 1063,
+          "cost_usd": 0.025045844999999997,
+          "provider_reported_cost_usd": 0.0141229662,
+          "usage_complete": true,
+          "provider_cost_complete": true,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 12,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 12,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 67.71,
+          "model_latency_seconds": 47.588,
+          "known_usage_cache_read_fraction": 0.8355592461882684,
+          "cache_read_fraction": 0.8355592461882684
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 132694,
+        "token_usage_sut_input": 130059,
+        "token_usage_sut_output": 2635,
+        "token_usage_sut_reasoning": 1063,
+        "token_usage_sut_cached": 108672,
+        "cost_usd_sut": 0.0,
+        "runtime": 67.91049551963806,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 7,
+        "wire_prefix_checks": 6,
+        "system_prompt_hashes": [
+          "c37b646c22a7ffc705f98f9c754bf78022e927035c70eb30dabfd87c03db829f"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 6,
+          "characters": 17765,
+          "max_characters": 5539,
+          "with_flow": 5,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 5,
+          "execute_blocks": 5,
+          "retrieve_blocks": 5,
+          "inspect_blocks": 1
+        },
+        "retrievals": {
+          "actions_requested": 5,
+          "targets_requested": 6,
+          "targets": 6,
+          "view_sample": 3,
+          "characters": 10253,
+          "max_characters": 4600,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 6,
+          "view_full": 3,
+          "complete": 1,
+          "partial_full": 2
+        },
+        "execution": {
+          "actions": 5,
+          "operators_executed": 10,
+          "runs": 6,
+          "succeeded": 6,
+          "with_phase_metrics": 6,
+          "compilationDurationMs": 5.046085,
+          "operators_cached": 3
+        },
+        "profiles": {
+          "retained": 9,
+          "available": 9,
+          "schema_fields": 329,
+          "scans": 4,
+          "source_identities": 4,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 7,
+          "input_tokens": 61215,
+          "output_tokens": 1160,
+          "cached_tokens": 47945,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 228,
+          "cost_usd": 0.095458,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 7,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 7,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 7 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 44.0,
+          "model_latency_seconds": 26.028,
+          "known_usage_cache_read_fraction": 0.7832230662419342,
+          "cache_read_fraction": 0.7832230662419342
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 62375,
+        "token_usage_sut_input": 61215,
+        "token_usage_sut_output": 1160,
+        "token_usage_sut_reasoning": 228,
+        "token_usage_sut_cached": 47945,
+        "cost_usd_sut": 0.0,
+        "runtime": 44.21935701370239,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 5,
+        "wire_prefix_checks": 4,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 2,
+        "observations": {
+          "tool_messages": 4,
+          "characters": 8880,
+          "max_characters": 2551,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "inspect_blocks": 2,
+          "edit_blocks": 3,
+          "execute_blocks": 3,
+          "retrieve_blocks": 3
+        },
+        "retrievals": {
+          "actions_requested": 3,
+          "targets_requested": 5,
+          "targets": 3,
+          "view_full": 3,
+          "characters": 3143,
+          "max_characters": 1833,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "complete": 3
+        },
+        "execution": {
+          "actions": 3,
+          "operators_executed": 4,
+          "runs": 3,
+          "succeeded": 2,
+          "with_phase_metrics": 3,
+          "compilationDurationMs": 2.926375,
+          "operators_not run": 1,
+          "operators_failed": 1,
+          "failed": 1,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 3,
+          "available": 3,
+          "schema_fields": 11,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 5,
+          "input_tokens": 43156,
+          "output_tokens": 1782,
+          "cached_tokens": 33408,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 417,
+          "cost_usd": 0.005263248,
+          "provider_reported_cost_usd": 0.004981932,
+          "usage_complete": true,
+          "provider_cost_complete": true,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 5,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 5,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 20.07,
+          "model_latency_seconds": 11.871,
+          "known_usage_cache_read_fraction": 0.774121790712763,
+          "cache_read_fraction": 0.774121790712763
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 44938,
+        "token_usage_sut_input": 43156,
+        "token_usage_sut_output": 1782,
+        "token_usage_sut_reasoning": 417,
+        "token_usage_sut_cached": 33408,
+        "cost_usd_sut": 0.0,
+        "runtime": 20.237197160720825,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 4056,
+          "max_characters": 2393,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "targets": 2,
+          "view_full": 2,
+          "characters": 2907,
+          "max_characters": 1833,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "complete": 2
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 0.555501
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 7,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 34653,
+          "output_tokens": 815,
+          "cached_tokens": 21669,
+          "cache_creation_tokens": 12948,
+          "reasoning_tokens": 0,
+          "cost_usd": 0.1123145,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 16.12,
+          "model_latency_seconds": 11.712,
+          "known_usage_cache_read_fraction": 0.6253138256428015,
+          "cache_read_fraction": 0.6253138256428015
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 35468,
+        "token_usage_sut_input": 34653,
+        "token_usage_sut_output": 815,
+        "token_usage_sut_reasoning": 0,
+        "token_usage_sut_cached": 21669,
+        "cost_usd_sut": 0.0,
+        "runtime": 16.27296495437622,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "c37b646c22a7ffc705f98f9c754bf78022e927035c70eb30dabfd87c03db829f"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 2579,
+          "max_characters": 1402,
+          "with_flow": 2,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "targets": 2,
+          "view_sample": 1,
+          "characters": 1164,
+          "max_characters": 772,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 2,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 0.49954200000000004
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 7,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 18046,
+          "output_tokens": 640,
+          "cached_tokens": 16277,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 124,
+          "cost_usd": 0.0144734,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 3,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 14.76,
+          "model_latency_seconds": 10.32,
+          "known_usage_cache_read_fraction": 0.9019727363404633,
+          "cache_read_fraction": 0.9019727363404633
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 18686,
+        "token_usage_sut_input": 18046,
+        "token_usage_sut_output": 640,
+        "token_usage_sut_reasoning": 124,
+        "token_usage_sut_cached": 16277,
+        "cost_usd_sut": 0.014473,
+        "runtime": 14.936583757400513,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 10,
+        "wire_prefix_checks": 9,
+        "system_prompt_hashes": [
+          "c37b646c22a7ffc705f98f9c754bf78022e927035c70eb30dabfd87c03db829f"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 9,
+          "characters": 28131,
+          "max_characters": 5261,
+          "with_flow": 9,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 5,
+          "execute_blocks": 5,
+          "retrieve_blocks": 9
+        },
+        "retrievals": {
+          "actions_requested": 9,
+          "targets_requested": 10,
+          "targets": 10,
+          "view_sample": 4,
+          "characters": 21585,
+          "max_characters": 5029,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 10,
+          "view_full": 6,
+          "partial_full": 6
+        },
+        "execution": {
+          "actions": 5,
+          "operators_executed": 8,
+          "runs": 6,
+          "succeeded": 6,
+          "with_phase_metrics": 6,
+          "compilationDurationMs": 7.6414159999999995,
+          "operators_cached": 5
+        },
+        "profiles": {
+          "retained": 8,
+          "available": 8,
+          "schema_fields": 326,
+          "scans": 4,
+          "source_identities": 4,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 10,
+          "input_tokens": 199844,
+          "output_tokens": 2155,
+          "cached_tokens": 171892,
+          "cache_creation_tokens": 27832,
+          "reasoning_tokens": 0,
+          "cost_usd": 0.314371,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 10,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 10,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 51.86,
+          "model_latency_seconds": 35.86,
+          "known_usage_cache_read_fraction": 0.8601309021036408,
+          "cache_read_fraction": 0.8601309021036408
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 201999,
+        "token_usage_sut_input": 199844,
+        "token_usage_sut_output": 2155,
+        "token_usage_sut_reasoning": 0,
+        "token_usage_sut_cached": 171892,
+        "cost_usd_sut": 0.0,
+        "runtime": 52.04716420173645,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "1f9465df3a46506aebdf3df909fe6a61c18a1eb833d1927b9eccaab211ef0111"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 3227,
+          "max_characters": 2029,
+          "with_flow": 2,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 1805,
+          "max_characters": 1399,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 2,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.589458,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 7,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 19531,
+          "output_tokens": 677,
+          "cached_tokens": 12070,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 213,
+          "cost_usd": 0.0025460000000000005,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 3,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 14.98,
+          "model_latency_seconds": 10.399,
+          "known_usage_cache_read_fraction": 0.6179919102964518,
+          "cache_read_fraction": 0.6179919102964518
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 20208,
+        "token_usage_sut_input": 19531,
+        "token_usage_sut_output": 677,
+        "token_usage_sut_reasoning": 213,
+        "token_usage_sut_cached": 12070,
+        "cost_usd_sut": 0.002546,
+        "runtime": 15.146580219268799,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "1f9465df3a46506aebdf3df909fe6a61c18a1eb833d1927b9eccaab211ef0111"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 3486,
+          "max_characters": 2029,
+          "with_flow": 2,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 2129,
+          "max_characters": 1399,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 2,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.181625,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 6,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 34548,
+          "output_tokens": 810,
+          "cached_tokens": 21795,
+          "cache_creation_tokens": 12717,
+          "reasoning_tokens": 0,
+          "cost_usd": 0.11080875,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 14.97,
+          "model_latency_seconds": 10.453,
+          "known_usage_cache_read_fraction": 0.6308614102118791,
+          "cache_read_fraction": 0.6308614102118791
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 35358,
+        "token_usage_sut_input": 34548,
+        "token_usage_sut_output": 810,
+        "token_usage_sut_reasoning": 0,
+        "token_usage_sut_cached": 21795,
+        "cost_usd_sut": 0.0,
+        "runtime": 15.129726648330688,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 1751,
+          "max_characters": 981,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "targets": 2,
+          "view_sample": 1,
+          "characters": 760,
+          "max_characters": 526,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 0.989,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 7,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 17338,
+          "output_tokens": 624,
+          "cached_tokens": 10726,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 65,
+          "cost_usd": 0.043218400000000004,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 3,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 15.46,
+          "model_latency_seconds": 11.025,
+          "known_usage_cache_read_fraction": 0.6186411350790172,
+          "cache_read_fraction": 0.6186411350790172
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 17962,
+        "token_usage_sut_input": 17338,
+        "token_usage_sut_output": 624,
+        "token_usage_sut_reasoning": 65,
+        "token_usage_sut_cached": 10726,
+        "cost_usd_sut": 0.0,
+        "runtime": 15.628363847732544,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 5,
+        "wire_prefix_checks": 4,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 4,
+          "characters": 3544,
+          "max_characters": 2004,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "inspect_blocks": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "targets": 2,
+          "view_sample": 1,
+          "characters": 1920,
+          "max_characters": 969,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 4,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 2.347875,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 4,
+          "available": 4,
+          "schema_fields": 44,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 5,
+          "input_tokens": 35536,
+          "output_tokens": 744,
+          "cached_tokens": 27392,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 214,
+          "cost_usd": 0.00768672,
+          "provider_reported_cost_usd": 0.0039725888,
+          "usage_complete": true,
+          "provider_cost_complete": true,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 5,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 5,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 69.28,
+          "model_latency_seconds": 62.466,
+          "known_usage_cache_read_fraction": 0.7708239531742458,
+          "cache_read_fraction": 0.7708239531742458
+        }
+      },
+      "official_evaluation": {
+        "task_id": "archeology-easy-6",
+        "model_output": {
+          "id": "main-task",
+          "answer": "São Paulo"
+        },
+        "code": "",
+        "token_usage_sut": 36280,
+        "token_usage_sut_input": 35536,
+        "token_usage_sut_output": 744,
+        "token_usage_sut_reasoning": 214,
+        "token_usage_sut_cached": 27392,
+        "cost_usd_sut": 0.0,
+        "runtime": 69.48214602470398,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 3807,
+          "max_characters": 2048,
+          "with_flow": 0,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 2303,
+          "max_characters": 1799,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 1,
+          "partial_full": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 4,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.95025,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 4,
+          "available": 4,
+          "schema_fields": 44,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 33768,
+          "output_tokens": 593,
+          "cached_tokens": 31000,
+          "cache_creation_tokens": 2732,
+          "reasoning_tokens": 0,
+          "cost_usd": 0.047580000000000004,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 18.8,
+          "model_latency_seconds": 11.788,
+          "known_usage_cache_read_fraction": 0.9180289031035299,
+          "cache_read_fraction": 0.9180289031035299
+        }
+      },
+      "official_evaluation": {
+        "task_id": "archeology-easy-6",
+        "model_output": {
+          "id": "main-task",
+          "answer": "São Paulo"
+        },
+        "code": "",
+        "token_usage_sut": 34361,
+        "token_usage_sut_input": 33768,
+        "token_usage_sut_output": 593,
+        "token_usage_sut_reasoning": 0,
+        "token_usage_sut_cached": 31000,
+        "cost_usd_sut": 0.0,
+        "runtime": 18.987603187561035,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 2411,
+          "max_characters": 1397,
+          "with_flow": 0,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 1409,
+          "max_characters": 1153,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 1.02125,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 7,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 18877,
+          "output_tokens": 726,
+          "cached_tokens": 11656,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 135,
+          "cost_usd": 0.00254852,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 3,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 14.81,
+          "model_latency_seconds": 10.398,
+          "known_usage_cache_read_fraction": 0.6174709964507072,
+          "cache_read_fraction": 0.6174709964507072
+        }
+      },
+      "official_evaluation": {
+        "task_id": "legal-easy-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "13.1628"
+        },
+        "code": "",
+        "token_usage_sut": 19603,
+        "token_usage_sut_input": 18877,
+        "token_usage_sut_output": 726,
+        "token_usage_sut_reasoning": 135,
+        "token_usage_sut_cached": 11656,
+        "cost_usd_sut": 0.002549,
+        "runtime": 14.976232051849365,
+        "mean_absolute_error": 0.0,
+        "mean_squared_error": 0.0,
+        "rae_score": 1.0,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 5,
+        "wire_prefix_checks": 4,
+        "system_prompt_hashes": [
+          "1f9465df3a46506aebdf3df909fe6a61c18a1eb833d1927b9eccaab211ef0111"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 3,
+          "characters": 21980,
+          "max_characters": 10010,
+          "with_flow": 3,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "inspect_blocks": 1,
+          "edit_blocks": 3,
+          "execute_blocks": 3,
+          "retrieve_blocks": 3
+        },
+        "retrievals": {
+          "actions_requested": 3,
+          "targets_requested": 5,
+          "targets": 5,
+          "view_full": 3,
+          "characters": 17689,
+          "max_characters": 4795,
+          "with_data_facts": 2,
+          "with_statistics_caption": 2,
+          "with_table_statistics": 2,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 5,
+          "partial_full": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 2,
+          "view_sample_stats": 2,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 3,
+          "operators_executed": 9,
+          "runs": 5,
+          "succeeded": 5,
+          "with_phase_metrics": 5,
+          "compilationDurationMs": 4.5334579999999995,
+          "operators_cached": 2
+        },
+        "profiles": {
+          "retained": 9,
+          "available": 9,
+          "schema_fields": 232,
+          "scans": 4,
+          "source_identities": 4,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 5,
+          "input_tokens": 48525,
+          "output_tokens": 902,
+          "cached_tokens": 36864,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 279,
+          "cost_usd": null,
+          "provider_reported_cost_usd": null,
+          "usage_complete": false,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 4,
+              "unreported_responses": 0,
+              "complete": false
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 4,
+              "unreported_responses": 0,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 228.95,
+          "model_latency_seconds": 210.696,
+          "known_usage_cache_read_fraction": 0.7596908809891808,
+          "cache_read_fraction": null
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 49427,
+        "token_usage_sut_input": 48525,
+        "token_usage_sut_output": 902,
+        "token_usage_sut_reasoning": 279,
+        "token_usage_sut_cached": 36864,
+        "cost_usd_sut": 0.0,
+        "runtime": 229.13635420799255,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 5,
+        "wire_prefix_checks": 4,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 4,
+          "characters": 18298,
+          "max_characters": 9717,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "inspect_blocks": 2,
+          "edit_blocks": 3,
+          "execute_blocks": 3,
+          "retrieve_blocks": 3
+        },
+        "retrievals": {
+          "actions_requested": 3,
+          "targets_requested": 5,
+          "targets": 5,
+          "view_full": 3,
+          "characters": 12666,
+          "max_characters": 4754,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "partial_full": 2,
+          "view_sample": 2,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 3,
+          "operators_executed": 8,
+          "runs": 7,
+          "succeeded": 7,
+          "with_phase_metrics": 7,
+          "compilationDurationMs": 4.520459,
+          "operators_cached": 4
+        },
+        "profiles": {
+          "retained": 8,
+          "available": 8,
+          "schema_fields": 858,
+          "scans": 4,
+          "source_identities": 4,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 5,
+          "input_tokens": 46278,
+          "output_tokens": 854,
+          "cached_tokens": 38282,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 259,
+          "cost_usd": 0.00338964,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 5,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 5,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 5 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 33.41,
+          "model_latency_seconds": 16.664,
+          "known_usage_cache_read_fraction": 0.8272181165996801,
+          "cache_read_fraction": 0.8272181165996801
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 47132,
+        "token_usage_sut_input": 46278,
+        "token_usage_sut_output": 854,
+        "token_usage_sut_reasoning": 259,
+        "token_usage_sut_cached": 38282,
+        "cost_usd_sut": 0.00339,
+        "runtime": 33.604310750961304,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 3067,
+          "max_characters": 2044,
+          "with_flow": 0,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "targets": 2,
+          "view_sample_stats": 1,
+          "characters": 2012,
+          "max_characters": 1799,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "view_full": 1,
+          "complete": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 2,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 0.9995,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 15,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 19145,
+          "output_tokens": 465,
+          "cached_tokens": 17215,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 83,
+          "cost_usd": 0.0012883,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 3,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 3 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 13.2,
+          "model_latency_seconds": 8.274,
+          "known_usage_cache_read_fraction": 0.8991903891355445,
+          "cache_read_fraction": 0.8991903891355445
+        }
+      },
+      "official_evaluation": {
+        "task_id": "archeology-easy-6",
+        "model_output": {
+          "id": "main-task",
+          "answer": "São Paulo"
+        },
+        "code": "",
+        "token_usage_sut": 19610,
+        "token_usage_sut_input": 19145,
+        "token_usage_sut_output": 465,
+        "token_usage_sut_reasoning": 83,
+        "token_usage_sut_cached": 17215,
+        "cost_usd_sut": 0.001288,
+        "runtime": 13.4205482006073,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 6,
+        "wire_prefix_checks": 5,
+        "system_prompt_hashes": [
+          "1f9465df3a46506aebdf3df909fe6a61c18a1eb833d1927b9eccaab211ef0111"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 5,
+          "characters": 21303,
+          "max_characters": 10231,
+          "with_flow": 5,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "edit_blocks": 5,
+          "execute_blocks": 5,
+          "retrieve_blocks": 4,
+          "inspect_blocks": 1
+        },
+        "retrievals": {
+          "actions_requested": 4,
+          "targets_requested": 6,
+          "targets": 6,
+          "view_full": 5,
+          "characters": 14791,
+          "max_characters": 4846,
+          "with_data_facts": 1,
+          "with_statistics_caption": 1,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 6,
+          "partial_full": 2,
+          "complete": 3,
+          "stats_actions_requested": 1,
+          "stats_targets_requested": 1,
+          "view_sample_stats": 1
+        },
+        "execution": {
+          "actions": 5,
+          "operators_executed": 10,
+          "runs": 6,
+          "succeeded": 6,
+          "with_phase_metrics": 6,
+          "compilationDurationMs": 5.0756239999999995,
+          "operators_cached": 3
+        },
+        "profiles": {
+          "retained": 10,
+          "available": 10,
+          "schema_fields": 233,
+          "scans": 4,
+          "source_identities": 4,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 6,
+          "input_tokens": 65820,
+          "output_tokens": 1084,
+          "cached_tokens": 56189,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 249,
+          "cost_usd": 0.08267959999999999,
+          "provider_reported_cost_usd": null,
+          "usage_complete": true,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 6,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 0,
+              "unreported_responses": 6,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [
+            "Cache-creation tokens were not reported for 6 usage response(s); estimates assume zero cache-creation tokens and price remaining unclassified input at the input rate."
+          ],
+          "elapsed_seconds": 37.26,
+          "model_latency_seconds": 20.196,
+          "known_usage_cache_read_fraction": 0.8536766940139775,
+          "cache_read_fraction": 0.8536766940139775
+        }
+      },
+      "official_evaluation": {
+        "task_id": "biomedical-hard-3",
+        "model_output": {
+          "id": "main-task",
+          "answer": "60"
+        },
+        "code": "",
+        "token_usage_sut": 66904,
+        "token_usage_sut_input": 65820,
+        "token_usage_sut_output": 1084,
+        "token_usage_sut_reasoning": 249,
+        "token_usage_sut_cached": 56189,
+        "cost_usd_sut": 0.0,
+        "runtime": 37.45585918426514,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 3,
+        "wire_prefix_checks": 2,
+        "system_prompt_hashes": [
+          "f513cca06d96df43189ce990f4c0ebe93e9ef939fa311703a53e662a1f26f5e8"
+        ],
+        "answers": 1,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 4376,
+          "max_characters": 2332,
+          "with_flow": 0,
+          "with_statistics_caption": 2,
+          "with_table_statistics": 1,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 2,
+          "stats_actions_requested": 2,
+          "stats_targets_requested": 2,
+          "targets": 2,
+          "view_sample_stats": 2,
+          "characters": 2825,
+          "max_characters": 1799,
+          "with_data_facts": 1,
+          "with_statistics_caption": 2,
+          "with_table_statistics": 1,
+          "statistics_suppressed_complete": 1,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "complete": 1,
+          "complete_small_without_stats": 1
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 4,
+          "runs": 2,
+          "succeeded": 2,
+          "with_phase_metrics": 2,
+          "compilationDurationMs": 2.233791,
+          "operators_cached": 1
+        },
+        "profiles": {
+          "retained": 4,
+          "available": 4,
+          "schema_fields": 44,
+          "scans": 1,
+          "source_identities": 1,
+          "source_details_omitted": 0,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 3,
+          "input_tokens": 22844,
+          "output_tokens": 860,
+          "cached_tokens": 14208,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 306,
+          "cost_usd": 0.003708048,
+          "provider_reported_cost_usd": 0.002802348,
+          "usage_complete": true,
+          "provider_cost_complete": true,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 3,
+              "unreported_responses": 0,
+              "complete": true
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": 12.42,
+          "model_latency_seconds": 5.663,
+          "known_usage_cache_read_fraction": 0.62195762563474,
+          "cache_read_fraction": 0.62195762563474
+        }
+      },
+      "official_evaluation": {
+        "task_id": "archeology-easy-6",
+        "model_output": {
+          "id": "main-task",
+          "answer": "São Paulo"
+        },
+        "code": "",
+        "token_usage_sut": 23704,
+        "token_usage_sut_input": 22844,
+        "token_usage_sut_output": 860,
+        "token_usage_sut_reasoning": 306,
+        "token_usage_sut_cached": 14208,
+        "cost_usd_sut": 0.0,
+        "runtime": 12.609531879425049,
+        "success": 1,
+        "token_usage_metrics": 0,
+        "token_usage_metrics_input": 0,
+        "token_usage_metrics_output": 0,
+        "token_usage_subtask_eval": 0,
+        "token_usage_subtask_eval_input": 0,
+        "token_usage_subtask_eval_output": 0
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data0_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data1_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data0_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow1",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Sol",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "evidence_data1_flow0",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data0_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow0",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow1",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Opus48",
+      "arm": "evidence_data1_flow1",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    },
+    {
+      "model": "Terra",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1",
+      "audit": null,
+      "official_evaluation": null
+    }
+  ],
+  "interpretation": "Offline contract audit, not an answer judge. Missing observations and telemetry remain unknown. Profiles cover retained final results; wire display checks cover receipts actually sent to a later model request. A complete small result may suppress statistics. Source provenance is collected independently of display settings. Costs are frozen-rate estimates, with provider-reported costs and absent cache classifications kept separate."
+}

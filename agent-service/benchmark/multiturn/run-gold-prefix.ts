@@ -34,6 +34,7 @@ import { WorkflowState } from "../../src/agent/workflow-state";
 import { env } from "../../src/config/env";
 import { ActionMonitor, compareRequests } from "../e2e/state-history-diagnostics";
 import { requiredToolChoiceRecovery } from "../../src/agent/llm-drivers/required-tool-choice";
+import { directFileReadOperators, registeredSeedFiles, seededRetrievalIds } from "./gold-prefix-seed";
 
 const [turnArg, preparedArg, outputArg, arm] = Bun.argv.slice(2);
 assert.ok(
@@ -46,19 +47,14 @@ const turnDir = resolve(turnArg),
 const turnId = Number(basename(turnDir).replace(/^t0*/, ""));
 assert.ok(Number.isInteger(turnId) && turnId >= 2, `Turn folder must be tNN with N >= 2: ${turnDir}`);
 const manifest = JSON.parse(readFileSync(join(prepared, "manifest.json"), "utf8"));
-const gold = JSON.parse(readFileSync(join(prepared, "gold.json"), "utf8")).turns.find(
-  (g: any) => g.turn_id === turnId
-);
+const gold = JSON.parse(readFileSync(join(prepared, "gold.json"), "utf8")).turns.find((g: any) => g.turn_id === turnId);
 assert.ok(gold, `No gold turn ${turnId}`);
 const seedChanges = readFileSync(join(turnDir, "seed.changes"), "utf8");
 const userPrompt = readFileSync(join(turnDir, "message.dataflow.txt"), "utf8");
 assert.ok(seedChanges.trim() && userPrompt.trim(), "Turn folder is incomplete");
 // Every file the request lists, and every file the seed loads, must exist:
 // an agent given a path it cannot open searches the disk for it.
-const listedFiles = [
-  ...((manifest.files ?? []) as string[]),
-  ...[...seedChanges.matchAll(/scan\("([^"]+)"/g)].map(match => match[1]),
-];
+const listedFiles = [...((manifest.files ?? []) as string[]), ...registeredSeedFiles(seedChanges)];
 const missingFiles = listedFiles.filter(file => !existsSync(resolve(join(import.meta.dir, "../../.."), file)));
 assert.ok(!missingFiles.length, `Listed data files do not exist: ${missingFiles.join(", ")}`);
 const model = process.env.TEXERA_AGENT_MODEL ?? "gpt-5.6-luna";
@@ -71,7 +67,10 @@ mkdirSync(dirname(output), { recursive: true });
 mkdirSync(output);
 const save = (path: string, data: unknown) => writeFileSync(join(output, path), JSON.stringify(data, null, 2) + "\n");
 const event = (data: unknown) =>
-  appendFileSync(join(output, "events.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...(data as any) }) + "\n");
+  appendFileSync(
+    join(output, "events.jsonl"),
+    JSON.stringify({ at: new Date().toISOString(), ...(data as any) }) + "\n"
+  );
 const alerts: any[] = [];
 const alert = (kind: string, details: any) => {
   const record = { kind, ...details };
@@ -124,7 +123,14 @@ const settings = {
 assert.equal(settings.agentMode, "native");
 assert.equal(settings.stateHistory, arm !== "baseline", "Settings cannot change the declared history condition");
 assert.equal(settings.stateLedger, arm === "ledger", "Settings cannot change the declared ledger condition");
-const agent = await createAgent({ baseUrl, userToken: token, modelType: model, workflowId: wid, computingUnitId: cuid, settings });
+const agent = await createAgent({
+  baseUrl,
+  userToken: token,
+  modelType: model,
+  workflowId: wid,
+  computingUnitId: cuid,
+  settings,
+});
 const agentUrl = `${baseUrl}/api/agents/${agent.id}`;
 const wireDir = join(wireRoot!, agent.id);
 const actualSettings = await json(`${agentUrl}/settings`);
@@ -177,7 +183,11 @@ async function seedReceiptFromTrace(): Promise<any> {
           status: output.status,
           error: output.error ?? null,
           operators: output.operators,
-          actions: output.actions.map((item: any) => ({ type: item.action.type, status: item.status, output: item.output })),
+          actions: output.actions.map((item: any) => ({
+            type: item.action.type,
+            status: item.status,
+            output: item.output,
+          })),
         };
     }
     await Bun.sleep(5000);
@@ -213,7 +223,10 @@ const seededOperators = (seedReceipt.operators ?? []).map((op: any) => op.id);
 const seedWorkflow = await json(`${agentUrl}/workflow`);
 save("seed-workflow.json", seedWorkflow);
 const stepsBefore = (await getReActSteps(agent.id, baseUrl)).steps;
-assert.ok(stepsBefore.some((s: any) => s.synthetic === "state"), "seed step missing from the trace");
+assert.ok(
+  stepsBefore.some((s: any) => s.synthetic === "state"),
+  "seed step missing from the trace"
+);
 
 const seenWire = new Set<string>();
 function auditWire() {
@@ -260,10 +273,15 @@ function auditWire() {
     if (!seenWire.has(file) && meta.finished_at) {
       seenWire.add(file);
       if (body.model !== model) alert("model_mismatch", { call: prefix, model: body.model });
-      if (row.max_output_tokens !== 8192) alert("output_limit_mismatch", { call: prefix, observed: row.max_output_tokens });
+      if (row.max_output_tokens !== 8192)
+        alert("output_limit_mismatch", { call: prefix, observed: row.max_output_tokens });
       if (row.finish_reason === "length") alert("output_limit_reached", { call: prefix });
       if (row.response_choice_count > 1)
-        alert("multiple_response_choices", { call: prefix, count: row.response_choice_count, recovered_tool_choice: recoveredChoice ?? null });
+        alert("multiple_response_choices", {
+          call: prefix,
+          count: row.response_choice_count,
+          recovered_tool_choice: recoveredChoice ?? null,
+        });
       if (meta.error || response?.error) alert("provider_error", { call: prefix, error: meta.error ?? response.error });
       if (check && (check.changed_fields.length || check.first_changed_message !== null))
         alert("within_turn_prefix_change", { call: prefix, check });
@@ -295,7 +313,9 @@ try {
       current.set(step.id, step);
       lastProgress = Date.now();
       save("react_steps.json", [...current.values()]);
-      const outcomes = (step.toolResults ?? []).flatMap((r: any) => (r.output?.kind === "dataflow-actions" ? [r.output] : []));
+      const outcomes = (step.toolResults ?? []).flatMap((r: any) =>
+        r.output?.kind === "dataflow-actions" ? [r.output] : []
+      );
       if (step.role !== "agent" || done.has(step.id) || outcomes.some((r: any) => r.status === "pending")) return;
       done.add(step.id);
       event({ event: "step_complete", step_id: step.id, calls: step.toolCalls?.length ?? 0 });
@@ -307,12 +327,16 @@ try {
         writeFileSync(join(output, `snapshot-${step.stepId}.json.gz`), Bun.gzipSync(JSON.stringify(snapshot)));
         const state = JSON.stringify({
           operators: snapshot.workflow?.operators.map(op => [op.operatorID, op.nativeOp?.revision]),
-          results: Object.entries(snapshot.results).map(([id, r]: [string, any]) => [id, r.resultVersion?.id ?? r.materialization ?? null]),
+          results: Object.entries(snapshot.results).map(([id, r]: [string, any]) => [
+            id,
+            r.resultVersion?.id ?? r.materialization ?? null,
+          ]),
         });
         for (const outcome of outcomes)
           for (const receipt of outcome.actions)
             if (!["pending", "skipped"].includes(receipt.status))
-              for (const kind of monitor.observe(receipt, state)) alert(kind, { step_id: step.id, action_index: receipt.index });
+              for (const kind of monitor.observe(receipt, state))
+                alert(kind, { step_id: step.id, action_index: receipt.index });
         auditWire();
       });
     },
@@ -330,7 +354,10 @@ try {
     .at(-1);
   const answer =
     answered?.match(/(?:\*\*\s*)?final answer:\s*(?:\*\*\s*)?(.+?)(?:\s*\*\*)?\s*$/is)?.[1]?.trim() ?? answered ?? "";
-  const errors = [...result.errors, ...steps.filter(s => s.role === "agent" && /^Error:/.test(s.content ?? "")).map(s => s.content)];
+  const errors = [
+    ...result.errors,
+    ...steps.filter(s => s.role === "agent" && /^Error:/.test(s.content ?? "")).map(s => s.content),
+  ];
   if (!answered) alert("turn_without_answer", { errors, model_steps: done.size });
   if (!result.completed) {
     await fetch(`${agentUrl}/stop`, { method: "POST" });
@@ -345,21 +372,27 @@ try {
     output_tokens: usage.reduce((n, u) => n + (u.outputTokens ?? 0), 0),
     reasoning_tokens: usage.reduce((n, u) => n + (u.reasoningTokens ?? 0), 0),
     elapsed_seconds: (Date.now() - start) / 1000,
-    seed_seconds: seedReceipt ? (JSON.parse(readFileSync(join(output, "seed-receipt.json"), "utf8")).seconds as number) : null,
+    seed_seconds: seedReceipt
+      ? (JSON.parse(readFileSync(join(output, "seed-receipt.json"), "utf8")).seconds as number)
+      : null,
   };
   // Which seeded tables the turn actually used: inputs of new operators and reads.
   const finalWorkflow = await json(`${agentUrl}/workflow`);
   const finalOperators: any[] = finalWorkflow.workflow?.operators ?? finalWorkflow.operators ?? [];
   const newOps = finalOperators.filter((op: any) => !seededOperators.includes(op.operatorID));
   const reusedInputs = new Set<string>();
-  for (const op of newOps) for (const input of op.nativeOp?.inputs ?? []) if (seededOperators.includes(input)) reusedInputs.add(input);
-  const retrieved = new Set<string>();
-  for (const step of steps)
-    for (const tc of step.toolCalls ?? [])
-      for (const action of tc.input?.actions ?? [])
-        if (action.type === "retrieve" && seededOperators.includes(action.operator_id)) retrieved.add(action.operator_id);
-  const rawReads = newOps.filter((op: any) => op.nativeOp?.type === "Scan" || /read_csv|read_parquet|read_excel/.test(JSON.stringify(op.nativeOp?.functions ?? {}))).map((op: any) => op.operatorID);
-  save("answer.json", { answer, response: answered ?? result.finalAnswer, errors, completed: result.completed, completion_source: result.completionSource });
+  for (const op of newOps)
+    for (const input of op.nativeOp?.inputs ?? []) if (seededOperators.includes(input)) reusedInputs.add(input);
+  const actions = steps.flatMap(step => (step.toolCalls ?? []).flatMap((tc: any) => tc.input?.actions ?? []));
+  const retrieved = seededRetrievalIds(actions, seededOperators);
+  const rawReads = directFileReadOperators(newOps, (finalWorkflow.workflow ?? finalWorkflow).nativeNamespace);
+  save("answer.json", {
+    answer,
+    response: answered ?? result.finalAnswer,
+    errors,
+    completed: result.completed,
+    completion_source: result.completionSource,
+  });
   save("stats.json", stats);
   save("workflow.json", finalWorkflow);
   save("state-use.json", {
@@ -388,7 +421,9 @@ try {
       model,
     },
   ]);
-  console.log(`DONE ${arm} ${manifest.key} t${turnId} answer=${!!answer} calls=${done.size} seconds=${stats.elapsed_seconds.toFixed(1)}`);
+  console.log(
+    `DONE ${arm} ${manifest.key} t${turnId} answer=${!!answer} calls=${done.size} seconds=${stats.elapsed_seconds.toFixed(1)}`
+  );
 } finally {
   clearInterval(heartbeat);
   auditWire();

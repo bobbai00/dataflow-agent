@@ -38,6 +38,7 @@ import {
 } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { catalogText, catalogIndexText } from "./native/catalog";
+import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
@@ -500,6 +501,65 @@ export function nativeReferenceText(
   rendered = rendered.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
   if (!views.includes("full")) rendered = rendered.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
   return rendered;
+}
+
+/** Current native protocol. The expression-mode builder above is retained for
+ * historical fixtures and trace replay, never paired with the registered tool. */
+export function buildRegisteredNativeSystemPrompt(
+  contextMode: ContextMode = ContextMode.DELTA,
+  options: NativePromptLayoutOptions = {}
+): string {
+  const flags = nativeFlags(options);
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  const format = observationFormat(options);
+  const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
+  const context =
+    contextMode === ContextMode.LATEST
+      ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
+      : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
+  const fields: Record<string, string> = {
+    CONTEXT_LAYOUT:
+      context +
+      (flags.multi
+        ? " Earlier tasks share the current graph and registered definitions. Reuse relevant operators; earlier observations remain historical evidence, not current results."
+        : ""),
+    OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
+    RETRIEVAL: nativeRetrievalText(options),
+    RECORD_LAYOUT:
+      format.keyValueColumns > 0
+        ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
+        : `Records use ${table} at any width.`,
+    DATA_STATISTICS: flags.data
+      ? "Column statistics are collected separately from displayed records. Retrieve `sample_stats` for a compact sample plus statistics about the requested operator's result table: row counts, nulls, distinct values, ranges, and value frequencies when available. Check full/partial row and column coverage. `all` covers only the profiled rows; `top` is not exhaustive. Profiles do not establish row associations or order. Unknown or omitted facts remain unknown; complete small records may suppress redundant statistics. Compute exact answer quantities in the graph, not from rounded summaries."
+      : "",
+    FLOW_STATISTICS: flags.flow
+      ? "Flow statistics describe measured built-in effects, including filter retention/rejection and bounded rejected values, join matches/unmatched keys, cast failures, and aggregate denominators. Execution reports these for executed operators even when their result tables were not requested. Retrieval also includes bounded summaries from relevant upstream operators. Across a custom Python boundary, row/column correspondence to the requested output remains unknown. Compare these measurements with the requested population. Custom Python filtering does not provide filter rejection statistics, and names or docstrings do not prove row preservation or a formula. Return diagnostics as columns when needed; absent or bounded evidence is not exhaustive."
+      : "",
+  };
+  let prompt = nativeFragment("native-registered.md").replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
+    if (!(key in fields)) throw new Error(`Unknown registered prompt field ${key}`);
+    return fields[key];
+  });
+  // Both prompt detail settings use the same short built-in contracts. The
+  // on-demand variant omits the longer worked repair, available in the docs.
+  if (options.nativePromptDetail === "on_demand") {
+    prompt = prompt.replace(/### Repair a function and refine its downstream summary[\s\S]*?(?=\{\{#data\}\}|$)/, "");
+  }
+  prompt = adaptReceipts(applySections(prompt, flags), options, flags);
+  prompt = prompt.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) prompt = prompt.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
+  return prompt.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Built-in contracts for the registered protocol; Python definitions are
+ * inspected through the namespace instead of duplicated as documentation. */
+export function registeredReferenceText(
+  request: { topic: "operators"; operator_names: string[] },
+  _options: NativePromptLayoutOptions = {}
+): string {
+  if (request.topic !== "operators") throw new Error("Registered reference inspection supports operator contracts.");
+  return registeredCatalogText(request.operator_names, "full");
 }
 
 // ---------------------------------------------------------------------------

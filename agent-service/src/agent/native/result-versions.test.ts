@@ -165,6 +165,37 @@ test("reversed response order binds profiles to exact input versions and source 
   expect(answer.tableProfile).toMatchObject({ status: "available", resultVersion: answer.resultVersion!.id });
 });
 
+test("compact source identity survives detail omissions without claiming complete partial lists", () => {
+  for (const [omitted, unavailable] of [
+    [0, false],
+    [3, false],
+    [0, true],
+  ] as const) {
+    const wf = workflow();
+    const values = wf.operators.map(o => info(o));
+    const profile = JSON.parse(values[0].resultMetadata!.worker);
+    profile.native.operations.scan = {
+      sources: [{ path: "/authorized/data/a.csv", sizeBytes: 12, mtimeNs: "123456789" }],
+      sourceDetailsOmitted: 1,
+      ...(omitted ? { sourcesOmitted: omitted } : {}),
+    };
+    if (unavailable) {
+      profile.status = "unavailable";
+      profile.coverage.complete = false;
+      profile.schema = [];
+      profile.schemaComplete = false;
+      profile.columns = {};
+      profile.omissions = ["payload_budget"];
+    }
+    values[0].resultMetadata!.worker = JSON.stringify(profile);
+    const s = storage(wf);
+    persist(s, response(wf, "100", values));
+    const version = s.getOperatorResult("A", "source")!.resultVersion!;
+    expect(version.complete).toBe(true); // Execution binding; not external file freshness.
+    expect(version.sourceFingerprints).toEqual(omitted ? null : profile.native.operations.scan.sources);
+  }
+});
+
 test("cached observe preserves version and a verified cache hit reuses the producing profile", () => {
   const wf = workflow();
   const s = storage(wf);

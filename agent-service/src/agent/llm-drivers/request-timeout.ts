@@ -31,6 +31,8 @@
  */
 
 export const LLM_REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS ?? 180_000);
+/** Consumed by our gateway; never forwarded to a model provider. */
+export const LLM_DEADLINE_HEADER = "X-Texera-LLM-Deadline-Ms";
 
 /** `fetch` with a deadline per request; the caller's own abort signal still wins. */
 export function withRequestTimeout(
@@ -38,8 +40,16 @@ export function withRequestTimeout(
   timeoutMs: number = LLM_REQUEST_TIMEOUT_MS
 ): typeof fetch {
   const timed = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const signals = [init?.signal, AbortSignal.timeout(timeoutMs)].filter((s): s is AbortSignal => !!s);
-    return fetchImpl(input, { ...init, signal: AbortSignal.any(signals) });
+    const request = input instanceof Request ? input : undefined;
+    const signals = [init?.signal ?? request?.signal, AbortSignal.timeout(timeoutMs)].filter(
+      (s): s is AbortSignal => !!s
+    );
+    const headers = new Headers(init?.headers ?? request?.headers);
+    // Headers do not alter prompt prefixes. An absolute deadline includes time
+    // spent in transit and bounds gateway work even if disconnect notification
+    // is unavailable. Cancellation of remote provider work remains best effort.
+    headers.set(LLM_DEADLINE_HEADER, String(Date.now() + timeoutMs));
+    return fetchImpl(input, { ...init, headers, signal: AbortSignal.any(signals) });
   };
   return timed as typeof fetch;
 }

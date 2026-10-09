@@ -216,14 +216,14 @@ def seed_changes(state: list[dict], collections: list[dict], root: Path) -> tupl
     taken = set()
     for frame in state:
         if frame.get("format") == "parquet" and frame.get("file"):
-            lines.append(f'{frame["name"]} = scan("{frame["file"]}", format="parquet")')
+            lines.append(f'set {frame["name"]}: scan(files={json.dumps(str(frame["file"]))}, format="parquet")')
             taken.add(frame["name"])
         else:
             skipped.append(frame["name"])
     for item in collections:
         if item["name"] in taken:
             continue
-        lines.append(f'{item["name"]} = scan("{collection_file(root, item)}", format="parquet")')
+        lines.append(f'set {item["name"]}: scan(files={json.dumps(str(collection_file(root, item)))}, format="parquet")')
     return "\n".join(lines) + "\n", skipped
 
 

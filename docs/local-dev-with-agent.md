@@ -78,7 +78,7 @@ That single command:
 | access-control-service (LLM proxy) | 9096 |
 | file-service | 9092 |
 | workflow-compiling-service | 9090 |
-| computing-unit-managing-service | 8082 |
+| computing-unit-managing-service | 8888 (API), 8082 (admin) |
 | texera-web | 8080 |
 | computing-unit-master | 8085 |
 | agent-service | 3001 |

@@ -18,13 +18,14 @@
  */
 
 import type { AgentSettings } from "../../types/agent";
-import { nativeReferenceText } from "../prompts";
-import type { OperatorInfo } from "../../types/execution";
+import { nativeReferenceText, registeredReferenceText } from "../prompts";
+import type { ExecutionRunMetrics, OperatorInfo } from "../../types/execution";
 import type { WorkflowContent } from "../../types/workflow";
 import { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { FLOW_OMITTED_NOTICE, selectNativeObservation, type NativeObservation } from "../native/evidence";
 import { resultScope } from "../native/result-scope";
+import { FlowReceiptMemo } from "../native/evidence-compaction";
 import { nativeAssignmentText } from "../native/catalog";
 import { inspectTask, type TaskHistory, type TaskReference } from "../task-history";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
@@ -38,7 +39,13 @@ import {
 import { loadedRevision, originTask } from "../state-ledger";
 import { nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { composeAnswerParts, parseAnswerFromParts, statedDecimals } from "../native/answer";
-import { edgeEnds, planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import { edgeEnds, planGraphEdit, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import {
+  inspectRegisteredNamespace,
+  inspectRegisteredSchema,
+  inspectRegisteredSource,
+  registeredInspectionName,
+} from "./registered-inspection";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
@@ -65,7 +72,7 @@ export interface DataflowActionRuntime {
   stepId: string;
   settings: AgentSettings;
   context: ToolContext;
-  execute: (operatorIds?: readonly string[]) => Promise<void>;
+  execute: (operatorIds?: readonly string[], onExecution?: (run: ExecutionRunMetrics) => void) => Promise<void>;
   edited: (ids: string[]) => void;
   isCurrent: () => boolean;
   signal?: AbortSignal;
@@ -141,9 +148,10 @@ export async function executeDataflowActionBatch(
     signal?.throwIfAborted();
     if (!runtime.isCurrent()) throw new DOMException("The active workflow changed during this action.", "AbortError");
   };
-  const retrieved = new Map<number, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
-  const savedReads = new Set<number>();
-  const forkReads = new Map<number, { operatorId: string; info: OperatorInfo }>();
+  const retrieved = new Map<string, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
+  const flowReceipt = new FlowReceiptMemo();
+  const savedReads = new Set<string>();
+  const forkReads = new Map<string, { operatorId: string; info: OperatorInfo }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
   const references: TaskReference[] | undefined = settings.stateHistory ? (result.references = []) : undefined;
   const recordReference = (
@@ -241,6 +249,7 @@ export async function executeDataflowActionBatch(
       loadedRevision(ledgerContext, op.operatorID) === op.nativeOp.revision;
     return describeOperator(op, info, {
       ...result.format,
+      namespace: state.getWorkflowContent().nativeNamespace,
       stale,
       scope,
       ...(saved ? { savedBy: saved.taskId } : {}),
@@ -259,7 +268,31 @@ export async function executeDataflowActionBatch(
       if (action.target === "reference") {
         return {
           status: "ok",
-          output: { text: nativeReferenceText(action, { ...settings, checks: settings.nativeChecks }) },
+          output: {
+            text:
+              result.protocol === "registered-python-v1" && action.topic === "operators"
+                ? registeredReferenceText(action, settings)
+                : nativeReferenceText(action, { ...settings, checks: settings.nativeChecks }),
+          },
+        };
+      }
+      if (action.target === "namespace")
+        return {
+          status: "ok",
+          output: inspectRegisteredNamespace(state.getWorkflowContent(), action.names, action.include_implementation),
+        };
+      if (action.target === "schema" || action.target === "source") {
+        const op = state.getOperator(action.operator_id);
+        if (!op) throw new Error(`UNKNOWN_OPERATOR: no operator \`${action.operator_id}\`.`);
+        if (!current(op.operatorID) && block(op).state === "stale")
+          throw new Error(`RESULT_STALE: \`${op.operatorID}\` changed since execution. Execute it before inspection.`);
+        recordReference(op.operatorID, "consultation", index);
+        return {
+          status: "ok",
+          output:
+            action.target === "schema"
+              ? inspectRegisteredSchema(op, current(op.operatorID), action.offset, action.limit)
+              : inspectRegisteredSource(op, current(op.operatorID), action.offset, action.limit),
         };
       }
       if (action.target === "task") {
@@ -364,7 +397,11 @@ export async function executeDataflowActionBatch(
         return { status: "ok", output };
       }
       if (action.target === "graph") {
-        if (!("operator_ids" in action) && (settings.multiTask || settings.stateHistory))
+        if (
+          result.protocol !== "registered-python-v1" &&
+          !("operator_ids" in action) &&
+          (settings.multiTask || settings.stateHistory)
+        )
           throw new Error(
             "Graph inspection in multi-task sessions requires operator_ids. Use the task index to inspect a saved task, or name current operators; the whole session graph is not returned."
           );
@@ -464,6 +501,7 @@ export async function executeDataflowActionBatch(
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
       recordReference(action.operator_id, "consultation", index);
       const view = op.nativeOp;
+      const registeredName = registeredInspectionName(op);
       return {
         status: "ok",
         output: {
@@ -477,23 +515,32 @@ export async function executeDataflowActionBatch(
             }),
           ],
           id: op.operatorID,
-          type: view?.type ?? op.operatorType,
+          type: view?.registeredName ?? view?.type ?? op.operatorType,
           revision: view?.revision,
           expression: view ? nativeAssignmentText(op.operatorID, view) : undefined,
           ports: inspectGraph(state.getWorkflowContent()).operators.find(item => item.id === op.operatorID)?.ports,
           connections: inspectGraph(state.getWorkflowContent()).edges.filter(edge =>
             Object.values(edgeEnds(edge)).includes(op.operatorID)
           ),
-          description: view?.properties.doc,
+          description:
+            view?.doc ??
+            (registeredName
+              ? state.getWorkflowContent().nativeNamespace?.functions[registeredName]?.doc
+              : view?.properties.doc),
+          ...(registeredName
+            ? { signature: state.getWorkflowContent().nativeNamespace?.functions[registeredName]?.signature }
+            : {}),
           ...resultSummary(current(op.operatorID)),
           ...(action.include_implementation
             ? {
-                implementation: view
-                  ? {
-                      functions: view.functions ?? {},
-                      callback: view.properties.func ?? view.properties.code ?? null,
-                    }
-                  : { code: op.operatorProperties.code ?? null },
+                implementation: registeredName
+                  ? inspectRegisteredNamespace(state.getWorkflowContent(), [registeredName], true)
+                  : view
+                    ? {
+                        functions: view.functions ?? {},
+                        callback: view.properties.func ?? view.properties.code ?? null,
+                      }
+                    : { code: op.operatorProperties.code ?? null },
               }
             : {}),
         },
@@ -519,6 +566,23 @@ export async function executeDataflowActionBatch(
       return { status: "ok", output };
     }
     if (action.type === "edit") {
+      if (result.protocol === "registered-python-v1") {
+        const plan = await planRegisteredGraphEdit(
+          state.getWorkflowContent(),
+          action.python ?? "",
+          action.changes,
+          context
+        );
+        assertCurrent();
+        state.setWorkflowContent(plan.workflow);
+        storage.updatePendingWorkflow(stepId, plan.workflow);
+        const accepted = plan.operators.map(op => op.id);
+        storage.clearNativeRejectedEdits(stepId, accepted);
+        runtime.edited(accepted.filter(id => !!state.getOperator(id)));
+        result.operators.push(...plan.operators);
+        const { workflow: _workflow, ...output } = plan;
+        return { status: "ok", output };
+      }
       // `x = at(x, task=N)` expands into x's saved definition as an ordinary
       // assignment with today's inputs; `y = at(x, task=N)` adds a copied
       // branch under the new name. The rest is the ordinary edit.
@@ -645,8 +709,9 @@ export async function executeDataflowActionBatch(
           `Unconnected required inputs: ${missing.join(", ")}. Restate those operators with every input, or delete them, before execute.`
         );
       let failure: string | undefined;
+      const executionRuns: ExecutionRunMetrics[] = [];
       try {
-        await runtime.execute(action.operator_ids);
+        await runtime.execute(action.operator_ids, run => executionRuns.push(run));
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
       }
@@ -709,6 +774,9 @@ export async function executeDataflowActionBatch(
         status: failure || outcomes.some(o => o.status === "error") ? "error" : "ok",
         output: {
           operators: outcomes,
+          // Retain real per-request telemetry in saved traces, including
+          // failed groups. The Markdown observation intentionally omits it.
+          execution_runs: executionRuns,
           // Blocks only for operators this call ran or failed: a cached
           // operator's notes and flow lines were shown when it ran, and
           // repeating them on every later execute only grows the context.
@@ -736,7 +804,17 @@ export async function executeDataflowActionBatch(
               const own = (id: string) => id.startsWith("flow.") && id !== "flow.contract" && id !== "flow.omitted";
               const flow = observation
                 ? [
-                    ...observation.chunks.filter(chunk => own(chunk.id) && !chunk.upstream).map(chunk => chunk.text),
+                    ...flowReceipt
+                      .render(
+                        {
+                          ...observation,
+                          chunks: observation.chunks.filter(chunk => own(chunk.id) && !chunk.upstream),
+                        },
+                        op.operatorID,
+                        `action ${index} / ${op.operatorID}`
+                      )
+                      .split("\n")
+                      .filter(Boolean),
                     ...(observation.omitted.some(item => item.reason === "budget" && own(item.id))
                       ? [FLOW_OMITTED_NOTICE]
                       : []),
@@ -763,98 +841,121 @@ export async function executeDataflowActionBatch(
       };
     }
     if (action.type === "retrieve") {
-      let workflow = state.getWorkflowContent();
-      let resultStep = stepId;
-      let operatorId = action.operator_id;
-      let historical: { task_id: number; operator_id: string } | undefined;
-      let copy: import("../../types/workflow").OperatorPredicate | undefined;
-      // Sealed IDs of the saved subgraph → the copies' IDs, so the copy's
-      // observation names its own inputs.
-      const names = new Map<string, string>();
-      if (!current(operatorId)) {
-        const saved = readForkResult(workflow, storage, operatorId, stepId);
-        if (saved) {
-          historical = { task_id: saved.taskId, operator_id: saved.operatorId };
-          forkReads.set(index, { operatorId, info: saved.info });
-          copy = workflow.operators.find(item => item.operatorID === operatorId);
-          for (const [original, name] of forkNames(workflow, operatorId, saved.stepId)) names.set(original, name);
-          workflow = saved.workflow;
-          resultStep = saved.stepId;
-          operatorId = saved.operatorId;
-          savedReads.add(index);
+      const readOne = async (action: {
+        operator_id: string;
+        view: import("../../types/agent").RetrievalView;
+        columns?: string[];
+      }) => {
+        const readKey = `${index}:${action.operator_id}`;
+        let workflow = state.getWorkflowContent();
+        let resultStep = stepId;
+        let operatorId = action.operator_id;
+        let historical: { task_id: number; operator_id: string } | undefined;
+        let copy: import("../../types/workflow").OperatorPredicate | undefined;
+        // Sealed IDs of the saved subgraph → the copies' IDs, so the copy's
+        // observation names its own inputs.
+        const names = new Map<string, string>();
+        if (result.protocol !== "registered-python-v1" && !current(operatorId)) {
+          const saved = readForkResult(workflow, storage, operatorId, stepId);
+          if (saved) {
+            historical = { task_id: saved.taskId, operator_id: saved.operatorId };
+            forkReads.set(readKey, { operatorId, info: saved.info });
+            copy = workflow.operators.find(item => item.operatorID === operatorId);
+            for (const [original, name] of forkNames(workflow, operatorId, saved.stepId)) names.set(original, name);
+            workflow = saved.workflow;
+            resultStep = saved.stepId;
+            operatorId = saved.operatorId;
+            savedReads.add(readKey);
+          }
+        }
+        const op = workflow.operators.find(op => op.operatorID === operatorId);
+        if (!op) throw new Error(`UNKNOWN_OPERATOR: no operator \`${action.operator_id}\`.`);
+        const info = storage.getOperatorResult(resultStep, operatorId);
+        if (!info)
+          throw new Error(
+            historical
+              ? `RESULT_NOT_RUN: task ${historical.task_id} saved no result for \`${operatorId}\`; execute the copy to compute it.`
+              : block(op).state === "stale"
+                ? `RESULT_STALE: \`${action.operator_id}\` changed after its last execution. Execute it, then retrieve.`
+                : `RESULT_NOT_RUN: \`${action.operator_id}\` has not been executed. Execute it, then retrieve.`
+          );
+        const upstream = info.nativeError?.diagnostic.operatorId;
+        if (info.error && upstream && upstream !== operatorId)
+          throw new Error(
+            `RESULT_NOT_RUN: \`${action.operator_id}\` did not run because upstream \`${upstream}\` failed. Repair it, execute, then retrieve.`
+          );
+        if (info.error)
+          throw new Error(
+            `RESULT_FAILED: the last execution of \`${action.operator_id}\` failed.\n${historical ? info.error : errorText(action.operator_id, info)}`
+          );
+        if (!["Completed", "CompletedFromCache"].includes(info.state))
+          throw new Error(
+            `RESULT_NOT_RUN: the result of \`${action.operator_id}\` is ${info.state}. Execute it, then retrieve.`
+          );
+        if (action.columns?.length) {
+          const known = new Set((info.resultSchema ?? []).map(c => c.name));
+          const unknown = action.columns.filter(name => known.size && !known.has(name));
+          if (unknown.length)
+            throw new Error(
+              `UNKNOWN_COLUMN: \`${action.operator_id}\` has no column ${unknown.map(n => JSON.stringify(n)).join(", ")}. Its columns: ${columnEntries(info.resultSchema ?? [], observationFormat(result.format).columnsShown, false).join(", ")}. Inspect target="schema", operator_id=${JSON.stringify(action.operator_id)} for exact column names and types.`
+            );
+        }
+        const observation = selectNativeObservation({
+          ...retrievalOptions(settings, action.view),
+          ...(action.columns?.length ? { columns: action.columns } : {}),
+          op,
+          info,
+          workflow,
+          resolveInput: id => storage.getOperatorResult(resultStep, id),
+          ...(names.size ? { displayName: (id: string) => names.get(id) ?? id } : {}),
+        });
+        recordReference(
+          historical?.operator_id ?? action.operator_id,
+          "read",
+          index,
+          historical?.task_id,
+          historical ? resultStep : undefined
+        );
+        if (!historical) retrieved.set(readKey, { operatorId: action.operator_id, info, observation });
+        return {
+          status: "ok" as const,
+          output: {
+            operator_blocks: [
+              copy
+                ? block(copy, { definition: false })
+                : describeOperator({ ...op, operatorID: action.operator_id }, info, {
+                    ...result.format,
+                    namespace: workflow.nativeNamespace,
+                    definition: false,
+                    scope: resultScope(op, workflow, id => storage.getOperatorResult(resultStep, id)),
+                  }),
+            ],
+            operator_id: action.operator_id,
+            revision: op.nativeOp?.revision,
+            result_version: info.resultVersion?.id,
+            view: action.view,
+            table: observation.table,
+            evidence: observation.selected.filter(id => id.startsWith("data.") || id.startsWith("flow.")),
+            ...(historical ? { historical_state: historical } : {}),
+            text: flowReceipt.render(observation, action.operator_id, `action ${index} / ${action.operator_id}`),
+          },
+        };
+      };
+      if (!("operator_ids" in action)) return readOne(action);
+      const results: Array<Record<string, unknown>> = [];
+      for (const operatorId of action.operator_ids) {
+        try {
+          const outcome = await readOne({ ...action, operator_id: operatorId });
+          results.push({ status: "ok", ...outcome.output });
+        } catch (error) {
+          results.push({
+            operator_id: operatorId,
+            status: "error",
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
-      const op = workflow.operators.find(op => op.operatorID === operatorId);
-      if (!op) throw new Error(`UNKNOWN_OPERATOR: no operator \`${action.operator_id}\`.`);
-      const info = storage.getOperatorResult(resultStep, operatorId);
-      if (!info)
-        throw new Error(
-          historical
-            ? `RESULT_NOT_RUN: task ${historical.task_id} saved no result for \`${operatorId}\`; execute the copy to compute it.`
-            : block(op).state === "stale"
-              ? `RESULT_STALE: \`${action.operator_id}\` changed after its last execution. Execute it, then retrieve.`
-              : `RESULT_NOT_RUN: \`${action.operator_id}\` has not been executed. Execute it, then retrieve.`
-        );
-      const upstream = info.nativeError?.diagnostic.operatorId;
-      if (info.error && upstream && upstream !== operatorId)
-        throw new Error(
-          `RESULT_NOT_RUN: \`${action.operator_id}\` did not run because upstream \`${upstream}\` failed. Repair it, execute, then retrieve.`
-        );
-      if (info.error)
-        throw new Error(
-          `RESULT_FAILED: the last execution of \`${action.operator_id}\` failed.\n${historical ? info.error : errorText(action.operator_id, info)}`
-        );
-      if (!["Completed", "CompletedFromCache"].includes(info.state))
-        throw new Error(
-          `RESULT_NOT_RUN: the result of \`${action.operator_id}\` is ${info.state}. Execute it, then retrieve.`
-        );
-      if (action.columns?.length) {
-        const known = new Set((info.resultSchema ?? []).map(c => c.name));
-        const unknown = action.columns.filter(name => known.size && !known.has(name));
-        if (unknown.length)
-          throw new Error(
-            `UNKNOWN_COLUMN: \`${action.operator_id}\` has no column ${unknown.map(n => JSON.stringify(n)).join(", ")}. Its columns: ${columnEntries(info.resultSchema ?? [], observationFormat(result.format).columnsShown, false).join(", ")}.`
-          );
-      }
-      const observation = selectNativeObservation({
-        ...retrievalOptions(settings, action.view),
-        ...(action.columns?.length ? { columns: action.columns } : {}),
-        op,
-        info,
-        workflow,
-        resolveInput: id => storage.getOperatorResult(resultStep, id),
-        ...(names.size ? { displayName: (id: string) => names.get(id) ?? id } : {}),
-      });
-      recordReference(
-        historical?.operator_id ?? action.operator_id,
-        "read",
-        index,
-        historical?.task_id,
-        historical ? resultStep : undefined
-      );
-      if (!historical) retrieved.set(index, { operatorId: action.operator_id, info, observation });
-      return {
-        status: "ok",
-        output: {
-          operator_blocks: [
-            copy
-              ? block(copy, { definition: false })
-              : describeOperator({ ...op, operatorID: action.operator_id }, info, {
-                  ...result.format,
-                  definition: false,
-                  scope: resultScope(op, workflow, id => storage.getOperatorResult(resultStep, id)),
-                }),
-          ],
-          operator_id: action.operator_id,
-          revision: op.nativeOp?.revision,
-          result_version: info.resultVersion?.id,
-          view: action.view,
-          table: observation.table,
-          evidence: observation.selected.filter(id => id.startsWith("data.") || id.startsWith("flow.")),
-          ...(historical ? { historical_state: historical } : {}),
-          text: observation.text,
-        },
-      };
+      return { status: results.some(entry => entry.status === "error") ? "error" : "ok", output: { results } };
     }
     // Answer. With `from`, the runtime composes the answer from an executed
     // table by a fixed mapping (see native/answer.ts): nothing is invented,
@@ -915,17 +1016,24 @@ export async function executeDataflowActionBatch(
   // A later edit/execute in this batch may supersede a retrieved version.
   // Its text remains in the action receipt, but must not expose today's table.
   for (const item of result.actions) {
-    if (item.action.type !== "retrieve" || item.status !== "ok") continue;
-    const fork = forkReads.get(item.index);
-    if (
-      fork &&
-      (current(fork.operatorId) ||
-        readForkResult(state.getWorkflowContent(), storage, fork.operatorId, stepId)?.info !== fork.info)
-    )
-      (item.output as Record<string, unknown>).superseded_in_call = true;
-    if (savedReads.has(item.index)) continue;
-    if (current(item.action.operator_id) !== retrieved.get(item.index)?.info) {
-      (item.output as Record<string, unknown>).superseded_in_call = true;
+    if (item.action.type !== "retrieve") continue;
+    const outputs: Array<Record<string, unknown>> =
+      "operator_ids" in item.action
+        ? ((item.output as any)?.results ?? []).filter((entry: any) => entry.status === "ok")
+        : item.status === "ok"
+          ? [item.output as Record<string, unknown>]
+          : [];
+    for (const output of outputs) {
+      const id = String(output.operator_id);
+      const readKey = `${item.index}:${id}`;
+      const fork = forkReads.get(readKey);
+      if (
+        fork &&
+        (current(fork.operatorId) ||
+          readForkResult(state.getWorkflowContent(), storage, fork.operatorId, stepId)?.info !== fork.info)
+      )
+        output.superseded_in_call = true;
+      if (!savedReads.has(readKey) && current(id) !== retrieved.get(readKey)?.info) output.superseded_in_call = true;
     }
   }
   result.observe = [

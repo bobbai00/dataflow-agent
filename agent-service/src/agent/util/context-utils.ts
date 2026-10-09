@@ -2367,8 +2367,23 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
       const actionResult = asDataflowActionsResult(results.find(r => r.toolCallId === tc.toolCallId)?.output);
       if (actionResult) {
         for (const item of actionResult.actions) {
+          if (item.action.type === "retrieve" && "operator_ids" in item.action) {
+            for (const read of (item.output as any)?.results ?? [])
+              if (read.status === "ok" && (read.superseded_in_call || read.historical_state))
+                pulls.push({
+                  eventIndex: node.eventIndex,
+                  toolName: "retrieve",
+                  operatorId: read.operator_id,
+                  argsSummary: read.superseded_in_call
+                    ? "historical result; changed later in this call"
+                    : "saved historical result",
+                  output: JSON.stringify(read, null, 2),
+                });
+            continue;
+          }
           if (
             item.action.type === "retrieve" &&
+            "operator_id" in item.action &&
             item.status === "ok" &&
             ((item.output as { superseded_in_call?: boolean })?.superseded_in_call ||
               (item.output as { historical_state?: unknown })?.historical_state)
@@ -2395,9 +2410,11 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
                   ? `task ${item.action.task_id}`
                   : item.action.target === "reference"
                     ? `reference ${item.action.topic === "operators" ? item.action.operator_names.join(", ") : item.action.example}`
-                    : Array.isArray(item.action.operator_id)
-                      ? item.action.operator_id.join(", ")
-                      : item.action.operator_id,
+                    : item.action.target === "namespace"
+                      ? `namespace${item.action.names ? ` ${item.action.names.join(", ")}` : ""}`
+                      : Array.isArray(item.action.operator_id)
+                        ? item.action.operator_id.join(", ")
+                        : item.action.operator_id,
             argsSummary: item.status,
             output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
           });
@@ -2790,7 +2807,9 @@ function renderVersionedCatalog(
         // parameters (the agent's own words) instead of a summary line.
         const nat = op?.nativeOp;
         sections.push(
-          nat ? `#### ${nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`
+          nat
+            ? `#### ${nat.registeredName ?? nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})`
+            : `#### \`${opId}\` (${verb})`
         );
         if (verb === "deleted") {
           sections.push("");
@@ -3343,7 +3362,10 @@ function nativeDefinitionLines(
   if (view.functions && (view.type !== "Process" || includeProcessBody))
     for (const source of Object.values(view.functions)) body.push(...source.split("\n"));
   if (view.source) body.push(...view.source.split("\n"));
-  else body.push(`${nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`);
+  else
+    body.push(
+      `${view.registeredName ?? nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`
+    );
   return ["Definition:", ...body.map(l => "  " + l)];
 }
 

@@ -32,6 +32,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class ExecutionIsolationTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "linux", "bubblewrap mount isolation requires Linux")
     def test_data_is_read_only_and_repository_and_answers_are_invisible(self):
         with tempfile.TemporaryDirectory() as temp:
             tmp = Path(temp)
@@ -74,6 +75,7 @@ print(json.dumps({{'isolated': True}}))
             self.assertTrue(json.loads(result.stdout)["isolated"])
             self.assertEqual((workspace / "saved.txt").read_text(), "persistent")
 
+    @unittest.skipUnless(sys.platform == "linux", "bubblewrap mount isolation requires Linux")
     def test_scratch_is_separate_between_sessions(self):
         with tempfile.TemporaryDirectory() as temp:
             a, b = Path(temp) / "a", Path(temp) / "b"

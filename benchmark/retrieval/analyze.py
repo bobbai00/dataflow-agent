@@ -19,6 +19,8 @@ from pathlib import Path
 import random
 import statistics
 import sys
+from metrics import retrieval_results, tool_error_counts, edit_operations
+from comparison import evidence_matrix_contrasts
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmark/Kramabench"))
@@ -60,11 +62,22 @@ def main():
         views, types, statuses, edits, created = (Counter() for _ in range(5))
         response = (path / "response.txt").read_text() if (path / "response.txt").exists() else ""
         row = {**job, "score": score, "pass": score is not None and score >= manifest["pass_threshold"],
+               "official_scores": {k: evaluation[k] for k in sorted(kb.SCORE_METRICS) if evaluation.get(k) is not None},
                "cost_usd": stats.get("cost_usd"), "input_tokens": stats.get("input_tokens", 0),
+               "provider_reported_cost_usd": stats.get("provider_reported_cost_usd"),
+               "provider_cost_complete": stats.get("provider_cost_complete"),
+               "response_providers": stats.get("response_providers", []),
                "output_tokens": stats.get("output_tokens", 0), "cached_tokens": stats.get("cached_tokens", 0),
                "reasoning_tokens": stats.get("reasoning_tokens", 0),
                "cache_creation_tokens": stats.get("cache_creation_tokens", 0),
+               "elapsed_seconds": stats.get("elapsed_seconds"),
+               "model_latency_seconds": stats.get("model_latency_seconds"),
+               "attempt_seconds": done[(job["sut"], job["task"])].get("seconds"),
+               "usage_complete": stats.get("usage_complete"),
+               "model_requests": stats.get("model_requests"),
                "no_answer": "turn ended without an answer action" in response,
+               "answer_recorded": False, "native_actions_observed": False,
+               "tool_errors": 0, "envelope_errors": 0, "action_errors": 0,
                "model_calls": 0, "prefix_checks": 0, "prefix_failures": 0}
         previous = None
         for step in steps:
@@ -76,34 +89,39 @@ def main():
                     row["prefix_failures"] += messages[:len(previous)] != previous
                 previous = messages
             for result in step.get("toolResults", []):
+                counts = tool_error_counts(result)
+                for key, value in counts.items():
+                    row[key] += value
                 output = result.get("output")
-                if result.get("isError") and (not isinstance(output, dict) or not output.get("actions")):
+                if counts["envelope_errors"]:
                     errors.append({**job, "step": step.get("stepId"), "action": {"type": "tool_envelope"},
                                    "error": str(output)[:1600]})
                 if not isinstance(output, dict):
                     continue
+                row["native_actions_observed"] |= isinstance(output.get("actions"), list)
                 for item in output.get("actions", []):
                     action, observation = item.get("action", {}), item.get("output")
                     types[action.get("type")] += 1
                     statuses[item.get("status")] += 1
+                    row["answer_recorded"] |= action.get("type") == "answer" and item.get("status") == "ok"
                     if item.get("status") == "error":
                         errors.append({**job, "step": step.get("stepId"), "action": action,
                                        "error": str(observation)[:1600]})
                     if action.get("type") == "edit" and item.get("status") == "ok" and isinstance(observation, dict):
-                        edits.update(c["operation"] for c in observation.get("changes", []))
+                        edits.update(edit_operations(observation))
                         created.update(o["op"] for o in observation.get("operators", []) if o.get("status") == "added")
                     if action.get("type") != "retrieve":
                         continue
                     view = action.get("view", "missing")
                     views[view] += 1
-                    observation = observation if isinstance(observation, dict) else {}
-                    evidence = observation.get("evidence", [])
-                    retrievals.append({**job, "step": step.get("stepId"), "operator_id": action.get("operator_id"),
-                        "view": view, "status": item.get("status"), "result_version": observation.get("result_version"),
-                        **observation.get("table", {}), "chars": len(observation.get("text", "")),
-                        "data_facts": sum(e.startswith("data.") for e in evidence),
-                        "flow_facts": sum(e.startswith("flow.") for e in evidence),
-                        "upstream_facts": sum(e.startswith("flow.upstream.") for e in evidence)})
+                    for target in retrieval_results(item):
+                        evidence = target.get("evidence", [])
+                        retrievals.append({**job, "step": step.get("stepId"), "operator_id": target.get("operator_id"),
+                            "view": view, "status": target.get("status"), "result_version": target.get("result_version"),
+                            **target.get("table", {}), "chars": len(target.get("text", "")),
+                            "data_facts": sum(e.startswith("data.") for e in evidence),
+                            "flow_facts": sum(e.startswith("flow.") for e in evidence),
+                            "upstream_facts": sum(e.startswith("flow.upstream.") for e in evidence)})
         script_trace = path / "model-request-trace.jsonl"
         if script_trace.exists():
             events = [json.loads(line) for line in script_trace.read_text().splitlines()]
@@ -112,6 +130,10 @@ def main():
             for previous_request, current_request in zip(requests, requests[1:]):
                 row["prefix_checks"] += 1
                 row["prefix_failures"] += current_request[:len(previous_request)] != previous_request
+        elif row["native_actions_observed"] or manifest.get("settings", {}).get("agentMode") == "native":
+            row["no_answer"] = not row["answer_recorded"]
+        row["answered_after_action_errors"] = row["answer_recorded"] and statuses["error"] > 0
+        row["answered_after_tool_errors"] = row["answer_recorded"] and row["tool_errors"] > 0
         row.update(views=dict(views), actions=dict(types), statuses=dict(statuses),
                    edit_operations=dict(edits), operators_created=dict(created))
         rows.append(row)
@@ -123,8 +145,10 @@ def main():
              f"Agent revision: {manifest['agent_revision']}",
              f"Completed: {len(rows)}/{len(manifest['jobs'])}; {manifest['repetitions']} independent repetitions",
              "Pass threshold: official score >= 1.0. Mean score below includes only scored attempts.",
-             "Costs: stats.json cost_usd, including cached-input discounts; evaluator and engine costs excluded.",
-             manifest["selection"], "", "Model | Arm | Passes/attempts | Scored | Mean score | Total USD | Calls | Retrieve views"]
+             "Costs: token estimates with separate cache reads/writes; reasoning is already included in output. Missing costs stay unknown. Evaluator and engine costs excluded.",
+             "Provider-reported USD is shown separately when every response includes usage.cost; it can differ from public-rate estimates. Exact billed prompt/tool token splits are not provided by these APIs.",
+             "Agent seconds include model and tool execution, excluding scoring. Model seconds sum gateway requests. Attempt seconds also include setup, artifact collection and scoring.",
+             manifest["selection"], "", "Model | Arm | Passes/attempts | Scored | Mean score | Total USD | Mean agent seconds | Calls | Retrieve views"]
     for (model, arm), items in sorted(groups.items()):
         scores = [r["score"] for r in items if r["score"] is not None]
         costs = [r["cost_usd"] for r in items if r["cost_usd"] is not None]
@@ -134,7 +158,7 @@ def main():
         successful_reads = [r for r in retrievals if r["model"] == model and r["arm"] == arm and r["status"] == "ok"]
         s = {"model": model, "arm": arm, "attempts": len(items), "passes": sum(r["pass"] for r in items),
              "scored": len(scores), "mean_score": statistics.mean(scores) if scores else None,
-             "cost_usd": sum(costs), "costs_known": len(costs), "model_calls": sum(r["model_calls"] for r in items),
+             "cost_usd": sum(costs) if costs else None, "costs_known": len(costs), "model_calls": sum(r["model_calls"] for r in items),
              "retrieval_views": dict(views), "retrieval_chars": sum(r["chars"] for r in successful_reads),
              "reads_with_data": sum(r["data_facts"] > 0 for r in successful_reads),
              "reads_with_flow": sum(r["flow_facts"] > 0 for r in successful_reads),
@@ -142,8 +166,20 @@ def main():
              "partial_full_reads": sum(r["view"] == "full" and not r.get("complete", False) for r in successful_reads),
              "successful_reads": len(successful_reads), "no_answer": sum(r["no_answer"] for r in items),
              "prefix_checks": sum(r["prefix_checks"] for r in items), "prefix_failures": sum(r["prefix_failures"] for r in items)}
+        s["usage_complete_attempts"] = sum(r["usage_complete"] is True for r in items)
+        s["model_requests"] = sum(r["model_requests"] for r in items if r["model_requests"] is not None)
+        provider_costs = [r["provider_reported_cost_usd"] for r in items if r["provider_reported_cost_usd"] is not None]
+        s["provider_reported_cost_usd"] = sum(provider_costs) if len(provider_costs) == len(items) else None
+        s["provider_costs_known"] = len(provider_costs)
+        s["response_providers"] = sorted({p for r in items for p in r["response_providers"]})
+        for key in ["tool_errors", "envelope_errors", "action_errors", "answered_after_tool_errors"]:
+            s[key] = sum(r[key] for r in items)
         for key in ["input_tokens", "output_tokens", "cached_tokens", "reasoning_tokens", "cache_creation_tokens"]:
             s[key] = sum(r[key] for r in items)
+        for key in ["elapsed_seconds", "model_latency_seconds", "attempt_seconds"]:
+            values = [r[key] for r in items if r[key] is not None]
+            s["mean_" + key] = statistics.mean(values) if values else None
+            s[key + "_known"] = len(values)
         s["cache_fraction"] = s["cached_tokens"] / s["input_tokens"] if s["input_tokens"] else None
         for key in ["actions", "statuses", "edit_operations", "operators_created"]:
             counts = Counter()
@@ -152,7 +188,17 @@ def main():
             s[key] = dict(counts)
         summary.append(s)
         mean = f"{s['mean_score']:.1%}" if s["mean_score"] is not None else "unknown"
-        lines.append(f"{model} | {arm} | {s['passes']}/{len(items)} | {len(scores)} | {mean} | ${sum(costs):.6f} ({len(costs)} known) | {s['model_calls']} | {dict(views)}")
+        cost = f"${sum(costs):.6f}" if costs else "unknown"
+        elapsed = f"{s['mean_elapsed_seconds']:.1f}" if s["mean_elapsed_seconds"] is not None else "unknown"
+        lines.append(f"{model} | {arm} | {s['passes']}/{len(items)} | {len(scores)} | {mean} | {cost} ({len(costs)} known) | {elapsed} | {s['model_calls']} | {dict(views)}")
+    lines += ["", "Token totals (cache reads/writes are subsets of input; reasoning is a subset of output)",
+              "Model | Arm | Input | Cached input | Cache writes | Output | Reasoning | Complete usage attempts"]
+    for item in summary:
+        lines.append(f"{item['model']} | {item['arm']} | {item['input_tokens']} | {item['cached_tokens']} | {item['cache_creation_tokens']} | {item['output_tokens']} | {item['reasoning_tokens']} | {item['usage_complete_attempts']}/{item['attempts']}")
+    lines += ["", "Failures and provider-reported cost", "Model | Failed calls | Before-action rejections | Failed actions | Provider USD | Providers"]
+    for item in summary:
+        cost = f"${item['provider_reported_cost_usd']:.6f}" if item["provider_reported_cost_usd"] is not None else "unknown"
+        lines.append(f"{item['model']} | {item['tool_errors']} | {item['envelope_errors']} | {item['action_errors']} | {cost} | {', '.join(item['response_providers']) or 'not reported'}")
     contrasts = []
     pairs = [("sample_stats_flow0", "full_flow0"), ("sample_stats_flow0", "sample_flow0")]
     pairs += [(f"{view}_flow1", f"{view}_flow0") for view in ["full", "sample", "sample_stats", "adaptive"]]
@@ -173,6 +219,16 @@ def main():
                 contrasts.append({"model": model, "treatment": treatment, "control": control, "tasks": len(means),
                     "score_delta": statistics.mean(v[0] for v in means), "score_delta_ci95": interval([v[0] for v in means]),
                     "cost_delta_usd": statistics.mean(v[1] for v in means), "cost_delta_ci95": interval([v[1] for v in means])})
+    matrix_contrasts = evidence_matrix_contrasts(rows, manifest["models"])
+    contrasts.extend(matrix_contrasts)
+    if matrix_contrasts:
+        lines += ["", "Evidence matrix: descriptive matched differences (treatment minus control)",
+                  "These diagnostic task means have no significance test or confidence interval. Missing metrics are excluded independently; analysis.json records their pair counts.",
+                  "Model | Treatment | Control | Matched tasks | Score delta | Mean cost delta USD | Calls delta"]
+        for contrast in matrix_contrasts:
+            values = [f"{contrast[key]:+.6f}" if contrast[key] is not None else "unknown"
+                      for key in ["score_delta", "cost_delta_usd", "model_calls_delta"]]
+            lines.append(f"{contrast['model']} | {contrast['treatment']} | {contrast['control']} | {contrast['tasks']} | " + " | ".join(values))
     report = {"summary": summary, "contrasts": contrasts, "rows": rows, "retrievals": retrievals, "errors": errors}
     (directory / "analysis.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     (directory / "REPORT.txt").write_text("\n".join(lines) + "\n")

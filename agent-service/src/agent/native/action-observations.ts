@@ -98,14 +98,30 @@ function target(action: DataflowAction): string {
     if (action.target === "reference")
       return ` reference ${action.topic === "operators" ? action.operator_names.join(", ") : action.example}`;
     if (action.target === "graph") return " graph";
+    if (action.target === "namespace") return ` namespace${action.names ? ` ${action.names.join(", ")}` : ""}`;
+    if (action.target === "schema" || action.target === "source") return ` ${action.target} ${action.operator_id}`;
     if (action.target === "task") return ` task ${action.task_id}`;
     if (action.target === "state")
       return ` ${Array.isArray(action.operator_id) ? action.operator_id.join(", ") : action.operator_id}${action.task_id === null ? " versions" : ` at task ${action.task_id}`}`;
     return ` ${action.operator_id}`;
   }
-  if (action.type === "retrieve") return ` ${action.operator_id}`;
+  if (action.type === "retrieve")
+    return ` ${"operator_ids" in action ? action.operator_ids.join(", ") : action.operator_id}`;
   if (action.type === "execute" && action.operator_ids) return ` ${action.operator_ids.join(", ")}`;
   return "";
+}
+
+/** The retrieved view owns its column selection; do not repeat the operator's
+ * summary schema when the view already supplies one. Keep structured blocks intact. */
+function retrievedResultLines(blocks: OperatorBlock[], text = ""): string[] {
+  const hasSchema = text.startsWith("columns: ");
+  const lines = blocks.map(block => operatorBlock(hasSchema ? { ...block, columns: [] } : block));
+  if (hasSchema) {
+    const newline = text.indexOf("\n");
+    lines.push(`  - ${newline < 0 ? text : text.slice(0, newline)}`);
+    if (newline >= 0) lines.push(text.slice(newline + 1));
+  } else if (text) lines.push(text);
+  return lines;
 }
 
 export function renderActionObservations(result: DataflowActionsResult): string {
@@ -124,6 +140,17 @@ export function renderActionObservations(result: DataflowActionsResult): string 
       const output = item.output as any;
       if (item.status === "ok" && item.action.type === "inspect" && item.action.target === "reference")
         return `${title}\n${output.text}`;
+      if (item.action.type === "retrieve" && Array.isArray(output?.results)) {
+        const lines = output.results.flatMap((entry: any) =>
+          entry.status === "error"
+            ? [`- **${entry.operator_id}**: unavailable`, issueText(entry.error, "RESULT_UNAVAILABLE")]
+            : [
+                ...retrievedResultLines(entry.operator_blocks ?? [], entry.text),
+                ...(entry.superseded_in_call ? ["- note: this result was superseded later in the call."] : []),
+              ]
+        );
+        return [title, ...lines].filter(Boolean).join("\n");
+      }
       if (item.status === "error" && !(output && typeof output === "object" && Array.isArray(output.operators)))
         return [
           title,
@@ -163,6 +190,10 @@ export function renderActionObservations(result: DataflowActionsResult): string 
             }))
           : []);
       let lines: string[] = [];
+      if (item.action.type === "inspect" && item.action.target === "namespace")
+        return [title, output.text ?? "No registered Python definitions."].join("\n");
+      if (item.action.type === "inspect" && (item.action.target === "schema" || item.action.target === "source"))
+        return [title, output.text ?? "No retained metadata."].join("\n");
       if (item.action.type === "inspect" && item.action.target === "task") {
         const task = output as TaskRecord;
         const body = [
@@ -274,6 +305,8 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           );
         }
       } else if (item.action.type === "edit") {
+        for (const registration of output.registrations ?? [])
+          lines.push(`function ${registration.name} ${registration.kind}`);
         // One line per change: `operator x created (filter)`, `edge a -> x created`.
         for (const change of (output.changes ?? []) as GraphChangeReceipt[])
           lines.push(
@@ -334,19 +367,11 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           );
         if (output?.text) lines.push(output.text);
       } else {
-        lines.push(
-          ...blocks.map(block => {
-            if (item.action.type === "retrieve" && output.text?.startsWith("columns: "))
-              return operatorBlock({ ...block, columns: [] });
-            return operatorBlock(block);
-          })
-        );
-        if (output?.text) {
+        if (item.action.type === "retrieve") lines.push(...retrievedResultLines(blocks, output?.text));
+        else lines.push(...blocks.map(operatorBlock));
+        if (output?.text && item.action.type !== "retrieve") {
           const text: string = output.text;
-          if (item.action.type === "retrieve" && text.startsWith("columns: ")) {
-            const newline = text.indexOf("\n");
-            lines.push(`  - ${text.slice(0, newline)}`, text.slice(newline + 1));
-          } else if (item.action.type === "inspect")
+          if (item.action.type === "inspect")
             // A saved result: its operator block above already lists the columns.
             lines.push(text.replace(/(^|\n\n)columns: [^\n]*\n/g, "$1"));
           else lines.push(text);

@@ -16,6 +16,7 @@ Run with benchmark/Kramabench/.venv/bin/python. Records every attempt, including
 errors, and never overwrites a run. Uses the benchmark's official evaluator.
 """
 import argparse
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import json
@@ -32,10 +33,14 @@ from urllib.parse import urlsplit
 
 from campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
 from catalog import inventory
+from configuration import campaign_arms, full_result_char_limit
+from metrics import current_price_schedule, reconcile_run
 
 ROOT = Path(__file__).resolve().parents[2]
 KB = ROOT / "benchmark/Kramabench"
-MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5"}
+MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Sol": "gpt-5.6-sol",
+               "Opus48": "claude-opus-4.8", "Qwen38_27B": "qwen3.8-27b", "DeepSeek41Flash": "deepseek-v4.1-flash",
+               "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5"}
 
 
 def save(path, data):
@@ -55,9 +60,12 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--all-tasks", action="store_true", help="All original top-level KramaBench tasks")
     parser.add_argument("--direct-artifacts", action="store_true", help="Write harness scratch directly into output using symlinks")
+    parser.add_argument("--wire-dir", type=Path, help="Agent TEXERA_LLM_TRACE_DIR for exact usage and latency auditing")
     parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
     parser.add_argument("--large-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--full-result-char-limit", type=full_result_char_limit, default=100000,
+                        help="Full retrieval display cap, 128..100000 characters (historical default: 100000; service default: 5000)")
     parser.add_argument("--selection", default="Diagnostic pilot selected before runs for large tables, parsing, joins and known sampling mistakes; not a representative full-benchmark estimate.")
     parser.add_argument("--source-manifest", type=Path, help="Frozen input inventory and task-selection rationale")
     parser.add_argument("--tasks", nargs="+", default=["archeology-easy-6", "astronomy-easy-1",
@@ -68,6 +76,10 @@ def main():
     args = parser.parse_args()
     if min(args.workers, args.large_workers, args.repetitions, args.timeout) < 1:
         parser.error("Workers, repetitions and timeout must be positive")
+    arms = campaign_arms()
+    unknown = sorted(set(args.arms) - set(arms))
+    if unknown:
+        parser.error(f"Unknown arms: {', '.join(unknown)}")
     source_inventory = inventory()
     if args.all_tasks:
         args.tasks = sorted(t["task_id"] for t in source_inventory)
@@ -99,17 +111,20 @@ def main():
     import kb
     from systems import cost_utils
     pricing_overrides = install_provider_prices(cost_utils, [MODEL_TYPES[m] for m in args.models])
+    source_hash = hashlib.sha256()
+    source_paths = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-co", "--exclude-standard", "--",
+        "agent-service/src", "amber/src", "benchmark/retrieval", "bin/strict_tools.py"], text=True).splitlines()
+    source_files = []
+    for name in sorted(set(source_paths)):
+        source = ROOT / name
+        if source.is_file():
+            source_hash.update(name.encode() + b"\0" + source.read_bytes() + b"\0")
+            source_files.append({"path": name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
     os.chdir(KB)
     output.mkdir(parents=True)
+    save(output / "source-snapshot.json", {"captured_at": datetime.now(timezone.utc).isoformat(),
+         "sha256": source_hash.hexdigest(), "matches_launch_manifest": True, "files": source_files})
     tag = output.name.replace("-", "_")
-    arms = {f"{view}_flow{flow}": {"retrievalViews": ["full", "sample", "sample_stats"] if view == "adaptive" else [view],
-                                  "flowEvidence": bool(flow), "dataEvidence": view in ["sample_stats", "adaptive"]}
-            for view in ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]}
-    # Each arm's twin profiles every row exactly instead of a bounded prefix.
-    arms.update({f"{name}_fullstats": {**arm, "nativeProfileScope": "full"} for name, arm in list(arms.items())})
-    unknown = sorted(set(args.arms) - set(arms))
-    if unknown:
-        parser.error(f"Unknown arms: {', '.join(unknown)}")
     manifest = {
         "agent_revision": args.agent_revision or subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "engine_revision": args.engine_revision,
@@ -118,10 +133,15 @@ def main():
         "endpoint": args.endpoint, "task_ids": args.tasks, "repetitions": args.repetitions,
         "models": {m: MODEL_TYPES[m] for m in args.models},
         "pricing_overrides": pricing_overrides,
+        "pricing_schedules": {MODEL_TYPES[m]: current_price_schedule(MODEL_TYPES[m]) or cost_utils.price_schedule(MODEL_TYPES[m]) for m in args.models},
+        "wire_directory": str(args.wire_dir.resolve()) if args.wire_dir else None,
+        "working_tree_diff_sha256": hashlib.sha256(subprocess.check_output(
+            ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "benchmark/retrieval", "bin"])).hexdigest(),
+        "working_tree_sources_sha256": source_hash.hexdigest(),
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
         "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
-                     "fullResultCharLimit": 100000, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
+                     "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
                      "thoughtReplay": False, "enableCodeInSnapshot": False},
         "selection": args.selection,
         "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
@@ -151,6 +171,41 @@ def main():
     launch_lock = threading.Lock()
     progress = {"started_at": datetime.now(timezone.utc).isoformat(), "status": "running", "active": {}, "completed": [], "worker_errors": [], "waiting": {}}
     save(output / "progress.json", progress)
+    stop_monitor = threading.Event()
+
+    def monitor_resources():
+        """Observe the host without collecting process arguments or credentials."""
+        try:
+            import psutil
+        except ImportError:
+            psutil = None
+        while True:
+            with lock:
+                sample = {"at": datetime.now(timezone.utc).isoformat(), "active_attempts": len(progress["active"]),
+                          "load_average": list(os.getloadavg()), "logical_cpus": os.cpu_count(),
+                          "artifact_disk_free_bytes": shutil.disk_usage(output).free}
+            if psutil:
+                try:
+                    memory = psutil.virtual_memory()
+                    sample.update(memory_total_bytes=memory.total, memory_available_bytes=memory.available,
+                                  memory_percent_used=memory.percent)
+                    sample["swap_used_bytes"] = psutil.swap_memory().used
+                except (OSError, PermissionError):
+                    sample["memory_metrics_restricted"] = True
+            if sys.platform == "darwin":
+                try:
+                    pressure = subprocess.check_output(["/usr/bin/memory_pressure", "-Q"], text=True, timeout=3)
+                    line = next(line for line in pressure.splitlines() if "System-wide memory free percentage:" in line)
+                    sample["mac_memory_free_percent"] = int(line.split(":")[-1].strip().rstrip("%"))
+                except (OSError, ValueError, StopIteration, subprocess.SubprocessError):
+                    sample["mac_memory_free_percent"] = None
+            with (output / "host-resources.jsonl").open("a") as stream:
+                stream.write(json.dumps(sample) + "\n")
+            if stop_monitor.wait(15):
+                return
+
+    monitor = threading.Thread(target=monitor_resources, daemon=True)
+    monitor.start()
 
     def wait_until_ready(slot):
         """Pause launches during outages or integrity investigations; keep attempts intact."""
@@ -242,6 +297,13 @@ def main():
                     shutil.copytree(destination, archive)
                 evaluation = json.loads((archive / "evaluation.json").read_text()) if (archive / "evaluation.json").exists() else {}
                 stats = json.loads((archive / "stats.json").read_text()) if (archive / "stats.json").exists() else {}
+                if args.wire_dir:
+                    stats, metrics_audit = reconcile_run(archive, MODEL_TYPES[job["model"]],
+                        manifest["pricing_schedules"][MODEL_TYPES[job["model"]]], args.wire_dir)
+                elif manifest["pricing_schedules"][MODEL_TYPES[job["model"]]] is None:
+                    stats["cost_usd"] = None
+                    if archive.exists():
+                        save(archive / "stats.json", stats)
                 scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
                 row = {**job, "exit_code": proc.returncode, "timeout": timeout, "score": max(scores) if scores else None,
                        "cost_usd": stats.get("cost_usd"), "seconds": time.monotonic() - started}
@@ -275,6 +337,8 @@ def main():
                     (output / "PAUSE").write_text(f"Worker error requires investigation: {exc}\n")
     progress["status"] = "complete" if len(progress["completed"]) == len(jobs) else "incomplete"
     progress["finished_at"] = datetime.now(timezone.utc).isoformat()
+    stop_monitor.set()
+    monitor.join(timeout=5)
     save(output / "progress.json", progress)
     print(progress["status"], len(progress["completed"]), "/", len(jobs), flush=True)
 

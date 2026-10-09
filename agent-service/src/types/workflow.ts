@@ -73,6 +73,10 @@ export interface OperatorPredicate {
    */
   readonly nativeOp?: {
     type: string;
+    /** Authored function name; engine compilation may still use Process. */
+    registeredName?: string;
+    /** Operator documentation is metadata, excluded from computational revisions. */
+    doc?: string;
     properties: Record<string, unknown>;
     inputs: string[];
     /** Public graph ports in logical input order. */
@@ -132,6 +136,8 @@ export interface WorkflowSettings {
 }
 
 export interface WorkflowContent {
+  /** Session-wide authored definitions, persisted independently of graph nodes. */
+  readonly nativeNamespace?: import("../agent/native/registered").RegisteredNamespace;
   readonly operators: OperatorPredicate[];
   readonly operatorPositions: { [key: string]: Point };
   readonly links: OperatorLink[];

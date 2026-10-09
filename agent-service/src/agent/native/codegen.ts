@@ -25,8 +25,9 @@
  * counters that flow evidence reports. The agent never sees this code; it sees
  * the expression it wrote.
  *
- * The same Python is used, out of process and without executing user code, to
- * parse programs and to check function syntax/signatures before an edit lands.
+ * The same Python is used out of process for parsing and validation. Legacy
+ * validation checks syntax only; registered definitions initialize a bounded
+ * candidate namespace to check actual signatures before an edit lands.
  */
 
 import { createHash } from "node:crypto";
@@ -42,7 +43,10 @@ export interface CompiledNativeOp {
 }
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-const runtimeSource = readFileSync(runtimePath, "utf8");
+const runtimeSource =
+  readFileSync(runtimePath, "utf8") +
+  "\n" +
+  readFileSync(fileURLToPath(new URL("./python/registered.py", import.meta.url)), "utf8");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 /** The interpreter used for parsing and validation (the engine's UDF Python). */
@@ -61,12 +65,12 @@ export function nativeRevision(view: NativeOpView): string {
 }
 
 function runtimeSpec(view: NativeOpView, operatorId: string) {
-  const { source: _source, functions: _functions, ...rest } = view;
+  const { source: _source, functions: _functions, doc: _doc, ...rest } = view;
   return { ...rest, id: operatorId, revision: view.revision ?? nativeRevision(view) };
 }
 
-/** Run the runtime script as a bounded subprocess with a JSON request on stdin.
- * Nothing the model wrote is executed: parsing and validation only. */
+/** Run parsing/validation as a bounded subprocess with JSON on stdin.
+ * Registered validation initializes definition cells, never graph operators. */
 export async function runNativePython(request: unknown, timeoutMs = 10_000): Promise<unknown> {
   const child = Bun.spawn([nativePython(), runtimePath], {
     stdin: new Blob([JSON.stringify(request)]),

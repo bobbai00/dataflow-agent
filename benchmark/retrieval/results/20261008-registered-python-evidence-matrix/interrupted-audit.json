@@ -1,0 +1,906 @@
+{
+  "rows": [
+    {
+      "agent": "agent-kjeh5a-49",
+      "arm": "evidence_data1_flow1",
+      "stopped_by_user": false,
+      "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/biomedical-hard-3",
+      "wire_requests": 5,
+      "responses_with_usage": 4,
+      "gateway_events": {
+        "response_count": 4,
+        "response_seconds": 30.695,
+        "timeout_count": 1,
+        "timeout_seconds": 180.001
+      },
+      "request_events": [
+        {
+          "request": "000001",
+          "status": "response",
+          "duration_seconds": 11.542,
+          "started_at": "2026-10-08T23:11:32.168Z",
+          "finished_at": "2026-10-08T23:11:43.710Z",
+          "request_bytes": 28611,
+          "input_tokens": 6766,
+          "output_tokens": 192
+        },
+        {
+          "request": "000002",
+          "status": "timeout",
+          "duration_seconds": 180.001,
+          "started_at": "2026-10-08T23:11:47.781Z",
+          "finished_at": "2026-10-08T23:14:47.782Z",
+          "request_bytes": 39868
+        },
+        {
+          "request": "000003",
+          "status": "response",
+          "duration_seconds": 9.453,
+          "started_at": "2026-10-08T23:14:50.802Z",
+          "finished_at": "2026-10-08T23:15:00.255Z",
+          "request_bytes": 39868,
+          "input_tokens": 11068,
+          "output_tokens": 348
+        },
+        {
+          "request": "000004",
+          "status": "response",
+          "duration_seconds": 6.408,
+          "started_at": "2026-10-08T23:15:05.281Z",
+          "finished_at": "2026-10-08T23:15:11.689Z",
+          "request_bytes": 50201,
+          "input_tokens": 14852,
+          "output_tokens": 236
+        },
+        {
+          "request": "000005",
+          "status": "response",
+          "duration_seconds": 3.292,
+          "started_at": "2026-10-08T23:15:17.481Z",
+          "finished_at": "2026-10-08T23:15:20.773Z",
+          "request_bytes": 53547,
+          "input_tokens": 15839,
+          "output_tokens": 126
+        }
+      ],
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "timeout_retry_identical": [
+        true
+      ],
+      "tool_schema_changes": 0,
+      "known_usage": {
+        "input_tokens": 48525,
+        "output_tokens": 902,
+        "total_tokens": 49427,
+        "cached_tokens": 36864,
+        "cache_creation_tokens": 0,
+        "reasoning_tokens": 279
+      },
+      "known_usage_cache_read_fraction": 0.7596908809891808,
+      "whole_attempt_usage_complete": false,
+      "cost_usd": null,
+      "known_usage_cost_usd": 0.004801883999999999,
+      "provider_reported_cost_usd": null,
+      "known_provider_reported_cost_usd": 0.001070243,
+      "response_providers": {
+        "Wafer": 4
+      },
+      "actions": {
+        "inspect_ok": 1,
+        "edit_ok": 3,
+        "execute_ok": 3,
+        "retrieve_ok": 3,
+        "answer_ok": 1
+      },
+      "execution_runs": [
+        {
+          "targets": [
+            "f1"
+          ],
+          "executionId": "148",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.272,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "f7"
+          ],
+          "executionId": "150",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.270792,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "meta"
+          ],
+          "executionId": "165",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.225,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "apm"
+          ],
+          "executionId": "166",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.322791,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "lowest",
+            "ranked",
+            "joined",
+            "apm2",
+            "apm",
+            "meta2",
+            "meta"
+          ],
+          "executionId": "167",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 3.442875,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "answer_actions": [
+        "The patient with the lowest APP-Z score is S019 (APP_Z_score = -2.15300777), whose age is 60.\n\n**Final Answer: 60**"
+      ],
+      "failure_actions": [],
+      "last_actions": [
+        {
+          "step": 2,
+          "type": "execute",
+          "status": "ok"
+        },
+        {
+          "step": 2,
+          "type": "retrieve",
+          "status": "ok"
+        },
+        {
+          "step": 3,
+          "type": "edit",
+          "status": "ok"
+        },
+        {
+          "step": 3,
+          "type": "execute",
+          "status": "ok"
+        },
+        {
+          "step": 3,
+          "type": "retrieve",
+          "status": "ok"
+        },
+        {
+          "step": 4,
+          "type": "answer",
+          "status": "ok"
+        }
+      ],
+      "retrieval_characters": 17689,
+      "max_retrieval_characters": 4795,
+      "retained_results": [
+        {
+          "id": "f1",
+          "state": "Completed",
+          "rows": 5,
+          "columns": 3,
+          "error": ""
+        },
+        {
+          "id": "f7",
+          "state": "Completed",
+          "rows": 13,
+          "columns": 3,
+          "error": ""
+        },
+        {
+          "id": "meta",
+          "state": "CompletedFromCache",
+          "rows": 153,
+          "columns": 179,
+          "error": ""
+        },
+        {
+          "id": "apm",
+          "state": "CompletedFromCache",
+          "rows": 95,
+          "columns": 34,
+          "error": ""
+        },
+        {
+          "id": "apm2",
+          "state": "Completed",
+          "rows": 95,
+          "columns": 2,
+          "error": ""
+        },
+        {
+          "id": "meta2",
+          "state": "Completed",
+          "rows": 153,
+          "columns": 2,
+          "error": ""
+        },
+        {
+          "id": "joined",
+          "state": "Completed",
+          "rows": 95,
+          "columns": 3,
+          "error": ""
+        },
+        {
+          "id": "ranked",
+          "state": "Completed",
+          "rows": 95,
+          "columns": 3,
+          "error": ""
+        },
+        {
+          "id": "lowest",
+          "state": "Completed",
+          "rows": 1,
+          "columns": 3,
+          "error": ""
+        }
+      ],
+      "tool_errors": {
+        "tool_errors": 0,
+        "envelope_errors": 0,
+        "action_errors": 0
+      },
+      "envelope_error_details": [],
+      "attempted_answers": [
+        {
+          "response": "000005-response.json",
+          "content": "The patient with the lowest APP-Z score is S019 (APP_Z_score = -2.15300777), whose age is 60.\n\n**Final Answer: 60**",
+          "action_count": 1,
+          "accepted": true
+        }
+      ]
+    },
+    {
+      "agent": "agent-kjeh5a-55",
+      "arm": "evidence_data0_flow1",
+      "stopped_by_user": true,
+      "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3",
+      "wire_requests": 11,
+      "responses_with_usage": 8,
+      "gateway_events": {
+        "response_count": 8,
+        "response_seconds": 67.155,
+        "timeout_count": 2,
+        "timeout_seconds": 360.01199999999994,
+        "cancelled_count": 1,
+        "cancelled_seconds": 71.67
+      },
+      "request_events": [
+        {
+          "request": "000001",
+          "status": "response",
+          "duration_seconds": 7.035,
+          "started_at": "2026-10-08T23:12:46.939Z",
+          "finished_at": "2026-10-08T23:12:53.974Z",
+          "request_bytes": 27143,
+          "input_tokens": 6447,
+          "output_tokens": 163
+        },
+        {
+          "request": "000002",
+          "status": "response",
+          "duration_seconds": 4.968,
+          "started_at": "2026-10-08T23:12:58.014Z",
+          "finished_at": "2026-10-08T23:13:02.982Z",
+          "request_bytes": 31496,
+          "input_tokens": 7956,
+          "output_tokens": 218
+        },
+        {
+          "request": "000003",
+          "status": "response",
+          "duration_seconds": 4.904,
+          "started_at": "2026-10-08T23:13:05.469Z",
+          "finished_at": "2026-10-08T23:13:10.373Z",
+          "request_bytes": 35047,
+          "input_tokens": 9070,
+          "output_tokens": 264
+        },
+        {
+          "request": "000004",
+          "status": "response",
+          "duration_seconds": 3.847,
+          "started_at": "2026-10-08T23:13:12.538Z",
+          "finished_at": "2026-10-08T23:13:16.385Z",
+          "request_bytes": 36710,
+          "input_tokens": 9538,
+          "output_tokens": 179
+        },
+        {
+          "request": "000005",
+          "status": "timeout",
+          "duration_seconds": 180.009,
+          "started_at": "2026-10-08T23:13:18.502Z",
+          "finished_at": "2026-10-08T23:16:18.511Z",
+          "request_bytes": 42440
+        },
+        {
+          "request": "000006",
+          "status": "response",
+          "duration_seconds": 15.277,
+          "started_at": "2026-10-08T23:16:21.533Z",
+          "finished_at": "2026-10-08T23:16:36.810Z",
+          "request_bytes": 42440,
+          "input_tokens": 11471,
+          "output_tokens": 239
+        },
+        {
+          "request": "000007",
+          "status": "response",
+          "duration_seconds": 7.368,
+          "started_at": "2026-10-08T23:16:38.884Z",
+          "finished_at": "2026-10-08T23:16:46.252Z",
+          "request_bytes": 43842,
+          "input_tokens": 11881,
+          "output_tokens": 241
+        },
+        {
+          "request": "000008",
+          "status": "timeout",
+          "duration_seconds": 180.003,
+          "started_at": "2026-10-08T23:16:48.437Z",
+          "finished_at": "2026-10-08T23:19:48.440Z",
+          "request_bytes": 47260
+        },
+        {
+          "request": "000009",
+          "status": "response",
+          "duration_seconds": 13.648,
+          "started_at": "2026-10-08T23:19:54.463Z",
+          "finished_at": "2026-10-08T23:20:08.111Z",
+          "request_bytes": 47260,
+          "input_tokens": 13055,
+          "output_tokens": 250
+        },
+        {
+          "request": "000010",
+          "status": "response",
+          "duration_seconds": 10.108,
+          "started_at": "2026-10-08T23:20:12.955Z",
+          "finished_at": "2026-10-08T23:20:23.063Z",
+          "request_bytes": 51226,
+          "input_tokens": 14257,
+          "output_tokens": 162
+        },
+        {
+          "request": "000011",
+          "status": "cancelled",
+          "duration_seconds": 71.67,
+          "started_at": "2026-10-08T23:20:23.103Z",
+          "finished_at": "2026-10-08T23:21:34.773Z",
+          "request_bytes": 51942
+        }
+      ],
+      "prefix_checks": 10,
+      "prefix_failures": 0,
+      "timeout_retry_identical": [
+        true,
+        true
+      ],
+      "tool_schema_changes": 0,
+      "known_usage": {
+        "input_tokens": 83675,
+        "output_tokens": 1716,
+        "total_tokens": 85391,
+        "cached_tokens": 71424,
+        "cache_creation_tokens": 0,
+        "reasoning_tokens": 602
+      },
+      "known_usage_cache_read_fraction": 0.8535882880191216,
+      "whole_attempt_usage_complete": false,
+      "cost_usd": null,
+      "known_usage_cost_usd": 0.0061630439999999995,
+      "provider_reported_cost_usd": null,
+      "known_provider_reported_cost_usd": 0.002042373,
+      "response_providers": {
+        "Wafer": 8
+      },
+      "actions": {
+        "edit_ok": 7,
+        "execute_ok": 7,
+        "retrieve_ok": 7
+      },
+      "execution_runs": [
+        {
+          "targets": [
+            "f1"
+          ],
+          "executionId": "160",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.261916,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "f7"
+          ],
+          "executionId": "161",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.467125,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "meta"
+          ],
+          "executionId": "162",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.232625,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "cols",
+            "meta"
+          ],
+          "executionId": "163",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.747,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "allcols",
+            "meta"
+          ],
+          "executionId": "164",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.653959,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "readme7"
+          ],
+          "executionId": "177",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.329959,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "apm"
+          ],
+          "executionId": "179",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.278,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "joined",
+            "lowest",
+            "apm_sorted",
+            "apm",
+            "meta"
+          ],
+          "executionId": "182",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.263917,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "answer_actions": [],
+      "failure_actions": [],
+      "last_actions": [
+        {
+          "step": 6,
+          "type": "edit",
+          "status": "ok"
+        },
+        {
+          "step": 6,
+          "type": "execute",
+          "status": "ok"
+        },
+        {
+          "step": 6,
+          "type": "retrieve",
+          "status": "ok"
+        },
+        {
+          "step": 7,
+          "type": "edit",
+          "status": "ok"
+        },
+        {
+          "step": 7,
+          "type": "execute",
+          "status": "ok"
+        },
+        {
+          "step": 7,
+          "type": "retrieve",
+          "status": "ok"
+        }
+      ],
+      "retrieval_characters": 11851,
+      "max_retrieval_characters": 4096,
+      "retained_results": [
+        {
+          "id": "f1",
+          "state": "Completed",
+          "rows": 5,
+          "columns": 3,
+          "error": ""
+        },
+        {
+          "id": "f7",
+          "state": "Completed",
+          "rows": 13,
+          "columns": 3,
+          "error": ""
+        },
+        {
+          "id": "meta",
+          "state": "CompletedFromCache",
+          "rows": 153,
+          "columns": 179,
+          "error": ""
+        },
+        {
+          "id": "allcols",
+          "state": "Completed",
+          "rows": 179,
+          "columns": 1,
+          "error": ""
+        },
+        {
+          "id": "readme7",
+          "state": "Completed",
+          "rows": 2,
+          "columns": 2,
+          "error": ""
+        },
+        {
+          "id": "apm",
+          "state": "CompletedFromCache",
+          "rows": 95,
+          "columns": 34,
+          "error": ""
+        },
+        {
+          "id": "apm_sorted",
+          "state": "Completed",
+          "rows": 95,
+          "columns": 34,
+          "error": ""
+        },
+        {
+          "id": "lowest",
+          "state": "Completed",
+          "rows": 1,
+          "columns": 34,
+          "error": ""
+        },
+        {
+          "id": "joined",
+          "state": "Completed",
+          "rows": 1,
+          "columns": 212,
+          "error": ""
+        }
+      ],
+      "tool_errors": {
+        "tool_errors": 1,
+        "envelope_errors": 1,
+        "action_errors": 0
+      },
+      "envelope_error_details": [
+        {
+          "step": 8,
+          "error": "An answer must be the only action. No actions ran."
+        }
+      ],
+      "attempted_answers": [
+        {
+          "response": "000010-response.json",
+          "content": "The patient with the lowest APP-Z score is S019 (APP_Z_score = -2.153), whose age is 60.\n\n**Final Answer: 60**",
+          "action_count": 2,
+          "accepted": false
+        }
+      ]
+    },
+    {
+      "agent": "agent-kjeh5a-61",
+      "arm": "evidence_data0_flow0",
+      "stopped_by_user": true,
+      "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/biomedical-hard-3",
+      "wire_requests": 4,
+      "responses_with_usage": 2,
+      "gateway_events": {
+        "response_count": 2,
+        "response_seconds": 26.805,
+        "timeout_count": 1,
+        "timeout_seconds": 180.002,
+        "cancelled_count": 1,
+        "cancelled_seconds": 96.941
+      },
+      "request_events": [
+        {
+          "request": "000001",
+          "status": "response",
+          "duration_seconds": 15.85,
+          "started_at": "2026-10-08T23:16:19.628Z",
+          "finished_at": "2026-10-08T23:16:35.478Z",
+          "request_bytes": 26448,
+          "input_tokens": 6335,
+          "output_tokens": 172
+        },
+        {
+          "request": "000002",
+          "status": "response",
+          "duration_seconds": 10.955,
+          "started_at": "2026-10-08T23:16:39.515Z",
+          "finished_at": "2026-10-08T23:16:50.470Z",
+          "request_bytes": 37506,
+          "input_tokens": 10749,
+          "output_tokens": 319
+        },
+        {
+          "request": "000003",
+          "status": "timeout",
+          "duration_seconds": 180.002,
+          "started_at": "2026-10-08T23:16:54.823Z",
+          "finished_at": "2026-10-08T23:19:54.825Z",
+          "request_bytes": 39005
+        },
+        {
+          "request": "000004",
+          "status": "cancelled",
+          "duration_seconds": 96.941,
+          "started_at": "2026-10-08T23:19:57.832Z",
+          "finished_at": "2026-10-08T23:21:34.773Z",
+          "request_bytes": 39005
+        }
+      ],
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "timeout_retry_identical": [
+        true
+      ],
+      "tool_schema_changes": 0,
+      "known_usage": {
+        "input_tokens": 17084,
+        "output_tokens": 491,
+        "total_tokens": 17575,
+        "cached_tokens": 5888,
+        "cache_creation_tokens": 0,
+        "reasoning_tokens": 154
+      },
+      "known_usage_cache_read_fraction": 0.34464996487941935,
+      "whole_attempt_usage_complete": false,
+      "cost_usd": null,
+      "known_usage_cost_usd": 0.0039833279999999995,
+      "provider_reported_cost_usd": null,
+      "known_provider_reported_cost_usd": 0.00044971599999999996,
+      "response_providers": {
+        "Wafer": 2
+      },
+      "actions": {
+        "edit_ok": 2,
+        "execute_ok": 2,
+        "retrieve_ok": 1,
+        "retrieve_error": 1
+      },
+      "execution_runs": [
+        {
+          "targets": [
+            "mmc1"
+          ],
+          "executionId": "176",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.378167,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "mmc7"
+          ],
+          "executionId": "178",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.235875,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "mmc1"
+          ],
+          "executionId": "180",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.223916,
+            "runtimeStartAttempted": true
+          }
+        },
+        {
+          "targets": [
+            "mmc7"
+          ],
+          "executionId": "181",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 0.263042,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "answer_actions": [],
+      "failure_actions": [
+        {
+          "step": 2,
+          "action": {
+            "type": "retrieve",
+            "operator_ids": [
+              "mmc1",
+              "mmc7"
+            ],
+            "view": "full",
+            "columns": [
+              "sheet"
+            ]
+          },
+          "output": "{'results': [{'operator_id': 'mmc1', 'status': 'error', 'error': 'UNKNOWN_COLUMN: `mmc1` has no column \"sheet\". Its columns: idx, Proteomics_Participant_ID, Case_excluded, Proteomics_TMT_batch, Proteomics_TMT_plex, Proteomics_TMT_channel, Proteomics_Parent_Sample_IDs, Proteomics_Aliquot_ID, Proteomics_Tumor_Normal, Proteomics_OCT, Country, Histologic_Grade_FIGO, Myometrial_invasion_Specify, Histologic_type, Treatment_naive, Tumor_purity, \u2026 +163 more.'}, {'operator_id': 'mmc7', 'status': 'error', 'error': 'UNKNOWN_COLUMN: `mmc7` has no column \"sheet\". Its columns: Sheet, Description.'}]}"
+        }
+      ],
+      "last_actions": [
+        {
+          "step": 1,
+          "type": "edit",
+          "status": "ok"
+        },
+        {
+          "step": 1,
+          "type": "execute",
+          "status": "ok"
+        },
+        {
+          "step": 1,
+          "type": "retrieve",
+          "status": "ok"
+        },
+        {
+          "step": 2,
+          "type": "edit",
+          "status": "ok"
+        },
+        {
+          "step": 2,
+          "type": "execute",
+          "status": "ok"
+        },
+        {
+          "step": 2,
+          "type": "retrieve",
+          "status": "error"
+        }
+      ],
+      "retrieval_characters": 8668,
+      "max_retrieval_characters": 4754,
+      "retained_results": [
+        {
+          "id": "mmc1",
+          "state": "Completed",
+          "rows": 153,
+          "columns": 179,
+          "error": ""
+        },
+        {
+          "id": "mmc7",
+          "state": "Completed",
+          "rows": 2,
+          "columns": 2,
+          "error": ""
+        }
+      ],
+      "tool_errors": {
+        "tool_errors": 1,
+        "envelope_errors": 0,
+        "action_errors": 1
+      },
+      "envelope_error_details": [
+        {
+          "step": 2,
+          "error": "Action 3 (retrieve) failed: {\"results\":[{\"operator_id\":\"mmc1\",\"status\":\"error\",\"error\":\"UNKNOWN_COLUMN: `mmc1` has no column \\\"sheet\\\". Its columns: idx, Proteomics_Participant_ID, Case_excluded, Proteomics_TMT_batch, Proteomics_TMT_plex, Proteomics_TMT_channel, Proteomics_Parent_Sample_IDs, Proteomics_Aliquot_ID, Proteomics_Tumor_Normal, Proteomics_OCT, Country, Histologic_Grade_FIGO, Myometrial_invasion_Specify, Histologic_type, Treatment_naive, Tumor_purity, \u2026 +163 more.\"},{\"operator_id\":\"mmc7\",\"status\":\"error\",\"error\":\"UNKNOWN_COLUMN: `mmc7` has no column \\\"sheet\\\". Its columns: Sheet, Description.\"}]}"
+        }
+      ],
+      "attempted_answers": []
+    }
+  ],
+  "interpretation": "Two attempts ended on explicit user cancellation, not answer accuracy failures. Known token/cost subtotals exclude requests without provider responses. Gateway timeout does not establish provider cancellation or billing. No artifacts were rewritten and no API calls were made."
+}

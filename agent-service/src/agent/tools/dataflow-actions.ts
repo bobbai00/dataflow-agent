@@ -32,6 +32,9 @@ export type DataflowAction =
   | { type: "inspect"; target: "reference"; topic: "example"; example: "single" | "statistics" | "history" }
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "graph"; operator_ids: string[] }
+  | { type: "inspect"; target: "namespace"; names?: string[]; include_implementation?: boolean }
+  | { type: "inspect"; target: "schema"; operator_id: string; offset?: number; limit?: number }
+  | { type: "inspect"; target: "source"; operator_id: string; offset?: number; limit?: number }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
   | { type: "inspect"; target: "task"; task_id: number }
   | {
@@ -51,9 +54,10 @@ export type DataflowAction =
       view: RetrievalView | null;
     }
   | { type: "fork"; task_id: number; operator_id: string; new_operator_id: string }
-  | { type: "edit"; changes: string }
+  | { type: "edit"; python?: string; changes: string }
   | { type: "execute"; operator_ids?: string[] }
   | { type: "retrieve"; operator_id: string; view: RetrievalView; columns?: string[] }
+  | { type: "retrieve"; operator_ids: string[]; view: RetrievalView; columns?: string[] }
   | { type: "answer"; content: string; operator_ids?: string[] }
   | { type: "answer"; from: string };
 
@@ -69,6 +73,8 @@ export interface ActionOutcome {
 
 export interface DataflowActionsResult {
   kind: "dataflow-actions";
+  /** Omitted only for historical expression-mode receipts. */
+  protocol?: "registered-python-v1";
   status: "pending" | "completed" | "error";
   actions: Array<{
     index: number;
@@ -88,7 +94,10 @@ export interface DataflowActionsResult {
   references?: TaskReference[];
 }
 
-const text = { type: "string", minLength: 1, pattern: "\\S" };
+// JSON Schema patterns normally search substrings; some provider decoders use
+// full-match semantics. Spell out the complete nonblank-string language so
+// both interpretations allow ordinary multiword and multiline text.
+const text = { type: "string", minLength: 1, pattern: "^[\\s\\S]*\\S[\\s\\S]*$" };
 const object = <T extends Record<string, unknown>>(properties: T) => ({
   type: "object",
   additionalProperties: false,
@@ -318,7 +327,7 @@ export function prepareDataflowActions(
     result.error = validationMessage(input, stateHistory);
     return result;
   }
-  const request = input as DataflowActionsInput;
+  const request = input as unknown as DataflowActionsInput;
   if (
     request.actions.some(
       a =>
@@ -445,6 +454,196 @@ export function createDataflowTool(
   });
 }
 
+/** Active registered-Python protocol. The schema above is retained for archived
+ * expression-mode sessions and their replay tests, never exposed by native mode. */
+export const REGISTERED_DATAFLOW_ACTIONS_SCHEMA = object({
+  reasoning: { ...text, description: "One brief sentence stating the next objective." },
+  actions: {
+    type: "array",
+    minItems: 1,
+    maxItems: 32,
+    description: "Actions run in order; decide on returned results in the next call.",
+    items: {
+      anyOf: [
+        ...(["schema", "source"] as const).flatMap(target => {
+          const description =
+            target === "schema"
+              ? "List exact column names and types from a current completed result, independently of displayed samples. Default: first 200 columns; follow next_offset for more. Never executes."
+              : "Discover retained scan source paths and workbook sheet names, with each sheet's first raw preview row. Use scan(preview=1), execute, then this inspection in one call. Raw rows are layout hints, not parsed schemas. Never opens files or executes.";
+          return [
+            action("inspect", description, { target: { type: "string", const: target }, operator_id: text }),
+            action("inspect", description + " Read a zero-based page; limit is 1..200.", {
+              target: { type: "string", const: target },
+              operator_id: text,
+              offset: { type: "integer", minimum: 0 },
+              limit: { type: "integer", minimum: 1, maximum: 200 },
+            }),
+          ];
+        }),
+        action("inspect", "List current operator IDs, ordered inputs, and result status. Never executes.", {
+          target: { type: "string", const: "graph" },
+        }),
+        action(
+          "inspect",
+          "Inspect the selected current graph nodes and their direct input references. Never executes.",
+          {
+            target: { type: "string", const: "graph" },
+            operator_ids: { type: "array", items: text, minItems: 1 },
+          }
+        ),
+        action(
+          "inspect",
+          "Read an instance's definition, current function signature, consumers and result status. Include authored Python source when requested.",
+          {
+            target: { type: "string", const: "operator" },
+            operator_id: text,
+            include_implementation: { type: "boolean" },
+          }
+        ),
+        action(
+          "inspect",
+          "List the shared registered Python definitions, including functions not used by a graph node. Reads saved metadata, never executes Python.",
+          {
+            target: { type: "string", const: "namespace" },
+          }
+        ),
+        action(
+          "inspect",
+          "Read selected Python declarations and optionally their authored source. Execution-time variables are not shared or inspected.",
+          {
+            target: { type: "string", const: "namespace" },
+            names: { type: "array", items: text, minItems: 1 },
+            include_implementation: { type: "boolean" },
+          }
+        ),
+        action(
+          "inspect",
+          "Read detailed built-in operator contracts, defaults and accepted settings. Never executes or retrieves data.",
+          {
+            target: { type: "string", const: "reference" },
+            topic: { type: "string", const: "operators" },
+            operator_names: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: NATIVE_OPERATOR_NAMES.filter(name => !["map", "process"].includes(name)),
+              },
+              minItems: 1,
+            },
+          }
+        ),
+        action(
+          "edit",
+          "Atomically register Python definitions and edit the graph. Neither field runs graph operators. Use an empty string for an unused field.",
+          {
+            python: {
+              type: "string",
+              description:
+                "Cumulative imports, helpers and synchronous function definitions. Public functions become operator types.",
+            },
+            changes: {
+              type: "string",
+              description:
+                "One statement per operator: set id: type(input1, input2, setting=value), or delete id. A set replaces the complete definition. Positional inputs are graph IDs; keywords are settings. Forward references resolve against the final graph.",
+            },
+          }
+        ),
+        action("execute", "Compute the whole graph, reusing current cached results. Retrieve results separately."),
+        action(
+          "execute",
+          "Compute selected operators and ancestors, reusing current results. Other branches do not run.",
+          {
+            operator_ids: { type: "array", items: text, minItems: 1 },
+          }
+        ),
+        action(
+          "retrieve",
+          "Read current results in request order; missing or stale targets have individual errors. Each result has its own budget. Never executes.",
+          {
+            operator_ids: { type: "array", items: text, minItems: 1 },
+            view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
+          }
+        ),
+        action(
+          "retrieve",
+          "Read selected columns of current results. The view and column selection apply to every target. Never executes.",
+          {
+            operator_ids: { type: "array", items: text, minItems: 1 },
+            view: { type: "string", enum: [...RETRIEVAL_VIEWS] },
+            columns: { type: "array", items: text, minItems: 1 },
+          }
+        ),
+        action(
+          "answer",
+          "Return the final response and finish the turn. Must be the sole action; base the response on results already checked.",
+          { content: text }
+        ),
+      ],
+    },
+  },
+});
+
+const registeredValidator = ajv.compile(REGISTERED_DATAFLOW_ACTIONS_SCHEMA);
+
+export function prepareRegisteredDataflowActions(
+  input: unknown,
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
+  _stateHistory = false
+): DataflowActionsResult {
+  const result: DataflowActionsResult = {
+    kind: "dataflow-actions",
+    protocol: "registered-python-v1",
+    status: "pending",
+    actions: [],
+    operators: [],
+    observe: [],
+    observationErrors: [],
+  };
+  const reject = (message: string) => {
+    result.status = "error";
+    result.error = `${message} No actions ran.`;
+    return result;
+  };
+  if (!registeredValidator(input))
+    return reject(`Invalid registered dataflow arguments: ${ajv.errorsText(registeredValidator.errors?.slice(0, 1))}.`);
+  const request = input as unknown as DataflowActionsInput;
+  for (const action of request.actions) {
+    if (action.type === "edit" && !action.python?.trim() && !action.changes.trim())
+      return reject("An edit needs nonempty python or changes.");
+    const selected =
+      "operator_ids" in action
+        ? action.operator_ids
+        : action.type === "inspect" && action.target === "namespace"
+          ? action.names
+          : action.type === "inspect" && action.target === "reference" && action.topic === "operators"
+            ? action.operator_names
+            : undefined;
+    if (selected && new Set(selected).size !== selected.length) return reject("Selected names must be unique.");
+    if (action.type === "retrieve" && !views.includes(action.view))
+      return reject(`Retrieve view ${JSON.stringify(action.view)} is unavailable. Use ${views.join(", ")}.`);
+    if (action.type === "answer" && request.actions.length !== 1) return reject("An answer must be the only action.");
+  }
+  result.actions = structuredClone(request.actions).map((action, i) => ({ index: i + 1, action, status: "pending" }));
+  return result;
+}
+
+export function createRegisteredDataflowTool(
+  views: readonly RetrievalView[] = availableRetrievalViews(),
+  stateHistory = false,
+  _multiTask = stateHistory
+) {
+  const schema = structuredClone(REGISTERED_DATAFLOW_ACTIONS_SCHEMA);
+  for (const entry of schema.properties.actions.items.anyOf)
+    if (entry.properties.type.const === "retrieve") (entry.properties as any).view.enum = [...views];
+  return tool({
+    description:
+      "Work with a Dataflow through ordered inspect, edit, execute, retrieve and answer actions. Python definitions share a namespace; each operator invocation is isolated and exchanges tables only through graph edges. Edits commit atomically and never run the graph. Retrieve accepts multiple operator_ids and never executes. Earlier committed edits survive later failures. After execution failure, later requested executions and reads can continue; edits are skipped, and a skipped edit also blocks subsequent executions. Answer content must be the sole action.",
+    strict: true,
+    inputSchema: jsonSchema<DataflowActionsInput>(schema as any),
+    execute: async input => prepareRegisteredDataflowActions(input, views, stateHistory),
+  });
+}
+
 export function asDataflowActionsResult(output: unknown): DataflowActionsResult | undefined {
   if (!output || typeof output !== "object") return undefined;
   const r = output as DataflowActionsResult;
@@ -457,10 +656,17 @@ export async function runDataflowActions(
 ): Promise<void> {
   if (result.status !== "pending") return;
   let allowReads = false;
+  let allowExecution = false;
   for (const item of result.actions) {
-    if (result.error && !(allowReads && (item.action.type === "inspect" || item.action.type === "retrieve"))) {
+    const canContinue =
+      (allowReads && (item.action.type === "inspect" || item.action.type === "retrieve")) ||
+      (allowExecution && item.action.type === "execute");
+    if (result.error && !canContinue) {
       item.status = "skipped";
       item.output = "Not run because an earlier action failed.";
+      // A later execution may rely on this planned mutation. Never run it
+      // against the old graph after silently skipping the requested edit.
+      if (item.action.type === "edit" || item.action.type === "fork") allowExecution = false;
       continue;
     }
     try {
@@ -476,7 +682,10 @@ export async function runDataflowActions(
       item.output = error instanceof Error ? error.message : String(error);
       result.error ??= `Action ${item.index} (${item.action.type}) failed: ${item.output}`;
     }
-    if (item.action.type === "execute" && item.status === "error") allowReads = true;
+    if (item.action.type === "execute" && item.status === "error") {
+      allowReads = true;
+      allowExecution = result.protocol === "registered-python-v1";
+    }
   }
   result.status = result.error ? "error" : "completed";
 }

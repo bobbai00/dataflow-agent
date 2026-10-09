@@ -17,7 +17,7 @@
  * under the License.
  */
 import { expect, test } from "bun:test";
-import { TexeraAgent } from "./texera-agent";
+import { createLegacyNativeAgent } from "./test-support/legacy-native-agent";
 import { AgentMode, ContextMode } from "../types/agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { assembleContext } from "./util/context-utils";
@@ -44,7 +44,7 @@ function agentWith(turns: DataflowAction[][][]) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   const outcomes: DataflowActionsResult[] = [];
   let turn = -1;
-  const agent = new TexeraAgent({
+  const agent = createLegacyNativeAgent({
     agentId: "ledger-test",
     modelType: "test",
     contextAssembler: () => [],
@@ -202,9 +202,7 @@ test("answering writes the ledger, reuse shows provenance, limited and subset in
 
   await s.agent.sendMessage("Task 4");
   const edit4 = receiptText(s.outcomes[6]);
-  expect(edit4).toContain(
-    "Restored score's task-2 definition in place; its inputs are today's (unchanged since then)"
-  );
+  expect(edit4).toContain("Restored score's task-2 definition in place; its inputs are today's (unchanged since then)");
   expect(edit4).toContain("Forked score from task 3 as score_t3 with its task-3 inputs (");
   expect(edit4).toContain("joined → score_t3__joined");
   const score = s.agent.getWorkflowState().getOperator("score")!;
@@ -227,7 +225,9 @@ test("an empty result gets a block in the execute receipt without the ledger, fl
   ]);
   s.agent.updateSettings({ stateHistory: false, stateLedger: false, flowEvidence: false, nativeChecks: false });
   await s.agent.sendMessage("Task 1");
-  expect(receiptText(s.outcomes[0])).toMatch(/\*\*empty_units\*\* \(scan, executed\)\n  - result: 0 rows × 2 columns[\s\S]*- note: empty table\./);
+  expect(receiptText(s.outcomes[0])).toMatch(
+    /\*\*empty_units\*\* \(scan, executed\)\n  - result: 0 rows × 2 columns[\s\S]*- note: empty table\./
+  );
 });
 
 test("ledger text is stable: the same receipt renders the same bytes on replay", async () => {
@@ -271,8 +271,7 @@ test("loaded state numbers tasks after it, marks unchanged tables as loaded, and
       [
         {
           type: "edit",
-          changes:
-            'scored = map(units, lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")',
+          changes: 'scored = map(units, lambda row: {**row, "score": row["k"] * 2}, doc="Doubled k")',
         },
         { type: "execute" },
       ],
@@ -287,9 +286,7 @@ test("loaded state numbers tasks after it, marks unchanged tables as loaded, and
   expect(edit).toMatch(/inputs from earlier tasks:\n- \*\*units\*\* \(scan, \w+\)[\s\S]*origin: loaded/);
   expect(receiptText(s.outcomes[1])).toContain("#### Task 4\n1 table created.");
   expect(s.agent.getSettings().systemPrompt).toBe(prompt);
-  await expect(s.agent.seedState('other = scan("data/units.csv")')).rejects.toThrow(
-    "before the first request"
-  );
+  await expect(s.agent.seedState('other = scan("data/units.csv")')).rejects.toThrow("before the first request");
 });
 
 test("the system prompt is decided at session start and does not change at the second request", async () => {
@@ -365,7 +362,19 @@ test("every answered task stays reachable: a restore is a new version, and the v
     edit("score = at(score, task=1)"),
     edit("score = at(score, task=3)"),
     edit("score = at(score, task=4)"),
-    [[{ type: "inspect", target: "state", operator_id: "score", task_id: null, include_implementation: false, view: null }], [{ type: "answer", content: "listed" }]],
+    [
+      [
+        {
+          type: "inspect",
+          target: "state",
+          operator_id: "score",
+          task_id: null,
+          include_implementation: false,
+          view: null,
+        },
+      ],
+      [{ type: "answer", content: "listed" }],
+    ],
   ]);
   const definition = () => s.agent.getWorkflowState().getOperator("score")!.nativeOp!.source;
   const seen: string[] = [];

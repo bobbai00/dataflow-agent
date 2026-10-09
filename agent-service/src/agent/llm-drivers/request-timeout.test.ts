@@ -20,7 +20,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
-import { isTransientModelError, withRequestTimeout } from "./request-timeout";
+import { isTransientModelError, LLM_DEADLINE_HEADER, withRequestTimeout } from "./request-timeout";
 
 /** A provider that accepted the request and never answers; it only honours abort. */
 const neverAnswers = ((_input: unknown, init?: RequestInit) =>
@@ -44,6 +44,46 @@ test("a model request that never answers is abandoned at its deadline", async ()
   expect(Date.now() - started).toBeLessThan(2000);
   expect((error as DOMException).name).toBe("TimeoutError");
   expect(isTransientModelError(error)).toBe(true);
+});
+
+test("the gateway receives the same absolute deadline without modifying prompt bodies", async () => {
+  const started = Date.now();
+  let observed: RequestInit | undefined;
+  const transport = (async (_input: unknown, init?: RequestInit) => {
+    observed = init;
+    return Response.json({ choices: [] });
+  }) as typeof fetch;
+  const headers = new Headers({ Authorization: "Bearer test", [LLM_DEADLINE_HEADER]: "1" });
+  await withRequestTimeout(transport, 2000)("http://model/api/chat/completions", {
+    method: "POST",
+    headers,
+    body: '{"messages":[]}',
+  });
+  const sent = new Headers(observed?.headers);
+  expect(Number(sent.get(LLM_DEADLINE_HEADER))).toBeGreaterThanOrEqual(started + 2000);
+  expect(Number(sent.get(LLM_DEADLINE_HEADER))).toBeLessThanOrEqual(Date.now() + 2000);
+  expect(sent.get("Authorization")).toBe("Bearer test");
+  expect(observed?.body).toBe('{"messages":[]}');
+  expect(headers.get(LLM_DEADLINE_HEADER)).toBe("1");
+});
+
+test("a Request's own headers and cancellation remain effective", async () => {
+  const controller = new AbortController();
+  const request = new Request("http://model/api/chat/completions", {
+    method: "POST",
+    body: "{}",
+    headers: { "X-Example": "kept" },
+    signal: controller.signal,
+  });
+  let sentHeaders: Headers | undefined;
+  const transport = ((input: unknown, init?: RequestInit) => {
+    sentHeaders = new Headers(init?.headers);
+    return neverAnswers(input as Request, init);
+  }) as typeof fetch;
+  const pending = withRequestTimeout(transport, 60_000)(request);
+  controller.abort();
+  expect((await pending.catch(e => e)).name).toBe("AbortError");
+  expect(sentHeaders?.get("X-Example")).toBe("kept");
 });
 
 test("the caller's own abort still ends the request, and it is not a transient failure", async () => {

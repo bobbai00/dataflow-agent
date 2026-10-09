@@ -204,7 +204,7 @@ export function formatOperatorResult(
     const rootInfo = options.nativeEvidence?.resolveInput(diagnostic.operatorId);
     const rootDiagnostic =
       rootInfo?.nativeError?.diagnostic ?? (rootInfo?.error ? parseNativeDiagnostic(rootInfo.error) : undefined);
-    const name = `${nativeOperatorName(eventOp.nativeOp.type)} \`${operatorId}\``;
+    const name = `${eventOp.nativeOp.registeredName ?? nativeOperatorName(eventOp.nativeOp.type)} \`${operatorId}\``;
     if (diagnostic.operatorId !== operatorId) {
       // The engine aborts the whole run at the first failure and hands every
       // unfinished operator the same payload. Say which case this is: a

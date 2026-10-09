@@ -415,7 +415,7 @@ export function forkState(
       operatorID: mapping[id],
       operatorType: compiled.operatorType,
       nativeOp: view,
-      customDisplayName: `${mapping[id]}: ${view.source ?? nativeOperatorName(view.type)}`,
+      customDisplayName: `${mapping[id]}: ${view.source ?? view.registeredName ?? nativeOperatorName(view.type)}`,
       operatorProperties: { ...template.operatorProperties, code: compiled.code },
     };
   });
@@ -453,14 +453,14 @@ export function forkState(
     saved_result_available: completed(storage.getOperatorResult(task.stepId, operatorId)),
     operators: copies.map(op => ({
       id: op.operatorID,
-      op: nativeOperatorName(op.nativeOp.type),
+      op: op.nativeOp.registeredName ?? nativeOperatorName(op.nativeOp.type),
       status: "added",
       message: `forked from task ${taskId}`,
     })),
     changes: copies.map(op => ({
       change: "operator" as const,
       operator_id: op.operatorID,
-      operator: nativeOperatorName(op.nativeOp.type),
+      operator: op.nativeOp.registeredName ?? nativeOperatorName(op.nativeOp.type),
       action: "created" as const,
     })),
     unconnected_inputs: missingGraphInputs(workflow),

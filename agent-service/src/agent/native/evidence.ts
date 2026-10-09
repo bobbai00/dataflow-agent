@@ -341,14 +341,18 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
   omissions: string[];
 } {
   const result = collectLocalEvidence(context);
-  const queue = (context.op.nativeOp?.type === "Process" ? [] : boundInputs(context)).map(input => ({
+  // Graph dependencies remain known across a custom function even though its
+  // row/column mapping is opaque. Report ancestor execution facts, not an
+  // inferred correspondence between the ancestor's rows and this output.
+  const queue = boundInputs(context).map(input => ({
     input,
     depth: 1,
+    opaque: context.op.nativeOp?.type === "Process",
   }));
   const seen = new Set([context.op.operatorID]);
   const summaries: NativeEvidenceFact[] = [];
   for (let visited = 0; queue.length && visited < 32; visited++) {
-    const { input, depth } = queue.shift()!;
+    const { input, depth, opaque } = queue.shift()!;
     const { op, info } = input;
     if (seen.has(op.operatorID)) continue;
     seen.add(op.operatorID);
@@ -365,7 +369,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
       Window: `Window partition keys=${json(p.partitionBy ?? [])}, order=${json(p.orderBy ?? [])}`,
-      Process: "Process row/column mapping unknown; upstream calculation summary stops here",
+      Process: `${view.registeredName ?? view.type} row/column mapping unknown`,
     };
     // Continue past nearby projections to find measured conversion losses.
     // The graph walk and the number of displayed summaries stay bounded.
@@ -376,7 +380,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       const measurements = local.facts
         .filter(f => f.family === "flow" && f.kind === "measurement" && f.priority >= 94)
         .sort((a, b) => b.priority - a.priority)
-        .slice(0, view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window"].includes(view.type) ? 2 : 1);
+        .slice(0, view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window", "Filter"].includes(view.type) ? 2 : 1);
       // Keep coverage counters ahead of optional examples. Long compound keys
       // remain available on direct retrieval without crowding ancestor summaries.
       if (view.type === "Join")
@@ -390,13 +394,25 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
         id: `flow.upstream.${op.operatorID}.${version.id}`,
         family: "flow",
         kind: measurements.length ? "measurement" : view.type === "Process" ? "warning" : "guarantee",
-        text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
+        text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}${opaque ? " Before custom processing; row/column correspondence to this output unknown." : ""}`,
         priority: (losses.length ? 101 : 98) - depth / 10,
-        upstream: { operatorId: op.operatorID, resultVersion: version.id },
+        upstream: {
+          operatorId: op.operatorID,
+          resultVersion: version.id,
+          factIds: measurements.map(fact => fact.id),
+          description: semantic[view.type],
+          ...(opaque ? { scope: "Before custom processing; row/column correspondence to this output unknown." } : {}),
+        },
       });
     }
-    if (view.type === "Process") continue;
-    if (depth < 8) queue.push(...boundInputs(input).map(next => ({ input: next, depth: depth + 1 })));
+    if (depth < 8)
+      queue.push(
+        ...boundInputs(input).map(next => ({
+          input: next,
+          depth: depth + 1,
+          opaque: opaque || view.type === "Process",
+        }))
+      );
     else if (view.inputs.length) result.omissions.push("upstream_depth_bound");
   }
   result.facts.push(...summaries.sort((a, b) => b.priority - a.priority).slice(0, 3));
@@ -538,7 +554,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       "flow.contract",
       "flow",
       view.type === "Process" ? "warning" : "guarantee",
-      `${view.type}: ${contract[view.type]}.`,
+      `${view.registeredName ?? view.type}: ${contract[view.type]}.`,
       25
     );
 
@@ -611,6 +627,32 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (a None verdict drops the row).`,
         96
       );
+      const rejected = record(operations.filterRejectedValues);
+      if (rejected.rejectedRows === rejectedRows && rejectedRows > 0) {
+        const columns = Object.entries(record(rejected.columns)).slice(0, 8);
+        for (const [name, raw] of columns) {
+          if (
+            !names(operations.predicateColumns).includes(name) ||
+            (context.columns?.length && !context.columns.includes(name))
+          )
+            continue;
+          const details = record(raw);
+          const examples = witnesses(details.examples, 1, rejectedRows);
+          if (
+            !examples.length ||
+            !count(details.otherCount) ||
+            examples.reduce((n, item) => n + item.count, 0) + details.otherCount !== rejectedRows
+          )
+            continue;
+          add(
+            `flow.filter.rejected.${name}`,
+            "flow",
+            "measurement",
+            `Filter ${json(name)} among ${rejectedRows} rejected rows, including null-predicate drops: ${examples.map(item => witnessText(item)).join("; ")}; other=${details.otherCount}. Bounded first distinct values, not causes or top frequencies.`,
+            94
+          );
+        }
+      }
     } else omissions.push("invalid_filter_counters");
   } else if (view.type === "Aggregate") {
     const size = record(operations.groupSizes);
@@ -897,7 +939,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       "flow.process.counts",
       "flow",
       "measurement",
-      `Process input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
+      `${view.registeredName ?? view.type} input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
       75
     );
   }
@@ -1055,20 +1097,9 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
         for (const fact of facts) {
           const c = fact.columnCount!;
           const column = profile.columns[c.column];
-          // Integers (counts, identifiers, years) stay exact: a rounded bound
-          // such as 1478000 for 1478146 reads as a value of the table. Only
-          // non-integer statistics are rounded to 4 significant digits.
-          const display = (v: ProfileScalar, round = true) =>
-            displayValue(
-              v.type === "float64" &&
-                round &&
-                Number.isFinite(Number(v.value)) &&
-                !Number.isInteger(Number(v.value))
-                ? Number(Number(v.value).toPrecision(4))
-                : v.value,
-              v.type,
-              format.tableFormat
-            ).text;
+          // Bounds are actual observed values, not approximations: preserve
+          // their precision so an equality filter can use them unchanged.
+          const display = (v: ProfileScalar) => displayValue(v.value, v.type, format.tableFormat).text;
           const ranged = ["int64", "float64", "datetime"].includes(column.type) && column.min && column.max;
           let values = ranged ? `${display(column.min!)} to ${display(column.max!)}` : "";
           const frequencies = column.frequencies;
@@ -1078,7 +1109,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
               !frequencies.truncated && frequencies.otherCount === 0 && shown.length === frequencies.values.length;
             values =
               (values ? values + "; " : "") +
-              `${exhaustive ? "all:" : "top:"} ${shown.map(item => `${display(item.value, false)} ${formatCount(item.count)}`).join("; ")}${exhaustive ? "" : " (not exhaustive)"}`;
+              `${exhaustive ? "all:" : "top:"} ${shown.map(item => `${display(item.value)} ${formatCount(item.count)}`).join("; ")}${exhaustive ? "" : `; other: ${formatCount(c.nonnull - shown.reduce((n, item) => n + item.count, 0))} (not exhaustive)`}`;
           }
           const row = [
             displayValue(c.column, "str", format.tableFormat).text,

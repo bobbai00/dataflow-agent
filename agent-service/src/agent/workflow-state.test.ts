@@ -43,6 +43,21 @@ function makeLink(linkId: string, sourceId: string, targetId: string): OperatorL
 }
 
 describe("WorkflowState - operators", () => {
+  test("validation errors preserve and clear prototype-like IDs after bulk replacement and reset", () => {
+    const state = new WorkflowState();
+    const error = { isValid: false as const, messages: { input: "invalid input" } };
+    for (const setup of [() => {}, () => state.setAllValidationErrors({}), () => state.reset()]) {
+      setup();
+      state.setValidationError("__proto__", error);
+      expect(Object.hasOwn(state.getValidationOutput().errors, "__proto__")).toBe(true);
+      expect(state.getValidationOutput().errors["__proto__"]).toEqual(error);
+      state.setAllValidationErrors(state.getValidationOutput().errors);
+      expect(Object.hasOwn(state.getValidationOutput().errors, "__proto__")).toBe(true);
+      state.clearValidationError("__proto__");
+      expect(Object.hasOwn(state.getValidationOutput().errors, "__proto__")).toBe(false);
+    }
+  });
+
   test("add and get operator round-trips", () => {
     const state = new WorkflowState();
     const op = makeOperator("op1");

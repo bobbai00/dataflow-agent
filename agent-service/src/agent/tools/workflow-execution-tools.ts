@@ -24,7 +24,7 @@ import type { WorkflowState } from "../workflow-state";
 import { getBackendConfig } from "../../api/backend-api";
 import { env } from "../../config/env";
 import type { LogicalPlan, LogicalLink } from "../../api/execution-api";
-import type { OperatorInfo, SyncExecutionResult } from "../../types/execution";
+import type { ExecutionRunMetrics, OperatorInfo, SyncExecutionResult } from "../../types/execution";
 import { annotateMissingPath } from "../util/missing-path-hint";
 import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
@@ -384,6 +384,13 @@ async function executeWorkflowHttp(
     "executing workflow"
   );
 
+  const timing = {
+    requestToHeadersMs: null as number | null,
+    responseBodyDecodeMs: null as number | null,
+    resultPreparationMs: null as number | null,
+    snapshotStoreMs: null as number | null,
+  };
+  const requestStarted = performance.now();
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -395,13 +402,21 @@ async function executeWorkflowHttp(
       ...executionRequestLimits(timeoutSeconds, options.abortSignal),
     } as RequestInit);
 
+    timing.requestToHeadersMs = performance.now() - requestStarted;
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Execution request failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
+    const bodyStarted = performance.now();
     const result = (await response.json()) as SyncExecutionResult;
-    return config.structuredResults ? prepareStructuredExecutionResult(result, workflowId, logicalPlan) : result;
+    timing.responseBodyDecodeMs = performance.now() - bodyStarted;
+    const prepareStarted = performance.now();
+    const prepared = config.structuredResults
+      ? prepareStructuredExecutionResult(result, workflowId, logicalPlan)
+      : result;
+    timing.resultPreparationMs = performance.now() - prepareStarted;
+    return { ...prepared, clientTiming: timing };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -411,6 +426,7 @@ async function executeWorkflowHttp(
       success: false,
       state: "Error",
       operators: {},
+      clientTiming: timing,
       errors: [error instanceof Error ? error.message : "Unknown error"],
     };
   }
@@ -746,6 +762,7 @@ export async function executeWorkflowAndPersist(
   options: {
     abortSignal?: AbortSignal;
     onResult?: (operatorId: string, info: OperatorInfo) => void;
+    onExecution?: (run: ExecutionRunMetrics) => void;
     opsToViewResult?: string[];
   } = {}
 ): Promise<{
@@ -754,6 +771,7 @@ export async function executeWorkflowAndPersist(
   opCount: number;
   errorCount: number;
   errorText?: string;
+  executionRuns?: ExecutionRunMetrics[];
 }> {
   const release = await getWorkflowMutex(config.workflowId).acquire();
 
@@ -795,7 +813,11 @@ export async function executeWorkflowAndPersist(
     }
 
     const result = await executeWorkflowHttp(config, logicalPlan, { abortSignal: options.abortSignal });
+    const storeStarted = performance.now();
     persistOperatorResults(result.operators, options.onResult);
+    if (result.clientTiming) result.clientTiming.snapshotStoreMs = performance.now() - storeStarted;
+    const executionRuns = [executionRunMetrics(result, opsToView)];
+    options.onExecution?.(executionRuns[0]);
 
     const opCount = Object.keys(result.operators).length;
     const errorCount = Object.values(result.operators).filter(o => o.error).length;
@@ -813,13 +835,24 @@ export async function executeWorkflowAndPersist(
           : undefined;
       const generalErrors = result.state === "Killed" ? ["Workflow execution was killed (timeout)."] : result.errors;
       const errorText = formatExecutionError(compilationErrors, operatorErrors, generalErrors);
-      return { success: false, state: result.state, opCount, errorCount, errorText };
+      return { success: false, state: result.state, opCount, errorCount, errorText, executionRuns };
     }
 
-    return { success: true, state: result.state, opCount, errorCount };
+    return { success: true, state: result.state, opCount, errorCount, executionRuns };
   } finally {
     release();
   }
+}
+
+function executionRunMetrics(result: SyncExecutionResult, targets: string[]): ExecutionRunMetrics {
+  return {
+    targets: [...targets],
+    executionId: result.executionId ?? null,
+    success: result.success,
+    state: result.state,
+    phaseMetrics: result.phaseMetrics ?? null,
+    ...(result.clientTiming ? { clientTiming: result.clientTiming } : {}),
+  };
 }
 
 /**
@@ -846,6 +879,7 @@ async function executeGroupsSequentially(
   options: {
     abortSignal?: AbortSignal;
     onResult?: (operatorId: string, info: OperatorInfo) => void;
+    onExecution?: (run: ExecutionRunMetrics) => void;
   }
 ): Promise<{
   success: boolean;
@@ -853,11 +887,13 @@ async function executeGroupsSequentially(
   opCount: number;
   errorCount: number;
   errorText?: string;
+  executionRuns: ExecutionRunMetrics[];
 }> {
   const mergedOps: Record<string, OperatorInfo> = {};
   const groupErrors: string[] = [];
   let anyFailure = false;
   let aggregateState = "Completed";
+  const executionRuns: ExecutionRunMetrics[] = [];
 
   for (let gi = 0; gi < groups.length; gi++) {
     if (options.abortSignal?.aborted) {
@@ -870,14 +906,16 @@ async function executeGroupsSequentially(
     const plan = buildLogicalPlanFromSubDAG(workflowState, group.subDAG, group.opsToView);
     if (plan.operators.length === 0) continue;
 
-    log.info(
-      { groupIndex: gi, totalGroups: groups.length, opsToView: group.opsToView },
-      "Executing partition group"
-    );
+    log.info({ groupIndex: gi, totalGroups: groups.length, opsToView: group.opsToView }, "Executing partition group");
 
     try {
       const result = await executeWorkflowHttp(config, plan, { abortSignal: options.abortSignal });
+      const storeStarted = performance.now();
       persistOperatorResults(result.operators, options.onResult);
+      if (result.clientTiming) result.clientTiming.snapshotStoreMs = performance.now() - storeStarted;
+      const run = executionRunMetrics(result, group.opsToView);
+      executionRuns.push(run);
+      options.onExecution?.(run);
 
       for (const [opId, info] of Object.entries(result.operators)) {
         mergedOps[opId] = info;
@@ -899,8 +937,7 @@ async function executeGroupsSequentially(
                 .filter(([_, op]) => op.error)
                 .map(([opId, op]) => ({ operatorId: opId, error: op.error! }))
             : undefined;
-        const generalErrors =
-          result.state === "Killed" ? ["Workflow execution was killed (timeout)."] : result.errors;
+        const generalErrors = result.state === "Killed" ? ["Workflow execution was killed (timeout)."] : result.errors;
         const text = formatExecutionError(compilationErrors, operatorErrors, generalErrors);
         if (text) groupErrors.push(text);
       }
@@ -922,9 +959,10 @@ async function executeGroupsSequentially(
       opCount,
       errorCount,
       errorText: groupErrors.join("\n\n"),
+      executionRuns,
     };
   }
-  return { success: true, state: "Completed", opCount, errorCount };
+  return { success: true, state: "Completed", opCount, errorCount, executionRuns };
 }
 
 export function createExecuteOperatorTool(

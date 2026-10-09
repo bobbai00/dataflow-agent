@@ -208,7 +208,7 @@ describe("Scan preview executes an offset window", () => {
     const initial = preview({ files, preview: 2 });
     expect(initial.error).toBeUndefined();
     expect(initial.rows?.[0]?.file).toBe("data.npz");
-    expect(initial.rows?.[0]?.note).toContain("process loader");
+    expect(initial.rows?.[0]?.note).toContain("custom Python loader");
   });
 
   test("full lines loading keeps absolute physical line numbers after skipLines", () => {

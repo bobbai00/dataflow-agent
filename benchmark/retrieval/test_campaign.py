@@ -97,6 +97,40 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(findings["violations"], [])
             self.assertEqual(findings["action_errors"], 1)
 
+    def test_partial_batch_failure_still_audits_successful_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"retrievalViews": ["sample"], "flowEvidence": False}
+            (path / "settings.json").write_text(json.dumps(settings))
+            (path / "react_steps.json").write_text(json.dumps([{"toolResults": [{"output": {
+                "actions": [{"action": {"type": "retrieve", "operator_ids": ["a", "b"], "view": "sample"},
+                    "status": "error", "output": {"results": [
+                        {"operator_id": "a", "status": "ok", "evidence": ["flow.rows=10"]},
+                        {"operator_id": "b", "status": "error", "error": "stale"}]}}]
+            }}]}]))
+            findings = audit_attempt(path, settings)
+            self.assertEqual(findings["violations"], ["flow_evidence_leak"])
+            self.assertEqual(findings["retrievals"], 1)
+
+    def test_whole_call_rejections_are_errors_without_failed_actions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"agentMode": "native", "retrievalViews": ["sample"], "flowEvidence": False}
+            (path / "settings.json").write_text(json.dumps(settings))
+            (path / "react_steps.json").write_text(json.dumps([{"toolResults": [
+                {"isError": True, "output": {"status": "error", "actions": [],
+                    "error": "Selected names must be unique. No actions ran."}},
+                {"output": {"status": "error", "actions": [
+                    {"action": {"type": "execute"}, "status": "skipped"}]}},
+                {"output": {"actions": [{"action": {"type": "execute"}, "status": "error"}]}},
+            ]}]))
+            findings = audit_attempt(path, settings)
+            self.assertEqual(findings["tool_errors"], 3)
+            self.assertEqual(findings["envelope_errors"], 2)
+            self.assertEqual(findings["action_errors"], 1)
+            self.assertEqual(findings["violations"], [])
+            self.assertIn("missing_answer_action", findings["warnings"])
+
     def test_native_text_answer_is_flagged_until_an_answer_action_succeeds(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)

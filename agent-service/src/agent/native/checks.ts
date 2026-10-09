@@ -78,9 +78,10 @@ function processLines(operations: Record<string, any>): string[] {
   const lines: string[] = [];
   for (const item of Array.isArray(record(operations.process).events) ? record(operations.process).events : []) {
     const e = record(item);
-    const at = `inside the function, line ${e.line}:`;
+    const at = `inside the function, ${num(e.cell) ? `definition cell ${e.cell}, ` : ""}line ${e.line}:`;
     const ins: number[] = Array.isArray(e.in) ? e.in : [];
-    if (e.op === "merge" && e.issue === "empty") lines.push(`${at} a merge of ${ins.join(" and ")} rows returned 0 rows.`);
+    if (e.op === "merge" && e.issue === "empty")
+      lines.push(`${at} a merge of ${ins.join(" and ")} rows returned 0 rows.`);
     else if ((e.op === "filter" || e.op === "query") && e.issue === "empty")
       lines.push(`${at} a row selection kept 0 of ${ins[0]} rows.`);
     else if (e.op === "concat" && e.issue === "duplicates")
@@ -119,13 +120,16 @@ export function nativeAdjustmentLines(op: OperatorPredicate, info: OperatorInfo)
   const lines: string[] = [];
   const replaced = Array.isArray(operations.replacedColumns) ? operations.replacedColumns : [];
   if (replaced.length)
-    lines.push(`note: existing column${replaced.length === 1 ? "" : "s"} ${list(replaced).join(", ")} replaced by the new output.`);
+    lines.push(
+      `note: existing column${replaced.length === 1 ? "" : "s"} ${list(replaced).join(", ")} replaced by the new output.`
+    );
   const renamed = Object.entries(record(record(operations.join).renamedRight));
   if (renamed.length)
     lines.push(
       `note: right column${renamed.length === 1 ? "" : "s"} renamed to avoid a collision: ${renamed.map(([from, to]) => `${json(from)} → ${json(String(to))}`).join(", ")}.`
     );
   const bools = Array.isArray(operations.boolAsInt) ? operations.boolAsInt : [];
-  if (bools.length) lines.push(`note: boolean column${bools.length === 1 ? "" : "s"} ${list(bools).join(", ")} reduced as 1/0.`);
+  if (bools.length)
+    lines.push(`note: boolean column${bools.length === 1 ? "" : "s"} ${list(bools).join(", ")} reduced as 1/0.`);
   return lines;
 }
