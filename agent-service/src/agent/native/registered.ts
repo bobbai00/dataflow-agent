@@ -288,15 +288,16 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     }
     return copy;
   };
-  const resolveInput = (input: string): string => {
+  const savedVersion = (input: string) => {
     const at = input.lastIndexOf("@");
-    if (at < 0) return input;
+    if (at < 0) return undefined;
     const [name, task] = [input.slice(0, at), Number(input.slice(at + 1))];
     const saved = options.saved?.(task);
     if (!saved) throw new Error(`${input}: task ${task} has no saved state; name a completed earlier task.`);
     if (!saved[name]) throw new Error(`${input}: ${name} did not exist at the end of task ${task}.`);
-    return version(name, task, saved);
+    return { name, task, saved };
   };
+  const declaredIds = new Set<string>();
   for (const entry of parsed.statements) {
     let statement = entry;
     try {
@@ -306,7 +307,8 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
         deletedIds.push(statement.id);
         continue;
       }
-      statement = { ...statement, inputs: statement.inputs.map(resolveInput) };
+      statement.inputs.forEach(savedVersion);
+      declaredIds.add(statement.id);
       const kwargs = { ...statement.kwargs };
       let doc: string | undefined;
       if (kwargs.doc) {
@@ -350,6 +352,28 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       throw unregistered(declarationError(statement, error));
     }
   }
+  // Rebind every registered operator to the definitions its function now
+  // reaches. Only operators whose definitions changed get a new revision.
+  for (const [id, view] of Object.entries(operators)) {
+    // A saved version keeps the definitions its task had.
+    if (!view.properties.registered || view.savedFrom) continue;
+    const registration = view.properties.registered as { cells: string[]; entry: string };
+    registration.cells = definitions(registration.entry);
+    const revision = nativeRevision(view);
+    if (revision !== view.revision) changedIds.add(id);
+    view.revision = revision;
+  }
+  // Version inputs resolve against the final definitions, so a version this
+  // edit changes is read as a copy.
+  for (const id of declaredIds) {
+    const view = operators[id];
+    if (!view?.inputs.some(input => input.includes("@"))) continue;
+    view.inputs = view.inputs.map(input => {
+      const reference = savedVersion(input);
+      return reference ? version(reference.name, reference.task, reference.saved) : input;
+    });
+    view.revision = nativeRevision(view);
+  }
   // A saved version stays only while something current reads it.
   const read = new Set<string>();
   const markRead = (id: string): void => {
@@ -381,17 +405,6 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     Object.keys(operators).forEach(visit);
   } catch (error) {
     throw unregistered(error);
-  }
-  // Rebind every registered operator to the definitions its function now
-  // reaches. Only operators whose definitions changed get a new revision.
-  for (const [id, view] of Object.entries(operators)) {
-    // A saved version keeps the definitions its task had.
-    if (!view.properties.registered || view.savedFrom) continue;
-    const registration = view.properties.registered as { cells: string[]; entry: string };
-    registration.cells = definitions(registration.entry);
-    const revision = nativeRevision(view);
-    if (revision !== view.revision) changedIds.add(id);
-    view.revision = revision;
   }
   const checked = (await runNativePython({
     registered: true,
