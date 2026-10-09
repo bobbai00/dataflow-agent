@@ -95,8 +95,8 @@ test("a later request carries the state it inherited, frozen and replayed with t
   const state = requests[1].sessionState!;
   expect(state).toContain("## Session state at the start of this request");
   expect(state).toContain("- `keep(row)`: Keep every row.");
-  expect(state).toContain("| raw | `scan(files='data.csv')` | 3 rows, 1 columns | 1 | value |");
-  expect(state).toContain("| kept | `filter(raw, predicate='keep')` | 3 of 3 rows, 1 columns | 1 | as raw |");
+  expect(state).toContain("| raw | `scan(files='data.csv')` | 3 rows, 1 column | 1 | value |");
+  expect(state).toContain("| kept | `filter(raw, predicate='keep')` | 3 of 3 rows, 1 column | 1 | as raw |");
   // Both calls of the second request see the same block right after its text.
   const requestText = (messages: ModelMessage[]) =>
     messages.find(m => m.role === "user" && typeof m.content === "string" && m.content.includes("Second request."))

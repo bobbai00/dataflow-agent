@@ -946,6 +946,8 @@ export const NATIVE_OPERATOR_NAMES: readonly string[] = NATIVE_OPERATORS.map(d =
 
 /** Operator ids double as Python identifiers in the program and in generated code. */
 export const NATIVE_ID_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** An earlier task's version of an operator, `name@N`; valid where ports are explicit. */
+export const NATIVE_VERSION_ID_RE = /^[A-Za-z_][A-Za-z0-9_]*@[1-9]\d*$/;
 
 /** Surface name for a runtime type: `Aggregate` → `aggregate`, `Process` → `process`. */
 export function nativeOperatorName(type: string): string {

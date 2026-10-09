@@ -36,6 +36,7 @@ const completed = (info: OperatorInfo | undefined): boolean =>
 // Operators whose rows are a subset of their first input's rows.
 const SELECTS_ROWS = new Set(["Filter", "Limit", "Distinct"]);
 const count = (n: number) => n.toLocaleString("en-US");
+const plural = (n: number, word: string) => (n === 1 ? word : `${word}s`);
 
 /**
  * The definitions and results a later request inherits, rendered once when it
@@ -72,7 +73,7 @@ export function renderSessionState(source: SessionStateSource): string {
         SELECTS_ROWS.has(view.type) && upstream && completed(upstream)
           ? ` of ${count(upstream.totalRowCount ?? upstream.outputTuples)}`
           : "";
-      result = `${count(rowCount)}${of} rows, ${columns?.length ?? 0} columns`;
+      result = `${count(rowCount)}${of} ${plural(rowCount, "row")}, ${columns?.length ?? 0} ${plural(columns?.length ?? 0, "column")}`;
     } else if (info?.error) result = "failed";
     else if (source.hadResult(id)) result = "stale";
     const upstreamColumns = view.inputs[0] ? columnsOf(view.inputs[0]) : undefined;
