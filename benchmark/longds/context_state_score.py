@@ -38,6 +38,7 @@ from openai import OpenAI
 import pandas as pd
 
 from _paths import DATAMIND
+from behavior_report import combine, session_behavior
 from context_state_pilot import job_key, attempt_spend
 from judge_longds import judge_one, load_judge_prompt
 from numeric_gate import AutoImportNS, PRELUDE, TURN_MARKER, reference_source, json_blobs, diff
@@ -342,6 +343,13 @@ def evaluate(root, adapters=None, judge=True, judge_workers=4):
                      'artifact': str(directory)})
         del tables, observation
     save(folder / 'metrics.json', rows)
+    # How each dataflow session carried state: versions, settings, reused functions.
+    behavior = {}
+    for job in protocol['jobs']:
+        if job['agent'] == 'dataflow':
+            gold = json.loads((Path(protocol['cases'][job['task']]['prepared']) / 'gold.json').read_text())
+            behavior[job_key(job)] = session_behavior(answers_folder(folder / 'runs' / job_key(job)),
+                                                      [turn.get('state_type', []) for turn in gold['turns']])
     summaries = []
     labels = ('Initial', 'Update', 'Rollback', 'Counterfactual')
     for model in protocol['models']:
@@ -370,6 +378,8 @@ def evaluate(root, adapters=None, judge=True, judge_workers=4):
                                                            or s.get('definition_variants_requested') or s.get('definition_updates_requested')
                                                            or s.get('saved_answer_sources')) for s in structure),
                     'saved_version_uses': saved_uses,
+                    'behavior': combine([behavior[job_key(j)] for j in protocol['jobs'] if job_key(j) in behavior and
+                                         (j['model'], j['agent'], j['context']) == (model, agent, context)]) or None,
                     'retention_warnings': sum(s.get('retention_warnings', 0) for s in structure),
                     'unavailable_results': sum(s.get('unavailable_results', 0) for s in structure),
                     'legacy_command_rejections': sum(s.get('legacy_command_rejections', 0) for s in structure),
