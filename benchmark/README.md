@@ -108,6 +108,8 @@ export TEXERA_POSTGRES_CONTAINER=texera-python-pilot-postgres
 export TEXERA_DOCKER_OVERLAY_FILE="$PWD/bin/local-dev/docker-compose.isolated.yml"
 export LITELLM_BASE_URL=http://localhost:4000
 export TEXERA_LLM_TRACE_DIR=/tmp/registered-python-wire
+# Registered loaders call open(); the engine's static UDF scan must not reject them.
+export UDF_PYTHON_ALLOW_FILE_IO=true
 bin/local-dev.sh up --build --skip=frontend
 bin/local-dev.sh status
 ```

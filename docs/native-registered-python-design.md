@@ -275,6 +275,13 @@ The standalone design prompt is the same default rendered text. The earlier
 single-example byte budget is superseded by the requested fuller teaching prompt;
 benchmark artifacts must report actual prompt/tool input tokens and usage.
 
+The engine's static UDF scan (`PythonOperatorDescriptor`, `udf.conf`
+`python.allowFileIO`) rejects operator code containing a bare `open()`, `Path()`
+or `import os`. Every custom operator embeds all definition cells, so one such
+cell fails every custom operator, including ones that ran before. Deployments
+that run registered loaders must set `UDF_PYTHON_ALLOW_FILE_IO=true`; the
+benchmark stacks rely on the bubblewrap sandbox instead of that scan.
+
 Validation includes parser/binding and namespace-isolation tests, atomic edit and
 snapshot tests, mixed-success retrieval, documentation-only cache preservation,
 valid tool envelopes for prompt examples, and generated-reference drift checks.
