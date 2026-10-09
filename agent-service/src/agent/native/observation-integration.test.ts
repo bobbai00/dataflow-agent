@@ -301,7 +301,9 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
   const settings = agent.getSettings();
   expect(settings.tableFormat).toBe("tsv");
   expect(settings.keyValueColumns).toBe(0);
-  expect(settings.systemPrompt).toContain("Earlier tasks share the current graph and registered definitions.");
+  expect(settings.systemPrompt).toContain(
+    "Requests in this session share one graph and one set of registered definitions"
+  );
   expect(settings.systemPrompt).toContain("Records use a tab-separated table with a header line at any width.");
 });
 

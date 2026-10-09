@@ -312,7 +312,7 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           lines.push(
             change.change === "edge"
               ? `edge ${change.edge} ${change.action}`
-              : `operator ${change.operator_id} ${change.action}${change.action === "created" || change.action === "updated" ? ` (${change.operator})` : ""}`
+              : `operator ${change.operator_id} ${change.action}${change.action === "created" || change.action === "updated" ? ` (${change.operator})` : ""}${change.was ? `; was \`${change.was}\`` : change.definitions_changed ? "; the definitions its function uses changed" : ""}`
           );
         lines.push(...blocks.map(operatorBlock));
         if (output.invalidated_results?.length)

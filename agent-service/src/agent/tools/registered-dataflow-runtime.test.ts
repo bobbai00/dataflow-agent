@@ -532,3 +532,29 @@ test("trace import preserves registered protocol and replays definitions without
   expect(agent.getWorkflowState().getAllOperators()).toEqual([]);
   expect(agent.getWorkflowState().getWorkflowContent().nativeNamespace?.functions.source).toBeDefined();
 });
+
+test("an update names what it replaced, and an unrelated definition updates nothing", async () => {
+  const first = await planRegisteredGraphEdit(new WorkflowState().getWorkflowContent(), loader, graph, context());
+  const reset = await planRegisteredGraphEdit(first.workflow, "", "set raw: source(value=5)", context());
+  expect(reset.changes).toEqual([
+    { change: "operator", operator_id: "raw", operator: "source", action: "updated", was: "set raw: source()" },
+  ]);
+  const redefined = await planRegisteredGraphEdit(
+    first.workflow,
+    "def copy_values(table):\n    return table.head(1)",
+    "",
+    context()
+  );
+  expect(redefined.changes).toEqual([
+    {
+      change: "operator",
+      operator_id: "copied",
+      operator: "copy_values",
+      action: "updated",
+      definitions_changed: true,
+    },
+  ]);
+  const unrelated = await planRegisteredGraphEdit(first.workflow, "def other(table):\n    return table", "", context());
+  expect(unrelated.changes).toEqual([]);
+  expect(unrelated.registrations).toEqual([{ name: "other", kind: "registered" }]);
+});
