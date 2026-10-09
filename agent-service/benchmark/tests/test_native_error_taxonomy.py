@@ -148,7 +148,7 @@ CASES = [
         "SCAN_FORMAT",
         "validate",
         None,
-        ["process loader"],
+        ["custom Python loader"],
     ),
     (
         "scan",
