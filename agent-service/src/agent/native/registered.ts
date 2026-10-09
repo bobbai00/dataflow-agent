@@ -15,7 +15,7 @@
  * under the License.
  */
 import { createHash } from "node:crypto";
-import { NATIVE_BY_NAME, NATIVE_OPERATORS, type NativeOpView, type ParsedValue } from "./catalog";
+import { DTYPES, NATIVE_BY_NAME, NATIVE_OPERATORS, type NativeOpView, type ParsedValue } from "./catalog";
 import { nativeRevision, runNativePython, validateNativeOperators } from "./codegen";
 import { normalizeStatement } from "./program";
 
@@ -103,9 +103,29 @@ function builtinArgumentError(statement: SetStatement, message: string, outputNa
   return new Error(`${cause} Signature: ${signatures[statement.op]}`);
 }
 
+/** Spellings models produce for a documented descriptor, accepted as that
+ * descriptor: a quoted dtype name (`'float64'`) and `preview=True` (one row).
+ * Each cost a repair call in the 2026-10-08 pilots (Opus, Sol). */
+function acceptDescriptorSpellings(op: string, kwargs: Record<string, ParsedValue>): void {
+  const columns = kwargs.columns;
+  if (op === "cast" && columns?.kind === "dict")
+    kwargs.columns = {
+      kind: "dict",
+      entries: columns.entries.map(([name, value]) => [
+        name,
+        value.kind === "const" && typeof value.value === "string" && (DTYPES as readonly string[]).includes(value.value)
+          ? { kind: "name", name: value.value }
+          : value,
+      ]),
+    };
+  if (op === "scan" && kwargs.preview?.kind === "const" && kwargs.preview.value === true)
+    kwargs.preview = { kind: "const", value: 1 };
+}
+
 function normalizeBuiltin(statement: SetStatement, options: RegisteredStageInput): NativeOpView {
   const definition = NATIVE_BY_NAME.get(statement.op)!;
   const kwargs = { ...statement.kwargs };
+  acceptDescriptorSpellings(statement.op, kwargs);
   const inputCount = statement.inputs.length;
   if (
     (typeof definition.inputs === "number" && inputCount !== definition.inputs) ||
@@ -174,9 +194,11 @@ function normalizeRegisteredFilter(
   const kwargs = statement.kwargs;
   if (Object.keys(kwargs).some(key => !["predicate", "settings"].includes(key)))
     invalid("filter accepts predicate, settings, and doc only; inline callbacks are not supported.");
-  const predicate = kwargs.predicate && literal(kwargs.predicate);
+  // The function may be named bare, as in a custom call, or quoted.
+  const predicate =
+    kwargs.predicate?.kind === "name" ? kwargs.predicate.name : kwargs.predicate && literal(kwargs.predicate);
   if (typeof predicate !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(predicate))
-    invalid("filter predicate must name a registered public function as a quoted string.");
+    invalid("filter predicate must name a registered public function, for example predicate='keep'.");
   const settings = kwargs.settings ? literal(kwargs.settings) : {};
   if (!settings || typeof settings !== "object" || Array.isArray(settings))
     invalid("filter settings must be a dictionary of keyword arguments.");
@@ -194,9 +216,14 @@ function normalizeRegisteredFilter(
 
 /** Build and validate a complete candidate without mutating any session state. */
 export async function stageRegisteredEdit(options: RegisteredStageInput): Promise<RegisteredStageResult> {
-  const pythonChanged = options.python.trim().length > 0;
-  if (!pythonChanged && !options.changes.trim()) throw new Error("An edit needs python definitions or graph changes.");
-  const cells = [...(options.namespace?.cells ?? []), ...(pythonChanged ? [options.python] : [])];
+  const priorCells = options.namespace?.cells ?? [];
+  if (!options.python.trim() && !options.changes.trim())
+    throw new Error("An edit needs python definitions or graph changes.");
+  // A cell identical to the last one replays to the same namespace, so it is
+  // neither appended nor treated as a definition change: resending source
+  // unchanged must not invalidate every custom result.
+  const pythonChanged = options.python.trim().length > 0 && priorCells.at(-1) !== options.python;
+  const cells = [...priorCells, ...(pythonChanged ? [options.python] : [])];
   const parsed = (await runNativePython({ registered: true, phase: "parse", cells, changes: options.changes })) as {
     ok: boolean;
     error?: string;

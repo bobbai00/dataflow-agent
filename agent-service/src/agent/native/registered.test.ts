@@ -187,7 +187,7 @@ test("fixed mappings accept reserved column names and documentation is metadata"
 test.each([
   ["scan", "scan(files='data.csv', format='xlsx')", "format must be one of"],
   ["project", "project(raw, keep=1)", "keep"],
-  ["cast", "cast(raw, columns={'APP_Z_score': 'float64'})", 'columns["APP_Z_score"] must be a dtype'],
+  ["cast", "cast(raw, columns={'APP_Z_score': 'float'})", 'columns["APP_Z_score"] must be a dtype'],
   ["aggregate", "aggregate(raw, outputs={'mean score': 'mean'})", 'outputs["mean score"]'],
   ["join", "join(raw, raw, on=['x'], how='sideways')", "how"],
   ["union", "union(raw, raw, schema='bad')", "schema"],
@@ -228,7 +228,7 @@ test("mapping diagnostics translate correction examples without recursively rewr
     ["aggregate(raw, outputs={'mean score': mean()})", 'outputs={"mean score": mean("col")}'],
     ["window(raw, order_by=['x'], outputs={'previous score': lag()})", 'outputs={"previous score": lag("col", 1)}'],
     [
-      "cast(raw, columns={'_registered_output_1': 'float64', 'actual': float64})",
+      "cast(raw, columns={'_registered_output_1': 'float', 'actual': float64})",
       'columns["_registered_output_1"] must be a dtype',
     ],
   ]) {

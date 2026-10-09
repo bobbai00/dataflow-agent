@@ -149,9 +149,10 @@ test("registered filter diagnostics identify user definitions and reject invalid
   expect(message).toContain("CALLBACK_RUNTIME");
   expect(message).toContain('"cell":1');
   expect(message).toContain("missing");
+  // A bare `predicate=keep` is accepted (see registered-spellings.test.ts).
   for (const expression of [
     "filter(raw)",
-    "filter(raw, predicate=keep)",
+    "filter(raw, predicate=missing)",
     "filter(raw, predicate='missing')",
     "filter(raw, predicate='keep', settings=[])",
     "filter(raw, predicate='keep', settings={'extra':1})",

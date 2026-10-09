@@ -74,6 +74,17 @@ describe("registered Python action contract", () => {
     ).toBe("error");
   });
 
+  test("stringified actions are rejected with an array example, without decoding or running them", () => {
+    for (const actions of ['[{"type":"execute"}]', '[{"type":"execute"}]}']) {
+      const result = prepareRegisteredDataflowActions({ reasoning: "Inspect.", actions });
+      expect(result.status).toBe("error");
+      expect(result.actions).toEqual([]);
+      expect(result.error).toContain("actions must be a JSON array, not a string");
+      expect(result.error).toContain('"actions":[{"type":"inspect","target":"graph"}]');
+      expect(result.error).toContain("No actions ran.");
+    }
+  });
+
   test("the provider sees only the registered contract and reference remains available", async () => {
     const schema = (await asSchema(createRegisteredDataflowTool(["full"]).inputSchema).jsonSchema) as any;
     const actions = schema.properties.actions.items.anyOf;

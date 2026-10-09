@@ -50,6 +50,14 @@ the next call. Independent execution groups continue after a sibling fails;
 branches sharing an engine controller may need a separate requested execution.
 Stale results are never silently current.
 
+A model call whose dataflow calls all fail the same way as the previous call's,
+against an unchanged graph and namespace, is a repeated failure. The second
+receives one correction naming the error, the current operators (or that the
+graph is empty), the registered functions, and the Answer alternative; the fourth
+ends the turn with `REPEATED_FAILURE_LOOP` and no answer. A successful call, a
+different failure, a graph change, or a new user turn resets the count. Failed
+and stopped turns retain the token usage reported by their recorded model steps.
+
 ## Graph declarations
 
 ```text
@@ -63,7 +71,11 @@ The call head is a built-in type or registered public synchronous function.
 Positional arguments are ordered graph input IDs; settings are keyword literals.
 Sources have zero inputs; custom functions support one or more table inputs,
 including variable arity. Each output is one DataFrame. An input ID and function
-name may coincide without ambiguity.
+name may coincide without ambiguity. Documented descriptors are also accepted in
+the spellings models produce: a quoted dtype name such as `'float64'`, a bare
+`predicate=keep`, and `preview=True` (one row); unknown names remain errors. A
+nested operator call is rejected with the instruction to declare it as its own
+`set` statement.
 
 `set` replaces the complete definition, incoming edges, settings, and explicit
 `doc` override. Omitted settings reset to defaults. Consumers retain their input
@@ -72,7 +84,9 @@ final acyclic graph. Delete or rewire a deleted node's consumers in the same edi
 
 ## Shared definitions and isolated invocation
 
-`edit.python` appends an authored cell. The session stores ordered source cells,
+`edit.python` appends an authored cell, unless it is identical to the current
+last cell: replaying the same cell twice yields the same namespace, so resending
+unchanged source neither appends nor invalidates custom results. The session stores ordered source cells,
 registered signatures/docstrings, binding descriptions, and namespace identity
 with the workflow, including when no operators exist. Later cells see earlier
 imports, constants, helpers, classes, and functions and may replace them.
@@ -291,17 +305,31 @@ not a claim that they have been committed or deployed.
 - [x] Update prompt guidance and generated references for that cleanup; validate
   with unit tests, type checking, and reference-drift checks.
 
+### Completed 2026-10-09 (before the Luna/Terra campaign)
+
+- [x] Repeated-failure protection (`native/failure-loop.ts`), replacing the
+  narrower empty-execution guard of `feat/context-improvement`: identical failed
+  calls against an unchanged graph get one correction after two and end the turn
+  after four; usage is retained. The audited Qwen `execute *` ×20 and `retrieve r`
+  ×22 loops and DeepSeek's execute-only loop are all this shape.
+- [x] Accept the spellings that cost repair calls: quoted dtypes, bare
+  `predicate=name`, `preview=True`; name the repair for nested operator calls;
+  reject stringified `actions` with an array example (Opus).
+- [x] A definition cell identical to the current last cell is not appended, so
+  resent source does not invalidate every custom result.
+- [x] Campaign defaults: full-result display cap 5,000 and sample budget 1,000
+  (`run.py --full-result-char-limit`, `--sample-char-limit`); OpenRouter serving
+  providers pinned in the gateway configuration (`extra_body.provider.order`, no
+  fallbacks: DeepInfra first; fp4 routes excluded); the benchmark database drops
+  `idx_workflow_pgroonga`, whose tokenizer refused workflows above ~1.8 MB.
+
 ### P0 — Prevent avoidable calls and repair loops
 
-- [ ] Bring the empty-execution-loop protection from `feat/context-improvement`
-  onto this branch. Verify it handles registered-native diagnostics, terminates
-  repeated no-progress calls, and preserves usage and failure records.
 - [ ] Investigate empty/malformed action envelopes on the affected provider routes.
   Distinguish provider/schema issues from model authoring mistakes before changing
   the protocol; do not count transport retries as new model decisions.
-- [ ] Make common authoring mistakes easy to repair: nested graph calls,
-  unregistered function names, and invalid dtype syntax. Evaluate safe dtype
-  aliases separately rather than silently broadening accepted syntax.
+- [ ] Unregistered function names still need a one-call repair path; measure their
+  frequency in the full run before adding guidance.
 - [ ] Teach recovery from parsing/conversion failures: inspect the relevant input
   and test normalization before retrying. Avoid repeated coercion or row dropping
   that merely hides the original data problem.

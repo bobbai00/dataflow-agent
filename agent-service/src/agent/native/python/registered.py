@@ -180,7 +180,8 @@ def parse_registered_changes(source):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 raise ValueError(f"Line {line}: the definition must call an operator type by name.")
             if any(not isinstance(arg, ast.Name) for arg in node.args):
-                raise ValueError(f"Line {line}: positional arguments must be input operator IDs; settings use keywords.")
+                raise ValueError(f"Line {line}: positional arguments must be input operator IDs; settings use keywords. "
+                                 "Declare a nested call as its own set statement and pass its ID.")
             if any(kw.arg is None for kw in node.keywords):
                 raise ValueError(f"Line {line}: keyword unpacking is not supported.")
             keys = [kw.arg for kw in node.keywords]

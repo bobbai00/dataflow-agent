@@ -105,6 +105,14 @@ import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
 import { planSeedSources, registeredSeedStatement } from "./native/seed-sources";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
+import {
+  REPEATED_FAILURE_LIMIT,
+  REPEATED_FAILURE_WARNING,
+  repeatedFailure,
+  repeatedFailureError,
+  repeatedFailureFeedback,
+  type RepeatedFailure,
+} from "./native/failure-loop";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
@@ -1999,6 +2007,9 @@ export class TexeraAgent {
   ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
+    // Failed/stopped turns still consumed model responses. Preserve their
+    // reported usage; absent provider fields remain unknown rather than zero.
+    const recordedUsage: TokenUsage = {};
     this.nativeActionAnswer = undefined;
 
     await this.refreshWorkflowFromBackend();
@@ -2058,6 +2069,9 @@ export class TexeraAgent {
       const turnStartStepIndex = stepIndex;
       let protocolFeedbackSteps = 0;
       let budgetFeedbackSteps = 0;
+      let repeatedFailureFeedbackSteps = 0;
+      let failureStreak = 0;
+      let lastFailure: RepeatedFailure | undefined;
       const budgetReminders = new Set<number>();
       const runDriverOnce = (seed: ModelMessage[], maxSteps: number = this.settings.maxSteps) =>
         this.driver.runTurn({
@@ -2071,10 +2085,17 @@ export class TexeraAgent {
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
+            // Stop before another request, after the failed step is fully saved.
+            if (lastFailure && failureStreak >= REPEATED_FAILURE_LIMIT) throw new Error(repeatedFailureError(lastFailure));
             const preparing = Date.now();
             this.log.info({ messageId, stepNumber }, "preparing step");
             const remaining =
-              this.settings.maxSteps - (stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps);
+              this.settings.maxSteps -
+              (stepIndex -
+                turnStartStepIndex -
+                protocolFeedbackSteps -
+                budgetFeedbackSteps -
+                repeatedFailureFeedbackSteps);
             if (
               this.settings.agentMode === AgentMode.NATIVE &&
               [3, 1].includes(remaining) &&
@@ -2155,6 +2176,11 @@ export class TexeraAgent {
           },
           onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
             stepIndex++;
+            for (const key of Object.keys(usage ?? {}) as (keyof TokenUsage)[]) {
+              const value = usage?.[key];
+              if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+                recordedUsage[key] = (recordedUsage[key] ?? 0) + value;
+            }
             const finishing = Date.now();
             this.log.info(
               {
@@ -2221,6 +2247,35 @@ export class TexeraAgent {
             await this.runPostStepExecution(toolCalls, toolResults);
             this.log.info({ messageId, stepIndex, postStepMs: Date.now() - finishing }, "post-step done");
 
+            // Identical failures in a row spend the turn's budget on nothing:
+            // one correction after two, and the turn ends after four. Counted
+            // per model decision; a success, a different failure, or a changed
+            // graph resets the streak.
+            const failure =
+              this.settings.agentMode === AgentMode.NATIVE
+                ? repeatedFailure(agentStep, this.workflowState.getWorkflowContent())
+                : undefined;
+            failureStreak = failure && failure.signature === lastFailure?.signature ? failureStreak + 1 : failure ? 1 : 0;
+            lastFailure = failure;
+            if (failure && failureStreak === REPEATED_FAILURE_WARNING) {
+              const feedbackId = this.generateStepId();
+              this.addStep({
+                id: feedbackId,
+                parentId: this.head,
+                messageId,
+                stepId: ++stepIndex,
+                timestamp: Date.now(),
+                role: "user",
+                content: repeatedFailureFeedback(failure, this.workflowState.getWorkflowContent()),
+                isBegin: false,
+                isEnd: true,
+                messageSource: "feedback",
+              });
+              this.head = feedbackId;
+              repeatedFailureFeedbackSteps++;
+              this.log.info({ messageId, stepIndex, head: failure.head }, "recorded one repeated-failure correction");
+            }
+
             isFirstStep = false;
           },
         });
@@ -2233,7 +2288,8 @@ export class TexeraAgent {
       const runDriverWithRetry = async (seed: ModelMessage[]) => {
         const partials: DriverRunTurnResult[] = [];
         for (let attempt = 0; ; ) {
-          const stepsDone = stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps;
+          const stepsDone =
+            stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps - repeatedFailureFeedbackSteps;
           try {
             const result = await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
             if (!partials.length) return result;
@@ -2387,7 +2443,7 @@ export class TexeraAgent {
         return {
           response: "",
           messages: [],
-          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          usage: recordedUsage,
           stopped: true,
         };
       }
@@ -2411,7 +2467,7 @@ export class TexeraAgent {
       return {
         response: "",
         messages: [],
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        usage: recordedUsage,
         stopped: false,
         error: error.message || String(error),
       };
