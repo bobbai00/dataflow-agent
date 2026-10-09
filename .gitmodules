@@ -1,0 +1,4 @@
+[submodule "benchmark/Kramabench"]
+	path = benchmark/Kramabench
+	url = git@github.com:bobbai00/Kramabench.git
+	branch = stable

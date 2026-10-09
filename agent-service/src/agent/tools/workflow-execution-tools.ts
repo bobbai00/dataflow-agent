@@ -25,11 +25,14 @@ import { getBackendConfig } from "../../api/backend-api";
 import { env } from "../../config/env";
 import type { LogicalPlan, LogicalLink } from "../../api/execution-api";
 import type { OperatorInfo, SyncExecutionResult } from "../../types/execution";
+import { annotateMissingPath } from "../util/missing-path-hint";
 import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { partitionOpsByIndependence, type PartitionGroup } from "../util/subdag-partition";
 import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { createLogger } from "../../logger";
+import { prepareStructuredExecutionResult } from "../native/execution-transport";
+import { orderedResultIds } from "../native/result-versions";
 
 const log = createLogger("ExecutionTools");
 
@@ -42,6 +45,7 @@ export interface ExecutionConfig {
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   executionTimeoutMs?: number;
+  structuredResults?: boolean;
 }
 
 /**
@@ -149,10 +153,13 @@ function combineValidations(...validations: OperatorValidation[]): OperatorValid
   return { isValid, messages };
 }
 
-function validateWorkflow(workflowState: WorkflowState): WorkflowValidationResult {
+function validateWorkflow(
+  workflowState: WorkflowState,
+  operators: readonly OperatorPredicate[] = workflowState.getAllEnabledOperators()
+): WorkflowValidationResult {
   const errors: Record<string, Record<string, string>> = {};
 
-  for (const operator of workflowState.getAllEnabledOperators()) {
+  for (const operator of operators) {
     const schemaValidation = validateOperatorSchema(operator.operatorType, operator.operatorProperties);
     const connectionValidation = validateOperatorConnection(operator.operatorID, workflowState);
     const combined = combineValidations(schemaValidation, connectionValidation);
@@ -181,9 +188,21 @@ function formatWorkflowValidationErrors(validationResult: WorkflowValidationResu
   return lines.join("\n");
 }
 
+/** Test seam: the shipped plan is the contract with the execution service,
+ *  and its SIZE is load-bearing (see execution-subdag.test.ts). */
+export function buildLogicalPlanForTest(workflowState: WorkflowState, opsToViewResult?: string[]): LogicalPlan {
+  return buildLogicalPlan(workflowState, opsToViewResult);
+}
+
 function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string[]): LogicalPlan {
-  const useSubDAG = opsToViewResult && opsToViewResult.length === 1;
-  const targetOperatorId = useSubDAG ? opsToViewResult[0] : undefined;
+  // Prune to the upstream closure of the requested targets — ANY number of
+  // them. This was previously gated on `length === 1`, so a step that touched
+  // two connected operators (the common case under parallel tool calls) shipped
+  // the ENTIRE workflow. Past ~200 KB of plan JSON the execution service
+  // answers `400 Unable to process JSON`, nothing executes, and every operator
+  // renders `(not executed)` — which the model reads as "my code produced
+  // nothing" and rewrites in a loop until its step budget is gone.
+  const targets = opsToViewResult && opsToViewResult.length > 0 ? opsToViewResult : undefined;
 
   let operatorsList: { operatorID: string; operatorType: string; [key: string]: any }[];
   let linksList: LogicalLink[];
@@ -202,8 +221,8 @@ function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string
     return idx >= 0 ? idx : 0;
   };
 
-  if (targetOperatorId) {
-    const subDAG = workflowState.getSubDAG(targetOperatorId);
+  if (targets) {
+    const subDAG = workflowState.getSubDAGForTargets(targets);
 
     operatorsList = subDAG.operators.map(op => ({
       ...op.operatorProperties,
@@ -250,6 +269,10 @@ function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string
     operators: operatorsList,
     links: linksList,
     opsToViewResult: allOpsToView,
+    savedOutputs: Object.fromEntries(operatorsList.flatMap(op => {
+      const saved = workflowState.getOperator(op.operatorID)?.savedResult;
+      return saved ? [[op.operatorID, { executionId: saved.executionId, operatorId: saved.operatorId, outputPort: saved.outputPort }]] : [];
+    })),
   };
 }
 
@@ -296,7 +319,31 @@ function buildLogicalPlanFromSubDAG(
     operators: operatorsList,
     links: linksList,
     opsToViewResult: opsToView.filter(id => opIds.has(id)),
+    savedOutputs: Object.fromEntries(subDAG.operators.flatMap(op => {
+      const saved = op.savedResult;
+      return saved ? [[op.operatorID, { executionId: saved.executionId, operatorId: saved.operatorId, outputPort: saved.outputPort }]] : [];
+    })),
   };
+}
+
+/** How long past the engine's own execution timeout the client keeps waiting:
+ * the engine answers a timed-out run itself ("Timeout after N seconds") after
+ * killing it, so the client deadline must come later. */
+const EXECUTION_REQUEST_MARGIN_MS = 60_000;
+
+/** Request options for an execution call. Bun's fetch drops any request older
+ * than 240-300 s on a periodic sweep unless `timeout: false` (measured: a
+ * never-answered request fails at 300 s with or without a longer signal, and
+ * at our deadline with `timeout: false`). That cut every execution longer
+ * than about four minutes short although the engine was given 10 minutes, and
+ * left the run executing in the engine. The wait is now bounded by the
+ * engine's timeout plus a margin, and by the caller's abort signal. */
+export function executionRequestLimits(
+  timeoutSeconds: number,
+  abortSignal?: AbortSignal
+): { signal: AbortSignal; timeout: false } {
+  const deadline = AbortSignal.timeout(timeoutSeconds * 1000 + EXECUTION_REQUEST_MARGIN_MS);
+  return { signal: abortSignal ? AbortSignal.any([abortSignal, deadline]) : deadline, timeout: false };
 }
 
 async function executeWorkflowHttp(
@@ -322,6 +369,8 @@ async function executeWorkflowHttp(
 
   const request = {
     executionName: "agent-execution",
+    ...(config.structuredResults ? { structuredResults: true } : {}),
+    ...(Object.keys(logicalPlan.savedOutputs ?? {}).length ? { workflowSettings: { savedOutputs: logicalPlan.savedOutputs } } : {}),
     logicalPlan: {
       operators: logicalPlan.operators,
       links: logicalPlan.links,
@@ -352,15 +401,16 @@ async function executeWorkflowHttp(
         Authorization: `Bearer ${config.userToken}`,
       },
       body: JSON.stringify(request),
-      signal: options.abortSignal,
-    });
+      ...executionRequestLimits(timeoutSeconds, options.abortSignal),
+    } as RequestInit);
 
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Execution request failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    return (await response.json()) as SyncExecutionResult;
+    const result = (await response.json()) as SyncExecutionResult;
+    return config.structuredResults ? prepareStructuredExecutionResult(result, workflowId, logicalPlan) : result;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -446,12 +496,17 @@ export function persistOperatorResults(
   onResult?: (operatorId: string, info: OperatorInfo) => void
 ): void {
   if (!onResult || !operators) return;
-  for (const [opId, info] of Object.entries(operators)) {
+  for (const opId of orderedResultIds(operators)) {
+    const info = operators[opId];
     if (!info) continue;
     const hasResult = info.result !== undefined && info.result !== null;
     const hasError = typeof info.error === "string" && info.error.length > 0;
     if (!hasResult && !hasError) continue;
-    onResult(opId, info);
+    // A missing-file error is the one failure the agent cannot debug by
+    // reading its own code: it has no way to list the filesystem. Attach the
+    // real paths carrying that basename so one failure ends the search instead
+    // of starting a guessing loop.
+    onResult(opId, hasError ? { ...info, error: annotateMissingPath(info.error as string) } : info);
   }
 }
 
@@ -712,15 +767,25 @@ export async function executeWorkflowAndPersist(
   const release = await getWorkflowMutex(config.workflowId).acquire();
 
   try {
-    // Validation is structural and doesn't depend on which subset is
-    // being executed, so run it once up front whether we partition or not.
-    const validationResult = validateWorkflow(workflowState);
+    const opsToView = options.opsToViewResult ?? [];
+    const invalid = opsToView.filter(id => !workflowState.getOperator(id) || workflowState.getOperator(id)?.isDisabled);
+    if (invalid.length) {
+      return {
+        success: false,
+        state: "ValidationFailed",
+        opCount: 0,
+        errorCount: 0,
+        errorText: `Unknown or disabled execution targets: ${invalid.join(", ")}.`,
+      };
+    }
+    // Validate the same upstream closure that will be submitted. Unfinished
+    // explorations outside it must not prevent this task from executing.
+    const operators = opsToView.length ? workflowState.getSubDAGForTargets(opsToView).operators : undefined;
+    const validationResult = validateWorkflow(workflowState, operators);
     if (!validationResult.isValid) {
       const errorText = formatWorkflowValidationErrors(validationResult);
       return { success: false, state: "ValidationFailed", opCount: 0, errorCount: 0, errorText };
     }
-
-    const opsToView = options.opsToViewResult ?? [];
 
     // Multi-op case: partition into independent groups. Only switch to
     // the per-group execution path when partitioning actually yields

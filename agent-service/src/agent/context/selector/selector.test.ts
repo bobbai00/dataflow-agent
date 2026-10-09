@@ -73,8 +73,9 @@ describe("extractFeatures — roles on the rich scenario", () => {
     expect(feats.operators.get("by_region")?.editCount).toBe(3);
     expect(feats.trajectory.anyThrashing).toBe(true);
   });
-  test("categorical low-cardinality is detected from stats", () => {
-    expect(feats.operators.get("sales")?.categoricalLowCard).toBe(true); // region distinct=4
+  test("retired worker statistics cannot steer the selector", () => {
+    expect(feats.operators.get("sales")?.categoricalLowCard).toBe(false);
+    expect(feats.operators.get("sales")?.hasColumnStats).toBe(false);
   });
 });
 
@@ -96,7 +97,7 @@ describe("selectParams — per-operator allocation", () => {
     expect(p.property.includeCode).toBe(true);
     expect(p.property.codeHistory).toBe(DEFAULT_SELECTOR_CONFIG.historyDepth);
     expect(p.result.history.lastK).toBe(DEFAULT_SELECTOR_CONFIG.historyDepth);
-    expect(p.result.latest.column.structuralHints).toBe(true);
+    expect(Object.hasOwn(p.result.latest.column ?? {}, "structuralHints")).toBe(false);
   });
 
   test("blocked operator is omitted", () => {
@@ -106,12 +107,12 @@ describe("selectParams — per-operator allocation", () => {
   test("near-frontier upstream keeps a sample + categorical stats", () => {
     const p = resolveOperatorParams(params, "sales");
     expect(p.result.latest.detail).toBe("sample");
-    expect(p.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(p.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("flow insurance is on and error-reflection fires under thrash", () => {
-    expect(params.flow.errorContext).toBe(true);
-    expect(params.flow.loaderHints).toBe(true);
+    expect(Object.hasOwn(params.flow ?? {}, "errorContext")).toBe(false);
+    expect(Object.hasOwn(params.flow ?? {}, "loaderHints")).toBe(false);
     expect(params.flow.errorReflection).toBe(true);
   });
 });
@@ -127,8 +128,8 @@ describe("SelectorConfig knobs move the policy", () => {
   });
   test("insurance=false drops the flow rungs", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ insurance: false }));
-    expect(p.flow.loaderHints).toBeFalsy();
-    expect(p.flow.errorContext).toBeFalsy();
+    expect(Object.hasOwn(p.flow ?? {}, "loaderHints")).toBe(false);
+    expect(Object.hasOwn(p.flow ?? {}, "errorContext")).toBe(false);
   });
   test("frontierSampleRows flows through to the frontier op", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ frontierSampleRows: 3 }));
@@ -228,9 +229,7 @@ describe("selector → summarize render", () => {
 
   test("insurance flows section appears (needs-attention)", () => {
     const { text } = renderWith();
-    expect(text).toContain("# Operators needing attention");
+    expect(text).not.toContain("# Operators needing attention");
     expect(text).toContain("# Reasoning (your recent steps)");
   });
 });
-
-

@@ -94,10 +94,6 @@ function sourceIsUnsettled(f: OperatorFeatures, cfg: SelectorConfig): boolean {
  *  contaminants), cheaply. Mutates and returns `col`. */
 function overlayDataShape(col: Record<string, unknown>, f: OperatorFeatures): Record<string, unknown> {
   col.schema = true;
-  if (f.categoricalLowCard) col.stats = true;
-  if (f.numericAsText) {
-    col.valueFormatHints = true;
-  }
   return col;
 }
 
@@ -129,7 +125,7 @@ export function buildOverride(f: OperatorFeatures, cfg: SelectorConfig): Operato
       };
 
     case "frontier": {
-      const col = overlayDataShape({ structuralHints: true }, f);
+      const col = overlayDataShape({}, f);
       const ov: OperatorParamsOverride = {
         property: { includeCode: cfg.frontierIncludeCode, ...(history?.property ?? {}) },
         result: {
@@ -142,7 +138,6 @@ export function buildOverride(f: OperatorFeatures, cfg: SelectorConfig): Operato
 
     case "near-frontier": {
       const col: Record<string, unknown> = { schema: true };
-      if (f.categoricalLowCard) col.stats = true;
       return {
         result: {
           latest: { detail: "sample", tuple: { sampleRows: cfg.nearFrontierSampleRows }, column: col as never },
@@ -152,7 +147,7 @@ export function buildOverride(f: OperatorFeatures, cfg: SelectorConfig): Operato
 
     case "source": {
       if (sourceIsUnsettled(f, cfg)) {
-        const col = overlayDataShape({ structuralHints: true }, f);
+        const col = overlayDataShape({}, f);
         return {
           property: { includeCode: cfg.frontierIncludeCode, ...(history?.property ?? {}) },
           result: {
@@ -190,8 +185,6 @@ export function selectParams(dossier: Dossier, config: SelectorConfig = DEFAULT_
 
   const flow = config.insurance
     ? {
-        loaderHints: true,
-        errorContext: true,
         errorReflection: feats.trajectory.anyThrashing,
       }
     : { errorReflection: feats.trajectory.anyThrashing };

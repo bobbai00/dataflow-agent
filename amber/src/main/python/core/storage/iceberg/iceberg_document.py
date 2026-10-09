@@ -63,6 +63,7 @@ class IcebergDocument(VirtualDocument[T]):
         table_schema: Schema,
         serde: Callable[[Schema, Iterable[T]], pa.Table],
         deserde: Callable[[Schema, pa.Table], Iterable[T]],
+        warehouse: Optional[str] = None,
     ):
         self.table_namespace = table_namespace
         self.table_name = table_name
@@ -71,7 +72,7 @@ class IcebergDocument(VirtualDocument[T]):
         self.deserde = deserde
 
         self.lock = rwlock.RWLockFair()
-        self.catalog = IcebergCatalogInstance.get_instance()
+        self.catalog = IcebergCatalogInstance.get_instance(warehouse)
 
     def get_uri(self) -> ParseResult:
         """Returns the URI of the table location."""
@@ -92,6 +93,13 @@ class IcebergDocument(VirtualDocument[T]):
     def get(self) -> Iterator[T]:
         """Get an iterator for reading all records from the table."""
         return self._get_using_file_sequence_order(0, None)
+
+    def get_arrow_tables(self) -> Iterator[pa.Table]:
+        """All records as the Arrow tables of the data files, in the order
+        ``get`` yields their rows, before any conversion to T."""
+        iterator = self._get_using_file_sequence_order(0, None)
+        for task in iterator.usable_file_iterator:
+            yield read_data_file_as_arrow_table(task, iterator.table)
 
     def get_range(self, from_index: int, until_index: int) -> Iterator[T]:
         """Get records within a specified range [from, until)."""

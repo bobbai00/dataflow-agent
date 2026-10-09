@@ -1,0 +1,26 @@
+{
+ "name": "boston-housing",
+ "workflowName": "Demo: Boston house values (agent)",
+ "agentName": "Bob",
+ "maxSteps": 40,
+ "turns": [
+  {
+   "say": "whats in this file? /agent-demo@texera.dev/boston-housing-demo/v4/boston_single_family_fy2026_demo.csv"
+  },
+  {
+   "say": "which neighborhoods are the pricey ones? bar chart pls"
+  },
+  {
+   "say": "roslindale being #1 makes no sense to me. show me the distribution of home values in roslindale"
+  },
+  {
+   "say": "yeah those are junk - a single family home isnt worth $100 million. drop anything over 10 million and redo the neighborhood chart"
+  },
+  {
+   "say": "how many rows did that throw away? and check the other neighborhoods have the same problem or not"
+  },
+  {
+   "say": "ok good. now on the clean data, can you predict a home's value from its size and rooms? just tell me how good it gets"
+  }
+ ]
+}

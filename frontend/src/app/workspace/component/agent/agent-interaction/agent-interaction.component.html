@@ -22,10 +22,16 @@
   <div
     *ngIf="sampleRecords && sampleRecords.length > 0 && isVisualization()"
     class="visualization-section">
+    <!-- `allow-same-origin` is required: with `allow-scripts` alone the frame gets
+         an opaque origin, so Plotly's `localStorage` probe throws and the chart
+         never renders (the panel showed an empty white box). The same
+         engine-produced HTML is rendered by the result panel in an iframe with
+         no sandbox at all, so this is still the tighter of the two — popups,
+         forms and top-level navigation stay blocked. -->
     <iframe
       [srcdoc]="getVisualizationHtml()"
       class="visualization-iframe"
-      sandbox="allow-scripts"></iframe>
+      sandbox="allow-scripts allow-same-origin"></iframe>
   </div>
 
   <!-- Sample Records Table -->

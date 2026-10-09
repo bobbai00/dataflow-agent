@@ -18,11 +18,11 @@
 server:
   applicationConnectors:
     - type: http
-      port: 8888
+      port: ${TEXERA_COMPUTING_UNIT_MANAGER_PORT:-8888}
 
   adminConnectors:
     - type: http
-      port: 8082
+      port: ${TEXERA_COMPUTING_UNIT_MANAGER_ADMIN_PORT:-8082}
   requestLog:
     type: classic
     appenders: []

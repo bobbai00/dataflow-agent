@@ -19,7 +19,7 @@ server:
   applicationContextPath: /
   applicationConnectors:
     - type: http
-      port: 8085
+      port: ${TEXERA_MASTER_PORT:-8085}
 
   # Disable the admin connectors if you don't need an admin interface
   adminConnectors: []

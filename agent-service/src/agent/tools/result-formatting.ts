@@ -18,64 +18,47 @@
  */
 
 import type { OperatorInfo } from "../../types/execution";
+import { parseNativeDiagnostic, nativeDiagnosticIssue, resolveNativeDiagnostic } from "../native/diagnostics";
+import { nativeOperatorName } from "../native/catalog";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
+import {
+  restrictNativeObservation,
+  selectNativeObservation,
+  type NativeEvidenceContext,
+  type NativeObservation,
+  type NativeObservationOptions,
+} from "../native/evidence";
 import type { WorkflowState } from "../workflow-state";
+import { shareNativeObservation } from "../native/evidence-compaction";
 import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
 // result-formatting orchestrates them in the established composition order and
 // owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
-import { RESERVED_STATS_KEYS, COERCION_TELEMETRY_KEY } from "../context/decorate/data/reserved-keys";
 import { formatSchemaLine } from "../context/decorate/data/schema";
-import { formatColumnStats } from "../context/decorate/data/column-stats";
-import { formatTableHints, formatFileIo } from "../context/decorate/data/structural-profile";
-import { formatValueFormatHints } from "../context/decorate/data/value-format";
-import { formatReservedDiag } from "../context/decorate/data/diagnostics";
 import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
 // reference them from this module.
-export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatFileIo, formatReservedDiag };
+export { formatSchemaLine };
 
 export interface FormatOperatorResultOptions {
+  /** V2 evidence shares the result body budget. A recorded DELTA frame wins
+   * over today's exposure settings; only explicit compaction may shorten it. */
+  nativeEvidence?: Pick<NativeEvidenceContext, "workflow" | "resolveInput"> &
+    NativeObservationOptions & { frozen?: NativeObservation; compact?: boolean; sharedUpstream?: Map<string, string> };
+  /** The operator definition that earned this result. Historical observations
+   *  must echo failed parameters/code from their snapshot, not a later edit
+   *  (or deletion) in the live DAG. Undefined keeps the current-state lookup. */
+  operatorAtEvent?: OperatorPredicate;
   /** When true, prepend a compact `Schema:` line listing every output column
    *  as `name (type)`, derived from `opInfo.columnStats` (the `(type)` tag) or
    *  the result-row headers (names only). A cheaper, complete substitute for
    *  the fuller `Column Schema and stats:` block. Defaults to false. */
   schemaInResult?: boolean;
-  /** When true, append the full per-column `Column Schema and stats:` block (null counts,
-   *  mean/min/max, distinct, top-N histograms, datetime range) the worker
-   *  publishes on `columnStats`. Standalone — independent of the data ladder, so
-   *  it composes on top of any `dataLevel`. Matches the format the CODE-mode
-   *  system prompt documents. Defaults to false. */
-  columnStats?: boolean;
-  /** When true, append a `Format hints:` line naming string columns the backend
-   *  detected as numbers wearing formatting punctuation (currency `$1,234`,
-   *  thousands-separated, percent, accounting `(1,234)`) and the cleaning the
-   *  model should apply BEFORE numeric conversion. Detection is done in the
-   *  Python worker over the *whole* column via pandas (see
-   *  data_processor._detect_numeric_format) and shipped as a `format=<tag>`
-   *  field on `columnStats`; this side only renders. Targets silent
-   *  to_numeric(errors='coerce') dataloss. Defaults to false. */
-  valueFormatFlags?: boolean;
-  /** When true, surface a coercion-dataloss line for any
-   *  `to_numeric/to_datetime(errors="coerce")` that the worker's transparent
-   *  instrumentation saw silently null a material block of values — with a
-   *  SAMPLE of the dropped values. Read from the reserved `__coercion_telemetry__`
-   *  entry on columnStats (see coercion_telemetry.py). Alarm-only. Defaults to false. */
-  coercionTelemetry?: boolean;
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
-  /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
-   *  (table grain/key, low-cardinality partition/gate columns, dirty-load:
-   *  empty rows/cols + duplicates) computed name-agnostically by the worker over
-   *  the whole DataFrame (see data_processor._detect_table_structure). Read from
-   *  the reserved `__table_hints__` entry on columnStats; this side only renders.
-   *  Targets the silent wrong-population / wrong-grain failure class. Default false. */
-  tableStructureHint?: boolean;
-  /** A7: render `Files read: N [names]` for multi-file loaders. Independent of
-   *  tableStructureHint so schema-only arms can carry it too. */
-  fileIoFacts?: boolean;
   /** Resolve an input's COLUMN count from its upstream operator's output. The
    *  engine's input port metrics carry only the row count (tuple count), so the
    *  caller (which has the snapshot) supplies this to fill in `M cols` on the
@@ -98,16 +81,6 @@ export interface FormatOperatorResultOptions {
    *  `maxOperatorResultCharLimit`, which is one engine-side number for the whole
    *  execution and cannot vary per operator. */
   maxResultChars?: number;
-  /** Metric families to keep in the `Column Schema and stats:` block
-   *  ("all" / undefined ⇒ worker strings verbatim). */
-  statsMetrics?: "all" | readonly string[];
-  /** How densely the stats block renders (default "full" = legacy verbatim):
-   *   - "full":    every metric the worker published, on every column.
-   *   - "anomaly": only facts the visible sample does not already prove —
-   *                suppresses the block outright when every row is on screen,
-   *                drops `null=0`, rewrites `distinct` to `unique`/`constant`,
-   *                and drops the `Schema (…)` echo the block subsumes. */
-  statsDensity?: "full" | "anomaly";
   /** Include `(type)` tags on the Schema line (default true). */
   schemaTypes?: boolean;
   /** Sample-based duplicate rows / identical-column detection line. */
@@ -115,6 +88,11 @@ export interface FormatOperatorResultOptions {
   /** Sample-based candidate functional-dependency line. */
   sampleFdHints?: boolean;
   /** Sample-based `Type anomaly:` line — text columns that are mostly numeric. */
+  /** Native `scoped` selection: restrict the TSV sample and the `Column Schema
+   *  and stats:` block to these columns (the ones the operator's parameters
+   *  name). The `Output Table` line and the `Schema:` line stay complete. An
+   *  empty list drops the stats block and leaves the sample unprojected. */
+  columns?: readonly string[];
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -135,12 +113,124 @@ function containsCellTruncation(value: unknown): boolean {
   return false;
 }
 
+/**
+ * NATIVE operators: the engine's error text points into the GENERATED Python
+ * (`(line 21) \`d = _con.sql(q).df()\` - BinderException: …`), which the agent
+ * never wrote. Rewrite it in the agent's own terms: the typed operator, the
+ * engine message without the line pointer and exception class, and for a
+ * downstream operator that never ran, the upstream operator that failed.
+ *
+ *   `(line N) \`…\` - BinderException: Binder Error: X`      → `Filter \`id\` failed: Binder Error: X`
+ *   `execution failed — … Execution error: up: (line N) … X` → `not executed — upstream \`up\` failed: X`
+ *   `execution failed — … Error: The operation timed out.`   → `not executed — the execution timed out`
+ */
+/** Engine type spellings → the vocabulary every Schema line already uses, so
+ *  the model reads one type system instead of three (ours, DuckDB's, pandas').
+ *  Measured: SQL type words reached the prompt in 54 of 104 tasks. */
+const ENGINE_TYPE_WORDS: Array<[RegExp, string]> = [
+  [/\b(?:VARCHAR|CHAR|TEXT|STRING)\b/g, "str"],
+  [
+    /\b(?:BIGINT|HUGEINT|INTEGER|SMALLINT|TINYINT|UBIGINT|UINTEGER|DOUBLE|FLOAT|REAL|DECIMAL(?:\(\d+,\s*\d+\))?)\b/g,
+    "numeric",
+  ],
+  // DuckDB names an untyped constant `INTEGER_LITERAL` / `VARCHAR_LITERAL`
+  [/\b(?:INTEGER|DECIMAL|DOUBLE)_LITERAL\b/g, "numeric literal"],
+  [/\bVARCHAR_LITERAL\b/g, "str literal"],
+  [/\b(?:int64|float64|int32|float32)\b/g, "numeric"],
+  [/\b(?:TIMESTAMP(?:_[A-Z]+)?|DATETIME|DATE|TIME)\b/g, "datetime"],
+  [/\bdatetime64\[[^\]]*\]/g, "datetime"],
+  [/\bBOOLEAN\b/g, "bool"],
+  [/\b(?:BLOB|BYTEA)\b/g, "binary"],
+];
+
+/** Rewrite one engine message into our terms: our type names, and none of the
+ *  engine's own vocabulary for where it went wrong. */
+export function normalizeEngineTypes(msg: string): string {
+  let out = msg;
+  for (const [rx, name] of ENGINE_TYPE_WORDS) out = out.replace(rx, name);
+  return out
+    .replace(/\b(?:Binder|Conversion|Parser|Catalog|Invalid Input) Error: /g, "")
+    .replace(/ in FROM clause/g, "")
+    .replace(/\bReferenced (table|column) /g, "column ")
+    .trim();
+}
+
+/** Whether `operatorId` reads, directly or through other operators, from
+ * `rootId`. Walks the native inputs of the workflow as it was at the event
+ * (historical renders must not consult a later edit), else the live state. */
+export function readsFrom(
+  operatorId: string,
+  rootId: string,
+  workflow: WorkflowContent | undefined,
+  workflowState: WorkflowState
+): boolean {
+  const inputsOf = (id: string): string[] => {
+    const op = workflow?.operators.find(o => o.operatorID === id) ?? workflowState.getOperator(id);
+    if (op?.nativeOp) return op.nativeOp.inputs;
+    const links = workflow?.links ?? workflowState.getAllLinks();
+    return links.filter(l => l.target.operatorID === id).map(l => l.source.operatorID);
+  };
+  const seen = new Set<string>();
+  const stack = [operatorId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const input of inputsOf(id)) {
+      if (input === rootId) return true;
+      if (!seen.has(input)) {
+        seen.add(input);
+        stack.push(input);
+      }
+    }
+  }
+  return false;
+}
+
 export function formatOperatorResult(
   operatorId: string,
   opInfo: OperatorInfo,
   workflowState: WorkflowState,
   options: FormatOperatorResultOptions = {}
 ): string {
+  const eventOp = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
+  if (opInfo.error && eventOp?.nativeOp) {
+    const diagnostic =
+      opInfo.nativeError?.diagnostic ??
+      resolveNativeDiagnostic(
+        eventOp,
+        opInfo.error,
+        id =>
+          options.nativeEvidence?.workflow.operators.find(op => op.operatorID === id) ?? workflowState.getOperator(id)
+      );
+    const rootInfo = options.nativeEvidence?.resolveInput(diagnostic.operatorId);
+    const rootDiagnostic =
+      rootInfo?.nativeError?.diagnostic ?? (rootInfo?.error ? parseNativeDiagnostic(rootInfo.error) : undefined);
+    const name = `${nativeOperatorName(eventOp.nativeOp.type)} \`${operatorId}\``;
+    if (diagnostic.operatorId !== operatorId) {
+      // The engine aborts the whole run at the first failure and hands every
+      // unfinished operator the same payload. Say which case this is: a
+      // consumer of the failed operator, or a bystander whose own definition is
+      // not implicated and which merely needs that operator repaired or removed.
+      const reads = readsFrom(operatorId, diagnostic.operatorId, options.nativeEvidence?.workflow, workflowState);
+      const rootConfirmed =
+        rootInfo?.error &&
+        rootDiagnostic?.operatorId === diagnostic.operatorId &&
+        rootDiagnostic.operatorRevision === diagnostic.operatorRevision &&
+        rootDiagnostic.code === diagnostic.code;
+      if (!reads) {
+        return `- not run: ${name}; the run stopped when \`${diagnostic.operatorId}\` failed (${diagnostic.code}). \`${operatorId}\` does not read from \`${diagnostic.operatorId}\`, so its own definition is not implicated; it runs once that operator is repaired or deleted.`;
+      }
+      if (rootConfirmed) {
+        return `- not run: ${name}; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}). Repair that operator; this consumer did not run.`;
+      }
+    }
+    return (
+      (diagnostic.operatorId !== operatorId
+        ? `- not run: ${name}; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}).\n`
+        : "") +
+      nativeDiagnosticIssue(diagnostic) +
+      (opInfo.nativeError?.phase === "attempt" ? "\n- note: rejected edit; dataflow definition unchanged." : "")
+    );
+  }
   if (opInfo.error && options.detail === "shape") {
     // Shape-level error render: the first line carries the exception; the
     // traceback + code echo are the "sample-level" detail.
@@ -152,7 +242,7 @@ export function formatOperatorResult(
     // the operator's code is appended HERE, from the DAG's own
     // operatorProperties — so the agent still sees exactly what code failed,
     // without the engine duplicating it into every error payload.
-    const op = workflowState.getOperator(operatorId);
+    const op = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
     const code = String((op?.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
     const codeBlock = code ? `\nOperator code:\n${code}` : "";
     return `[ERROR] ${opInfo.error}${codeBlock}`;
@@ -160,6 +250,36 @@ export function formatOperatorResult(
 
   if (!opInfo.result || !Array.isArray(opInfo.result)) {
     return "(no result data)";
+  }
+
+  const nativeOp = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
+  if (nativeOp?.nativeOp) {
+    const evidence = options.nativeEvidence;
+    if (evidence?.frozen) {
+      const text = restrictNativeObservation(
+        evidence.frozen,
+        evidence.compact
+          ? { maxChars: options.maxResultChars, maxRows: options.maxResultRows, detail: options.detail }
+          : {}
+      );
+      return shareNativeObservation(text, evidence.frozen, operatorId, evidence.sharedUpstream);
+    }
+    const budget = evidence?.maxChars ?? 2000;
+    const observation = selectNativeObservation({
+      ...evidence,
+      workflow: evidence?.workflow ?? workflowState.getWorkflowContent(),
+      resolveInput: evidence?.resolveInput ?? (() => undefined),
+      op: nativeOp,
+      info: opInfo,
+      data: evidence?.data ?? false,
+      flow: evidence?.flow ?? false,
+      maxChars:
+        options.maxResultChars && options.maxResultChars > 0 ? Math.min(budget, options.maxResultChars) : budget,
+      maxRows: options.maxResultRows,
+      columns: options.columns,
+      detail: options.detail,
+    });
+    return shareNativeObservation(observation.text, observation, operatorId, evidence?.sharedUpstream);
   }
 
   const jsonArray = opInfo.result as Record<string, any>[];
@@ -189,6 +309,15 @@ export function formatOperatorResult(
   // proxy. 0/undefined = no cap (current behavior). Cell-level trim is
   // unaffected (it happens downstream in the TSV renderer / backend).
   let sampleRows = serializableArray;
+  // Column scope: only the named columns (plus the row index) reach the TSV.
+  if (options.columns && options.columns.length > 0) {
+    const keep = new Set(options.columns);
+    sampleRows = sampleRows.map(row => {
+      const projected: Record<string, any> = {};
+      for (const k of Object.keys(row)) if (k === "__row_index__" || keep.has(k)) projected[k] = row[k];
+      return projected;
+    });
+  }
   const cap = options.maxResultRows ?? 0;
   if (cap > 0 && sampleRows.length > cap) {
     const head = Math.ceil(cap / 2);
@@ -262,32 +391,8 @@ export function formatOperatorResult(
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const colStatsBlock =
-    options.columnStats && !completeSmallTableVisible
-      ? formatColumnStats(opInfo, options.statsMetrics ?? "all", options.statsDensity ?? "full")
-      : undefined;
-  // `Schema (N cols): col (type), …` and the stats block both carry every
-  // column's name and type; when both render, the Schema line is a pure echo
-  // (measured: 91.6% of operator blocks carried one, 24,259 chars across the
-  // Rule A arms — the single largest waste class). Under "anomaly" density the
-  // stats block subsumes it.
-  const schemaEchoesStats = options.statsDensity === "anomaly" && colStatsBlock !== undefined;
   const schemaLine =
-    options.schemaInResult && !schemaEchoesStats
-      ? formatSchemaLine(opInfo, options.schemaTypes !== false)
-      : undefined;
-  const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
-  const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
-  const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
-  // The worker's line already reads "files read: N [names]", so it is its own
-  // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
-  // A7: `Files read:` is a CONSUMED fact, not a description of the output, so the
-  // caller renders it OUTSIDE the Result block (parallel to it, next to `Inputs:`).
-  // It is deliberately not part of the joined body below.
-  const fileIoLine = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
-  void fileIoLine;
-  // Sample-based tuple-level profiling (summarize params; explicitly labeled
-  // sample-based — computed over the sampled rows this service holds).
+    options.schemaInResult === true ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
   const fdLine = options.sampleFdHints ? formatSampleFds(serializableArray) : undefined;
   // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
@@ -295,21 +400,42 @@ export function formatOperatorResult(
   // schema+stats / format & structure hints), so annotations read AFTER the data
   // they refer to. Flow rungs live in context-utils' "Operators needing
   // attention" section; result-formatting owns only the data facet + TSV.
-  return [
-    ...metadataLines,
-    dataString,
-    schemaLine,
-    colStatsBlock,
-    formatHints,
-    coercionLine,
-    tableHintsLine,
-    dupLine,
-    fdLine,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return [...metadataLines, dataString, schemaLine, dupLine, fdLine].filter(Boolean).join("\n");
 }
 
+/**
+ * Estimated FULL serialized size of an operator's output table, in characters.
+ *
+ * The size-advertising fact for recall scaling: a later turn deciding how many
+ * characters of an old result to pull needs to know how big that result is \u2014
+ * `includeOutputTableSample: 2000` against a 4k table is the whole thing;
+ * against a 400k table it is 0.5%. Only a row SAMPLE is materialized here, so
+ * the estimate is mean sample-row TSV length x total row count (+ header).
+ * Undefined when there are no rows to measure.
+ */
+export function estimateTableChars(opInfo: OperatorInfo): number | undefined {
+  const rows = Array.isArray(opInfo.result) ? opInfo.result : undefined;
+  if (!rows || rows.length === 0) return undefined;
+  const cols = Object.keys(rows[0] ?? {}).filter(c => !c.startsWith("__"));
+  if (cols.length === 0) return undefined;
+  const line = (r: Record<string, unknown>): number =>
+    cols.reduce((n, c) => n + String(r[c] ?? "").length, 0) + cols.length; // + tabs/newline
+  const sampled = rows.slice(0, 50);
+  const mean = sampled.reduce((n, r) => n + line(r as Record<string, unknown>), 0) / sampled.length;
+  const total =
+    typeof opInfo.totalRowCount === "number" && opInfo.totalRowCount > 0 ? opInfo.totalRowCount : rows.length;
+  const header = cols.join("\t").length + 1;
+  return Math.round(header + mean * total);
+}
+
+/** `~48k chars` / `321 chars` \u2014 the human-scale rendering of estimateTableChars. */
+export function formatApproxChars(chars: number): string {
+  return chars >= 10_000
+    ? `~${Math.round(chars / 1000)}k chars`
+    : chars >= 1000
+      ? `~${(chars / 1000).toFixed(1)}k chars`
+      : `~${chars} chars`;
+}
 function formatInputOutputMetadata(
   workflowState: WorkflowState,
   operatorId: string,
@@ -420,6 +546,53 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
   }
 
   return [headerLine, ...formattedRows].join("\n");
+}
+
+/**
+ * Clamp a rendered `Code:` block to a char budget, keeping whole lines from the
+ * HEAD and the TAIL and eliding the middle with a line-count marker.
+ *
+ * Head AND tail, not a prefix: the head carries the signature, imports and loads;
+ * the tail carries the return value, which is what a downstream operator's schema
+ * depends on. A prefix-only truncation would hide exactly the part that says what
+ * this operator produces.
+ *
+ * Sized for the measured distribution — per-operator code blocks run p50 286 B,
+ * p90 2,014 B, p99 6,081 B, max 16,400 B — so at a realistic budget most blocks
+ * return unchanged and only the long tail is touched.
+ */
+export function clampCodeChars(code: string, budget: number): string {
+  if (budget <= 0 || code.length <= budget) return code;
+  const lines = code.split("\n");
+  if (lines.length <= 2) return code.slice(0, budget);
+
+  const front: string[] = [];
+  const back: string[] = [];
+  // Reserve room for the marker so the result actually lands under budget.
+  const marker = (n: number) => `    # ... ${n} line${n === 1 ? "" : "s"} elided ...`;
+  let used = marker(lines.length).length + 1;
+  let i = 0;
+  let j = lines.length - 1;
+  // Alternate head/tail so both ends survive even at a tight budget; bias to the
+  // head on ties since it establishes what the function is.
+  while (i <= j) {
+    const takeFront = front.length <= back.length;
+    const idx = takeFront ? i : j;
+    const len = (lines[idx] ?? "").length + 1;
+    if (used + len > budget) break;
+    used += len;
+    if (takeFront) {
+      front.push(lines[idx]!);
+      i++;
+    } else {
+      back.unshift(lines[idx]!);
+      j--;
+    }
+  }
+  const elided = j - i + 1;
+  if (elided <= 0) return code;
+  if (front.length === 0 && back.length === 0) return code.slice(0, budget);
+  return [...front, marker(elided), ...back].join("\n");
 }
 
 /**

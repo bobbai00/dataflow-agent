@@ -48,10 +48,22 @@ import io.reactivex.rxjava3.core.Observable
 import org.apache.texera.auth.SessionUser
 import org.apache.texera.dao.SqlServer
 import org.apache.texera.dao.jooq.generated.Tables.OPERATOR_EXECUTIONS
-import org.apache.texera.web.model.websocket.request.{LogicalPlanPojo, WorkflowExecuteRequest}
-import org.apache.texera.workflow.{LogicalLink, WorkflowCompiler}
+import org.apache.texera.common.compiler.model.LogicalPlanPojo
+import org.apache.texera.web.model.websocket.request.WorkflowExecuteRequest
+import org.apache.texera.common.compiler.model.LogicalLink
+import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource
-import org.apache.texera.web.service.{ExecutionResultService, WorkflowService}
+import org.apache.texera.web.service.{
+  ExecutionPhaseMetrics,
+  ExecutionResultService,
+  ResultField,
+  ResultMaterialization,
+  StructuredResultTransport,
+  WorkflowService,
+  WorkflowExecutionService
+}
+import org.apache.texera.web.service.{HistoricalResultService, RetainResultsRequest, SavedResultReadRequest, SavedResultPage}
+import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowAccessResource
 import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
 
 import java.net.URI
@@ -70,7 +82,8 @@ case class SyncExecutionRequest(
     targetOperatorIds: List[String],
     timeoutSeconds: Int,
     maxOperatorResultCharLimit: Int,
-    maxOperatorResultCellCharLimit: Int
+    maxOperatorResultCellCharLimit: Int,
+    structuredResults: Boolean = false
 )
 
 case class ConsoleMessageInfo(
@@ -101,7 +114,12 @@ case class OperatorInfo(
     // _compute_column_stats. JSON-encoded value per column. None when the
     // operator did not produce stats (non-DataProcessing/DataLoading, or
     // stats not yet propagated).
-    columnStats: Option[Map[String, String]]
+    columnStats: Option[Map[String, String]],
+    resultMetadata: Option[Map[String, String]] = None,
+    metadataOmissions: Option[List[String]] = None,
+    numWorkers: Option[Int] = None,
+    resultSchema: Option[List[ResultField]] = None,
+    materialization: Option[ResultMaterialization] = None
 )
 
 case class SyncExecutionResult(
@@ -109,7 +127,11 @@ case class SyncExecutionResult(
     state: String,
     operators: Map[String, OperatorInfo],
     compilationErrors: Option[Map[String, String]],
-    errors: Option[List[String]]
+    errors: Option[List[String]],
+    executionId: Option[String] = None,
+    capabilities: Option[List[String]] = None,
+    inputMaterializations: Option[Map[String, ResultMaterialization]] = None,
+    phaseMetrics: Option[ExecutionPhaseMetrics] = None
 )
 
 sealed trait TerminationReason
@@ -121,6 +143,29 @@ case class TargetResultsReady(statsState: ExecutionStatsStore) extends Terminati
 @Consumes(Array(MediaType.APPLICATION_JSON))
 @Produces(Array(MediaType.APPLICATION_JSON))
 class SyncExecutionResource extends LazyLogging {
+
+  @POST
+  @Path("/{wid}/results/read")
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
+  def readSavedResult(@PathParam("wid") workflowId: Int, request: SavedResultReadRequest,
+      @Auth user: SessionUser): SavedResultPage = {
+    if (!WorkflowAccessResource.hasReadAccess(workflowId, user.getUser.getUid))
+      throw new ForbiddenException("Workflow access required")
+    try HistoricalResultService.read(WorkflowIdentity(workflowId.toLong), request)
+    catch { case err: IllegalArgumentException => throw new BadRequestException(err.getMessage) }
+  }
+
+  @POST
+  @Path("/{wid}/results/retain")
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
+  def retainSavedResults(@PathParam("wid") workflowId: Int, request: RetainResultsRequest,
+      @Auth user: SessionUser): Map[String, Int] = {
+    if (!WorkflowAccessResource.hasWriteAccess(workflowId, user.getUser.getUid))
+      throw new ForbiddenException("Workflow write access required")
+    if (request.references.size > 1000) throw new BadRequestException("Retain at most 1000 results per call")
+    try Map("retained" -> HistoricalResultService.retain(WorkflowIdentity(workflowId.toLong), request.references))
+    catch { case err: IllegalArgumentException => throw new BadRequestException(err.getMessage) }
+  }
 
   // Hard caps applied regardless of request — guard against runaway payloads.
   private val MAX_OPERATOR_RESULT_CHARS = 100000
@@ -148,6 +193,9 @@ class SyncExecutionResource extends LazyLogging {
         s"maxOperatorResultCellCharLimit=${request.maxOperatorResultCellCharLimit} (capped to $maxOperatorResultCellCharLimit)"
     )
 
+    // Kept request-local, never recovered from a previous run's cache/store.
+    // Early authorization/initialization/HTTP failures have unknown phases.
+    var activeExecution: Option[WorkflowExecutionService] = None
     try {
       val workflowService = WorkflowService.getOrCreate(
         WorkflowIdentity(workflowId),
@@ -189,6 +237,7 @@ class SyncExecutionResource extends LazyLogging {
           errors = Some(List("Failed to initialize execution service"))
         )
       }
+      activeExecution = Some(executionService)
 
       // Snapshot before subscribing — handles the race where a fast execution finishes
       // before the Observable below sees any state change.
@@ -215,7 +264,11 @@ class SyncExecutionResource extends LazyLogging {
             val externalInputPortsReporting =
               metrics.operatorStatistics.inputMetrics.count(!_.portId.internal)
             val expectedExternalInputs = targetExpectedExternalInputs.getOrElse(opId, 0)
-            metrics.operatorState == COMPLETED &&
+            // A cache-hit target is as done as a freshly completed one — its result
+            // is already materialized. Without this, an execution whose targets all
+            // cache-hit waits for the aggregate terminal state instead of returning
+            // as soon as the (replayed) results are available.
+            (metrics.operatorState == COMPLETED || metrics.operatorState == COMPLETED_FROM_CACHE) &&
             externalInputPortsReporting >= expectedExternalInputs
           }
         }
@@ -264,7 +317,9 @@ class SyncExecutionResource extends LazyLogging {
                 state = "Killed",
                 operators = Map.empty,
                 compilationErrors = None,
-                errors = Some(List(s"Timeout after $timeoutSeconds seconds"))
+                errors = Some(List(s"Timeout after $timeoutSeconds seconds")),
+                executionId = Some(executionService.workflowContext.executionId.id.toString),
+                phaseMetrics = Some(executionService.phaseMetrics)
               )
             case e: Exception =>
               logger.error(s"Error waiting for execution: ${e.getMessage}", e)
@@ -273,7 +328,9 @@ class SyncExecutionResource extends LazyLogging {
                 state = "Error",
                 operators = Map.empty,
                 compilationErrors = None,
-                errors = Some(List(e.getMessage))
+                errors = Some(List(e.getMessage)),
+                executionId = Some(executionService.workflowContext.executionId.id.toString),
+                phaseMetrics = Some(executionService.phaseMetrics)
               )
           }
         }
@@ -286,7 +343,7 @@ class SyncExecutionResource extends LazyLogging {
             killExecution(executionService)
             (executionService.executionStateStore.metadataStore.getState, true, false)
           case TargetResultsReady(_) =>
-            // RegionExecutionCoordinator caches upstream results asynchronously after operators
+            // RegionExecutionManager caches upstream results asynchronously after operators
             // complete; sleep gives that caching a chance to finish before we shut down the client.
             // TODO: replace with a synchronous signal from the engine.
             Thread.sleep(500)
@@ -331,7 +388,8 @@ class SyncExecutionResource extends LazyLogging {
         request.targetOperatorIds,
         maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit,
-        inMemoryConsoleState
+        inMemoryConsoleState,
+        request.structuredResults
       )
 
       val fatalErrors = finalState.fatalErrors
@@ -353,13 +411,45 @@ class SyncExecutionResource extends LazyLogging {
         state = stateString,
         operators = operatorInfos,
         compilationErrors = None,
-        errors = if (fatalErrors.nonEmpty) Some(fatalErrors) else None
+        errors = if (fatalErrors.nonEmpty) Some(fatalErrors) else None,
+        executionId = Some(executionId.id.toString),
+        phaseMetrics = Some(executionService.phaseMetrics),
+        capabilities =
+          if (request.structuredResults) Some(StructuredResultTransport.capabilities) else None,
+        inputMaterializations = Option.when(request.structuredResults) {
+          val states = executionService.executionStateStore.statsStore.getState.operatorInfo
+          StructuredResultTransport.inputMaterializations(
+            effectiveLogicalPlan.operators.map(_.operatorIdentifier.id),
+            states.collect { case (id, metrics) if metrics.operatorState == COMPLETED => id }.toSet,
+            states.collect {
+              case (id, metrics) if metrics.operatorState == COMPLETED_FROM_CACHE => id
+            }.toSet,
+            executionId.id.toString,
+            executionService.executionStateStore.cacheUsageStore.getState.cachedOutputs
+          )
+        }
       )
 
     } catch {
       case e: Exception =>
         logger.error(s"Sync execution error: ${e.getMessage}", e)
-        handleExecutionError(e)
+        handleExecutionError(e).copy(
+          executionId = activeExecution.map(_.workflowContext.executionId.id.toString),
+          phaseMetrics = activeExecution.map(_.phaseMetrics)
+        )
+    } finally {
+      // A console error, target completion, or timeout can shut the client
+      // down before its terminal statistics callback. Flush before returning:
+      // callers may delete this workflow's tables immediately afterwards.
+      activeExecution.foreach { execution =>
+        Option(execution.executionStatsService).foreach { statistics =>
+          try statistics.commitRuntimeStatistics()
+          catch {
+            case e: Exception =>
+              logger.warn(s"Failed to commit runtime statistics: ${e.getMessage}")
+          }
+        }
+      }
     }
   }
 
@@ -401,7 +491,8 @@ class SyncExecutionResource extends LazyLogging {
       targetOperatorIds: List[String],
       maxOperatorResultCharLimit: Int,
       maxOperatorResultCellCharLimit: Int,
-      inMemoryConsoleState: Option[ExecutionConsoleStore] = None
+      inMemoryConsoleState: Option[ExecutionConsoleStore] = None,
+      structuredResults: Boolean = false
   ): Map[String, OperatorInfo] = {
     val operatorInfos = mutable.Map[String, OperatorInfo]()
 
@@ -442,12 +533,13 @@ class SyncExecutionResource extends LazyLogging {
         }
         .filter(_.nonEmpty)
 
-      val (resultMode, result, totalRowCount, displayedRows, truncated) =
+      val (resultMode, result, totalRowCount, displayedRows, truncated, resultSchema) =
         collectOperatorResult(
           executionId,
           opId,
           maxOperatorResultCharLimit,
-          maxOperatorResultCellCharLimit
+          maxOperatorResultCellCharLimit,
+          structuredResults
         )
 
       // Merge the persisted DB document (full-fidelity, authoritative when present)
@@ -496,10 +588,12 @@ class SyncExecutionResource extends LazyLogging {
       // geometries) would otherwise ship multi-MB stats payloads that blow
       // the LLM context. Walk every value JSON and apply the same per-cell
       // truncation we use on tuple cells.
-      val columnStats: Option[Map[String, String]] = stats
-        .map(_.operatorStatistics.resultStatistics.toMap)
-        .map(m => truncateColumnStatsValues(m, maxOperatorResultCellCharLimit))
+      val partitioned = StructuredResultTransport.partitionStatistics(
+        stats.map(_.operatorStatistics.resultStatistics.toMap).getOrElse(Map.empty)
+      )
+      val columnStats = Option(partitioned.columnStats)
         .filter(_.nonEmpty)
+        .map(m => truncateColumnStatsValues(m, maxOperatorResultCellCharLimit))
 
       operatorInfos(opId) = OperatorInfo(
         state = state,
@@ -514,7 +608,20 @@ class SyncExecutionResource extends LazyLogging {
         consoleLogs = consoleLogs,
         error = errorMsg,
         warnings = warningMsgs,
-        columnStats = columnStats
+        columnStats = columnStats,
+        resultMetadata =
+          Option.when(structuredResults && partitioned.metadata.nonEmpty)(partitioned.metadata),
+        metadataOmissions =
+          Option.when(structuredResults && partitioned.omissions.nonEmpty)(partitioned.omissions),
+        numWorkers = if (structuredResults) stats.map(_.operatorStatistics.numWorkers) else None,
+        resultSchema = resultSchema,
+        materialization = Option.when(structuredResults && result.isDefined)(
+          StructuredResultTransport.materialization(
+            opId,
+            executionId.id.toString,
+            executionService.executionStateStore.cacheUsageStore.getState.cachedOutputs
+          )
+        )
       )
     }
 
@@ -558,8 +665,9 @@ class SyncExecutionResource extends LazyLogging {
       executionId: ExecutionIdentity,
       opId: String,
       maxOperatorResultCharLimit: Int,
-      maxOperatorResultCellCharLimit: Int
-  ): (String, Option[Any], Option[Int], Option[Int], Option[Boolean]) = {
+      maxOperatorResultCellCharLimit: Int,
+      structuredResults: Boolean = false
+  ): (String, Option[Any], Option[Int], Option[Int], Option[Boolean], Option[List[ResultField]]) = {
     import com.fasterxml.jackson.databind.node.ObjectNode
 
     try {
@@ -571,14 +679,24 @@ class SyncExecutionResource extends LazyLogging {
 
       storageUriOption match {
         case Some(storageUri) =>
-          val document = DocumentFactory
-            .openDocument(storageUri)
-            ._1
-            .asInstanceOf[VirtualDocument[Tuple]]
+          val (openedDocument, storedSchema) = DocumentFactory.openDocument(storageUri)
+          val document = openedDocument.asInstanceOf[VirtualDocument[Tuple]]
+          val resultSchema =
+            if (structuredResults) storedSchema.map(StructuredResultTransport.schemaFields)
+            else None
 
           val totalCount = document.getCount.toInt
           val mapper = new ObjectMapper()
           val tupleIterator = document.get()
+          // One row as the response shows it, with its rendered size.
+          def render(tuple: Tuple, index: Int): (ObjectNode, Int) = {
+            val json = ExecutionResultService
+              .convertTuplesToJson(List(tuple), structuredResults = structuredResults)
+              .head
+            val truncated = truncateSingleTuple(json, maxOperatorResultCellCharLimit, resultSchema)
+            StructuredResultTransport.annotateSampleRow(truncated, index, structuredResults)
+            (truncated, estimateTupleSize(truncated, mapper))
+          }
 
           if (totalCount == 0 || !tupleIterator.hasNext) {
             return (
@@ -586,14 +704,15 @@ class SyncExecutionResource extends LazyLogging {
               Some(List.empty[ObjectNode].asJava),
               Some(0),
               Some(0),
-              Some(false)
+              Some(false),
+              resultSchema
             )
           }
 
           // A single tuple with html-content / json-content is a visualization payload —
           // the frontend renders it as an iframe rather than a table.
           val firstTuple = tupleIterator.next()
-          if (totalCount == 1 && isVisualizationTuple(firstTuple)) {
+          if (totalCount == 1 && isVisualizationTuple(firstTuple, structuredResults)) {
             val jsonResults =
               ExecutionResultService.convertTuplesToJson(List(firstTuple), isVisualization = true)
             jsonResults.foreach(
@@ -604,17 +723,15 @@ class SyncExecutionResource extends LazyLogging {
               Some(jsonResults),
               Some(totalCount),
               Some(1),
-              Some(false)
+              Some(false),
+              resultSchema
             )
           }
 
           // __row_index__ preserves the original position so the frontend can show
           // "row N" correctly after symmetric truncation drops the middle.
           var rowIndex = 0
-          val firstJson = ExecutionResultService.convertTuplesToJson(List(firstTuple)).head
-          val truncatedFirst = truncateSingleTuple(firstJson, maxOperatorResultCellCharLimit)
-          truncatedFirst.put("__row_index__", rowIndex)
-          val firstSize = estimateTupleSize(truncatedFirst, mapper)
+          val (truncatedFirst, firstSize) = render(firstTuple, rowIndex)
 
           if (firstSize >= maxOperatorResultCharLimit) {
             return (
@@ -622,7 +739,8 @@ class SyncExecutionResource extends LazyLogging {
               Some(List(truncatedFirst).asJava),
               Some(totalCount),
               Some(1),
-              Some(true)
+              Some(true),
+              resultSchema
             )
           }
 
@@ -631,45 +749,24 @@ class SyncExecutionResource extends LazyLogging {
 
           val frontTuples = mutable.ListBuffer[ObjectNode](truncatedFirst)
           var frontSize = firstSize
-          var processedCount = 1
 
           while (tupleIterator.hasNext && frontSize < halfLimit) {
             val tuple = tupleIterator.next()
             rowIndex += 1
-            processedCount += 1
-            val jsonTuple = ExecutionResultService.convertTuplesToJson(List(tuple)).head
-            val truncatedTuple = truncateSingleTuple(jsonTuple, maxOperatorResultCellCharLimit)
-            truncatedTuple.put("__row_index__", rowIndex)
-            val tupleSize = estimateTupleSize(truncatedTuple, mapper)
+            val (truncatedTuple, tupleSize) = render(tuple, rowIndex)
 
             if (frontSize + tupleSize <= halfLimit) {
               frontTuples += truncatedTuple
               frontSize += tupleSize
             } else {
-              // Front is full — switch to a sliding window for the back half.
-              val backBuffer = mutable.ArrayBuffer[(ObjectNode, Int)]()
-              backBuffer += ((truncatedTuple, tupleSize))
-              var backSize = tupleSize
-
-              while (tupleIterator.hasNext) {
-                val t = tupleIterator.next()
-                rowIndex += 1
-                processedCount += 1
-                val jt = ExecutionResultService.convertTuplesToJson(List(t)).head
-                val tt = truncateSingleTuple(jt, maxOperatorResultCellCharLimit)
-                tt.put("__row_index__", rowIndex)
-                val ts = estimateTupleSize(tt, mapper)
-
-                backBuffer += ((tt, ts))
-                backSize += ts
-
-                while (backSize > halfLimit - truncationNoticeSize && backBuffer.size > 1) {
-                  val (_, removedSize) = backBuffer.remove(0)
-                  backSize -= removedSize
-                }
-              }
-
-              val backTuples = backBuffer.map(_._1).toList
+              // Front is full: the back half comes from the rows from this one on.
+              val backTuples = tailRows(
+                document,
+                rowIndex,
+                totalCount,
+                halfLimit - truncationNoticeSize,
+                render
+              )
               val allTuples = frontTuples.toList ++ backTuples
               val skippedRows = totalCount - allTuples.size
 
@@ -678,34 +775,20 @@ class SyncExecutionResource extends LazyLogging {
                 Some(allTuples.asJava),
                 Some(totalCount),
                 Some(allTuples.size),
-                Some(skippedRows > 0)
+                Some(skippedRows > 0),
+                resultSchema
               )
             }
           }
 
           if (tupleIterator.hasNext) {
-            val backBuffer = mutable.ArrayBuffer[(ObjectNode, Int)]()
-            var backSize = 0
-
-            while (tupleIterator.hasNext) {
-              val t = tupleIterator.next()
-              rowIndex += 1
-              processedCount += 1
-              val jt = ExecutionResultService.convertTuplesToJson(List(t)).head
-              val tt = truncateSingleTuple(jt, maxOperatorResultCellCharLimit)
-              tt.put("__row_index__", rowIndex)
-              val ts = estimateTupleSize(tt, mapper)
-
-              backBuffer += ((tt, ts))
-              backSize += ts
-
-              while (backSize > halfLimit - truncationNoticeSize && backBuffer.size > 1) {
-                val (_, removedSize) = backBuffer.remove(0)
-                backSize -= removedSize
-              }
-            }
-
-            val backTuples = backBuffer.map(_._1).toList
+            val backTuples = tailRows(
+              document,
+              rowIndex + 1,
+              totalCount,
+              halfLimit - truncationNoticeSize,
+              render
+            )
             val allTuples = frontTuples.toList ++ backTuples
             val skippedRows = totalCount - allTuples.size
 
@@ -714,7 +797,8 @@ class SyncExecutionResource extends LazyLogging {
               Some(allTuples.asJava),
               Some(totalCount),
               Some(allTuples.size),
-              Some(skippedRows > 0)
+              Some(skippedRows > 0),
+              resultSchema
             )
           } else {
             (
@@ -722,23 +806,25 @@ class SyncExecutionResource extends LazyLogging {
               Some(frontTuples.toList.asJava),
               Some(totalCount),
               Some(frontTuples.size),
-              Some(false)
+              Some(false),
+              resultSchema
             )
           }
 
         case None =>
-          ("table", None, None, None, None)
+          ("table", None, None, None, None, None)
       }
     } catch {
       case e: Exception =>
         logger.warn(s"Error collecting result for operator $opId: ${e.getMessage}", e)
-        ("table", None, None, None, None)
+        ("table", None, None, None, None, None)
     }
   }
 
-  private def truncateSingleTuple(
+  private[web] def truncateSingleTuple(
       tuple: ObjectNode,
-      maxCellChars: Int
+      maxCellChars: Int,
+      resultSchema: Option[List[ResultField]] = None
   ): ObjectNode = {
     import com.fasterxml.jackson.databind.ObjectMapper
     import com.fasterxml.jackson.databind.node.TextNode
@@ -746,11 +832,15 @@ class SyncExecutionResource extends LazyLogging {
     val mapper = new ObjectMapper()
     val truncatedTuple = mapper.createObjectNode()
     val fieldNames = tuple.fieldNames()
+    val scalarEncodings = resultSchema.toList.flatten
+      .filter(f => f.encoding == "number-or-decimal-string" || f.encoding == "iso8601-utc")
+      .map(_.name)
+      .toSet
 
     while (fieldNames.hasNext) {
       val fieldName = fieldNames.next()
       val fieldValue = tuple.get(fieldName)
-      if (fieldValue.isTextual) {
+      if (fieldValue.isTextual && !scalarEncodings.contains(fieldName)) {
         val text = fieldValue.asText()
         if (text.length > maxCellChars) {
           val truncatedText = symmetricTruncateCellValue(text, maxCellChars)
@@ -763,6 +853,44 @@ class SyncExecutionResource extends LazyLogging {
       }
     }
     truncatedTuple
+  }
+
+  /**
+    * The rows the back half keeps from rows [start, total): the longest run
+    * ending at the last row whose rendered sizes fit `budget`, and at least the
+    * last row. Read backwards in growing ranges. The sliding window this
+    * replaces rendered every remaining row to keep a few: 180 s of JSON
+    * conversion for an 8.6 M-row result.
+    */
+  private[web] def tailRows(
+      document: VirtualDocument[Tuple],
+      start: Int,
+      total: Int,
+      budget: Int,
+      render: (Tuple, Int) => (ObjectNode, Int)
+  ): List[ObjectNode] = {
+    var kept = List.empty[ObjectNode]
+    var size = 0
+    var until = total
+    var chunk = 64
+    var full = false
+    while (!full && until > start) {
+      val from = math.max(start, until - chunk)
+      val rows = document.getRange(from, until).toVector
+      var i = rows.length - 1
+      while (!full && i >= 0) {
+        val (row, rowSize) = render(rows(i), from + i)
+        if (kept.nonEmpty && size + rowSize > budget) full = true
+        else {
+          kept = row :: kept
+          size += rowSize
+        }
+        i -= 1
+      }
+      until = from
+      chunk *= 2
+    }
+    kept
   }
 
   private def estimateTupleSize(
@@ -859,7 +987,11 @@ class SyncExecutionResource extends LazyLogging {
     }
   }
 
-  private def isVisualizationTuple(tuple: Tuple): Boolean = {
+  private[web] def isVisualizationTuple(
+      tuple: Tuple,
+      structuredResults: Boolean = false
+  ): Boolean = {
+    if (structuredResults) return false
     try {
       val schema = tuple.getSchema
       val fieldNames = schema.getAttributes.map(_.getName)
@@ -970,10 +1102,14 @@ class SyncExecutionResource extends LazyLogging {
       case PAUSED        => "Paused"
       case RESUMING      => "Resuming"
       case COMPLETED     => "Completed"
-      case FAILED        => "Failed"
-      case KILLED        => "Killed"
-      case TERMINATED    => "Terminated"
-      case _             => "Unknown"
+      // Cached-region operators are short-circuited by the scheduler; their result
+      // is replayed from the operator-port cache. Surface that as a completed
+      // state (with provenance) instead of falling through to "Unknown".
+      case COMPLETED_FROM_CACHE => "CompletedFromCache"
+      case FAILED               => "Failed"
+      case KILLED               => "Killed"
+      case TERMINATED           => "Terminated"
+      case _                    => "Unknown"
     }
   }
 
@@ -1032,7 +1168,7 @@ class SyncExecutionResource extends LazyLogging {
     try {
       val tempContext = new WorkflowContext(WorkflowIdentity(workflowId))
       val compiler = new WorkflowCompiler(tempContext)
-      compiler.compile(logicalPlan)
+      compiler.compile(logicalPlan, CompilationErrorHandling.Strict)
       Map.empty
     } catch {
       case e: Exception =>

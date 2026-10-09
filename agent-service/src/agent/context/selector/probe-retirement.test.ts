@@ -29,11 +29,7 @@ const CODE_LOAD_ENCODED = "def load():\n    return pd.read_excel('data.xlsx', sh
 const CODE_LOAD_UNRELATED = "def load():\n    return pd.read_excel('data.xlsx', skiprows=2)";
 const CODE_CLEAN = "def process(load_bapm):\n    return load_bapm.dropna()";
 
-const PROBE_ROWS = [
-  { sheet_name: "README" },
-  { sheet_name: "B-APM" },
-  { sheet_name: "metadata_sheet" },
-];
+const PROBE_ROWS = [{ sheet_name: "README" }, { sheet_name: "B-APM" }, { sheet_name: "metadata_sheet" }];
 
 /**
  * Trajectory (event indices; ev 1 is the user step):
@@ -52,7 +48,11 @@ function retiredProbeScenario(loadCode = CODE_LOAD_ENCODED): Scenario {
       parentId: "u",
       content: "list the sheets",
       toolCalls: [
-        { toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "sheet_probe", code: CODE_PROBE } },
+        {
+          toolName: "createOrModifyOperator",
+          toolCallId: "t1",
+          input: { operatorId: "sheet_probe", code: CODE_PROBE },
+        },
       ],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
@@ -112,7 +112,6 @@ function richLatestParams() {
     compilationResult: null,
     agentMode: AgentMode.CODE,
     schemaInResult: true,
-    columnStats: true,
   });
 }
 
@@ -144,7 +143,11 @@ describe("probe retirement", () => {
   test("grace: a freshly created probe never retires", () => {
     const scenario = retiredProbeScenario();
     const dossier = buildDossier(scenario.steps, scenario.storage);
-    const params = applyProbeRetirement(richLatestParams(), dossier, parseProbeRetirementConfig({ minStepsSinceEdit: 5 }));
+    const params = applyProbeRetirement(
+      richLatestParams(),
+      dossier,
+      parseProbeRetirementConfig({ minStepsSinceEdit: 5 })
+    );
     expect(params).toEqual(richLatestParams());
   });
 
@@ -155,7 +158,6 @@ describe("probe retirement", () => {
       compilationResult: null,
       agentMode: AgentMode.CODE,
       schemaInResult: true,
-      columnStats: true,
     });
     expect(applyProbeRetirement(delta, dossier, parseProbeRetirementConfig({}))).toEqual(delta);
   });

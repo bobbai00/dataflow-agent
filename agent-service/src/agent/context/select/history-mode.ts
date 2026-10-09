@@ -59,7 +59,7 @@ export const HISTORY_MODES: readonly HistoryModeDescriptor[] = [
     mode: "latest",
     representation: "aggregated",
     axisRank: 0,
-    note: "current DAG snapshot only (the converge baseline); +flowLevel adds a targeted failure/lineage projection",
+    note: "current DAG snapshot, with errors inline and explicitly selected evidence",
   },
   {
     mode: "delta",

@@ -20,7 +20,7 @@
 import { DatePipe, registerLocaleData } from "@angular/common";
 import { HTTP_INTERCEPTORS, HttpClientModule } from "@angular/common/http";
 import en from "@angular/common/locales/en";
-import { APP_INITIALIZER, CUSTOM_ELEMENTS_SCHEMA, ErrorHandler, NgModule } from "@angular/core";
+import { APP_INITIALIZER, CUSTOM_ELEMENTS_SCHEMA, APP_BOOTSTRAP_LISTENER, ErrorHandler, NgModule } from "@angular/core";
 import { FormsModule, ReactiveFormsModule } from "@angular/forms";
 import { BrowserModule } from "@angular/platform-browser";
 import { BrowserAnimationsModule } from "@angular/platform-browser/animations";
@@ -108,6 +108,8 @@ import { AgentPanelComponent } from "./workspace/component/agent/agent-panel/age
 import { AgentChatComponent } from "./workspace/component/agent/agent-panel/agent-chat/agent-chat.component";
 import { AgentRegistrationComponent } from "./workspace/component/agent/agent-panel/agent-registration/agent-registration.component";
 import { HuggingFaceImageUploadComponent } from "./workspace/component/hugging-face-image-upload/hugging-face-image-upload.component";
+import { HuggingFaceComponent } from "./workspace/component/hugging-face/hugging-face.component";
+import { HuggingFaceAudioUploadComponent } from "./workspace/component/hugging-face-audio-upload/hugging-face-audio-upload.component";
 import { DatasetFileSelectorComponent } from "./workspace/component/dataset-file-selector/dataset-file-selector.component";
 import { DatasetVersionSelectorComponent } from "./workspace/component/dataset-version-selector/dataset-version-selector.component";
 import { DatasetSelectionModalComponent } from "./workspace/component/dataset-selection-modal/dataset-selection-modal.component";
@@ -189,7 +191,6 @@ import { NzProgressModule } from "ng-zorro-antd/progress";
 import { ComputingUnitSelectionComponent } from "./workspace/component/power-button/computing-unit-selection.component";
 import { NzSliderModule } from "ng-zorro-antd/slider";
 import { AdminSettingsComponent } from "./dashboard/component/admin/settings/admin-settings.component";
-import { FormlyRepeatDndComponent } from "./common/formly/repeat-dnd/repeat-dnd.component";
 import { NzInputNumberModule } from "ng-zorro-antd/input-number";
 import { NzGridModule } from "ng-zorro-antd/grid";
 import { NzCheckboxModule } from "ng-zorro-antd/checkbox";
@@ -197,6 +198,7 @@ import { RegistrationRequestModalComponent } from "./common/service/user/registr
 import { UserComputingUnitComponent } from "./dashboard/component/user/user-computing-unit/user-computing-unit.component";
 import { UserComputingUnitListItemComponent } from "./dashboard/component/user/user-computing-unit/user-computing-unit-list-item/user-computing-unit-list-item.component";
 import { UserVenvComponent } from "./dashboard/component/user/user-venv/user-venv.component";
+import { JupyterPanelService } from "./workspace/service/jupyter-panel/jupyter-panel.service";
 
 registerLocaleData(en);
 
@@ -211,7 +213,7 @@ registerLocaleData(en);
         tokenGetter: AuthService.getAccessToken,
         skipWhenExpired: true,
         throwNoTokenError: false,
-        disallowedRoutes: ["forum/api/users", "api/config/pre-login"],
+        disallowedRoutes: ["forum/api/users", "api/config/pre-login", "api/config/settings/public"],
       },
     }),
     BrowserAnimationsModule,
@@ -271,7 +273,6 @@ registerLocaleData(en);
     NzCheckboxModule,
     NzGridModule,
     ScrollingModule,
-    FormlyRepeatDndComponent,
     UiUdfParametersComponent,
     AdminGmailComponent,
     PublicProjectComponent,
@@ -335,6 +336,8 @@ registerLocaleData(en);
     AgentChatComponent,
     AgentRegistrationComponent,
     AgentInteractionComponent,
+    HuggingFaceComponent,
+    HuggingFaceAudioUploadComponent,
     HuggingFaceImageUploadComponent,
     DatasetFileSelectorComponent,
     DatasetVersionSelectorComponent,
@@ -418,6 +421,12 @@ registerLocaleData(en);
           )
         ),
       deps: [GuiConfigService],
+      multi: true,
+    },
+    {
+      provide: APP_BOOTSTRAP_LISTENER,
+      useFactory: (jupyterPanelService: JupyterPanelService) => () => jupyterPanelService.init(),
+      deps: [JupyterPanelService],
       multi: true,
     },
   ],

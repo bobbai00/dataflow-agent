@@ -44,6 +44,9 @@ class StatisticsManager:
         # Per-column result statistics, JSON-encoded per column. Populated by
         # operators that compute column-level stats; empty otherwise.
         self._result_statistics: Dict[str, str] = {}
+        # Structured metadata is kept separately so a later legacy display-stat
+        # replacement cannot drop earlier yields' accumulated profile.
+        self._profile_statistics: Dict[str, str] = {}
 
     def get_statistics(self) -> WorkerStatistics:
         # Compile and return worker statistics
@@ -64,7 +67,7 @@ class StatisticsManager:
                 - self._data_processing_time
                 - self._control_processing_time,
             ),
-            dict(self._result_statistics),
+            {**self._result_statistics, **self._profile_statistics},
         )
 
     def set_result_statistics(self, stats: Dict[str, str]) -> None:
@@ -75,17 +78,34 @@ class StatisticsManager:
         """
         self._result_statistics = dict(stats)
 
+    def set_profile_statistics(self, key: str, payload: str) -> None:
+        self._profile_statistics[key] = payload
+
     def increase_input_statistics(self, port_id: PortIdentity, size: int) -> None:
         if size < 0:
             raise ValueError("Tuple size must be non-negative")
         count, total_size = self._input_tuple_metrics[port_id]
         self._input_tuple_metrics[port_id] = (count + 1, total_size + size)
 
+    def increase_input_statistics_many(self, port_id: PortIdentity, count: int, size: int) -> None:
+        """``count`` input tuples of ``size`` bytes in total, arrived as one batch."""
+        if count < 0 or size < 0:
+            raise ValueError("Tuple count and size must be non-negative")
+        tuples, total_size = self._input_tuple_metrics[port_id]
+        self._input_tuple_metrics[port_id] = (tuples + count, total_size + size)
+
     def increase_output_statistics(self, port_id: PortIdentity, size: int) -> None:
         if size < 0:
             raise ValueError("Tuple size must be non-negative")
         count, total_size = self._output_tuple_metrics[port_id]
         self._output_tuple_metrics[port_id] = (count + 1, total_size + size)
+
+    def increase_output_statistics_many(self, port_id: PortIdentity, count: int, size: int) -> None:
+        """``count`` output tuples of ``size`` bytes in total, left as one batch."""
+        if count < 0 or size < 0:
+            raise ValueError("Tuple count and size must be non-negative")
+        tuples, total_size = self._output_tuple_metrics[port_id]
+        self._output_tuple_metrics[port_id] = (tuples + count, total_size + size)
 
     def increase_data_processing_time(self, time: int) -> None:
         if time < 0:

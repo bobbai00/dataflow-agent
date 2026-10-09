@@ -1,0 +1,5947 @@
+{
+  "analysis_sha256": "a7d823f8693fe16a6876d19fff2991005f503ee6f23e611baf535355724ff2ae",
+  "cost_policy": "All captured provider requests including summaries; same fresh/cache rates across routes, no write surcharge. Estimates, not invoices. Unknown usage is never assigned zero.",
+  "subset_policy": "Both-attempted subset is aligned by task/turn and descriptive; conditioning on outcomes is not a causal adjustment.",
+  "phases": {
+    "bounded": {
+      "source_revision": "716e80431ec57de7cefed0086e7cd78a65c31901",
+      "protocol_sha256": "a428aeda9160b291a668db488ea199e27998fb230dcfaa18f6381c5aa7b34a3d",
+      "summary": {
+        "dsgym": {
+          "correct": 10,
+          "turns": 38,
+          "unjudged": 0,
+          "valid_json": 38,
+          "unattempted_nonanswers": 8,
+          "input_budget_errors": 0,
+          "provider_calls": 94,
+          "summary_calls": 6,
+          "cost_usd": 0.14041594,
+          "unknown_usage_calls": 0,
+          "elapsed_seconds": 629.5840000000001
+        },
+        "history": {
+          "correct": 11,
+          "turns": 38,
+          "unjudged": 0,
+          "valid_json": 26,
+          "unattempted_nonanswers": 0,
+          "input_budget_errors": 12,
+          "provider_calls": 195,
+          "summary_calls": 0,
+          "cost_usd": 0.24162042,
+          "unknown_usage_calls": 0,
+          "elapsed_seconds": 1208.761
+        }
+      },
+      "both_attempted_subset": {
+        "dsgym": {
+          "turns": 23,
+          "correct": 9,
+          "cost_usd": 0.09610304,
+          "unknown_cost_turns": 0
+        },
+        "history": {
+          "turns": 23,
+          "correct": 10,
+          "cost_usd": 0.15927282,
+          "unknown_cost_turns": 0
+        }
+      },
+      "jobs": [
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            16,
+            17,
+            18
+          ],
+          "mechanical": {
+            "action_edit_ok": 32,
+            "action_execute_ok": 27,
+            "action_retrieve_ok": 32,
+            "retrieved_characters": 47502,
+            "action_answer_ok": 13,
+            "action_inspect_ok": 75,
+            "inspect_task": 30,
+            "inspect_graph": 3,
+            "action_edit_error": 3,
+            "action_execute_skipped": 2,
+            "action_retrieve_skipped": 2,
+            "inspect_operator": 27,
+            "inspect_state": 15,
+            "action_execute_error": 3,
+            "action_retrieve_error": 3
+          },
+          "wire": {
+            "provider_requests": 104,
+            "known_usage_cost_usd": 0.12426081999999998,
+            "input_tokens": 2357219,
+            "cached_tokens": 2173821,
+            "output_tokens": 36754
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.00417406,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.00560482,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00491472,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 10,
+              "known_usage_cost_usd": 0.01604574,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.0057006999999999995,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00761498,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 8,
+              "known_usage_cost_usd": 0.010978519999999999,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.006348,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 7,
+              "known_usage_cost_usd": 0.00850496,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0050113,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00625118,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 8,
+              "known_usage_cost_usd": 0.0081886,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00630806,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.0057401200000000005,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.003137600000000001,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.006033400000000001,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.0057082,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.005701680000000001,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00229418,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 104,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 27805,
+            "maximum_estimated": 31823
+          }
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "mechanical": {
+            "summary_calls": 6
+          },
+          "wire": {
+            "provider_requests": 61,
+            "known_usage_cost_usd": 0.09960644,
+            "input_tokens": 962305,
+            "cached_tokens": 787192,
+            "output_tokens": 40700
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0033566,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00110136,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00250448,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00305256,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00235844,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0028887999999999995,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00287234,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0020610999999999997,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00340732,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0029722200000000002,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0028008599999999996,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0032656200000000003,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.01554906,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.010221679999999999,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.011894380000000001,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.007573620000000001,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.00892724,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0049857600000000005,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.007813,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 61,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 28250,
+            "maximum_estimated": 31498
+          }
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "attempted_turns": [
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "mechanical": {
+            "summary_calls": 0
+          },
+          "wire": {
+            "provider_requests": 33,
+            "known_usage_cost_usd": 0.040809499999999985,
+            "input_tokens": 371458,
+            "cached_tokens": 347965,
+            "output_tokens": 24293
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.0034656,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00173854,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00074158,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00081368,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.0007660799999999999,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00042891999999999995,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00082956,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00050826,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00156506,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0054487599999999995,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00156618,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.004804640000000001,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00253734,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.002084,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.005092719999999999,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00225726,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00295456,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0024021,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.00080466,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 33,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 23397,
+            "maximum_estimated": 28393
+          }
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            11,
+            12,
+            13,
+            14,
+            16,
+            17
+          ],
+          "mechanical": {
+            "action_edit_ok": 17,
+            "action_execute_ok": 14,
+            "action_retrieve_ok": 28,
+            "retrieved_characters": 35787,
+            "action_edit_error": 1,
+            "action_execute_skipped": 1,
+            "action_retrieve_skipped": 1,
+            "action_answer_ok": 13,
+            "action_inspect_ok": 88,
+            "inspect_task": 47,
+            "inspect_state": 6,
+            "inspect_graph": 10,
+            "action_execute_error": 2,
+            "action_retrieve_error": 3,
+            "inspect_operator": 28,
+            "action_inspect_error": 2,
+            "action_inspect_skipped": 1,
+            "action_answer_error": 1
+          },
+          "wire": {
+            "provider_requests": 91,
+            "known_usage_cost_usd": 0.11735960000000001,
+            "input_tokens": 1890325,
+            "cached_tokens": 1667110,
+            "output_tokens": 32812
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.01168772,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00803048,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0035147200000000003,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00634814,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00962498,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00287438,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 8,
+              "known_usage_cost_usd": 0.01784002,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0025384,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00300382,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0034988000000000003,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 10,
+              "known_usage_cost_usd": 0.01177822,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.0049879,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00647484,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.005586740000000001,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00306326,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00600886,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00560722,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.0034690600000000004,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0014220399999999998,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 91,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 27514,
+            "maximum_estimated": 31634
+          }
+        }
+      ],
+      "turns": [
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00417406,
+          "provider_calls": 4,
+          "elapsed_seconds": 42.236
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00560482,
+          "provider_calls": 4,
+          "elapsed_seconds": 27.48
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00491472,
+          "provider_calls": 5,
+          "elapsed_seconds": 28.978
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01604574,
+          "provider_calls": 10,
+          "elapsed_seconds": 75.009
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0057006999999999995,
+          "provider_calls": 5,
+          "elapsed_seconds": 22.471
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00761498,
+          "provider_calls": 6,
+          "elapsed_seconds": 42.552
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.010978519999999999,
+          "provider_calls": 8,
+          "elapsed_seconds": 55.633
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.006348,
+          "provider_calls": 5,
+          "elapsed_seconds": 38.226
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00850496,
+          "provider_calls": 7,
+          "elapsed_seconds": 49.192
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0050113,
+          "provider_calls": 4,
+          "elapsed_seconds": 26.491
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00625118,
+          "provider_calls": 5,
+          "elapsed_seconds": 38.262
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0081886,
+          "provider_calls": 8,
+          "elapsed_seconds": 52.222
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.00630806,
+          "provider_calls": 6,
+          "elapsed_seconds": 37.383
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.0057401200000000005,
+          "provider_calls": 5,
+          "elapsed_seconds": 41.067
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.003137600000000001,
+          "provider_calls": 3,
+          "elapsed_seconds": 22.483
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.006033400000000001,
+          "provider_calls": 6,
+          "elapsed_seconds": 45.004
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.0057082,
+          "provider_calls": 5,
+          "elapsed_seconds": 34.182
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.005701680000000001,
+          "provider_calls": 5,
+          "elapsed_seconds": 25.3
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.00229418,
+          "provider_calls": 3,
+          "elapsed_seconds": 17.338,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "Error: Full model input estimates 53990 tokens, above the 32000 token budget; request not sent."
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0033566,
+          "provider_calls": 4,
+          "elapsed_seconds": 21.723
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00110136,
+          "provider_calls": 2,
+          "elapsed_seconds": 6.019
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00250448,
+          "provider_calls": 3,
+          "elapsed_seconds": 14.61
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00305256,
+          "provider_calls": 2,
+          "elapsed_seconds": 16.258
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00235844,
+          "provider_calls": 2,
+          "elapsed_seconds": 11.956
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0028887999999999995,
+          "provider_calls": 3,
+          "elapsed_seconds": 14.376
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00287234,
+          "provider_calls": 3,
+          "elapsed_seconds": 13.723
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0020610999999999997,
+          "provider_calls": 2,
+          "elapsed_seconds": 10.363
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00340732,
+          "provider_calls": 3,
+          "elapsed_seconds": 15.617
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0029722200000000002,
+          "provider_calls": 3,
+          "elapsed_seconds": 14.888
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0028008599999999996,
+          "provider_calls": 2,
+          "elapsed_seconds": 12.44
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0032656200000000003,
+          "provider_calls": 3,
+          "elapsed_seconds": 12.271
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01554906,
+          "provider_calls": 6,
+          "elapsed_seconds": 47.828
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.010221679999999999,
+          "provider_calls": 5,
+          "elapsed_seconds": 36.198
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.011894380000000001,
+          "provider_calls": 4,
+          "elapsed_seconds": 41.116
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.007573620000000001,
+          "provider_calls": 4,
+          "elapsed_seconds": 23.79
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00892724,
+          "provider_calls": 4,
+          "elapsed_seconds": 29.762
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0049857600000000005,
+          "provider_calls": 2,
+          "elapsed_seconds": 10.552
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.007813,
+          "provider_calls": 4,
+          "elapsed_seconds": 23.906,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "{\"men\":{\"rankings\":[{\"rank\":1,\"framework\":\"Scikit-learn\",\"python_matplotlib_percentage\":74.14,\"overall_percentage\":55.61},{\"rank\":2,\"framework\":\"TensorFlow\",\"python_matplotlib_percentage\":49.75,\"overall_percentage\":38.08},{\"rank\":3,\"framework\":\"Keras\",\"python_matplotlib_percentage\":43.63,\"overall_percentage\":32.43},{\"rank\":4,\"framework\":\"PyTorch\",\"python_matplotlib_percentage\":32.17,\"overall_percentage\":25.00},{\"rank\":5,\"framework\":\"XGBoost\",\"python_matplotlib_percentage\":31.99,\"overall_percentage\":24.42}]},\"women\":{\"rankings\":[{\"rank\":1,\"framework\":\"Scikit-learn\",\"python_matplotlib_percentage\":71.00,\"overall_percentage\":47.10},{\"rank\":2,\"framework\":\"TensorFlow\",\"python_matplotlib_percentage\":41.57,\"overall_percentage\":28.10},{\"rank\":3,\"framework\":\"Keras\",\"python_matplotlib_percentage\":36.80,\"overall_percentage\":23.93},{\"rank\":4,\"framework\":\"XGBoost\",\"python_matplotlib_percentage\":26.51,\"overall_percentage\":17.30},{\"rank\":5,\"framework\":\"PyTorch\",\"python_matplotlib_percentage\":23.73,\"overall_percentage\":16.46}]},\"ranking_difference\":\"No ranking-order change for either gender; the Python + Matplotlib cohort has higher usage percentages for all five frameworks.\"}"
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.0034656,
+          "provider_calls": 1,
+          "elapsed_seconds": 29.001
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00173854,
+          "provider_calls": 1,
+          "elapsed_seconds": 15.13
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00074158,
+          "provider_calls": 1,
+          "elapsed_seconds": 6.411
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00081368,
+          "provider_calls": 1,
+          "elapsed_seconds": 8.571
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.0007660799999999999,
+          "provider_calls": 1,
+          "elapsed_seconds": 6.701
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00042891999999999995,
+          "provider_calls": 1,
+          "elapsed_seconds": 3.806
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00082956,
+          "provider_calls": 1,
+          "elapsed_seconds": 7.024
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00050826,
+          "provider_calls": 1,
+          "elapsed_seconds": 4.211
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00156506,
+          "provider_calls": 2,
+          "elapsed_seconds": 12.988
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0054487599999999995,
+          "provider_calls": 4,
+          "elapsed_seconds": 32.868
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00156618,
+          "provider_calls": 2,
+          "elapsed_seconds": 9.515
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.004804640000000001,
+          "provider_calls": 3,
+          "elapsed_seconds": 27.928
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00253734,
+          "provider_calls": 2,
+          "elapsed_seconds": 13.538
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.002084,
+          "provider_calls": 2,
+          "elapsed_seconds": 11.156
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.005092719999999999,
+          "provider_calls": 3,
+          "elapsed_seconds": 24.736
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00225726,
+          "provider_calls": 2,
+          "elapsed_seconds": 10.534
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00295456,
+          "provider_calls": 2,
+          "elapsed_seconds": 13.32
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0024021,
+          "provider_calls": 2,
+          "elapsed_seconds": 11.477
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00080466,
+          "provider_calls": 1,
+          "elapsed_seconds": 3.273,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "{\"markets\":[{\"country\":\"Thailand\",\"absolute_score_difference\":2.2932},{\"country\":\"Egypt\",\"absolute_score_difference\":1.8135},{\"country\":\"Turkey\",\"absolute_score_difference\":1.3880},{\"country\":\"France\",\"absolute_score_difference\":1.3226},{\"country\":\"Australia\",\"absolute_score_difference\":1.0763}]}"
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01168772,
+          "provider_calls": 4,
+          "elapsed_seconds": 60.229
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00803048,
+          "provider_calls": 6,
+          "elapsed_seconds": 32.021
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0035147200000000003,
+          "provider_calls": 3,
+          "elapsed_seconds": 26.768
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00634814,
+          "provider_calls": 5,
+          "elapsed_seconds": 27.419
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00962498,
+          "provider_calls": 6,
+          "elapsed_seconds": 38.429
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00287438,
+          "provider_calls": 3,
+          "elapsed_seconds": 8.703
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01784002,
+          "provider_calls": 8,
+          "elapsed_seconds": 57.387
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.0025384,
+          "provider_calls": 3,
+          "elapsed_seconds": 8.433
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.00300382,
+          "provider_calls": 3,
+          "elapsed_seconds": 8.278
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.0034988000000000003,
+          "provider_calls": 4,
+          "elapsed_seconds": 12.058
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01177822,
+          "provider_calls": 10,
+          "elapsed_seconds": 38.943
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0049879,
+          "provider_calls": 5,
+          "elapsed_seconds": 26.568
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00647484,
+          "provider_calls": 5,
+          "elapsed_seconds": 30.21
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.005586740000000001,
+          "provider_calls": 5,
+          "elapsed_seconds": 27.297
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.00306326,
+          "provider_calls": 3,
+          "elapsed_seconds": 9.335
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00600886,
+          "provider_calls": 6,
+          "elapsed_seconds": 30.102
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00560722,
+          "provider_calls": 5,
+          "elapsed_seconds": 25.743
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.0034690600000000004,
+          "provider_calls": 5,
+          "elapsed_seconds": 12.99
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 0,
+          "valid_json_object": false,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": true,
+          "cost_usd": 0.0014220399999999998,
+          "provider_calls": 2,
+          "elapsed_seconds": 6.339,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "Error: Full model input estimates 55780 tokens, above the 32000 token budget; request not sent."
+        }
+      ],
+      "protocol": {
+        "model": "gpt-5.6-luna",
+        "reasoning_effort": "medium",
+        "max_model_calls_per_turn": 40,
+        "max_output_tokens_per_call": 8192,
+        "context_budget": 32000,
+        "full_input_policy": {
+          "budget_tokens": 32000,
+          "scale": 0.9191098451130497,
+          "estimator": "utf16_compact_json_messages_tools_div3.3_v1",
+          "calibration_sha256": "b3aa63c055b226b7b4d44ba12309167ad8c098f6c472f190ceff8afae11d5cb8",
+          "semantics": "Full input including system/tool schemas; measured provider usage audited separately."
+        },
+        "rates_usd_per_million": {
+          "input": 0.2,
+          "cached": 0.02,
+          "write": 0.25,
+          "output": 1.2
+        },
+        "judge": "deepseek/deepseek-v4-pro",
+        "judge_prompt_sha256": "c45fff7b230ebfc7500a19f98c47104ec203b38eb7fcb8a78b15001467b76e4a",
+        "baseline_policy": "Persistent repo Python kernel, same-model incremental summary of complete older messages in bounded chunks plus live kernel inventory. All summary calls/cost included. No resets.",
+        "prepared_hashes": {
+          "community/kaggle-survey-2021/task2": {
+            "manifest.json": "0c24729f286c9b2e91e6d7a644c6d6b77507c3ea2cd05c43239f0d9560e05254",
+            "gold.json": "d5d2f5c9168c7113c096161259934d3410dbcf8c3be984bac32451a54acba139",
+            "prompts.json": "501fbc41a504440e5a1c709760cdff80953752788b2b89c8db1df2bc2cc25c09"
+          },
+          "business/netflix_movies_and_tv_shows/task3": {
+            "manifest.json": "1d8d1c712e5caaf235a2c2350ad964a6c874631196c7133049a8dbf8be778af5",
+            "gold.json": "9cc1c1a421aca8606683bbc6b1d0dca5185a25eee9f7488e8793c7be41ec6d2e",
+            "prompts.json": "c7d87f802893293b0a73efdf57727181d2ebac1da19decf7d3b2f5b3508c279f"
+          }
+        },
+        "prompt_hashes": {
+          "community/kaggle-survey-2021/task2": "501fbc41a504440e5a1c709760cdff80953752788b2b89c8db1df2bc2cc25c09",
+          "business/netflix_movies_and_tv_shows/task3": "c7d87f802893293b0a73efdf57727181d2ebac1da19decf7d3b2f5b3508c279f"
+        },
+        "cases": {
+          "community/kaggle-survey-2021/task2": {
+            "turn_limit": 19,
+            "rationale": "Task 19 reuses earlier Python/Matplotlib selections and compares the new subgroup with the earlier overall framework ranking (tasks 10, 16, 18).",
+            "rubric": {
+              "turn_id": 19,
+              "key_fields": [
+                "framework"
+              ],
+              "value_fields": [
+                "pct"
+              ],
+              "ordered": true,
+              "decimals": 2,
+              "tables": [
+                "python_mpl_top5_men",
+                "python_mpl_top5_women",
+                "overall_top5_men",
+                "overall_top5_women"
+              ]
+            }
+          },
+          "business/netflix_movies_and_tv_shows/task3": {
+            "turn_limit": 19,
+            "rationale": "Task 19 replaces only the historical long-film rule while preserving current other score components and current top-eight membership (tasks 16, 17).",
+            "rubric": {
+              "turn_id": 19,
+              "key_fields": [
+                "country"
+              ],
+              "value_fields": [
+                "absolute_score_difference"
+              ],
+              "ordered": true,
+              "decimals": 4,
+              "tables": [
+                "most_sensitive_to_decade_adjustment"
+              ]
+            }
+          }
+        },
+        "script_kernel_notice": false
+      },
+      "case_summary": {
+        "community/kaggle-survey-2021/task2": {
+          "dsgym": {
+            "correct": 10,
+            "turns": 19,
+            "correct_turn_ids": [
+              1,
+              2,
+              6,
+              9,
+              10,
+              12,
+              16,
+              17,
+              18,
+              19
+            ],
+            "cost_usd": 0.09960644,
+            "provider_calls": 61,
+            "elapsed_seconds": 377.396
+          },
+          "history": {
+            "correct": 9,
+            "turns": 19,
+            "correct_turn_ids": [
+              1,
+              2,
+              3,
+              5,
+              6,
+              9,
+              10,
+              12,
+              18
+            ],
+            "cost_usd": 0.12426081999999998,
+            "provider_calls": 104,
+            "elapsed_seconds": 721.509
+          }
+        },
+        "business/netflix_movies_and_tv_shows/task3": {
+          "dsgym": {
+            "correct": 0,
+            "turns": 19,
+            "correct_turn_ids": [],
+            "cost_usd": 0.040809499999999985,
+            "provider_calls": 33,
+            "elapsed_seconds": 252.18800000000002
+          },
+          "history": {
+            "correct": 2,
+            "turns": 19,
+            "correct_turn_ids": [
+              6,
+              12
+            ],
+            "cost_usd": 0.11735960000000001,
+            "provider_calls": 91,
+            "elapsed_seconds": 487.252
+          }
+        }
+      }
+    },
+    "repaired": {
+      "source_revision": "bb736610eaf47fdbaa92235546dd04ec76028867",
+      "protocol_sha256": "50778f8cb68933f033cbe84ed52d8659b9ba9762188217f908edaab8b1d43832",
+      "summary": {
+        "dsgym": {
+          "correct": 14,
+          "turns": 38,
+          "unjudged": 0,
+          "valid_json": 37,
+          "unattempted_nonanswers": 2,
+          "input_budget_errors": 0,
+          "provider_calls": 118,
+          "summary_calls": 19,
+          "cost_usd": 0.23062696,
+          "unknown_usage_calls": 0,
+          "elapsed_seconds": 972.337
+        },
+        "history": {
+          "correct": 19,
+          "turns": 38,
+          "unjudged": 0,
+          "valid_json": 38,
+          "unattempted_nonanswers": 0,
+          "input_budget_errors": 0,
+          "provider_calls": 227,
+          "summary_calls": 0,
+          "cost_usd": 0.30165933999999994,
+          "unknown_usage_calls": 0,
+          "elapsed_seconds": 1450.195
+        }
+      },
+      "both_attempted_subset": {
+        "dsgym": {
+          "turns": 34,
+          "correct": 13,
+          "cost_usd": 0.21559316,
+          "unknown_cost_turns": 0
+        },
+        "history": {
+          "turns": 34,
+          "correct": 15,
+          "cost_usd": 0.2753086,
+          "unknown_cost_turns": 0
+        }
+      },
+      "jobs": [
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "mechanical": {
+            "action_edit_ok": 39,
+            "action_execute_ok": 32,
+            "action_retrieve_ok": 37,
+            "retrieved_characters": 59505,
+            "action_answer_ok": 19,
+            "action_inspect_ok": 75,
+            "inspect_task": 30,
+            "inspect_state": 10,
+            "inspect_graph": 4,
+            "inspect_operator": 31,
+            "action_edit_error": 1,
+            "action_execute_error": 6,
+            "action_retrieve_error": 6
+          },
+          "wire": {
+            "provider_requests": 113,
+            "known_usage_cost_usd": 0.14247449999999995,
+            "input_tokens": 2590449,
+            "cached_tokens": 2380105,
+            "output_tokens": 44003
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0035092400000000003,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.005221099999999999,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.00445124,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00705878,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00480728,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00748486,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00763552,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 8,
+              "known_usage_cost_usd": 0.00953798,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.010327620000000001,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.005547099999999999,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00574366,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00742542,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00497718,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 10,
+              "known_usage_cost_usd": 0.014519140000000002,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 7,
+              "known_usage_cost_usd": 0.00844334,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 7,
+              "known_usage_cost_usd": 0.01045146,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00960952,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00688102,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 7,
+              "known_usage_cost_usd": 0.00884304,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 113,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 28227,
+            "maximum_estimated": 31976
+          }
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "mechanical": {
+            "summary_calls": 12
+          },
+          "wire": {
+            "provider_requests": 61,
+            "known_usage_cost_usd": 0.13236715999999996,
+            "input_tokens": 798925,
+            "cached_tokens": 520908,
+            "output_tokens": 55288
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.0009012,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.007609180000000001,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 1,
+              "known_usage_cost_usd": 0.0010465799999999999,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00112938,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0031734400000000005,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.002605,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0031868400000000002,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00365648,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0045469,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0046654,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00719278,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.00823908,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.011322220000000001,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.010460599999999999,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.013496520000000001,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.01248222,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.01397166,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.01097886,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.011702820000000001,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 61,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 24630,
+            "maximum_estimated": 32000
+          }
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "mechanical": {
+            "summary_calls": 7
+          },
+          "wire": {
+            "provider_requests": 57,
+            "known_usage_cost_usd": 0.09825980000000002,
+            "input_tokens": 790480,
+            "cached_tokens": 622350,
+            "output_tokens": 43489
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 7,
+              "known_usage_cost_usd": 0.0074005999999999985,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00348504,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00156652,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0029309,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0032476799999999993,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00123642,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0027539800000000005,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.0024344199999999996,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00260804,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00292004,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00243192,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.011940800000000001,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.01053894,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0099472,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.01051324,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.008278639999999999,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.0067645199999999996,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 2,
+              "known_usage_cost_usd": 0.00211928,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.00514162,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 57,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 26269,
+            "maximum_estimated": 31836
+          }
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "attempted_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "mechanical": {
+            "action_edit_ok": 27,
+            "action_execute_ok": 23,
+            "action_retrieve_ok": 32,
+            "retrieved_characters": 41135,
+            "action_edit_error": 3,
+            "action_execute_skipped": 3,
+            "action_retrieve_skipped": 5,
+            "action_execute_error": 2,
+            "action_retrieve_error": 4,
+            "action_answer_ok": 19,
+            "action_inspect_ok": 88,
+            "inspect_task": 52,
+            "inspect_state": 7,
+            "inspect_graph": 10,
+            "inspect_operator": 19
+          },
+          "wire": {
+            "provider_requests": 114,
+            "known_usage_cost_usd": 0.15918484000000002,
+            "input_tokens": 2431613,
+            "cached_tokens": 2138392,
+            "output_tokens": 48144
+          },
+          "per_turn_wire": {
+            "1": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.01541884,
+              "unknown_usage_calls": 0
+            },
+            "2": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0060555999999999995,
+              "unknown_usage_calls": 0
+            },
+            "3": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.0039607999999999996,
+              "unknown_usage_calls": 0
+            },
+            "4": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.009101719999999999,
+              "unknown_usage_calls": 0
+            },
+            "5": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00894874,
+              "unknown_usage_calls": 0
+            },
+            "6": {
+              "provider_calls": 3,
+              "known_usage_cost_usd": 0.00251682,
+              "unknown_usage_calls": 0
+            },
+            "7": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.00850826,
+              "unknown_usage_calls": 0
+            },
+            "8": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.0062787400000000005,
+              "unknown_usage_calls": 0
+            },
+            "9": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.006768720000000001,
+              "unknown_usage_calls": 0
+            },
+            "10": {
+              "provider_calls": 8,
+              "known_usage_cost_usd": 0.008240500000000001,
+              "unknown_usage_calls": 0
+            },
+            "11": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.005367,
+              "unknown_usage_calls": 0
+            },
+            "12": {
+              "provider_calls": 7,
+              "known_usage_cost_usd": 0.0085129,
+              "unknown_usage_calls": 0
+            },
+            "13": {
+              "provider_calls": 10,
+              "known_usage_cost_usd": 0.01507072,
+              "unknown_usage_calls": 0
+            },
+            "14": {
+              "provider_calls": 5,
+              "known_usage_cost_usd": 0.00552072,
+              "unknown_usage_calls": 0
+            },
+            "15": {
+              "provider_calls": 8,
+              "known_usage_cost_usd": 0.01150208,
+              "unknown_usage_calls": 0
+            },
+            "16": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.0051242,
+              "unknown_usage_calls": 0
+            },
+            "17": {
+              "provider_calls": 4,
+              "known_usage_cost_usd": 0.006036779999999999,
+              "unknown_usage_calls": 0
+            },
+            "18": {
+              "provider_calls": 6,
+              "known_usage_cost_usd": 0.012090120000000001,
+              "unknown_usage_calls": 0
+            },
+            "19": {
+              "provider_calls": 9,
+              "known_usage_cost_usd": 0.01416158,
+              "unknown_usage_calls": 0
+            }
+          },
+          "input_audit": {
+            "calls": 114,
+            "unknown_usage": 0,
+            "budget_tokens": 32000,
+            "estimated_over_budget": 0,
+            "actual_over_budget": 0,
+            "maximum_actual": 26411,
+            "maximum_estimated": 31987
+          }
+        }
+      ],
+      "turns": [
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0035092400000000003,
+          "provider_calls": 4,
+          "elapsed_seconds": 37.505
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.005221099999999999,
+          "provider_calls": 5,
+          "elapsed_seconds": 29.127
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00445124,
+          "provider_calls": 4,
+          "elapsed_seconds": 32.783
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00705878,
+          "provider_calls": 6,
+          "elapsed_seconds": 36.577
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00480728,
+          "provider_calls": 5,
+          "elapsed_seconds": 26.28
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00748486,
+          "provider_calls": 6,
+          "elapsed_seconds": 58.124
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00763552,
+          "provider_calls": 6,
+          "elapsed_seconds": 43.334
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00953798,
+          "provider_calls": 8,
+          "elapsed_seconds": 34.407
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.010327620000000001,
+          "provider_calls": 6,
+          "elapsed_seconds": 49.482
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.005547099999999999,
+          "provider_calls": 5,
+          "elapsed_seconds": 25.279
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00574366,
+          "provider_calls": 5,
+          "elapsed_seconds": 28.15
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00742542,
+          "provider_calls": 5,
+          "elapsed_seconds": 38.823
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00497718,
+          "provider_calls": 5,
+          "elapsed_seconds": 27.114
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.014519140000000002,
+          "provider_calls": 10,
+          "elapsed_seconds": 71.504
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00844334,
+          "provider_calls": 7,
+          "elapsed_seconds": 36.204
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01045146,
+          "provider_calls": 7,
+          "elapsed_seconds": 47.919
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00960952,
+          "provider_calls": 6,
+          "elapsed_seconds": 55.596
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00688102,
+          "provider_calls": 6,
+          "elapsed_seconds": 30.497
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00884304,
+          "provider_calls": 7,
+          "elapsed_seconds": 48.86,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "{\"results\":{\"men\":{\"python_matplotlib_top5\":[{\"framework\":\"Scikit-learn\",\"percentage\":74.14},{\"framework\":\"TensorFlow\",\"percentage\":49.75},{\"framework\":\"Keras\",\"percentage\":43.63},{\"framework\":\"PyTorch\",\"percentage\":32.17},{\"framework\":\"XGBoost\",\"percentage\":31.99}],\"overall_top5\":[{\"framework\":\"Scikit-learn\",\"percentage\":55.61},{\"framework\":\"TensorFlow\",\"percentage\":38.08},{\"framework\":\"Keras\",\"percentage\":32.43},{\"framework\":\"PyTorch\",\"percentage\":25.00},{\"framework\":\"XGBoost\",\"percentage\":24.42}]},\"women\":{\"python_matplotlib_top5\":[{\"framework\":\"Scikit-learn\",\"percentage\":71.00},{\"framework\":\"TensorFlow\",\"percentage\":41.57},{\"framework\":\"Keras\",\"percentage\":36.80},{\"framework\":\"XGBoost\",\"percentage\":26.51},{\"framework\":\"PyTorch\",\"percentage\":23.73}],\"overall_top5\":[{\"framework\":\"Scikit-learn\",\"percentage\":47.10},{\"framework\":\"TensorFlow\",\"percentage\":28.10},{\"framework\":\"Keras\",\"percentage\":23.93},{\"framework\":\"XGBoost\",\"percentage\":17.30},{\"framework\":\"PyTorch\",\"percentage\":16.46}]}}}"
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 0.0,
+          "valid_json_object": false,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0009012,
+          "provider_calls": 1,
+          "elapsed_seconds": 6.523
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.007609180000000001,
+          "provider_calls": 4,
+          "elapsed_seconds": 21.255
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.0010465799999999999,
+          "provider_calls": 1,
+          "elapsed_seconds": 9.153
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.00112938,
+          "provider_calls": 2,
+          "elapsed_seconds": 10.796
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0031734400000000005,
+          "provider_calls": 2,
+          "elapsed_seconds": 22.15
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": true,
+          "input_budget_error": false,
+          "cost_usd": 0.002605,
+          "provider_calls": 2,
+          "elapsed_seconds": 16.97
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0031868400000000002,
+          "provider_calls": 3,
+          "elapsed_seconds": 20.115
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00365648,
+          "provider_calls": 3,
+          "elapsed_seconds": 19.784
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0045469,
+          "provider_calls": 3,
+          "elapsed_seconds": 20.877
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0046654,
+          "provider_calls": 3,
+          "elapsed_seconds": 18.299
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00719278,
+          "provider_calls": 3,
+          "elapsed_seconds": 28.947
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00823908,
+          "provider_calls": 4,
+          "elapsed_seconds": 33.01
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.011322220000000001,
+          "provider_calls": 6,
+          "elapsed_seconds": 46.865
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.010460599999999999,
+          "provider_calls": 4,
+          "elapsed_seconds": 39.61
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.013496520000000001,
+          "provider_calls": 5,
+          "elapsed_seconds": 59.08
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01248222,
+          "provider_calls": 5,
+          "elapsed_seconds": 54.021
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01397166,
+          "provider_calls": 4,
+          "elapsed_seconds": 56.271
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01097886,
+          "provider_calls": 3,
+          "elapsed_seconds": 37.246
+        },
+        {
+          "task": "community/kaggle-survey-2021/task2",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.011702820000000001,
+          "provider_calls": 3,
+          "elapsed_seconds": 46.362,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "{\"rankings_side_by_side\":{\"men\":[{\"rank\":1,\"python_matplotlib_framework\":\"Scikit-learn\",\"python_matplotlib_percentage\":74.14,\"overall_framework\":\"Scikit-learn\",\"overall_percentage\":55.61},{\"rank\":2,\"python_matplotlib_framework\":\"TensorFlow\",\"python_matplotlib_percentage\":49.75,\"overall_framework\":\"TensorFlow\",\"overall_percentage\":38.08},{\"rank\":3,\"python_matplotlib_framework\":\"Keras\",\"python_matplotlib_percentage\":43.63,\"overall_framework\":\"Keras\",\"overall_percentage\":32.43},{\"rank\":4,\"python_matplotlib_framework\":\"PyTorch\",\"python_matplotlib_percentage\":32.17,\"overall_framework\":\"PyTorch\",\"overall_percentage\":25.00},{\"rank\":5,\"python_matplotlib_framework\":\"XGBoost\",\"python_matplotlib_percentage\":31.99,\"overall_framework\":\"XGBoost\",\"overall_percentage\":24.42}],\"women\":[{\"rank\":1,\"python_matplotlib_framework\":\"Scikit-learn\",\"python_matplotlib_percentage\":71.00,\"overall_framework\":\"Scikit-learn\",\"overall_percentage\":47.10},{\"rank\":2,\"python_matplotlib_framework\":\"TensorFlow\",\"python_matplotlib_percentage\":41.57,\"overall_framework\":\"TensorFlow\",\"overall_percentage\":28.10},{\"rank\":3,\"python_matplotlib_framework\":\"Keras\",\"python_matplotlib_percentage\":36.80,\"overall_framework\":\"Keras\",\"overall_percentage\":23.93},{\"rank\":4,\"python_matplotlib_framework\":\"XGBoost\",\"python_matplotlib_percentage\":26.51,\"overall_framework\":\"XGBoost\",\"overall_percentage\":17.30},{\"rank\":5,\"python_matplotlib_framework\":\"PyTorch\",\"python_matplotlib_percentage\":23.73,\"overall_framework\":\"PyTorch\",\"overall_percentage\":16.46}]},\"ranking_difference\":\"Men: no change from the overall top-five ranking. Women: XGBoost and PyTorch switch positions, with XGBoost moving from fifth to fourth and PyTorch from fourth to fifth.\"}"
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0074005999999999985,
+          "provider_calls": 7,
+          "elapsed_seconds": 47.747
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00348504,
+          "provider_calls": 3,
+          "elapsed_seconds": 17.695
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00156652,
+          "provider_calls": 2,
+          "elapsed_seconds": 7.239
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0029309,
+          "provider_calls": 2,
+          "elapsed_seconds": 15.621
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0032476799999999993,
+          "provider_calls": 2,
+          "elapsed_seconds": 16.642
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00123642,
+          "provider_calls": 2,
+          "elapsed_seconds": 5.483
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0027539800000000005,
+          "provider_calls": 2,
+          "elapsed_seconds": 14.674
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0024344199999999996,
+          "provider_calls": 2,
+          "elapsed_seconds": 11.745
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00260804,
+          "provider_calls": 3,
+          "elapsed_seconds": 11.677
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00292004,
+          "provider_calls": 2,
+          "elapsed_seconds": 14.083
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00243192,
+          "provider_calls": 2,
+          "elapsed_seconds": 10.741
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.011940800000000001,
+          "provider_calls": 4,
+          "elapsed_seconds": 34.498
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01053894,
+          "provider_calls": 3,
+          "elapsed_seconds": 39.102
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0099472,
+          "provider_calls": 3,
+          "elapsed_seconds": 32.59
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01051324,
+          "provider_calls": 6,
+          "elapsed_seconds": 44.685
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.008278639999999999,
+          "provider_calls": 3,
+          "elapsed_seconds": 28.102
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0067645199999999996,
+          "provider_calls": 3,
+          "elapsed_seconds": 24.736
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00211928,
+          "provider_calls": 2,
+          "elapsed_seconds": 11.544
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "dsgym",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00514162,
+          "provider_calls": 4,
+          "elapsed_seconds": 16.399,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "{\"most_sensitive_markets\":[{\"market\":\"thailand\",\"absolute_score_difference\":4.5864},{\"market\":\"egypt\",\"absolute_score_difference\":3.6269},{\"market\":\"turkey\",\"absolute_score_difference\":2.7760},{\"market\":\"australia\",\"absolute_score_difference\":2.1526},{\"market\":\"taiwan\",\"absolute_score_difference\":1.6129}]}"
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 1,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01541884,
+          "provider_calls": 6,
+          "elapsed_seconds": 95.407
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 2,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0060555999999999995,
+          "provider_calls": 4,
+          "elapsed_seconds": 42.551
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 3,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0039607999999999996,
+          "provider_calls": 4,
+          "elapsed_seconds": 18.622
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 4,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.009101719999999999,
+          "provider_calls": 5,
+          "elapsed_seconds": 25.575
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 5,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00894874,
+          "provider_calls": 6,
+          "elapsed_seconds": 26.631
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 6,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00251682,
+          "provider_calls": 3,
+          "elapsed_seconds": 7.706
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 7,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00850826,
+          "provider_calls": 6,
+          "elapsed_seconds": 35.152
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 8,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0062787400000000005,
+          "provider_calls": 6,
+          "elapsed_seconds": 26.804
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 9,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.006768720000000001,
+          "provider_calls": 6,
+          "elapsed_seconds": 26.275
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 10,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.008240500000000001,
+          "provider_calls": 8,
+          "elapsed_seconds": 44.816
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 11,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.005367,
+          "provider_calls": 5,
+          "elapsed_seconds": 24.223
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 12,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0085129,
+          "provider_calls": 7,
+          "elapsed_seconds": 43.572
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 13,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01507072,
+          "provider_calls": 10,
+          "elapsed_seconds": 61.138
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 14,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.00552072,
+          "provider_calls": 5,
+          "elapsed_seconds": 26.808
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 15,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01150208,
+          "provider_calls": 8,
+          "elapsed_seconds": 46.477
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 16,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.0051242,
+          "provider_calls": 6,
+          "elapsed_seconds": 23.734
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 17,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.006036779999999999,
+          "provider_calls": 4,
+          "elapsed_seconds": 34.684
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 18,
+          "score": 0,
+          "valid_json_object": true,
+          "code_attempted": true,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.012090120000000001,
+          "provider_calls": 6,
+          "elapsed_seconds": 35.819
+        },
+        {
+          "task": "business/netflix_movies_and_tv_shows/task3",
+          "arm": "history",
+          "rep": 1,
+          "turn_id": 19,
+          "score": 1,
+          "valid_json_object": true,
+          "code_attempted": false,
+          "explicit_nonanswer": false,
+          "input_budget_error": false,
+          "cost_usd": 0.01416158,
+          "provider_calls": 9,
+          "elapsed_seconds": 46.636,
+          "target_components": {
+            "status": "unrecognized_shape",
+            "tables": {},
+            "partial_score": null
+          },
+          "solution": "{\"most_sensitive_markets\":[{\"country\":\"Thailand\",\"absolute_score_difference\":2.2932},{\"country\":\"Egypt\",\"absolute_score_difference\":1.8135},{\"country\":\"Turkey\",\"absolute_score_difference\":1.3880},{\"country\":\"France\",\"absolute_score_difference\":1.3226},{\"country\":\"Taiwan\",\"absolute_score_difference\":0.8065}]}"
+        }
+      ],
+      "protocol": {
+        "model": "gpt-5.6-luna",
+        "reasoning_effort": "medium",
+        "max_model_calls_per_turn": 40,
+        "max_output_tokens_per_call": 8192,
+        "context_budget": 32000,
+        "full_input_policy": {
+          "budget_tokens": 32000,
+          "scale": 0.9191098451130497,
+          "estimator": "utf16_compact_json_messages_tools_div3.3_v1",
+          "calibration_sha256": "b3aa63c055b226b7b4d44ba12309167ad8c098f6c472f190ceff8afae11d5cb8",
+          "semantics": "Full input including system/tool schemas; measured provider usage audited separately."
+        },
+        "rates_usd_per_million": {
+          "input": 0.2,
+          "cached": 0.02,
+          "write": 0.25,
+          "output": 1.2
+        },
+        "judge": "deepseek/deepseek-v4-pro",
+        "judge_prompt_sha256": "c45fff7b230ebfc7500a19f98c47104ec203b38eb7fcb8a78b15001467b76e4a",
+        "baseline_policy": "Persistent repo Python kernel, same-model incremental summary of complete older messages in bounded chunks plus live kernel inventory. All summary calls/cost included. No resets.",
+        "prepared_hashes": {
+          "community/kaggle-survey-2021/task2": {
+            "manifest.json": "0c24729f286c9b2e91e6d7a644c6d6b77507c3ea2cd05c43239f0d9560e05254",
+            "gold.json": "d5d2f5c9168c7113c096161259934d3410dbcf8c3be984bac32451a54acba139",
+            "prompts.json": "501fbc41a504440e5a1c709760cdff80953752788b2b89c8db1df2bc2cc25c09"
+          },
+          "business/netflix_movies_and_tv_shows/task3": {
+            "manifest.json": "1d8d1c712e5caaf235a2c2350ad964a6c874631196c7133049a8dbf8be778af5",
+            "gold.json": "9cc1c1a421aca8606683bbc6b1d0dca5185a25eee9f7488e8793c7be41ec6d2e",
+            "prompts.json": "c7d87f802893293b0a73efdf57727181d2ebac1da19decf7d3b2f5b3508c279f"
+          }
+        },
+        "prompt_hashes": {
+          "community/kaggle-survey-2021/task2": "501fbc41a504440e5a1c709760cdff80953752788b2b89c8db1df2bc2cc25c09",
+          "business/netflix_movies_and_tv_shows/task3": "c7d87f802893293b0a73efdf57727181d2ebac1da19decf7d3b2f5b3508c279f"
+        },
+        "cases": {
+          "community/kaggle-survey-2021/task2": {
+            "turn_limit": 19,
+            "rationale": "Task 19 reuses earlier Python/Matplotlib selections and compares the new subgroup with the earlier overall framework ranking (tasks 10, 16, 18).",
+            "rubric": {
+              "turn_id": 19,
+              "key_fields": [
+                "framework"
+              ],
+              "value_fields": [
+                "pct"
+              ],
+              "ordered": true,
+              "decimals": 2,
+              "tables": [
+                "python_mpl_top5_men",
+                "python_mpl_top5_women",
+                "overall_top5_men",
+                "overall_top5_women"
+              ]
+            }
+          },
+          "business/netflix_movies_and_tv_shows/task3": {
+            "turn_limit": 19,
+            "rationale": "Task 19 replaces only the historical long-film rule while preserving current other score components and current top-eight membership (tasks 16, 17).",
+            "rubric": {
+              "turn_id": 19,
+              "key_fields": [
+                "country"
+              ],
+              "value_fields": [
+                "absolute_score_difference"
+              ],
+              "ordered": true,
+              "decimals": 4,
+              "tables": [
+                "most_sensitive_to_decade_adjustment"
+              ]
+            }
+          }
+        },
+        "script_kernel_notice": true
+      },
+      "case_summary": {
+        "community/kaggle-survey-2021/task2": {
+          "dsgym": {
+            "correct": 7,
+            "turns": 19,
+            "correct_turn_ids": [
+              5,
+              9,
+              10,
+              11,
+              12,
+              16,
+              18
+            ],
+            "cost_usd": 0.13236715999999996,
+            "provider_calls": 61,
+            "elapsed_seconds": 567.334
+          },
+          "history": {
+            "correct": 14,
+            "turns": 19,
+            "correct_turn_ids": [
+              1,
+              2,
+              3,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              12,
+              13,
+              14,
+              16,
+              19
+            ],
+            "cost_usd": 0.14247449999999995,
+            "provider_calls": 113,
+            "elapsed_seconds": 757.565
+          }
+        },
+        "business/netflix_movies_and_tv_shows/task3": {
+          "dsgym": {
+            "correct": 7,
+            "turns": 19,
+            "correct_turn_ids": [
+              1,
+              2,
+              3,
+              4,
+              6,
+              8,
+              9
+            ],
+            "cost_usd": 0.09825980000000002,
+            "provider_calls": 57,
+            "elapsed_seconds": 405.003
+          },
+          "history": {
+            "correct": 5,
+            "turns": 19,
+            "correct_turn_ids": [
+              6,
+              8,
+              14,
+              16,
+              19
+            ],
+            "cost_usd": 0.15918484000000002,
+            "provider_calls": 114,
+            "elapsed_seconds": 692.63
+          }
+        }
+      }
+    }
+  },
+  "artifact_root": "/var/tmp/dataflow-bounded-pilot-20261004",
+  "interpretation": "Two question-selected 19-turn prefixes, one repetition per revision. These are diagnostic pilots, not a benchmark-wide or isolated causal comparison.",
+  "reference_gates": [
+    {
+      "task": "community/kaggle-survey-2020/task2",
+      "turn_limit": 20,
+      "exit_code": 1,
+      "matching_turns": 15,
+      "mismatching_turns": [
+        4,
+        5,
+        6,
+        14,
+        17
+      ],
+      "normalization": "Published reference; only data-root strings replaced and prefix truncated.",
+      "errors": []
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn_limit": 19,
+      "exit_code": 0,
+      "matching_turns": 19,
+      "mismatching_turns": [],
+      "normalization": "Published reference; only data-root strings replaced and prefix truncated.",
+      "errors": []
+    },
+    {
+      "task": "community/kaggle-survey-2021/task2",
+      "turn_limit": 19,
+      "exit_code": 0,
+      "matching_turns": 19,
+      "mismatching_turns": [],
+      "normalization": "Published reference; only data-root strings replaced and prefix truncated.",
+      "errors": []
+    }
+  ],
+  "manual_component_policy": "Post-hoc manual field-layout mapping only. Original values, membership and list order remain unchanged. Frozen automatic metrics and official judgments remain unchanged. Table components do not grade narrative truth.",
+  "manual_target_components": [
+    {
+      "phase": "bounded",
+      "task": "community/kaggle-survey-2021/task2",
+      "arm": "history",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 0,
+      "source_solution_sha256": "5aaf39157a626fa071d6f55e6df48981b8847fbb51e7896759a07bcd26222964",
+      "mapping": "Explicit input-budget error; all requested tables are absent.",
+      "normalized_tables": {
+        "python_mpl_top5_men": null,
+        "python_mpl_top5_women": null,
+        "overall_top5_men": null,
+        "overall_top5_women": null
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "python_mpl_top5_men": {
+            "identity_precision": 0.0,
+            "identity_recall": 0.0,
+            "identity_f1": 0.0,
+            "expected_rows": 5,
+            "reported_rows": 0,
+            "missing_answer": true,
+            "missing_keys": [
+              [
+                "Scikit-learn"
+              ],
+              [
+                "TensorFlow"
+              ],
+              [
+                "Keras"
+              ],
+              [
+                "PyTorch"
+              ],
+              [
+                "XGBoost"
+              ]
+            ],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 0.0,
+            "matched_values": 0,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 74.14,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 49.75,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 43.63,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 32.17,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 31.99,
+                "actual": null,
+                "missing": true,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.0,
+            "partial_score": 0.0,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "python_mpl_top5_women": {
+            "identity_precision": 0.0,
+            "identity_recall": 0.0,
+            "identity_f1": 0.0,
+            "expected_rows": 5,
+            "reported_rows": 0,
+            "missing_answer": true,
+            "missing_keys": [
+              [
+                "Scikit-learn"
+              ],
+              [
+                "TensorFlow"
+              ],
+              [
+                "Keras"
+              ],
+              [
+                "XGBoost"
+              ],
+              [
+                "PyTorch"
+              ]
+            ],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 0.0,
+            "matched_values": 0,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 71.0,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 41.57,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 36.8,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 26.51,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 23.73,
+                "actual": null,
+                "missing": true,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.0,
+            "partial_score": 0.0,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_men": {
+            "identity_precision": 0.0,
+            "identity_recall": 0.0,
+            "identity_f1": 0.0,
+            "expected_rows": 5,
+            "reported_rows": 0,
+            "missing_answer": true,
+            "missing_keys": [
+              [
+                "Scikit-learn"
+              ],
+              [
+                "TensorFlow"
+              ],
+              [
+                "Keras"
+              ],
+              [
+                "PyTorch"
+              ],
+              [
+                "XGBoost"
+              ]
+            ],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 0.0,
+            "matched_values": 0,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 55.61,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 38.08,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 32.43,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 25.0,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 24.42,
+                "actual": null,
+                "missing": true,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.0,
+            "partial_score": 0.0,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_women": {
+            "identity_precision": 0.0,
+            "identity_recall": 0.0,
+            "identity_f1": 0.0,
+            "expected_rows": 5,
+            "reported_rows": 0,
+            "missing_answer": true,
+            "missing_keys": [
+              [
+                "Scikit-learn"
+              ],
+              [
+                "TensorFlow"
+              ],
+              [
+                "Keras"
+              ],
+              [
+                "XGBoost"
+              ],
+              [
+                "PyTorch"
+              ]
+            ],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 0.0,
+            "matched_values": 0,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 47.1,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 28.1,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 23.93,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 17.3,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 16.46,
+                "actual": null,
+                "missing": true,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.0,
+            "partial_score": 0.0,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 0.0
+      },
+      "narrative_audit": null
+    },
+    {
+      "phase": "bounded",
+      "task": "community/kaggle-survey-2021/task2",
+      "arm": "dsgym",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 1,
+      "source_solution_sha256": "b40cbc05a100c0032db301993e58ffc2933069a3523d6487823124e2c94da03f",
+      "mapping": "men/women.rankings split into subgroup and overall percentage tables; framework identity and list order preserved.",
+      "normalized_tables": {
+        "python_mpl_top5_men": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 74.14
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 49.75
+          },
+          {
+            "framework": "Keras",
+            "pct": 43.63
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 32.17
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 31.99
+          }
+        ],
+        "overall_top5_men": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 55.61
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 38.08
+          },
+          {
+            "framework": "Keras",
+            "pct": 32.43
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 25.0
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 24.42
+          }
+        ],
+        "python_mpl_top5_women": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 71.0
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 41.57
+          },
+          {
+            "framework": "Keras",
+            "pct": 36.8
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 26.51
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 23.73
+          }
+        ],
+        "overall_top5_women": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 47.1
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 28.1
+          },
+          {
+            "framework": "Keras",
+            "pct": 23.93
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 17.3
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 16.46
+          }
+        ]
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "python_mpl_top5_men": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 74.14,
+                "actual": 74.14,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 49.75,
+                "actual": 49.75,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 43.63,
+                "actual": 43.63,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 32.17,
+                "actual": 32.17,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 31.99,
+                "actual": 31.99,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "python_mpl_top5_women": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 71.0,
+                "actual": 71.0,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 41.57,
+                "actual": 41.57,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 36.8,
+                "actual": 36.8,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 26.51,
+                "actual": 26.51,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 23.73,
+                "actual": 23.73,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_men": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 55.61,
+                "actual": 55.61,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 38.08,
+                "actual": 38.08,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 32.43,
+                "actual": 32.43,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 25.0,
+                "actual": 25.0,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 24.42,
+                "actual": 24.42,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_women": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 47.1,
+                "actual": 47.1,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 28.1,
+                "actual": 28.1,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 23.93,
+                "actual": 23.93,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 17.3,
+                "actual": 17.3,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 16.46,
+                "actual": 16.46,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 1.0
+      },
+      "narrative_audit": null
+    },
+    {
+      "phase": "bounded",
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "arm": "dsgym",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 0,
+      "source_solution_sha256": "613b8ed539bf5beb58afe94598a8054c3f63c9937d54da644b21d462cc8ce802",
+      "mapping": "markets or most_sensitive_markets mapped to requested table; market mapped to country with case normalization only. Values and list order unchanged.",
+      "normalized_tables": {
+        "most_sensitive_to_decade_adjustment": [
+          {
+            "country": "Thailand",
+            "absolute_score_difference": 2.2932
+          },
+          {
+            "country": "Egypt",
+            "absolute_score_difference": 1.8135
+          },
+          {
+            "country": "Turkey",
+            "absolute_score_difference": 1.388
+          },
+          {
+            "country": "France",
+            "absolute_score_difference": 1.3226
+          },
+          {
+            "country": "Australia",
+            "absolute_score_difference": 1.0763
+          }
+        ]
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "most_sensitive_to_decade_adjustment": {
+            "identity_precision": 0.8,
+            "identity_recall": 0.8,
+            "identity_f1": 0.8000000000000002,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [
+              [
+                "Taiwan"
+              ]
+            ],
+            "extra_keys": [
+              [
+                "Australia"
+              ]
+            ],
+            "duplicate_keys": [],
+            "value_accuracy": 0.8,
+            "matched_values": 4,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Thailand"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 2.2932,
+                "actual": 2.2932,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Egypt"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.8135,
+                "actual": 1.8135,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Turkey"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.388,
+                "actual": 1.388,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "France"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.3226,
+                "actual": 1.3226,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Taiwan"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 0.8065,
+                "actual": null,
+                "missing": true,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.8,
+            "partial_score": 0.8,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 0.8
+      },
+      "narrative_audit": null
+    },
+    {
+      "phase": "bounded",
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "arm": "history",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 0,
+      "source_solution_sha256": "d851d886a4ea36450133fb74d350804210315b1e56e38a1476178dcbc4cd2409",
+      "mapping": "Explicit input-budget error; all requested tables are absent.",
+      "normalized_tables": {
+        "most_sensitive_to_decade_adjustment": null
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "most_sensitive_to_decade_adjustment": {
+            "identity_precision": 0.0,
+            "identity_recall": 0.0,
+            "identity_f1": 0.0,
+            "expected_rows": 5,
+            "reported_rows": 0,
+            "missing_answer": true,
+            "missing_keys": [
+              [
+                "Thailand"
+              ],
+              [
+                "Egypt"
+              ],
+              [
+                "Turkey"
+              ],
+              [
+                "France"
+              ],
+              [
+                "Taiwan"
+              ]
+            ],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 0.0,
+            "matched_values": 0,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Thailand"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 2.2932,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Egypt"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.8135,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Turkey"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.388,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "France"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.3226,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Taiwan"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 0.8065,
+                "actual": null,
+                "missing": true,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.0,
+            "partial_score": 0.0,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 0.0
+      },
+      "narrative_audit": null
+    },
+    {
+      "phase": "repaired",
+      "task": "community/kaggle-survey-2021/task2",
+      "arm": "history",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 1,
+      "source_solution_sha256": "d60c96a60977f9866ca5d9475f32a3c572ae19ef129116c18b4be35950fe28e6",
+      "mapping": "results.men/women grouped tables; percentage mapped to pct; identity and list order preserved.",
+      "normalized_tables": {
+        "python_mpl_top5_men": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 74.14
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 49.75
+          },
+          {
+            "framework": "Keras",
+            "pct": 43.63
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 32.17
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 31.99
+          }
+        ],
+        "overall_top5_men": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 55.61
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 38.08
+          },
+          {
+            "framework": "Keras",
+            "pct": 32.43
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 25.0
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 24.42
+          }
+        ],
+        "python_mpl_top5_women": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 71.0
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 41.57
+          },
+          {
+            "framework": "Keras",
+            "pct": 36.8
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 26.51
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 23.73
+          }
+        ],
+        "overall_top5_women": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 47.1
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 28.1
+          },
+          {
+            "framework": "Keras",
+            "pct": 23.93
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 17.3
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 16.46
+          }
+        ]
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "python_mpl_top5_men": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 74.14,
+                "actual": 74.14,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 49.75,
+                "actual": 49.75,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 43.63,
+                "actual": 43.63,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 32.17,
+                "actual": 32.17,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 31.99,
+                "actual": 31.99,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "python_mpl_top5_women": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 71.0,
+                "actual": 71.0,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 41.57,
+                "actual": 41.57,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 36.8,
+                "actual": 36.8,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 26.51,
+                "actual": 26.51,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 23.73,
+                "actual": 23.73,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_men": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 55.61,
+                "actual": 55.61,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 38.08,
+                "actual": 38.08,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 32.43,
+                "actual": 32.43,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 25.0,
+                "actual": 25.0,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 24.42,
+                "actual": 24.42,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_women": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 47.1,
+                "actual": 47.1,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 28.1,
+                "actual": 28.1,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 23.93,
+                "actual": 23.93,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 17.3,
+                "actual": 17.3,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 16.46,
+                "actual": 16.46,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 1.0
+      },
+      "narrative_audit": null
+    },
+    {
+      "phase": "repaired",
+      "task": "community/kaggle-survey-2021/task2",
+      "arm": "dsgym",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 0,
+      "source_solution_sha256": "c4b22fc7efeb6cc086d2715d074a4f7d67deb0ddc56b1144ffc3a2a9695d0920",
+      "mapping": "rankings_side_by_side split using independently reported subgroup/overall framework names and percentages; list order preserved.",
+      "normalized_tables": {
+        "python_mpl_top5_men": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 74.14
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 49.75
+          },
+          {
+            "framework": "Keras",
+            "pct": 43.63
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 32.17
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 31.99
+          }
+        ],
+        "overall_top5_men": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 55.61
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 38.08
+          },
+          {
+            "framework": "Keras",
+            "pct": 32.43
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 25.0
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 24.42
+          }
+        ],
+        "python_mpl_top5_women": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 71.0
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 41.57
+          },
+          {
+            "framework": "Keras",
+            "pct": 36.8
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 26.51
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 23.73
+          }
+        ],
+        "overall_top5_women": [
+          {
+            "framework": "Scikit-learn",
+            "pct": 47.1
+          },
+          {
+            "framework": "TensorFlow",
+            "pct": 28.1
+          },
+          {
+            "framework": "Keras",
+            "pct": 23.93
+          },
+          {
+            "framework": "XGBoost",
+            "pct": 17.3
+          },
+          {
+            "framework": "PyTorch",
+            "pct": 16.46
+          }
+        ]
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "python_mpl_top5_men": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 74.14,
+                "actual": 74.14,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 49.75,
+                "actual": 49.75,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 43.63,
+                "actual": 43.63,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 32.17,
+                "actual": 32.17,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 31.99,
+                "actual": 31.99,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "python_mpl_top5_women": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 71.0,
+                "actual": 71.0,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 41.57,
+                "actual": 41.57,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 36.8,
+                "actual": 36.8,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 26.51,
+                "actual": 26.51,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 23.73,
+                "actual": 23.73,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_men": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 55.61,
+                "actual": 55.61,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 38.08,
+                "actual": 38.08,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 32.43,
+                "actual": 32.43,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 25.0,
+                "actual": 25.0,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 24.42,
+                "actual": 24.42,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          },
+          "overall_top5_women": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Scikit-learn"
+                ],
+                "field": "pct",
+                "expected": 47.1,
+                "actual": 47.1,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "TensorFlow"
+                ],
+                "field": "pct",
+                "expected": 28.1,
+                "actual": 28.1,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Keras"
+                ],
+                "field": "pct",
+                "expected": 23.93,
+                "actual": 23.93,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "XGBoost"
+                ],
+                "field": "pct",
+                "expected": 17.3,
+                "actual": 17.3,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "PyTorch"
+                ],
+                "field": "pct",
+                "expected": 16.46,
+                "actual": 16.46,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 1.0
+      },
+      "narrative_audit": "Incorrect claim that women swap XGBoost/PyTorch positions; both reported tables have XGBoost fourth and PyTorch fifth."
+    },
+    {
+      "phase": "repaired",
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "arm": "dsgym",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 0,
+      "source_solution_sha256": "b870ff514c9f20ce903715cb55084776e726477c45f17e4124aa938c7c87457e",
+      "mapping": "markets or most_sensitive_markets mapped to requested table; market mapped to country with case normalization only. Values and list order unchanged.",
+      "normalized_tables": {
+        "most_sensitive_to_decade_adjustment": [
+          {
+            "country": "Thailand",
+            "absolute_score_difference": 4.5864
+          },
+          {
+            "country": "Egypt",
+            "absolute_score_difference": 3.6269
+          },
+          {
+            "country": "Turkey",
+            "absolute_score_difference": 2.776
+          },
+          {
+            "country": "Australia",
+            "absolute_score_difference": 2.1526
+          },
+          {
+            "country": "Taiwan",
+            "absolute_score_difference": 1.6129
+          }
+        ]
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "most_sensitive_to_decade_adjustment": {
+            "identity_precision": 0.8,
+            "identity_recall": 0.8,
+            "identity_f1": 0.8000000000000002,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [
+              [
+                "France"
+              ]
+            ],
+            "extra_keys": [
+              [
+                "Australia"
+              ]
+            ],
+            "duplicate_keys": [],
+            "value_accuracy": 0.0,
+            "matched_values": 0,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Thailand"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 2.2932,
+                "actual": 4.5864,
+                "missing": false,
+                "match": false
+              },
+              {
+                "key": [
+                  "Egypt"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.8135,
+                "actual": 3.6269,
+                "missing": false,
+                "match": false
+              },
+              {
+                "key": [
+                  "Turkey"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.388,
+                "actual": 2.776,
+                "missing": false,
+                "match": false
+              },
+              {
+                "key": [
+                  "France"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.3226,
+                "actual": null,
+                "missing": true,
+                "match": false
+              },
+              {
+                "key": [
+                  "Taiwan"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 0.8065,
+                "actual": 1.6129,
+                "missing": false,
+                "match": false
+              }
+            ],
+            "order_accuracy": 0.8,
+            "partial_score": 0.5333333333333334,
+            "exact": false,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 0.5333333333333334
+      },
+      "narrative_audit": null
+    },
+    {
+      "phase": "repaired",
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "arm": "history",
+      "rep": 1,
+      "turn_id": 19,
+      "official_score": 1,
+      "source_solution_sha256": "c4f12b9d8dd116429c25aa043775eae75ceede0dca889b032369d80b0a171032",
+      "mapping": "markets or most_sensitive_markets mapped to requested table; market mapped to country with case normalization only. Values and list order unchanged.",
+      "normalized_tables": {
+        "most_sensitive_to_decade_adjustment": [
+          {
+            "country": "Thailand",
+            "absolute_score_difference": 2.2932
+          },
+          {
+            "country": "Egypt",
+            "absolute_score_difference": 1.8135
+          },
+          {
+            "country": "Turkey",
+            "absolute_score_difference": 1.388
+          },
+          {
+            "country": "France",
+            "absolute_score_difference": 1.3226
+          },
+          {
+            "country": "Taiwan",
+            "absolute_score_difference": 0.8065
+          }
+        ]
+      },
+      "table_components": {
+        "status": "scored",
+        "tables": {
+          "most_sensitive_to_decade_adjustment": {
+            "identity_precision": 1.0,
+            "identity_recall": 1.0,
+            "identity_f1": 1.0,
+            "expected_rows": 5,
+            "reported_rows": 5,
+            "missing_answer": false,
+            "missing_keys": [],
+            "extra_keys": [],
+            "duplicate_keys": [],
+            "value_accuracy": 1.0,
+            "matched_values": 5,
+            "requested_values": 5,
+            "facts": [
+              {
+                "key": [
+                  "Thailand"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 2.2932,
+                "actual": 2.2932,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Egypt"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.8135,
+                "actual": 1.8135,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Turkey"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.388,
+                "actual": 1.388,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "France"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 1.3226,
+                "actual": 1.3226,
+                "missing": false,
+                "match": true
+              },
+              {
+                "key": [
+                  "Taiwan"
+                ],
+                "field": "absolute_score_difference",
+                "expected": 0.8065,
+                "actual": 0.8065,
+                "missing": false,
+                "match": true
+              }
+            ],
+            "order_accuracy": 1.0,
+            "partial_score": 1.0,
+            "exact": true,
+            "reported_extra_values": {
+              "matched": 0,
+              "total": 0,
+              "facts": []
+            }
+          }
+        },
+        "partial_score": 1.0
+      },
+      "narrative_audit": null
+    }
+  ],
+  "judging_spend": {
+    "policy": "Unique captured provider response IDs in shared judge cache; no double charging reused judgments. Distinct from uniformly estimated solver cost.",
+    "cache_entries": 148,
+    "provider_responses": 147,
+    "recorded_provider_cost_usd": 0.3264276848,
+    "unknown_cost_responses": 0,
+    "nonfinite_answer_rejected_without_model_judgment": 1
+  },
+  "input_inventory_audit": {
+    "finding": "Netflix manifests list seven pre-existing working_tables CSVs alongside the raw inputs. They predate this pilot, with sampled mtimes in September. Both arms could read them. The first-pass DSGym trace successfully reads pre-existing cleaned/detail/search working tables after earlier nonanswers. Repaired DSGym builds its own working tables in the live kernel; its attempt to write under the read-only input directory is rejected. No native edit references the working_tables directory.",
+    "consequence": "Especially the first pass is not an uncontaminated measurement of preserving self-generated state. The repaired pass still exposes these files and is a feasibility pilot, not a clean benchmark claim.",
+    "next_protocol": "Use a freshly extracted, immutable raw-input snapshot common to both arms and isolate reference execution and run outputs from input directories. Do not delete or mutate shared dataset files."
+  },
+  "trace_audits": [
+    {
+      "case": "repaired Netflix Q1 to Q2, native",
+      "category": "input coverage and propagated definition error",
+      "evidence": [
+        "Q1 load_search names 14 market files and omits multiTimeline.csv; the omitted raw header is Netflix: (United States).",
+        "Q1 answer reports 14 search-interest markets against reference 15.",
+        "Q2 forks Q1 search_summary, inner-joins country names to market names, then percentile-ranks over the resulting rows. UK does not match United Kingdom.",
+        "Q2 Thailand demand_gap is 92.3077 rather than reference 93.3333, consistent with the reduced 13-market ranking universe."
+      ],
+      "scope": "Identified chain from inspected source and results; not an assumption based only on dependency annotations. Other later errors have not all been causally audited."
+    },
+    {
+      "case": "repaired Netflix Q17 to Q19, DSGym",
+      "category": "reapplied rule adjustment and wrong answer membership",
+      "evidence": [
+        "Q17 creates decade_adjusted_score = structure_aware_score + (0.10 * decade_gap - 0.10 * direct_gap).",
+        "Q19 constructs direct_110_score = structure_aware_score - 0.10 * decade_gap + 0.10 * direct_gap and compares it to decade_adjusted_score.",
+        "This compares base minus delta to base plus delta, doubling the desired adjustment.",
+        "Reported sensitivity values are approximately twice the references; Australia replaces France in the top five."
+      ],
+      "scope": "The double adjustment is confirmed in the emitted Python. The separate wrong top-eight/ranking membership is not completely traced to its earlier cause."
+    },
+    {
+      "case": "repaired survey Q19, DSGym",
+      "category": "answer narrative contradiction",
+      "evidence": [
+        "All four requested framework tables match after field-layout mapping.",
+        "The final ranking_difference says women swap XGBoost/PyTorch positions, contradicting both its own tables and the reference.",
+        "Official score remains zero. Table-only partial score is one and excludes the erroneous explanation."
+      ],
+      "scope": "This is an answer-writing error; it is not evidence of corrupted kernel state or failed compaction."
+    },
+    {
+      "case": "repaired Netflix Q19, native",
+      "category": "atomic edit rejection and recovery using saved results",
+      "evidence": [
+        "Inspects saved tasks 17 and 15, including operator implementations and results.",
+        "Attempts to fork/update decade_longform_analysis and creates an edge into an already occupied input.",
+        "The Edit receipt rejects it atomically: No changes were applied. Execute and Retrieve in that batch are skipped.",
+        "Inspects the preserved original operator and scoped graph, retrieves its full result, and submits the correct five sensitivity values."
+      ],
+      "scope": "Shows actual use of saved definitions/results and safe failed-edit behavior. It does not isolate the causal accuracy benefit of state-history tools."
+    }
+  ],
+  "verification": {
+    "bun_tests": {
+      "passed": 1368,
+      "failed": 0,
+      "files": 114
+    },
+    "typescript": "tsc --noEmit passed",
+    "python_harness": {
+      "passed": 121,
+      "command": ".venv/bin/python -m pytest benchmark/longds --ignore=benchmark/longds/DataMind --ignore=benchmark/longds/test_observation_transport.py -q"
+    },
+    "python_optional_transport": {
+      "passed": 5,
+      "environment": "benchmark/Kramabench/.venv"
+    },
+    "live_jobs_complete": 8,
+    "official_answers_judged": 152,
+    "native_resources_removed": {
+      "agents": 4,
+      "computing_units": 4,
+      "workflows": 4
+    },
+    "owned_service_port_3068": "stopped",
+    "shared_backend_ports": "verified listening",
+    "frozen_source_archives": {
+      "files_per_pass": 188,
+      "hash_mismatches": 0
+    },
+    "input_integrity": {
+      "files_per_pass": 84,
+      "changed_inputs": 0
+    }
+  }
+}

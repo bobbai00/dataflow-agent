@@ -230,10 +230,7 @@ describe("assembleContext — Latest", () => {
     expect(withTurns).toContain("Action:");
     // Thought + Action only — the Observation/results would duplicate the
     // `# Current Dataflow` core, so they are omitted from `# Agent Turns`.
-    const turnsSection = withTurns.slice(
-      withTurns.indexOf("# Agent Turns"),
-      withTurns.indexOf("# Current Dataflow")
-    );
+    const turnsSection = withTurns.slice(withTurns.indexOf("# Agent Turns"), withTurns.indexOf("# Current Dataflow"));
     expect(turnsSection).not.toContain("Observation:");
     expect(turnsSection).not.toContain("Output Table:"); // no result tables in the turns
     expect(withTurns).toContain("# Current Dataflow"); // latest core retained (with results)
@@ -242,18 +239,30 @@ describe("assembleContext — Latest", () => {
   test("agentTurns: the Action keeps event details (operatorId + code); results stay only in # Current Dataflow", () => {
     const sc = buildScenario([
       {
-        id: "init", stepId: 0, role: "agent", messageId: "m-init", content: "init",
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
         toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
       },
       { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Count rows." },
       {
-        id: "a1", stepId: 1, role: "agent", messageId: "m", parentId: "u", isBegin: true,
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m",
+        parentId: "u",
+        isBegin: true,
         content: "Load the CSV.",
-        toolCalls: [{
-          toolName: "createOrModifyOperator", toolCallId: "t1",
-          input: { operatorId: "load_csv", code: "def load():\n    return pd.read_csv('data.csv')" },
-        }],
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "t1",
+            input: { operatorId: "load_csv", code: "def load():\n    return pd.read_csv('data.csv')" },
+          },
+        ],
         toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
       },
     ]);
@@ -351,9 +360,11 @@ describe("assembleContext — Delta", () => {
     expect(after3).not.toContain("Schema (");
   });
 
-  test("delta Observation honors dataLevel — Schema line + Inputs symmetric with LATEST", () => {
+  test("delta Observation retains schema formatting independently of evidence", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, dataLevel: 1 }));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, schemaInResult: true })
+    );
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
     // data_level >= 1 ⇒ the Δ result carries the same Schema line LATEST renders.
     expect(after3).toContain("Schema (");
@@ -451,28 +462,53 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
   function fourEventScenario() {
     const sc = buildScenario([
       {
-        id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "mi",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
         toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
       },
       { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Task." },
       {
-        id: "t1", stepId: 1, role: "agent", messageId: "m", parentId: "u", isBegin: true, content: "add src",
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m",
+        parentId: "u",
+        isBegin: true,
+        content: "add src",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c1", input: { operatorId: "src" } }],
         toolResults: [{ toolCallId: "c1", output: "ok", isError: false }],
       },
       {
-        id: "t2", stepId: 2, role: "agent", messageId: "m", parentId: "t1", content: "add filt",
+        id: "t2",
+        stepId: 2,
+        role: "agent",
+        messageId: "m",
+        parentId: "t1",
+        content: "add filt",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c2", input: { operatorId: "filt" } }],
         toolResults: [{ toolCallId: "c2", output: "ok", isError: false }],
       },
       {
-        id: "t3", stepId: 3, role: "agent", messageId: "m", parentId: "t2", content: "fix filt v2",
+        id: "t3",
+        stepId: 3,
+        role: "agent",
+        messageId: "m",
+        parentId: "t2",
+        content: "fix filt v2",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c3", input: { operatorId: "filt" } }],
         toolResults: [{ toolCallId: "c3", output: "ok", isError: false }],
       },
       {
-        id: "t4", stepId: 4, role: "agent", messageId: "m", parentId: "t3", content: "fix filt v3",
+        id: "t4",
+        stepId: 4,
+        role: "agent",
+        messageId: "m",
+        parentId: "t3",
+        content: "fix filt v3",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c4", input: { operatorId: "filt" } }],
         toolResults: [{ toolCallId: "c4", output: "ok", isError: false }],
       },
@@ -484,7 +520,13 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
     const filtWf = (tag: number): any => ({
       operators: [makeOp("src"), makeOp("filt", "TestOp", { v: tag })],
       operatorPositions: {},
-      links: [{ linkID: "l", source: { operatorID: "src", portID: "output-0" }, target: { operatorID: "filt", portID: "input-0" } }],
+      links: [
+        {
+          linkID: "l",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "filt", portID: "input-0" },
+        },
+      ],
       commentBoxes: [],
       settings: { dataTransferBatchSize: 400 },
     });
@@ -605,7 +647,11 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const filler = padChars > 0 ? " " + "x".repeat(padChars) : "";
     const steps: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
       {
-        id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "mi",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
         toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
       },
@@ -615,8 +661,13 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     opsPerEvent.forEach((op, i) => {
       const s = i + 1;
       steps.push({
-        id: `t${s}`, stepId: s, role: "agent", messageId: "m", parentId: parent,
-        isBegin: s === 1, content: `step ${s} on ${op}${filler}`,
+        id: `t${s}`,
+        stepId: s,
+        role: "agent",
+        messageId: "m",
+        parentId: parent,
+        isBegin: s === 1,
+        content: `step ${s} on ${op}${filler}`,
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: `c${s}`, input: { operatorId: op } }],
         toolResults: [{ toolCallId: `c${s}`, output: "ok", isError: false }],
       });
@@ -653,10 +704,16 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const base = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG);
     const more = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op6", "op6"], BIG);
     const cBase = content(
-      assembleContext(base.steps, base.workflowState, base.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(base.steps, base.workflowState, base.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     const cMore = content(
-      assembleContext(more.steps, more.workflowState, more.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(more.steps, more.workflowState, more.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     expect(cBase).toContain("# Current Dataflow (settled operators");
     // The compacted prefix (deck) is identical — cache-friendly; only the raw
@@ -668,10 +725,16 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const before = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG); // frontier op6
     const after = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG); // frontier op7 → op6 settles
     const cBefore = content(
-      assembleContext(before.steps, before.workflowState, before.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(before.steps, before.workflowState, before.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     const cAfter = content(
-      assembleContext(after.steps, after.workflowState, after.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(after.steps, after.workflowState, after.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     // op6 was raw (frontier) before; after switching to op7 it joins the deck.
     expect(deckOf(cBefore)).not.toContain("op6");
@@ -713,7 +776,9 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts, staticCompaction: true, compactionRule: "token",
+        ...opts,
+        staticCompaction: true,
+        compactionRule: "token",
       })
     );
     // token rule uses the generic (non-settled) header
@@ -1014,6 +1079,42 @@ describe("assembleContext — delta Action / Observation format", () => {
     expect(c).toContain("operatorId: tmp");
     // ...and the delete surfaces in the Observation.
     expect(c).toContain("- operator tmp deleted");
+  });
+
+  test("a REFUSED delete renders as `not deleted` with the reason, never as a delete", () => {
+    // `deleteOperator` is refused while another operator still reads the target
+    // (the consumer guard). The observation used to report those as deletes, so
+    // the model was told an operator was gone while it was still in the DAG —
+    // and still rendering in every later observation.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "add a consumer, then try to delete its input",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "src" } },
+          { toolName: "deleteOperator", toolCallId: "t2", input: { operatorId: "src" } },
+        ],
+        toolResults: [
+          { toolCallId: "t1", output: "Added operator src", isError: false },
+          {
+            toolCallId: "t2",
+            output: "[ERROR] `src` still feeds `consumer`; re-point or delete those first.",
+            isError: true,
+          },
+        ],
+        isEnd: true,
+      },
+    ]);
+    // The operator SURVIVED the refused delete: that snapshot is the fact.
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    expect(c).not.toContain("- operator src deleted");
+    expect(c).toContain("- operator src (not deleted): [ERROR] `src` still feeds `consumer`");
   });
 
   test("create → delete → re-create on same id reads as two separate `create`s", () => {
@@ -1475,260 +1576,6 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     // But both error messages should be present.
     expect(c).toContain("A failed");
     expect(c).toContain("B failed");
-  });
-});
-
-/* ============================================================================
- *  Idea 1: per-operator event-history line in the snapshot
- *  ("Created at Event X, modified at Event Y, …")
- * ========================================================================= */
-
-/* ============================================================================
- *  Idea 2: equality-based summary dedup in event lines
- *  (abbreviateSummary when event.summary == snapshot.customDisplayName)
- * ========================================================================= */
-
-/* ============================================================================
- *  DECORATE levels (context/decorate registry) — flow_level / data_level
- *  expand to the same render flags as the equivalent booleans (the shim).
- * ========================================================================= */
-
-describe("assembleContext — DECORATE levels", () => {
-  test("dataLevel/flowLevel produce IDENTICAL output to the equivalent booleans", () => {
-    const A = buildCanonicalScenario();
-    const B = buildCanonicalScenario();
-    // flow L2 = loaderHint (L1) + cardinality + error-context (L2)
-    // data L2 = schema (L1) + structural profile (L2)
-    const viaLevels = content(
-      assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
-        ...opts,
-        flowLevel: 2,
-        dataLevel: 2,
-      })
-    );
-    const viaBooleans = content(
-      assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts,
-        loaderHint: true,
-        lineageErrorContext: true,
-        schemaInResult: true,
-        tableStructureHint: true,
-      })
-    );
-    expect(viaLevels).toBe(viaBooleans);
-  });
-
-  test("undefined levels -> no expansion (pure legacy boolean behavior)", () => {
-    const A = buildCanonicalScenario();
-    const B = buildCanonicalScenario();
-    const noLevels = content(assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, { ...opts }));
-    const zeroLevels = content(
-      assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts,
-        flowLevel: 0,
-        dataLevel: 0,
-      })
-    );
-    expect(zeroLevels).toBe(noLevels);
-  });
-
-  test("a level never clears an explicitly-set boolean (only turns rungs ON)", () => {
-    const A = buildCanonicalScenario();
-    // data L0 expands nothing, but an explicit tableStructureHint:true stays on.
-    const c = content(
-      assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
-        ...opts,
-        dataLevel: 0,
-        flowLevel: 0,
-        tableStructureHint: true,
-      })
-    );
-    const B = buildCanonicalScenario();
-    const ref = content(
-      assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts,
-        tableStructureHint: true,
-      })
-    );
-    expect(c).toBe(ref);
-  });
-});
-
-/* ============================================================================
- *  DECORATE operator rungs — end-to-end through assembleContext (registry path)
- * ========================================================================= */
-
-describe("assembleContext — operator DECORATE rungs (integration)", () => {
-  /** A 2-op scenario: a DataLoading op `ld` that errored, feeding a process op. */
-  function errorScenario() {
-    const s = buildScenario([
-      {
-        id: "init",
-        stepId: 0,
-        role: "agent",
-        messageId: "m-init",
-        content: "init",
-        toolCalls: [{ toolName: "initialize", toolCallId: "tc0", input: {} }],
-        toolResults: [{ toolCallId: "tc0", output: "ok", isError: false }],
-      },
-      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "go" },
-      {
-        id: "t1",
-        stepId: 1,
-        role: "agent",
-        messageId: "m-task",
-        parentId: "user",
-        content: "load",
-        isBegin: true,
-        isEnd: false,
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "ld" } }],
-        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
-      },
-    ]);
-    // DataLoading op so the loader-remediation rung applies.
-    const wf: WorkflowContent = { ...makeWorkflow([]), operators: [makeOp("ld", "DataLoading")] };
-    s.storage.createSnapshot("t1", wf);
-    s.storage.setOperatorResult(
-      "t1",
-      "ld",
-      makeInfo("ld", 0, "UnicodeDecodeError: 'utf-8' codec can't decode byte 0x93")
-    );
-    return s;
-  }
-
-  test("loader-remediation: flow L1 (or loaderHint flag) renders the hint; off by default", () => {
-    const off = errorScenario();
-    const cOff = content(assembleContext(off.steps, off.workflowState, off.storage, ContextMode.LATEST, { ...opts }));
-    expect(cOff).not.toContain("Loader hint:");
-
-    const viaFlag = errorScenario();
-    const cFlag = content(
-      assembleContext(viaFlag.steps, viaFlag.workflowState, viaFlag.storage, ContextMode.LATEST, {
-        ...opts,
-        loaderHint: true,
-      })
-    );
-    expect(cFlag).toContain("Loader hint:");
-    expect(cFlag).toContain("cp1252");
-
-    const viaLevel = errorScenario();
-    const cLevel = content(
-      assembleContext(viaLevel.steps, viaLevel.workflowState, viaLevel.storage, ContextMode.LATEST, {
-        ...opts,
-        flowLevel: 1,
-      })
-    );
-    // flow L1 = loader remediation → identical hint present
-    expect(cLevel).toContain("Loader hint:");
-    expect(cLevel).toContain("cp1252");
-  });
-
-  test("flowLevel=2 reproduces the explicit flow-rung output byte-for-byte", () => {
-    const a = errorScenario();
-    const b = errorScenario();
-    // flow L2 = loaderHint (L1) + cardinality + error-context (L2). No schema
-    // (that is the data facet).
-    const viaBool = content(
-      assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, {
-        ...opts,
-        loaderHint: true,
-        lineageErrorContext: true,
-      })
-    );
-    const viaLevel = content(
-      assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 })
-    );
-    expect(viaLevel).toBe(viaBool);
-  });
-
-  test("flow renders in a consolidated '# Operators needing attention' section after the dataflow, not inline", () => {
-    const s = errorScenario();
-    const c = content(
-      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts, flowLevel: 1 })
-    );
-    // Consolidated section present and placed AFTER the snapshot (recency).
-    expect(c).toContain("# Operators needing attention");
-    expect(c.indexOf("# Current Dataflow")).toBeLessThan(c.indexOf("# Operators needing attention"));
-    // The errored operator is listed in the section with its remediation.
-    const section = c.slice(c.indexOf("# Operators needing attention"));
-    expect(section).toContain("### `ld` (DataLoading)");
-    expect(section).toContain("Loader hint:");
-    // The hint is NOT also rendered inline inside the operator's snapshot block.
-    const dataflow = c.slice(c.indexOf("# Current Dataflow"), c.indexOf("# Operators needing attention"));
-    expect(dataflow).not.toContain("Loader hint:");
-    // flow off ⇒ no section at all.
-    const cOff = content(assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts }));
-    expect(cOff).not.toContain("# Operators needing attention");
-  });
-});
-
-/* ============================================================================
- *  Lineage-error-context dedup (LATEST pointer vs DELTA dump)
- * ========================================================================= */
-
-describe("assembleContext — lineage-error-context dedup", () => {
-  function lineageScenario() {
-    const s = buildScenario([
-      {
-        id: "init",
-        stepId: 0,
-        role: "agent",
-        messageId: "m-init",
-        content: "init",
-        toolCalls: [{ toolName: "initialize", toolCallId: "tc0", input: {} }],
-        toolResults: [{ toolCallId: "tc0", output: "ok", isError: false }],
-      },
-      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "go" },
-      {
-        id: "t1",
-        stepId: 1,
-        role: "agent",
-        messageId: "m-task",
-        parentId: "user",
-        content: "build",
-        isBegin: true,
-        isEnd: false,
-        toolCalls: [
-          { toolName: "createOrModifyOperator", toolCallId: "tcU", input: { operatorId: "up" } },
-          { toolName: "createOrModifyOperator", toolCallId: "tcP", input: { operatorId: "proc" } },
-        ],
-        toolResults: [
-          { toolCallId: "tcU", output: "ok", isError: false },
-          { toolCallId: "tcP", output: "[ERROR] KeyError: 'Year'", isError: true },
-        ],
-      },
-    ]);
-    const wf: WorkflowContent = {
-      ...makeWorkflow(["up", "proc"], [["up", "proc"]]),
-      operators: [makeOp("up", "DataLoading"), makeOp("proc", "DataProcessing")],
-    };
-    s.storage.createSnapshot("t1", wf);
-    s.storage.setOperatorResult("t1", "up", makeInfo("up", 5)); // usable upstream result
-    s.storage.setOperatorResult("t1", "proc", makeInfo("proc", 0, "KeyError: 'Year'"));
-    return s;
-  }
-
-  test("LATEST references the upstream's Result (pointer) instead of re-dumping it", () => {
-    const s = lineageScenario();
-    const c = content(
-      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 })
-    );
-    expect(c).toContain("# Operators needing attention (fix in this order)");
-    const section = c.slice(c.indexOf("# Operators needing attention"));
-    expect(section).toContain("fix against the real columns/values of input `up`");
-    expect(section).toContain("see its Result above");
-    // the verbose upstream dump is NOT repeated in LATEST (it's already in the snapshot)
-    expect(section).not.toContain("Inputs (the actual data");
-  });
-
-  test("DELTA keeps the full upstream dump (the upstream may be omitted there)", () => {
-    const s = lineageScenario();
-    const c = content(
-      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.DELTA, { ...opts, flowLevel: 2 })
-    );
-    const section = c.slice(c.indexOf("# Operators needing attention"));
-    expect(section).toContain("Inputs (the actual data this operator consumes");
-    expect(section).not.toContain("fix against the real columns/values");
   });
 });
 

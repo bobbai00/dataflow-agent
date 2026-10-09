@@ -96,6 +96,8 @@ class InputManager:
                     queue=self._input_queue,
                     worker_actor_id=ActorVirtualIdentity(self.worker_id),
                     partitioning=partitioning,
+                    port_id=port_id,
+                    on_schema=lambda schema: self._ports[port_id].set_schema(schema),
                 )
                 for uri, partitioning in zip(uris, partitionings)
             ]
@@ -111,6 +113,10 @@ class InputManager:
             for reader_runnable in port_reader_runnables:
                 # A completed reader port should not be started again
                 if not reader_runnable.finished():
+                    # Opened here, on the worker's start request, so a stored
+                    # input that cannot be read fails the request instead of
+                    # a detached thread that only logs it.
+                    reader_runnable.open()
                     thread_for_reader_runnable = threading.Thread(
                         target=reader_runnable.run,
                         daemon=True,
@@ -163,13 +169,15 @@ class InputManager:
 
     def process_data_payload(
         self, from_: ChannelIdentity, payload: DataPayload
-    ) -> Iterator[Union[Tuple, InternalMarker]]:
+    ) -> Iterator[Union[Tuple, StateFrame, InternalMarker]]:
         self._current_channel_id = from_
 
         if isinstance(payload, DataFrame):
             yield from self._process_data(payload.frame)
         elif isinstance(payload, StateFrame):
-            yield payload.frame
+            # Yield the whole envelope (not just .frame) so the runtime can
+            # read its loop_counter; the operator still receives a bare State.
+            yield payload
         else:
             raise NotImplementedError()
 

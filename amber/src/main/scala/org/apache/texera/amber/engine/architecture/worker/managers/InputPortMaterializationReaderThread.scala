@@ -25,6 +25,7 @@ import org.apache.texera.amber.core.state.State
 import org.apache.texera.amber.core.storage.{DocumentFactory, VFSURIFactory}
 import org.apache.texera.amber.core.storage.model.VirtualDocument
 import org.apache.texera.amber.core.tuple.Tuple
+import org.apache.texera.amber.core.workflow.PortIdentity
 import org.apache.texera.amber.core.virtualidentity.{
   ActorVirtualIdentity,
   ChannelIdentity,
@@ -44,7 +45,8 @@ import org.apache.texera.amber.engine.architecture.rpc.workerservice.WorkerServi
 import org.apache.texera.amber.engine.architecture.sendsemantics.partitionings.Partitioning
 import org.apache.texera.amber.engine.architecture.worker.WorkflowWorker.{
   DPInputQueueElement,
-  FIFOMessageElement
+  FIFOMessageElement,
+  InputPortReadError
 }
 import org.apache.texera.amber.engine.common.ambermessage.{
   DataFrame,
@@ -62,7 +64,8 @@ class InputPortMaterializationReaderThread(
     uri: URI,
     inputMessageQueue: LinkedBlockingQueue[DPInputQueueElement],
     workerActorId: ActorVirtualIdentity,
-    partitioning: Partitioning
+    partitioning: Partitioning,
+    inputPortId: PortIdentity
 ) extends Thread {
 
   private val sequenceNum = new AtomicLong()
@@ -70,10 +73,10 @@ class InputPortMaterializationReaderThread(
   private lazy val channelId = {
     // A unique channel between this thread (dummy actor) and the worker actor.
     val fromActorId: ActorVirtualIdentity =
-      getFromActorIdForInputPortStorage(uri.toString, workerActorId)
+      getFromActorIdForInputPortStorage(uri.toString, workerActorId, inputPortId)
     ChannelIdentity(fromActorId, workerActorId, isControl = false)
   }
-  private val partitioner = toPartitioner(partitioning, workerActorId)
+  private val partitioner = toPartitioner(partitioning, channelId.fromWorkerId)
   private val batchSize = ApplicationConfig.defaultDataTransferBatchSize
   private val isFinished = new AtomicBoolean(false)
 
@@ -104,9 +107,17 @@ class InputPortMaterializationReaderThread(
           .asInstanceOf[VirtualDocument[Tuple]]
       val stateReadIterator = stateDocument.get()
       while (stateReadIterator.hasNext) {
-        val state = State.fromTuple(stateReadIterator.next())
+        val row = stateReadIterator.next()
+        // Rebuild the loop envelope (loop_counter / loop_start_id) alongside
+        // the content: a JVM operator inside a loop body must carry it through
+        // unchanged, or the matching LoopEnd loses its back-jump target.
+        val stateFrame = StateFrame(
+          State.fromTuple(row),
+          State.loopCounterFrom(row),
+          State.loopStartIdFrom(row)
+        )
         inputMessageQueue.put(
-          FIFOMessageElement(WorkflowFIFOMessage(channelId, getSequenceNumber, StateFrame(state)))
+          FIFOMessageElement(WorkflowFIFOMessage(channelId, getSequenceNumber, stateFrame))
         )
       }
 
@@ -136,7 +147,11 @@ class InputPortMaterializationReaderThread(
       isFinished.set(true)
     } catch {
       case e: Exception =>
-        throw new RuntimeException(s"Error reading input port materializations: ${e.getMessage}", e)
+        inputMessageQueue.put(
+          InputPortReadError(
+            new RuntimeException(s"Error reading cached input $uri: ${e.getMessage}", e)
+          )
+        )
     }
   }
 

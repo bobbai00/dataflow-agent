@@ -43,6 +43,7 @@ import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../../api/compile-api";
 import { estimateTokens, renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
+import { buildNativeFrames, splitTrailingState, splitOperators, splitTurns } from "./native-frames";
 import { buildDossier, type CodeVersion, type Dossier, type ResultVersion } from "./dossier";
 import {
   resolveOperatorParams,
@@ -76,6 +77,8 @@ export interface OperatorRenderExtras {
   column: ColumnParams;
   includeProperties: boolean;
   includeCode: boolean;
+  /** Char budget for the `Code:` block; 0 ⇒ unlimited. */
+  codeMaxChars: number;
   /** Prior code versions to render, newest-first (current version excluded). */
   codeHistory: CodeVersion[];
   /** Prior result versions to render, newest-first (latest excluded). */
@@ -117,12 +120,91 @@ export function summarize(input: SummarizeInput, params: SummarizeParams): Summa
     };
   }
 
+  // NATIVE FRAMES: collect which step produced each rendered event so the
+  // transcript can carry that step's REAL tool calls (true toolCallIds).
+  const stepByEvent = new Map<number, ReActStep>();
+  if (params.messageLayout === "native") {
+    options.eventStepSink = (eventIndex, step) => stepByEvent.set(eventIndex, step);
+  }
   const text = renderContextCore(input.visibleSteps, input.workflowState, input.snapshotStorage, mode, options);
+  const messages: ModelMessage[] = buildMessages(params.messageLayout, text, stepByEvent);
   return {
     text,
-    messages: [{ role: "user", content: text }],
+    messages,
     breakdown: computeBreakdown(text),
   };
+}
+
+/**
+ * Frame the rendered context as wire messages.
+ *
+ *   block      one user message — the original shape. Uncacheable: the whole
+ *              thing is re-rendered every step, so no prefix ever repeats.
+ *   blockSplit same bytes, cut into [history][current state] so the history is
+ *              a stable prefix a cache breakpoint can sit on.
+ *   native     a real tool-calling transcript (see native-frames).
+ *
+ * blockSplit and native are cacheable for the same reason — an append-only
+ * prefix with the volatile current-state section pushed last. They differ only
+ * in whether the history is prose in a user turn or real assistant/tool turns,
+ * which is what isolates "does the framing change accuracy" from "does it
+ * change cost".
+ */
+function buildMessages(layout: string | undefined, text: string, stepByEvent: Map<number, ReActStep>): ModelMessage[] {
+  if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
+  if (layout === "turnSplit") {
+    const parts = splitTurns(text);
+    if (parts.length > 1) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(parts.join("\n\n")) === norm(text)) {
+        return parts.map(content => ({ role: "user" as const, content }));
+      }
+    }
+    return [{ role: "user", content: text }];
+  }
+  // opBlock shares opSplit's cut points (`### <type> operator \`id\``); it
+  // differs in what the RENDERER puts inside each block, not in how the text
+  // is framed — see serializeOperatorFull's operator-block contract.
+  if (layout === "opSplit" || layout === "opBlock") {
+    // An empty dataflow (step 1) still ends with the `# Current Dataflow`
+    // header, so the first message is byte-identical from step 1 onwards.
+    if (
+      !/^# Current Dataflow$/m.test(text) &&
+      !/^### /m.test(text) &&
+      !/^- \*\*[A-Za-z_][A-Za-z0-9_]*\*\* \(/m.test(text)
+    ) {
+      return [{ role: "user", content: text.trimEnd() + "\n\n# Current Dataflow\n## Operators" }];
+    }
+    const parts = splitOperators(text);
+    // Same byte-parity contract as blockSplit: a framing change, never a
+    // content change. If the parts do not reconstruct the render, ship the
+    // single block rather than send the model something the renderer
+    // did not produce.
+    if (parts.length > 1) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(parts.join("\n\n")) === norm(text)) {
+        return parts.map(content => ({ role: "user" as const, content }));
+      }
+    }
+  }
+  if (layout === "blockSplit") {
+    const { head, tail } = splitTrailingState(text);
+    // Structure must be preserved EXACTLY: blockSplit is a wire-framing change
+    // for cache purposes, never a content change. If the two halves do not
+    // reconstruct the render byte-for-byte (ignoring the join whitespace), the
+    // split is wrong and we ship the original single block rather than send the
+    // model something the renderer did not produce.
+    if (tail) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(head + "\n\n" + tail) === norm(text)) {
+        return [
+          { role: "user", content: head },
+          { role: "user", content: tail },
+        ];
+      }
+    }
+  }
+  return [{ role: "user", content: text }];
 }
 
 /* ============================================================================
@@ -144,7 +226,12 @@ export function paramsToRenderOptions(
   const interleaved = params.trajectory.events === "interleaved";
   return {
     compilationResult,
-    agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
+    nativeEvidence: params.nativeEvidence,
+    agentMode: AgentMode.CODE,
+    resultSelection: params.resultSelection,
+    // The renderer needs the layout for one decision: in the native transcript
+    // a later turn's request is also rendered inline (see renderAgentEvents).
+    messageLayout: params.messageLayout,
     agentTurns: params.trajectory.agentTurns,
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,
     compactionStrategy: params.trajectory.compaction,
@@ -158,21 +245,17 @@ export function paramsToRenderOptions(
     foldGraceEvents: params.trajectory.foldGraceEvents,
     userTaskPlacement: params.trajectory.userTaskPlacement,
     turnHistoryIndex: params.trajectory.priorTurns === "index" ? true : undefined,
+    versionedCatalog: params.trajectory.versionedCatalog === true ? true : undefined,
+    versionedHeads: params.trajectory.versionedHeads === false ? false : undefined,
+    sessionTurns: params.trajectory.sessionTurns === true ? true : undefined,
+    recallOperatorLevel: params.trajectory.recallOperatorLevel === true ? true : undefined,
+    specAudit: params.trajectory.specAudit === true ? true : undefined,
     renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
-    columnStats: col.stats,
-    statsDensity: col.statsDensity,
-    loaderHint: params.flow.loaderHints,
-    valueFormatFlags: col.valueFormatHints,
-    lineageErrorContext: params.flow.errorContext,
-    graphAudit: params.flow.graphAudit,
-    coercionTelemetry: col.coercionAlerts,
     maxResultRows: d.result.latest.tuple.sampleRows,
     maxResultChars: d.result.latest.tuple.maxChars,
     maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,
-    tableStructureHint: col.structuralHints,
-    fileIoFacts: col.fileIoFacts,
     thoughtReplay: params.trajectory.reasoningReplayK > 0,
     thoughtReplayK: params.trajectory.reasoningReplayK > 0 ? params.trajectory.reasoningReplayK : undefined,
     errorReflection: params.flow.errorReflection,
@@ -195,8 +278,6 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
   if (d.result.latest.tuple.maxChars > 0) return true;
-  if (d.result.latest.column.statsMetrics !== "all") return true;
-  if (d.result.latest.column.statsDensity !== "full") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
   if (d.result.history.lastK > 0) return true;
   return false;
@@ -241,6 +322,7 @@ function resolveExtras(
     column: op.result.latest.column,
     includeProperties: op.property.includeProperties,
     includeCode: op.property.includeCode,
+    codeMaxChars: op.property.codeMaxChars,
     codeHistory,
     resultHistory,
     retirementFact: op.result.latest.retirementFact,

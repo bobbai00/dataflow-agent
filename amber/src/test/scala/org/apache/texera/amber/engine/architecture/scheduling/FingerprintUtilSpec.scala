@@ -26,7 +26,7 @@ import org.apache.texera.amber.operator.TestOperators
 import org.apache.texera.amber.operator.aggregate.{AggregateOpDesc, AggregationFunction}
 import org.apache.texera.amber.operator.keywordSearch.KeywordSearchOpDesc
 import org.apache.texera.amber.operator.source.scan.csv.CSVScanSourceOpDesc
-import org.apache.texera.workflow.LogicalLink
+import org.apache.texera.common.compiler.model.LogicalLink
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 

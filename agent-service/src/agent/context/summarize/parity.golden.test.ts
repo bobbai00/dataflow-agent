@@ -68,12 +68,6 @@ describe("golden — LATEST", () => {
     expect(render(ContextMode.LATEST, { ...base(), agentTurns: true })).toMatchSnapshot();
   });
 
-  test("decorated (flowLevel=3, dataLevel=3, thoughtReplay)", () => {
-    expect(
-      render(ContextMode.LATEST, { ...base(), thoughtReplay: true, thoughtReplayK: 10, flowLevel: 3, dataLevel: 3 })
-    ).toMatchSnapshot();
-  });
-
   test("reflection rungs (errorReflection + attemptReflection)", () => {
     expect(
       render(ContextMode.LATEST, {
@@ -84,18 +78,6 @@ describe("golden — LATEST", () => {
       })
     ).toMatchSnapshot();
   });
-
-  test("data overlays (columnStats + valueFormat + dataHints + maxResultRows=4)", () => {
-    expect(
-      render(ContextMode.LATEST, {
-        ...base(),
-        columnStats: true,
-        valueFormatFlags: true,
-        tableStructureHint: true,
-        maxResultRows: 4,
-      })
-    ).toMatchSnapshot();
-  });
 });
 
 describe("golden — DELTA", () => {
@@ -103,8 +85,8 @@ describe("golden — DELTA", () => {
     expect(render(ContextMode.DELTA, base())).toMatchSnapshot();
   });
 
-  test("dataLevel=1 (Schema line in observations)", () => {
-    expect(render(ContextMode.DELTA, { ...base(), dataLevel: 1 })).toMatchSnapshot();
+  test("Schema line in observations", () => {
+    expect(render(ContextMode.DELTA, { ...base(), schemaInResult: true })).toMatchSnapshot();
   });
 
   test("windowed — sliding compaction", () => {

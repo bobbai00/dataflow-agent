@@ -21,5 +21,13 @@ package org.apache.texera.amber.engine.common
 import org.apache.pekko.actor.Address
 
 object AmberConfig {
-  var masterNodeAddr: Address = Address("pekko", "Amber", "localhost", 2552)
+  private[common] def parseMasterPort(value: Option[String]): Int = {
+    val port = value
+      .map(_.toIntOption.getOrElse(throw new IllegalArgumentException("Invalid AMBER_MASTER_PORT")))
+      .getOrElse(2552)
+    require(port > 0 && port <= 65535, "AMBER_MASTER_PORT must be between 1 and 65535")
+    port
+  }
+  val masterPort: Int = parseMasterPort(sys.env.get("AMBER_MASTER_PORT"))
+  var masterNodeAddr: Address = Address("pekko", "Amber", "localhost", masterPort)
 }

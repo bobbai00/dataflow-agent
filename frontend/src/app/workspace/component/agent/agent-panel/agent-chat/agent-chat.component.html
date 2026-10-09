@@ -17,8 +17,25 @@
  under the License.
 -->
 
-<!-- Agent Chat Container (used within tabs) -->
-<div class="agent-chat-container">
+<!-- Agent Chat Container (used within tabs). Dropping files anywhere on the
+     panel uploads them to the user's `agent-uploads` dataset and appends the
+     resulting dataset paths to the message being composed. -->
+<div
+  class="agent-chat-container"
+  (dragenter)="onFileDragEnter($event)"
+  (dragover)="onFileDragOver($event)"
+  (dragleave)="onFileDragLeave($event)"
+  (drop)="onFileDrop($event)">
+  <!-- Drop zone overlay -->
+  <div
+    *ngIf="isFileDragOver"
+    class="file-drop-overlay">
+    <i
+      nz-icon
+      nzType="cloud-upload"
+      nzTheme="outline"></i>
+    <span>Drop files to upload — their dataset paths land in your message</span>
+  </div>
   <!-- Toolbar -->
   <div class="chat-toolbar">
     <div class="chat-toolbar-controls">
@@ -153,11 +170,24 @@
       </div>
       <div
         class="tree-viewport"
+        #treeViewport
         *ngIf="!treePanelCollapsed">
         <div
           class="tree-canvas"
           [style.width.px]="treeCanvasWidth"
           [style.height.px]="treeHeight">
+          <!-- Time axis: one HH:MM:SS label per tree rank, in the left gutter -->
+          <div
+            class="tree-time-axis"
+            [style.width.px]="treeTimeAxisWidth"
+            [style.height.px]="treeHeight">
+            <div
+              *ngFor="let row of snapshotTimeRows"
+              class="tree-time-label"
+              [style.top.px]="row.y">
+              {{ row.label }}
+            </div>
+          </div>
           <svg
             class="tree-edges"
             [attr.width]="treeCanvasWidth"
@@ -186,13 +216,8 @@
             [style.height.px]="node.height"
             (click)="onSnapshotNodeClick(node)"
             nz-tooltip
-            [nzTooltipTitle]="node.id">
+            [nzTooltipTitle]="node.timeLabel ? node.id + ' · ' + node.timeLabel : node.id">
             <span class="snapshot-node-label">{{ node.id }}</span>
-            <span
-              *ngIf="node.timeLabel"
-              class="snapshot-node-time"
-              >{{ node.timeLabel }}</span
-            >
           </div>
         </div>
       </div>
@@ -244,11 +269,15 @@
                   </ng-template>
                 </span>
                 <!-- Thinking text, truncated with an ellipsis that follows the
-                     panel width (CSS overflow). -->
+                     panel width (CSS overflow). Models that emit tool calls with
+                     no visible preamble and no reasoning summary leave this
+                     empty; the placeholder is then only worth showing on the
+                     running row, since the action chips already say what the
+                     finished ones did. -->
                 <span
                   class="react-card-thinking"
                   [title]="row.thinking">
-                  {{ row.thinking || 'Working…' }}
+                  {{ row.thinking || (isRowRunning(row) ? 'Working…' : '') }}
                 </span>
                 <!-- Actions the agent called this step (one chip each). -->
                 <span class="react-card-actions">
@@ -365,7 +394,9 @@
 
       <!-- Next-Step Context Preview — live, identical to what the model would
            receive on the next prepareStep. Available in both User and Debug modes. -->
-      <div class="next-context-panel">
+      <div
+        *ngIf="showNextContextPanel"
+        class="next-context-panel">
         <div class="next-context-header">
           <button
             nz-button
@@ -412,7 +443,9 @@
       </div>
 
       <!-- Input Mode bar (User vs Debug). Debug bypasses the LLM. -->
-      <div class="input-mode-bar">
+      <div
+        *ngIf="showDebugToggle"
+        class="input-mode-bar">
         <nz-switch
           [(ngModel)]="debugMode"
           nzSize="small"
@@ -426,6 +459,32 @@
       </div>
 
       <!-- Input Area -->
+      <!-- Upload progress, one row per dropped file -->
+      <div
+        *ngIf="fileUploads.length > 0"
+        class="file-upload-list">
+        <div
+          *ngFor="let upload of fileUploads"
+          class="file-upload-row"
+          [class.failed]="upload.status === 'failed'">
+          <i
+            nz-icon
+            [nzType]="upload.status === 'failed' ? 'close-circle' : upload.status === 'done' ? 'check-circle' : 'loading'"
+            nzTheme="outline"></i>
+          <span class="file-upload-name">{{ upload.fileName }}</span>
+          <span class="file-upload-status">
+            <ng-container [ngSwitch]="upload.status">
+              <ng-container *ngSwitchCase="'uploading'">{{ upload.percentage }}%</ng-container>
+              <ng-container *ngSwitchCase="'committing'">saving version…</ng-container>
+              <ng-container *ngSwitchCase="'done'"
+                >{{ upload.reused ? "already in dataset — path added" : "added to message" }}</ng-container
+              >
+              <ng-container *ngSwitchCase="'failed'">{{ upload.error || 'failed' }}</ng-container>
+            </ng-container>
+          </span>
+        </div>
+      </div>
+
       <div class="input-area">
         <textarea
           #messageInput
@@ -525,11 +584,11 @@
                 nzSize="small"
                 style="width: 180px">
                 <nz-option
+                  nzValue="native"
+                  nzLabel="Native"></nz-option>
+                <nz-option
                   nzValue="code"
                   nzLabel="Code"></nz-option>
-                <nz-option
-                  nzValue="general"
-                  nzLabel="General"></nz-option>
               </nz-select>
               <button
                 nz-button
@@ -557,9 +616,6 @@
                 <nz-option
                   nzValue="delta"
                   nzLabel="Delta"></nz-option>
-                <nz-option
-                  nzValue="full"
-                  nzLabel="Full"></nz-option>
               </nz-select>
               <button
                 nz-button
@@ -573,8 +629,7 @@
               Snapshot-selection policy for the ReAct context.
               <strong>Latest</strong>: events + one trailing snapshot of the current state (cheapest).
               <strong>Delta</strong>: each turn followed by a snapshot that renders changed operators in full and
-              unchanged ones as id+description placeholders. <strong>Full</strong>: each turn followed by its full
-              snapshot (highest fidelity, most tokens).
+              unchanged ones as id+description placeholders.
             </div>
           </div>
 
@@ -630,11 +685,36 @@
               </button>
             </div>
             <div class="settings-param-hint-block">
-              When <strong>enabled</strong>, every non-error operator result is followed by a <code>Column stats:</code>
-              block — one line per column showing the type and type-specific summary (null/distinct/top_10 for strings,
-              null/mean/min/max for numerics, null/true/false for bools, etc.). Helps the model reason about column
-              semantics without re-issuing inspection operators. When <strong>disabled</strong>, only the data preview
-              + shape metadata is rendered.
+              When <strong>enabled</strong>, every non-error operator result is followed by a
+              <code>Column stats:</code> block — one line per column showing the type and type-specific summary
+              (null/distinct/top_10 for strings, null/mean/min/max for numerics, null/true/false for bools, etc.). Helps
+              the model reason about column semantics without re-issuing inspection operators. When
+              <strong>disabled</strong>, only the data preview + shape metadata is rendered.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Panel Views</label>
+            <div class="settings-param-input settings-param-switches">
+              <label class="settings-switch-row">
+                <nz-switch
+                  [ngModel]="showNextContextPanel"
+                  (ngModelChange)="setShowNextContextPanel($event)"
+                  nzSize="small"></nz-switch>
+                <span>Show Next-Step Context preview</span>
+              </label>
+              <label class="settings-switch-row">
+                <nz-switch
+                  [ngModel]="showDebugToggle"
+                  (ngModelChange)="setShowDebugToggle($event)"
+                  nzSize="small"></nz-switch>
+                <span>Show User / Debug input toggle</span>
+              </label>
+            </div>
+            <div class="settings-param-hint-block">
+              Both are hidden by default. The context preview shows the exact prompt the model receives on its next
+              step; Debug mode bypasses the LLM and records typed text (or a <code>Function(...)</code> literal) as a
+              step.
             </div>
           </div>
 
@@ -740,77 +820,6 @@
                 Save
               </button>
               <span class="settings-param-hint">Maximum reasoning/tool steps per message (1-50)</span>
-            </div>
-          </div>
-        </div>
-      </nz-tab>
-
-      <!-- Operators Tab -->
-      <nz-tab [nzTitle]="operatorsTabTitle">
-        <ng-template #operatorsTabTitle>
-          Operators
-          <nz-tag
-            *ngIf="allAvailableOperatorTypes.length > 0"
-            style="margin-left: 4px"
-            >{{ settingsAllowedOperatorTypes.length }}/{{ allAvailableOperatorTypes.length }}</nz-tag
-          >
-        </ng-template>
-        <div class="settings-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
-            <span
-              class="settings-param-hint"
-              style="margin: 0">
-              Toggle which operators are included in the agent's system prompt (general mode). When none are selected,
-              all operators are included.
-            </span>
-          </div>
-          <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center">
-            <nz-input-group
-              [nzPrefix]="searchIcon"
-              style="flex: 1">
-              <input
-                nz-input
-                placeholder="Search operators..."
-                [(ngModel)]="operatorTypeSearchQuery"
-                nzSize="small" />
-            </nz-input-group>
-            <ng-template #searchIcon>
-              <i
-                nz-icon
-                nzType="search"></i>
-            </ng-template>
-            <button
-              nz-button
-              nzSize="small"
-              (click)="enableAllOperatorTypes()">
-              Select All
-            </button>
-            <button
-              nz-button
-              nzSize="small"
-              (click)="deselectAllOperatorTypes()">
-              Deselect All
-            </button>
-          </div>
-          <div style="max-height: 400px; overflow-y: auto">
-            <div
-              *ngFor="let op of getFilteredOperatorTypes()"
-              style="display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid #f0f0f0">
-              <nz-switch
-                [ngModel]="isOperatorTypeEnabled(op.type)"
-                (ngModelChange)="toggleOperatorType(op.type, $event)"
-                nzSize="small"
-                style="margin-right: 8px"></nz-switch>
-              <span style="font-weight: 500; min-width: 180px">{{ op.type }}</span>
-              <span
-                style="color: #888; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
-                nz-tooltip
-                [nzTooltipTitle]="op.description"
-                >{{ op.description }}</span
-              >
-            </div>
-            <div *ngIf="getFilteredOperatorTypes().length === 0 && operatorTypeSearchQuery">
-              No operators match "{{ operatorTypeSearchQuery }}"
             </div>
           </div>
         </div>

@@ -48,6 +48,7 @@ import { NzNoAnimationDirective } from "ng-zorro-antd/core/animation";
 import { ContextMenuComponent } from "./context-menu/context-menu/context-menu.component";
 import { NgIf } from "@angular/common";
 import { AgentInteractionComponent } from "../agent/agent-interaction/agent-interaction.component";
+import { JupyterPanelService } from "../../service/jupyter-panel/jupyter-panel.service";
 
 // jointjs interactive options for enabling and disabling interactivity
 // https://resources.jointjs.com/docs/jointjs/v3.2/joint.html#dia.Paper.prototype.options.interactive
@@ -101,6 +102,17 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private removeButton!: new () => joint.linkTools.Button;
   private breakpointButton!: new () => joint.linkTools.Button;
 
+  /** Screen-space gap between an operator's bottom edge and its chat popover (room for the caret). */
+  private static readonly CHAT_POPOVER_GAP_PX = 8;
+
+  /** Agent action labels currently drawn on the canvas (see
+   *  `applyAgentActionHighlight`); kept so the paint can be redone when the
+   *  canvas catches up with the agent's steps. */
+  private agentActionHighlight: {
+    agentName: string;
+    operatorIds: { viewedOperatorIds: string[]; addedOperatorIds: string[]; modifiedOperatorIds: string[] };
+  } | null = null;
+
   // Chat popover state (operator chat button)
   public chatPopoverOperator: {
     operatorId: string;
@@ -128,7 +140,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     public nzContextMenu: NzContextMenuService,
     private elementRef: ElementRef,
     private config: GuiConfigService,
-    private agentService: AgentService
+    private agentService: AgentService,
+    private jupyterPanelService: JupyterPanelService
   ) {
     this.wrapper = this.workflowActionService.getJointGraphWrapper();
   }
@@ -474,7 +487,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
             this.isSink(operator.operatorID)
           );
         }
-        this.applyOperatorBorder(operator.operatorID);
+        this.applyOperatorBorder(
+          operator.operatorID,
+          this.validationWorkflowService.validateOperator(operator.operatorID)
+        );
       });
   }
 
@@ -490,13 +506,14 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
    * overwrites a state-derived stroke (or vice versa) for an operator that
    * is both invalid and has a cached execution status.
    *
-   * Callers that already have a Validation result (the validation stream
-   * subscriber) may pass it in to avoid recomputing it; callers without one
-   * (the operator-add stream subscriber) let the helper fetch it lazily.
+   * Both callers obtain the Validation themselves and pass it in: the
+   * validation-stream subscriber forwards the result the stream just emitted,
+   * and the operator-add subscriber computes it via validateOperator. Keeping
+   * the parameter required means the color decision never silently depends on
+   * a recompute hidden inside this helper.
    */
-  private applyOperatorBorder(operatorID: string, validation?: Validation): void {
-    const resolved = validation ?? this.validationWorkflowService.validateOperator(operatorID);
-    if (!resolved.isValid) {
+  private applyOperatorBorder(operatorID: string, validation: Validation): void {
+    if (!validation.isValid) {
       this.jointUIService.changeOperatorColor(this.paper, operatorID, false);
       return;
     }
@@ -540,7 +557,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
         regionMap = event.regions.map(([id, region]) => {
           const element = new Region({ id: "region-" + id });
-          const ops = region.map(id => this.paper.getModelById(id));
+          // An operator id from the region plan may no longer be on the canvas
+          // (e.g. an agent checkout replaced the DAG) — skip it instead of
+          // crashing on `undefined.getBBox()` in updateRegionElement.
+          const ops = region.map(id => this.paper.getModelById(id)).filter((cell): cell is joint.dia.Cell => !!cell);
           this.paper.model.addCell(element);
           this.updateRegionElement(element, ops);
           return { regionElement: element, operators: ops };
@@ -767,6 +787,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         const elementID = event[0].model.id.toString();
         const highlightedOperatorIDs = this.wrapper.getCurrentHighlightedOperatorIDs();
         const highlightedCommentBoxIDs = this.wrapper.getCurrentHighlightedCommentBoxIDs();
+        if (this.workflowActionService.getTexeraGraph().hasOperator(elementID)) {
+          this.jupyterPanelService.onWorkflowComponentClick(elementID); // highlight corresponding Jupyter notebook cell
+        }
         if (event[1].shiftKey) {
           // if in multiselect toggle highlights on click
           if (highlightedOperatorIDs.includes(elementID)) {
@@ -1624,30 +1647,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
             this.agentService
               .getHoveredMessageOperatorsObservable(agent.id)
               .pipe(untilDestroyed(this))
-              .subscribe(({ viewedOperatorIds, addedOperatorIds, modifiedOperatorIds }) => {
-                // Clear all previous labels first
-                this.clearAllAgentActionLabels();
-
-                // Show "viewed" labels on viewed operators
-                viewedOperatorIds.forEach(operatorId => {
-                  if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
-                    this.jointUIService.showAgentActionLabel(this.paper, operatorId, "viewed", agent.name);
-                  }
-                });
-
-                // Show "added" labels on added operators
-                addedOperatorIds.forEach(operatorId => {
-                  if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
-                    this.jointUIService.showAgentActionLabel(this.paper, operatorId, "added", agent.name);
-                  }
-                });
-
-                // Show "modified" labels on modified operators
-                modifiedOperatorIds.forEach(operatorId => {
-                  if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
-                    this.jointUIService.showAgentActionLabel(this.paper, operatorId, "modified", agent.name);
-                  }
-                });
+              .subscribe(operatorIds => {
+                this.agentActionHighlight = { agentName: agent.name, operatorIds };
+                this.applyAgentActionHighlight();
               });
           });
         });
@@ -1660,6 +1662,29 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     // Initial setup
     setupAgentHoverSubscription();
+  }
+
+  /**
+   * Draw the current agent action highlight (the hovered step, or the latest
+   * step that changed the workflow), skipping operators the canvas does not
+   * have. Idempotent: every call repaints from scratch.
+   */
+  private applyAgentActionHighlight(): void {
+    this.clearAllAgentActionLabels();
+    const highlight = this.agentActionHighlight;
+    if (!highlight) {
+      return;
+    }
+    const { viewedOperatorIds, addedOperatorIds, modifiedOperatorIds } = highlight.operatorIds;
+    const show = (operatorIds: string[], actionType: "viewed" | "added" | "modified") =>
+      operatorIds.forEach(operatorId => {
+        if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
+          this.jointUIService.showAgentActionLabel(this.paper, operatorId, actionType, highlight.agentName);
+        }
+      });
+    show(viewedOperatorIds, "viewed");
+    show(addedOperatorIds, "added");
+    show(modifiedOperatorIds, "modified");
   }
 
   /**
@@ -1708,6 +1733,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
               displayName,
               position,
             };
+            // Results are pulled on demand (not pushed over the socket); refresh
+            // the active agent's summaries so the popover shows current data.
+            const activeAgentId = this.agentService.getActivelyConnectedAgentIds()[0];
+            if (activeAgentId) {
+              this.agentService.fetchOperatorResults(activeAgentId);
+            }
           }
         }
         this.changeDetectorRef.detectChanges();
@@ -1766,10 +1797,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const scale = this.paper.scale();
     const translate = this.paper.translate();
 
-    // Position popover below the operator, centered horizontally
-    // Add extra offset for the display name text below the operator box
+    // Position popover directly below the operator body, centered horizontally.
+    // The display name lives inside the box, so only a small screen-space gap
+    // (for the popover's caret) separates the two.
     const screenX = (bbox.x + bbox.width / 2) * scale.sx + translate.tx;
-    const screenY = (bbox.y + bbox.height) * scale.sy + translate.ty + 40;
+    const screenY = (bbox.y + bbox.height) * scale.sy + translate.ty + WorkflowEditorComponent.CHAT_POPOVER_GAP_PX;
 
     return { x: screenX, y: screenY };
   }
@@ -1787,7 +1819,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   getOperatorResultStatistics(operatorId: string): Record<string, string> | undefined {
-    return this.operatorSummaries.get(operatorId)?.resultStatistics;
+    return this.operatorSummaries.get(operatorId)?.columnStats;
   }
 
   isOperatorVisualization(operatorId: string): boolean {

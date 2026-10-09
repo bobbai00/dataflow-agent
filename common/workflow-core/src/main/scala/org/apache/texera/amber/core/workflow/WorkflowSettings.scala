@@ -36,11 +36,16 @@ case class CachedOutput(
     resultStatistics: Map[String, String] = Map.empty
 )
 
+/** Exact historical producer, scoped to the executing workflow. No URI or
+  * executable definition is accepted from the client. */
+case class SavedOutputReference(executionId: String, operatorId: String, outputPort: Int = 0)
+
 case class WorkflowSettings(
     dataTransferBatchSize: Int = 400,
     executionMode: ExecutionMode =
       ExecutionMode.valueOf(GuiConfig.guiWorkflowWorkspaceDefaultExecutionMode),
     outputPortsNeedingStorage: Set[GlobalPortIdentity] = Set.empty,
     // serialized GlobalPortIdentity -> cached output
-    cachedOutputs: Map[String, CachedOutput] = Map.empty
+    cachedOutputs: Map[String, CachedOutput] = Map.empty,
+    savedOutputs: Map[String, SavedOutputReference] = Map.empty
 )

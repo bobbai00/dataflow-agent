@@ -128,7 +128,14 @@ private class AmberProducer(
     dataHeader.payloadType match {
       case "State" =>
         assert(root.getRowCount == 1)
-        outputPort.sendTo(to, StateFrame(State.fromTuple(ArrowUtils.getTexeraTuple(0, root))))
+        // The row is a full State row (content + loop_counter + loop_start_id;
+        // see network_sender.py): rebuild the loop envelope alongside the
+        // content so it survives the hop through this JVM proxy.
+        val row = ArrowUtils.getTexeraTuple(0, root)
+        outputPort.sendTo(
+          to,
+          StateFrame(State.fromTuple(row), State.loopCounterFrom(row), State.loopStartIdFrom(row))
+        )
       case "ECM" =>
         assert(root.getRowCount == 1)
         outputPort.sendTo(
@@ -194,8 +201,11 @@ class PythonProxyServer(
       case e: Exception =>
         throw new RuntimeException(e)
     } finally {
-      assert(s != null)
-      s.close()
+      // Close only when the socket was actually opened. The previous
+      // `assert(s != null)` fired exactly when ServerSocket(0) had thrown
+      // (port/fd exhaustion) and MASKED the real cause as "assertion failed",
+      // which cost a long diagnosis. Let the RuntimeException above surface.
+      if (s != null) s.close()
     }
   }
 }

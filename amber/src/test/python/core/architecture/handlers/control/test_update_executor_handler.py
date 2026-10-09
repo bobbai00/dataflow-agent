@@ -31,10 +31,12 @@ from proto.org.apache.texera.amber.engine.architecture.rpc import (
 )
 
 
-def make_request(code: str) -> UpdateExecutorRequest:
+def make_request(code: str, dynamic_output_schema=False) -> UpdateExecutorRequest:
     """Build an UpdateExecutorRequest carrying inline Python code."""
     return UpdateExecutorRequest(
-        new_exec_init_info=OpExecInitInfo(op_exec_with_code=OpExecWithCode(code=code))
+        new_exec_init_info=OpExecInitInfo(
+            op_exec_with_code=OpExecWithCode(code=code, dynamic_output_schema=dynamic_output_schema)
+        )
     )
 
 
@@ -53,11 +55,12 @@ class TestUpdateExecutorHandler:
         result = asyncio.run(handler.update_executor(make_request("# code")))
         assert isinstance(result, EmptyReturn)
 
-    def test_delegates_extracted_code_to_executor_manager(self):
+    @pytest.mark.parametrize("dynamic_output_schema", [False, True])
+    def test_delegates_extracted_code_to_executor_manager(self, dynamic_output_schema):
         handler = make_handler(executor_is_source=False)
-        asyncio.run(handler.update_executor(make_request("user-code-v2")))
+        asyncio.run(handler.update_executor(make_request("user-code-v2", dynamic_output_schema)))
         handler.context.executor_manager.update_executor.assert_called_once_with(
-            "user-code-v2", False
+            "user-code-v2", False, dynamic_output_schema
         )
 
     def test_propagates_current_executor_is_source_not_request_field(self):
@@ -66,9 +69,7 @@ class TestUpdateExecutorHandler:
         # change that reads is_source from the request is reviewed.
         handler = make_handler(executor_is_source=True)
         asyncio.run(handler.update_executor(make_request("source-code")))
-        handler.context.executor_manager.update_executor.assert_called_once_with(
-            "source-code", True
-        )
+        handler.context.executor_manager.update_executor.assert_called_once_with("source-code", True, False)
 
     def test_extracts_code_via_get_one_of_for_op_exec_with_code(self):
         # OpExecInitInfo is a sealed-oneof of {with_class_name, with_code,
@@ -80,9 +81,7 @@ class TestUpdateExecutorHandler:
 
         handler = make_handler(executor_is_source=False)
         request = UpdateExecutorRequest(
-            new_exec_init_info=OpExecInitInfo(
-                op_exec_with_class_name=OpExecWithClassName(class_name="X")
-            )
+            new_exec_init_info=OpExecInitInfo(op_exec_with_class_name=OpExecWithClassName(class_name="X"))
         )
         with pytest.raises(AttributeError):
             asyncio.run(handler.update_executor(request))

@@ -66,9 +66,24 @@
   pointer-events: auto;
   z-index: 20;
   transform: translateX(-50%);
+
+  // Caret pointing up at the operator the popover belongs to.
+  &::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    background: white;
+    transform: translateX(-50%) rotate(45deg);
+    box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.06);
+    z-index: 1;
+  }
 }
 
 .chat-popover {
+  position: relative;
   width: 400px;
   max-height: 400px;
   background: white;

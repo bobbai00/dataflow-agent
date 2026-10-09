@@ -1,0 +1,183 @@
+{
+  "created_at": "2026-10-02",
+  "implementation_revision": "354af3a1425be648c90addb46263a7dca368cd38",
+  "integration_revision": "e85c0512b3ebd923de5b2d722e047b3cbb903501",
+  "runtime_root": "/var/tmp/texera-history-verification-20261002",
+  "repository": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/operator-history-lean",
+  "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+  "paper_raw": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/state-registry/logs/longds-classification-review-20260930/paper-raw.txt",
+  "judge_model": "deepseek/deepseek-v4-pro",
+  "judge_prompt_sha256": "5bb32f993b72cb515a675f55808145247bc81211dd05e7253135bb01b0d2c300",
+  "judge_max_output_tokens": 8192,
+  "annotation_model": "gpt-5.5",
+  "annotation_reasoning_effort": "xhigh",
+  "pricing": {
+    "gpt-5.6-luna": {
+      "version": 1,
+      "kind": "token_estimate",
+      "model": "gpt-5.6-luna",
+      "source": {
+        "table": "litellm.model_cost",
+        "model_key": "gpt-5.6-luna",
+        "cache_read_default_ratio": null,
+        "cache_creation_default_ratio": null
+      },
+      "currency": "USD",
+      "unit": "per_token",
+      "rates": {
+        "input": 2e-07,
+        "output": 1.2e-06,
+        "cache_read": 2e-08,
+        "cache_creation": 2.5e-07
+      },
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    },
+    "gpt-5.6-terra": {
+      "version": 1,
+      "kind": "token_estimate",
+      "model": "gpt-5.6-terra",
+      "source": {
+        "table": "litellm.model_cost",
+        "model_key": "gpt-5.6-terra",
+        "cache_read_default_ratio": null,
+        "cache_creation_default_ratio": null
+      },
+      "currency": "USD",
+      "unit": "per_token",
+      "rates": {
+        "input": 2e-06,
+        "output": 1.2e-05,
+        "cache_read": 2e-07,
+        "cache_creation": 2.5e-06
+      },
+      "input_includes_cached": true,
+      "output_includes_reasoning": true
+    }
+  },
+  "solver_concurrency": 2,
+  "planned_repeats": 1,
+  "solver_retries": 0,
+  "frozen_sources": {
+    "agent-service/src/agent/prompts.ts": "46f70f0f37ee26b1ca5b2c8716313e4f6f8c8e3d5c93804ebc4f32b8c38a24a2",
+    "agent-service/src/agent/context/summarize/native-frames.ts": "d15d647d926197b05c0d0894407b7944c2ec152c31d03deed89b584f0bb9bb07",
+    "agent-service/src/types/agent.ts": "43089074ea5288a6f59c5ede2c2b4ef71aa5f4e36973f946341c298cd9f68360",
+    "agent-service/src/agent/tools/dataflow-actions.ts": "9f6e2f0f4ebcc9381435bad5e8581d728a57e4fd2833eb65e70c8c17ffe68096",
+    "agent-service/src/agent/tools/dataflow-action-runtime.ts": "af369c7ed8fde80efbe1360eacf2a7534a84f5525368eee10224ee2fe8507276",
+    "agent-service/benchmark/multiturn/run-state-history.ts": "95b9505e9d61c4297b311f92851e8acd19b4784e9331d7df394214b0aa34a0eb",
+    "agent-service/benchmark/multiturn/longds-prompt.ts": "6c65fd9d0753b3591ecbc431db3af50e2fca9190f8a4544f25ee341989466948",
+    "amber/src/main/scala/org/apache/texera/web/service/ExecutionStatsService.scala": "5d0f1afb21e1035c299c43f98a1cc1b0b2c0583321a301776f7693bcc7d658d8"
+  },
+  "settings": {
+    "retrievalViews": [
+      "sample_stats",
+      "full"
+    ],
+    "fullResultCharLimit": 5000,
+    "maxOperatorResultCharLimit": 2000,
+    "maxResultRows": 50,
+    "dataEvidenceCharLimit": 2000,
+    "flowEvidence": false
+  },
+  "endpoint": "http://localhost:3037",
+  "execution_endpoint": "http://localhost:38086",
+  "owned_service": "longds-engine-stall-repair.service",
+  "protocol": {
+    "context": "all past questions, answers, actions and observations; append-only",
+    "max_steps": 40,
+    "max_output_tokens": 8192,
+    "reasoning_effort": "medium",
+    "phases": [
+      "Luna matched Restaurants prefix",
+      "Terra matched Kiva prefix"
+    ],
+    "correctness": "original binary judge and separate manual audit of requested quantities",
+    "error_classification": "original E.3 offline annotation; trace evidence checked manually",
+    "decision": "diagnostic sample, no statistical significance claim or cost guarantee",
+    "selection_reason": "Restaurants preserves reviewed subsets and rolls back service state; Kiva changes funding then runs no-wait and restores waiting speed",
+    "compare": "Within each model/case pair only stateHistory differs. Older pilot is descriptive evidence because prompt and engine revisions differ."
+  },
+  "cost_exclusions": [
+    "correctness judging",
+    "error annotation",
+    "infrastructure"
+  ],
+  "jobs": [
+    {
+      "arm": "verify-luna-baseline",
+      "condition": "baseline",
+      "model": "gpt-5.6-luna",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": 8,
+      "prepared": "/var/tmp/texera-state-history-20261001/prepared/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "run_dir": "/var/tmp/texera-history-verification-20261002/runs/verify-luna-baseline/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "reference_dir": "/var/tmp/texera-state-history-20261001/references/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "data_dir": "/var/tmp/texera-state-history-20261001/inputs/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "reference_sha256": {
+        "task.json": "71fc64cc812b1405abc0c2c40c06f87386fd4c58ba4102bafe0de7f7800b9001",
+        "metadata.json": "1cb2d28fec20fd02687e3ded3ca366c3ee5828144f2154666e94e8dc1e491451",
+        "task.py": "a4a0e48322eb2a1c9e546c3ae74dacba4576d708e52eafc5582385c2a21e636c",
+        "task.ipynb": "ddb1608047ee97c2f14d9e821f5c22dc18774794e71350cd5a1873d7a75ceb78"
+      },
+      "manifest_sha256": "94e710cfebd36e4e3d298695a656d9187f4eea8fce7be6557782b820b67b4e55",
+      "gold_sha256": "5a3fb7a2532ae8b621ec9201ad0bff5c8adab173fa08e0cf0e499ba4b5d65492"
+    },
+    {
+      "arm": "verify-luna-history",
+      "condition": "history",
+      "model": "gpt-5.6-luna",
+      "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "turns": 8,
+      "prepared": "/var/tmp/texera-state-history-20261001/prepared/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "run_dir": "/var/tmp/texera-history-verification-20261002/runs/verify-luna-history/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "reference_dir": "/var/tmp/texera-state-history-20261001/references/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "data_dir": "/var/tmp/texera-state-history-20261001/inputs/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "reference_sha256": {
+        "task.json": "71fc64cc812b1405abc0c2c40c06f87386fd4c58ba4102bafe0de7f7800b9001",
+        "metadata.json": "1cb2d28fec20fd02687e3ded3ca366c3ee5828144f2154666e94e8dc1e491451",
+        "task.py": "a4a0e48322eb2a1c9e546c3ae74dacba4576d708e52eafc5582385c2a21e636c",
+        "task.ipynb": "ddb1608047ee97c2f14d9e821f5c22dc18774794e71350cd5a1873d7a75ceb78"
+      },
+      "manifest_sha256": "94e710cfebd36e4e3d298695a656d9187f4eea8fce7be6557782b820b67b4e55",
+      "gold_sha256": "5a3fb7a2532ae8b621ec9201ad0bff5c8adab173fa08e0cf0e499ba4b5d65492"
+    },
+    {
+      "arm": "verify-terra-baseline",
+      "condition": "baseline",
+      "model": "gpt-5.6-terra",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": 4,
+      "prepared": "/var/tmp/texera-state-history-20261001/prepared/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "run_dir": "/var/tmp/texera-history-verification-20261002/runs/verify-terra-baseline/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "reference_dir": "/var/tmp/texera-state-history-20261001/references/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "data_dir": "/var/tmp/texera-state-history-20261001/inputs/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "reference_sha256": {
+        "task.json": "112c5d5dda8e9829c1582a0ebf352c6d299c80bd11421dc704a8aa84792b343d",
+        "metadata.json": "2dfc8af2739994a7af70a390fc70206743ad7f23c0e4588d0f0c0ca18c329c4c",
+        "task.py": "926f3d22d9792918723b89b086b38f1409e7509b6710776753f6a1d742854b22",
+        "task.ipynb": "064ccd48aa92853283f74071a160f091b023c5d5c93dc97b443dcb3d8c78a39d"
+      },
+      "manifest_sha256": "6b53c568bc565e7369ddcf01c91f772297f67404e4cf7c38e2483a9c1c860332",
+      "gold_sha256": "a823f8aa755aee8d23c9e4812a548329ec36e64fed9b1ce6e57fdb7a1e10a118"
+    },
+    {
+      "arm": "verify-terra-history",
+      "condition": "history",
+      "model": "gpt-5.6-terra",
+      "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "turns": 4,
+      "prepared": "/var/tmp/texera-state-history-20261001/prepared/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "run_dir": "/var/tmp/texera-history-verification-20261002/runs/verify-terra-history/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "reference_dir": "/var/tmp/texera-state-history-20261001/references/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "data_dir": "/var/tmp/texera-state-history-20261001/inputs/social_good__data_science_for_good_kiva_crowdfunding__task1",
+      "reference_sha256": {
+        "task.json": "112c5d5dda8e9829c1582a0ebf352c6d299c80bd11421dc704a8aa84792b343d",
+        "metadata.json": "2dfc8af2739994a7af70a390fc70206743ad7f23c0e4588d0f0c0ca18c329c4c",
+        "task.py": "926f3d22d9792918723b89b086b38f1409e7509b6710776753f6a1d742854b22",
+        "task.ipynb": "064ccd48aa92853283f74071a160f091b023c5d5c93dc97b443dcb3d8c78a39d"
+      },
+      "manifest_sha256": "6b53c568bc565e7369ddcf01c91f772297f67404e4cf7c38e2483a9c1c860332",
+      "gold_sha256": "a823f8aa755aee8d23c9e4812a548329ec36e64fed9b1ce6e57fdb7a1e10a118"
+    }
+  ]
+}

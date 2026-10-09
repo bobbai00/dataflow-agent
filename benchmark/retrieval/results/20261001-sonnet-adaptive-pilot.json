@@ -1,0 +1,2524 @@
+{
+  "title": "Sonnet 5.5 adaptive retrieval pilot",
+  "date": "2026-10-01",
+  "source": "/tmp/texera-sonnet-adaptive-pilot-20261001",
+  "provenance": {
+    "agent_revision": "b044a5535",
+    "engine_revision": "04e85b581 JVM; b044a5535 Python profiler",
+    "runner_revision": "83934bbf2cc222df1c99f21141dc615846a9768d",
+    "harness_revision": "4658eb92db753805e0df3edc207ca46379eda43b",
+    "endpoint": "http://localhost:3079",
+    "task_ids": [
+      "legal-easy-26",
+      "legal-hard-14",
+      "wildfire-easy-1",
+      "environment-easy-3"
+    ],
+    "repetitions": 1,
+    "models": {
+      "Sonnet55": "claude-sonnet-5.5"
+    },
+    "pricing_overrides": {
+      "claude-sonnet-5.5": {
+        "rates": {
+          "input": 2e-06,
+          "output": 1e-05,
+          "cache_read": 2e-07,
+          "cache_creation": 2.5e-06
+        },
+        "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+        "verified_on": "2026-10-01",
+        "unit": "USD per token"
+      }
+    },
+    "arms": {
+      "adaptive_flow1": {
+        "retrievalViews": [
+          "full",
+          "sample",
+          "sample_stats"
+        ],
+        "flowEvidence": true,
+        "dataEvidence": true
+      }
+    },
+    "pass_threshold": 1.0,
+    "settings": {
+      "agentMode": "native",
+      "contextMode": "delta",
+      "nativeProfileCollection": true,
+      "maxSteps": 25,
+      "maxOperatorResultCharLimit": 2000,
+      "maxResultRows": 5,
+      "fullResultCharLimit": 100000,
+      "dataEvidenceCharLimit": 2000,
+      "flowEvidenceCharLimit": 2000,
+      "thoughtReplay": false,
+      "enableCodeInSnapshot": false
+    },
+    "selection": "Same four complete diagnostic KramaBench questions as the preceding Sonnet sample_stats-only pilot; one attempt each, all three retrieval views available and flow evidence on. Audit view choices under the unchanged generic prompt; not a full-benchmark or causal accuracy estimate.",
+    "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
+    "task_timeout_seconds": 720,
+    "workers": 2,
+    "large_input_bytes": 100000000,
+    "large_workers": 1,
+    "direct_artifacts": true,
+    "jobs": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1"
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1"
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1"
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1"
+      }
+    ]
+  },
+  "scope": "Four complete original KramaBench questions, one attempt each, selected before this run. This is a diagnostic subset, not the 104-task benchmark. No model task retried and no production prompt/code changed. Flow evidence remains enabled in both pilots. Comparison is descriptive, with different first-call cache warmth and stochastic graphs.",
+  "artifacts": [
+    {
+      "task": "legal-easy-26",
+      "directory": "/tmp/texera-sonnet-adaptive-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1/legal-easy-26",
+      "settings": {
+        "maxOperatorResultCharLimit": 2000,
+        "maxOperatorResultCellCharLimit": 3000,
+        "operatorResultSerializationMode": "tsv",
+        "toolTimeoutSeconds": 240,
+        "executionTimeoutMinutes": 10,
+        "disabledTools": [],
+        "maxSteps": 25,
+        "maxOperatorEdits": 0,
+        "agentMode": "native",
+        "nativeProfileCollection": true,
+        "dataEvidence": true,
+        "retrievalViews": [
+          "full",
+          "sample",
+          "sample_stats"
+        ],
+        "fullResultCharLimit": 100000,
+        "dataEvidenceCharLimit": 2000,
+        "flowEvidenceCharLimit": 2000,
+        "flowEvidence": true,
+        "dataflowReasoning": true,
+        "nativeChecks": false,
+        "resultSelection": "all",
+        "contextMode": "delta",
+        "parallelToolCalls": false,
+        "includeOperatorProperties": true,
+        "thoughtReplay": false,
+        "agentTurns": false,
+        "contextWindowTokens": 0,
+        "compactionStrategy": "compress",
+        "deckSampleRatio": 0.1,
+        "errorReflection": false,
+        "errorReflectionThreshold": 3,
+        "thoughtReplayK": 10,
+        "fewShotPrompt": false,
+        "maxResultRows": 5,
+        "attemptReflection": true,
+        "toolDialect": "qwen-xml",
+        "enableInspectTool": false,
+        "enableRenderPrefs": false,
+        "enableCodeInSnapshot": false,
+        "sourceProvenanceHint": false,
+        "enableCompactTool": false,
+        "compactKeepLastSteps": 0,
+        "staticCompaction": false
+      },
+      "prompt_characters": 20734,
+      "prompt_sha256": "68cb964593cb85543481718547a9f54d2adfea22dce235553f2ef9a8232b7eef",
+      "files": {
+        "ground_truth.json": "b44f6f0da930bbc7743aa06a2b61880b1ff1958c8736dc8df1ad7d11b8ef4601",
+        "answer.json": "83c3333cbbb925a377e52c7912d5ca433f6085b9ab36cff70bae737c980159e2",
+        "evaluation.json": "eb5db5e869c484378ecc572598bdde76db500bc1d4f8d7220ee88c0316142840",
+        "stats.json": "6349656b6183a9c4790d69d95913dd6fcc7e590d072703ceadb58ef8da11987b",
+        "react_steps.json": "8989d0ddf301029a74a2d793c7a18b4aa8ef45aa3edd533b015bf62b7994d8f4",
+        "snapshot.json": "cbcdadb7dcaa789de2bb4eaab12a21cd9186567e34a221da80c000a01da89ae9",
+        "system-info.json": "4b5eae94e71d0cb33cd79c86847203882e141588926f3516074d36dbf89f6607"
+      }
+    },
+    {
+      "task": "environment-easy-3",
+      "directory": "/tmp/texera-sonnet-adaptive-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1/environment-easy-3",
+      "settings": {
+        "maxOperatorResultCharLimit": 2000,
+        "maxOperatorResultCellCharLimit": 3000,
+        "operatorResultSerializationMode": "tsv",
+        "toolTimeoutSeconds": 240,
+        "executionTimeoutMinutes": 10,
+        "disabledTools": [],
+        "maxSteps": 25,
+        "maxOperatorEdits": 0,
+        "agentMode": "native",
+        "nativeProfileCollection": true,
+        "dataEvidence": true,
+        "retrievalViews": [
+          "full",
+          "sample",
+          "sample_stats"
+        ],
+        "fullResultCharLimit": 100000,
+        "dataEvidenceCharLimit": 2000,
+        "flowEvidenceCharLimit": 2000,
+        "flowEvidence": true,
+        "dataflowReasoning": true,
+        "nativeChecks": false,
+        "resultSelection": "all",
+        "contextMode": "delta",
+        "parallelToolCalls": false,
+        "includeOperatorProperties": true,
+        "thoughtReplay": false,
+        "agentTurns": false,
+        "contextWindowTokens": 0,
+        "compactionStrategy": "compress",
+        "deckSampleRatio": 0.1,
+        "errorReflection": false,
+        "errorReflectionThreshold": 3,
+        "thoughtReplayK": 10,
+        "fewShotPrompt": false,
+        "maxResultRows": 5,
+        "attemptReflection": true,
+        "toolDialect": "qwen-xml",
+        "enableInspectTool": false,
+        "enableRenderPrefs": false,
+        "enableCodeInSnapshot": false,
+        "sourceProvenanceHint": false,
+        "enableCompactTool": false,
+        "compactKeepLastSteps": 0,
+        "staticCompaction": false
+      },
+      "prompt_characters": 20734,
+      "prompt_sha256": "68cb964593cb85543481718547a9f54d2adfea22dce235553f2ef9a8232b7eef",
+      "files": {
+        "ground_truth.json": "f9deb65170f5ab8685c041aae9f4cc7ed041627d725d31ca1b379eacbfb66130",
+        "answer.json": "975b2bedd99179fa332af425bd8b54ff9add59ec317a2a3964a9e95970c212a1",
+        "evaluation.json": "64f14e1710a5259d5bfb20588980615fe3a5a52a0035f9ca6b6537eafa2c5e71",
+        "stats.json": "1fe880f60c89e2b205fcfaac1e819054abaa1a90d63f824b950464f1629589ec",
+        "react_steps.json": "5dab345c3c2e112c95bd1e7b5279fe469680176adbb1e8117fa22f303d4bbbcd",
+        "snapshot.json": "e6ad38c4ed6c5b9cf280ce0791a1a1fe5d642f3917fa436148b3e37e422553cc",
+        "system-info.json": "4b5eae94e71d0cb33cd79c86847203882e141588926f3516074d36dbf89f6607"
+      }
+    },
+    {
+      "task": "wildfire-easy-1",
+      "directory": "/tmp/texera-sonnet-adaptive-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1/wildfire-easy-1",
+      "settings": {
+        "maxOperatorResultCharLimit": 2000,
+        "maxOperatorResultCellCharLimit": 3000,
+        "operatorResultSerializationMode": "tsv",
+        "toolTimeoutSeconds": 240,
+        "executionTimeoutMinutes": 10,
+        "disabledTools": [],
+        "maxSteps": 25,
+        "maxOperatorEdits": 0,
+        "agentMode": "native",
+        "nativeProfileCollection": true,
+        "dataEvidence": true,
+        "retrievalViews": [
+          "full",
+          "sample",
+          "sample_stats"
+        ],
+        "fullResultCharLimit": 100000,
+        "dataEvidenceCharLimit": 2000,
+        "flowEvidenceCharLimit": 2000,
+        "flowEvidence": true,
+        "dataflowReasoning": true,
+        "nativeChecks": false,
+        "resultSelection": "all",
+        "contextMode": "delta",
+        "parallelToolCalls": false,
+        "includeOperatorProperties": true,
+        "thoughtReplay": false,
+        "agentTurns": false,
+        "contextWindowTokens": 0,
+        "compactionStrategy": "compress",
+        "deckSampleRatio": 0.1,
+        "errorReflection": false,
+        "errorReflectionThreshold": 3,
+        "thoughtReplayK": 10,
+        "fewShotPrompt": false,
+        "maxResultRows": 5,
+        "attemptReflection": true,
+        "toolDialect": "qwen-xml",
+        "enableInspectTool": false,
+        "enableRenderPrefs": false,
+        "enableCodeInSnapshot": false,
+        "sourceProvenanceHint": false,
+        "enableCompactTool": false,
+        "compactKeepLastSteps": 0,
+        "staticCompaction": false
+      },
+      "prompt_characters": 20734,
+      "prompt_sha256": "68cb964593cb85543481718547a9f54d2adfea22dce235553f2ef9a8232b7eef",
+      "files": {
+        "ground_truth.json": "9041d1c8b234f8042b9695bb8a53c41ff45a919895ef0591ae4985ba1f3902cd",
+        "answer.json": "6e91e2b36ba05f1181adc743966200e96cf5cc80d8aec2bf11c18314e450b479",
+        "evaluation.json": "777a10b2fce727579aa1b8c7f168c302ff9f505f0be792c15fb9f4ff4e2fa401",
+        "stats.json": "8215b83751b4720280b85ba1d5cfc8834aa967c201bbc9b249035dd09929944a",
+        "react_steps.json": "965664512163f9676c47c89949dda895ff6f111a2ff2108152fc3521fb3538d4",
+        "snapshot.json": "6bffd413391964b7692c9f4402d9f6a8705ce7cc0b1ee29c2d8f5c0c9b7b4b46",
+        "system-info.json": "4b5eae94e71d0cb33cd79c86847203882e141588926f3516074d36dbf89f6607"
+      }
+    },
+    {
+      "task": "legal-hard-14",
+      "directory": "/tmp/texera-sonnet-adaptive-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1/legal-hard-14",
+      "settings": {
+        "maxOperatorResultCharLimit": 2000,
+        "maxOperatorResultCellCharLimit": 3000,
+        "operatorResultSerializationMode": "tsv",
+        "toolTimeoutSeconds": 240,
+        "executionTimeoutMinutes": 10,
+        "disabledTools": [],
+        "maxSteps": 25,
+        "maxOperatorEdits": 0,
+        "agentMode": "native",
+        "nativeProfileCollection": true,
+        "dataEvidence": true,
+        "retrievalViews": [
+          "full",
+          "sample",
+          "sample_stats"
+        ],
+        "fullResultCharLimit": 100000,
+        "dataEvidenceCharLimit": 2000,
+        "flowEvidenceCharLimit": 2000,
+        "flowEvidence": true,
+        "dataflowReasoning": true,
+        "nativeChecks": false,
+        "resultSelection": "all",
+        "contextMode": "delta",
+        "parallelToolCalls": false,
+        "includeOperatorProperties": true,
+        "thoughtReplay": false,
+        "agentTurns": false,
+        "contextWindowTokens": 0,
+        "compactionStrategy": "compress",
+        "deckSampleRatio": 0.1,
+        "errorReflection": false,
+        "errorReflectionThreshold": 3,
+        "thoughtReplayK": 10,
+        "fewShotPrompt": false,
+        "maxResultRows": 5,
+        "attemptReflection": true,
+        "toolDialect": "qwen-xml",
+        "enableInspectTool": false,
+        "enableRenderPrefs": false,
+        "enableCodeInSnapshot": false,
+        "sourceProvenanceHint": false,
+        "enableCompactTool": false,
+        "compactKeepLastSteps": 0,
+        "staticCompaction": false
+      },
+      "prompt_characters": 20734,
+      "prompt_sha256": "68cb964593cb85543481718547a9f54d2adfea22dce235553f2ef9a8232b7eef",
+      "files": {
+        "ground_truth.json": "2f823847de4c46717eb9776ef1313f0004147186f789f307df700dbab3fe250c",
+        "answer.json": "9bb10185cf809a9308071fa109c2bac0a1e09cf98ef8abc85d180fd45a6d9e04",
+        "evaluation.json": "5e4c6cd7cb3dfe9450b963c73e60bb3e6fc84bfbe5b492ff7be857f706f891a0",
+        "stats.json": "93698db81917aad20412ef8f8ac243fa1a0c8ab67630b5f35bddfcc3c4dc752a",
+        "react_steps.json": "b3831bbad4248adc745792c9e1b04374b1daca765865fcd5661ec5a8c0c83cfe",
+        "snapshot.json": "308a786eb4de3bb228b73ab432a616b2dc18fc76297953fa9636f8e8c2da9dbf",
+        "system-info.json": "4b5eae94e71d0cb33cd79c86847203882e141588926f3516074d36dbf89f6607"
+      }
+    }
+  ],
+  "actual_system_prompt": "Answer data questions by building and running a dataflow graph. Operators produce tables; edges connect their ports. Use the supplied files, check results, and answer in the requested format.\n\n## Principles\n\n- **One operator, one operation.** Separate loading, column derivation, filtering, joining and aggregation so each output can be retrieved and corrected. Do not combine these stages inside `map` or `process`.\n- **Use predefined operators.** Use the catalog when it expresses the operation. A `process` handles one unsupported operation, such as parsing, correlation or model fitting; subsequent transformations use predefined operators.\n- **Connect existing tables.** Pass tables to custom calculations through edges. A source `process` loads only formats `scan` cannot handle and returns a parsed table. Try repairing scan options or types before replacing native operators with Python.\n- **Batch graph construction.** Create known operators and edges in one Edit, then Execute and Retrieve the needed outputs.\n\n## Actions\n\nCall `dataflow(reasoning, actions)` for every step, including the final response. `reasoning` is one brief objective; `actions` is a JSON array. Put graph text in `edit.changes` and the user's answer format in `answer.content`.\n\n| Action | Effect |\n| --- | --- |\n| `inspect` | List operators, their ports and edges, or read an operator's definition and Python implementation. |\n| `edit` | Apply the graph commands in `changes`. Does not execute. |\n| `execute` | Run every component of the graph, reusing valid cached results. |\n| `retrieve` | Read an operator's existing table and enabled profiles. Never executes. |\n| `answer` | Return the final response and end the loop. Must be the only action in its call. |\n\nActions run in list order and return an ordered list of observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments, such as edit, execute, retrieve. Make decisions that depend on returned information in the next call. Answer from the retrieved result that matches your final interpretation.\n\nReserve a call for Answer. Answer once results support it; verify only unresolved assumptions. If time runs out, state the limitation.\n\nAn invalid Edit applies no changes; resubmit its corrected batch. A failure skips later actions, except independent inspect/retrieve after execution failure. Failed, missing or stale results remain unavailable. Update or delete failing operators before executing again: creating a replacement leaves the original branch in the graph and Execute retries it.\n\n## Editing the graph\n\nPut graph commands in the `changes` string of an action whose `type` is `edit`. Use one command per line, without leading spaces. Indentation is reserved for attached Python functions and parameters inside parentheses.\n\n```text\ncreate operator <id>: <operator>(parameters)\nupdate operator <id>: <operator>(parameters)\ndelete operator <id>\ncreate edge <source>.out -> <target>.<input_port>\ndelete edge <source>.out -> <target>.<input_port>\n```\n\nIdentifiers contain letters, digits and underscores, starting with a letter or underscore. `create` requires a new ID; `update` requires an existing one. Update replaces the whole definition, uses defaults for omitted parameters and preserves connections; incompatible definitions are rejected.\n\nOperator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source.\n\nAn input accepts one edge. To change a connection, delete its old edge and create a new one. Edges cannot be updated directly. Deleting an operator automatically deletes every incoming and outgoing edge; the observation lists those edges. Other operators remain, including consumers whose inputs are now unconnected.\n\nCommands are staged in order and committed together after validation. Missing operators, invalid ports, occupied inputs and cycles reject the entire Edit. Unconnected operators are allowed while editing; connect all required inputs or delete unused operators before Execute. Editing a definition or incoming edge invalidates that operator's results and everything downstream.\n\n## Python within operators\n\n`filter` and `map` accept a lambda or named function. `process(fn=name, doc=\"...\")` attaches `def name(...)`, taking one pandas DataFrame per input and returning one DataFrame. Indent complete functions and helpers under their operator and include them again on update. Import inside functions; operators share no Python variables.\n\nA row's missing values are `None`; handle them explicitly. A map returns scalar values or `None` under the same keys for every row. A process returns unique string column names and one compatible scalar type per column, with timezone-aware datetimes. For custom diagnostic tables, serialize mixed or nested values as text. Check column names and empty selections before indexing. These three operators require `doc`, a short description of the output's meaning.\n\nRetrieve reads the returned table, without `print` output. Return diagnostics or answer fields as columns. Check an unfamiliar library's installed API before building a large calculation; expose failures instead of silently replacing them with nulls.\n\n## Working with data\n\nUse the supplied file paths; check any glob against those paths. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.\n\nCheck column meanings, units, missing-value markers and repeated records. Clean numeric formatting before casting. Use `errors=\"null\"` only for values you intend to exclude, then check how many were lost. Establish eligibility flags before aggregating. Normalize join keys and check the row grain. Apply the requested formula and round only at the end.\n\n## Operators and ports\n\nThe catalog lists every operator's parameters, ports and meaning. Column names are strings. Reducer and window-function arguments name columns. Defaults are shown. For parameter names containing spaces or punctuation, use a quoted dictionary: `cast(**{\"Age (years)\": float64})`.\n\n```text\nscan(files, format=\"auto\", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)\n    Ports: no inputs -> out.\n    Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format=\"lines\", \"fwf\" or \"whitespace\" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source.\n\nproject(keep=None, drop=None, rename=None)\n    Ports: in -> out.\n    Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged.\n\ncast(column=dtype, ..., errors=\"raise\")\n    Ports: in -> out.\n    Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors=\"null\". Naive datetimes need a timezone.\n\nfilter(fn, doc=\"what the predicate keeps\")\n    Ports: in -> out.\n    fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns.\n\nmap(fn, doc=\"what the new row holds\")\n    Ports: in -> out.\n    fn(row) returns the whole new row as a dict. Use {**row, \"new\": value} to retain existing columns. One output row per input, with consistent keys and scalar values.\n\naggregate(by=[], name=reducer(\"col\"), ...)\n    Ports: in -> out.\n    One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.\n\njoin(on, how=\"inner\", nulls_equal=False, suffix=\"_right\", validate=\"many_to_many\")\n    Ports: left, right -> out.\n    on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one. Colliding right columns get suffix; output order is unspecified.\n\nunion(schema=\"strict\")\n    Ports: in[0], in[1], ... -> out; at least two inputs, consecutive indices (0..255).\n    Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.\n\ndistinct(columns=None, keep=\"first\")\n    Ports: in -> out.\n    Keep one whole row per key (all columns by default). keep=\"first\" or \"last\"; missing keys compare equal. Preserves relative row order.\n\nsort(by, nulls=\"last\")\n    Ports: in -> out.\n    Stable sort: by=[\"amount\"] ascending, or by=[(\"amount\", \"desc\"), \"name\"]. nulls=\"first\" or \"last\".\n\nlimit(n, offset=0)\n    Ports: in -> out.\n    Keep n rows from offset. Sort first when selecting a top-k.\n\nwindow(partition_by=[], order_by=[...], name=fn, ...)\n    Ports: in -> out.\n    Output keywords name columns: prev=lag(\"value\") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.\n\nunpivot(columns, name=\"variable\", value=\"value\")\n    Ports: in -> out.\n    Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.\n\npivot(index, columns, values)\n    Ports: in -> out.\n    Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.\n\nprocess(fn=function, doc=\"what it does\")\n    Ports: in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader.\n    One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators.\n```\n\n## Reading results\n\nChoose the `view` on every Retrieve. Available views:\n- `full`: records up to 100000 characters. For small final results or decisions requiring individual records; a capped view remains partial.\n- `sample`: schema and example records, bounded by 2000 characters and at most 5 records. For layout and type checks.\n- `sample_stats`: the same small record view (2000 characters and at most 5 records) plus up to 2000 characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.\nFor a large parsed table, start with `sample_stats` when checking data quality or distributions. Project to relevant columns if a wide table hides the needed statistics.\nFor large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.\nViews reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.\nA complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.\nAutomatic flow evidence has a separate 2000-character budget in every view.\n\nRetrieval reports returned and total rows and columns, and whether the view is complete. Errors name the failing operator and include a repair hint.\n\nStatistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's \"nonnull values\" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as \"NA\" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.\n\nRetrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention, reducer denominators and Window offsets/boundary nulls; flow guarantees describe operator contracts. Cast failed-value examples and Join unmatched-key examples or duplicate-key examples show bounded, first-encountered values with counts. Examples may be clipped and are not an exhaustive distribution. Compare the measurements with the task's population, key identity and calculation. Repair a transformation or justify the exclusions before using its aggregate. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.\n\nThese measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct.\n\nYour history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.\n\n## Examples\n\n### Choosing a result view\n\nEach example below is an independent choice for an existing result.\n\nCheck column names and example formatting:\n\n```json\n{\n  \"reasoning\": \"Check the parsed table's layout.\",\n  \"actions\": [\n    {\n      \"type\": \"retrieve\",\n      \"operator_id\": \"source\",\n      \"view\": \"sample\"\n    }\n  ]\n}\n```\n\nCheck the selected population and measurement validity before reducing it:\n\n```json\n{\n  \"reasoning\": \"Check the selected rows and valid values.\",\n  \"actions\": [\n    {\n      \"type\": \"retrieve\",\n      \"operator_id\": \"eligible\",\n      \"view\": \"sample_stats\"\n    }\n  ]\n}\n```\n\nFor a numeric column named value, full-coverage null=4/20 means mean(\"value\") uses 16 nonnull values. Check whether excluding those four nulls matches the task's missing-value policy. If the task needs only a set of values, an untruncated nonnull-values list with full row coverage and other=0 establishes that set; further records are needed for row associations or order.\n\nRead the associations between identifiers and values in a small final table:\n\n```json\n{\n  \"reasoning\": \"Read each identifier and its corresponding result.\",\n  \"actions\": [\n    {\n      \"type\": \"retrieve\",\n      \"operator_id\": \"final_rows\",\n      \"view\": \"full\"\n    }\n  ]\n}\n```\n\n### Acting on flow evidence\n\nSuppose the task requires decimal measurements and the graph is source -> typed -> total. A Cast reports conversion failures=2/20 and failed-value examples \"1.5\" \u00d7 1; \"2.5\" \u00d7 1. The current integer conversion conflicts with that requirement. Resolve the finding before using the aggregate:\n\n```json\n{\n  \"reasoning\": \"Use the decimal type required by the task and recompute the dependent result.\",\n  \"actions\": [\n    {\n      \"type\": \"edit\",\n      \"changes\": \"update operator typed: cast(value=float64)\"\n    },\n    {\n      \"type\": \"execute\"\n    },\n    {\n      \"type\": \"retrieve\",\n      \"operator_id\": \"total\",\n      \"view\": \"sample_stats\"\n    }\n  ]\n}\n```\n\nFor a Join, unmatched-key examples [\"A 1\"] and [\"A1\"] suggest checking key representation. Normalize only if the source definitions establish the same identity. Duplicate-key examples require checking the intended join cardinality; duplicates can be legitimate.\n\nFor a Window, lag(\"value\", offset=3) with boundary nulls=3/20 in one partition describes three unavailable predecessors. Check the resolved offsets against the requested relationship. A row offset does not establish regular time intervals.\n\nPreview a file, execute and read its raw header:\n\n```json\n{\n  \"reasoning\": \"Check the file header before choosing parse options.\",\n  \"actions\": [\n    {\"type\": \"edit\", \"changes\": \"create operator orders: scan(\\\"data/orders.csv\\\", preview=8)\"},\n    {\"type\": \"execute\"},\n    {\"type\": \"retrieve\", \"operator_id\": \"orders\", \"view\": \"sample\"}\n  ]\n}\n```\n\nIf that preview shows one preamble line, use these commands in the next Edit, followed by Execute and Retrieve for `totals`:\n\n```dataflow\nupdate operator orders: scan(\"data/orders.csv\", skip_lines=1)\ncreate operator selected: project(keep=[\"region\", \"amount\"])\ncreate operator totals: aggregate(by=[\"region\"], total=sum(\"amount\"))\ncreate edge orders.out -> selected.in\ncreate edge selected.out -> totals.in\n```\n\nTo compute averages instead, send another Edit, Execute and Retrieve. The update keeps `selected.out -> totals.in` connected:\n\n```json\n{\n  \"reasoning\": \"Compute the average amount for each region.\",\n  \"actions\": [\n    {\"type\": \"edit\", \"changes\": \"update operator totals: aggregate(by=[\\\"region\\\"], average=mean(\\\"amount\\\"))\"},\n    {\"type\": \"execute\"},\n    {\"type\": \"retrieve\", \"operator_id\": \"totals\", \"view\": \"full\"}\n  ]\n}\n```\n\nTo feed `totals` directly from `orders`, delete and recreate its edge:\n\n```dataflow\ndelete edge selected.out -> totals.in\ncreate edge orders.out -> totals.in\n```\n\nGiven the original chain `orders -> selected -> totals`, deleting the middle operator removes both incident edges. Reconnect the surviving operators in the same Edit:\n\n```dataflow\ndelete operator selected\ncreate edge orders.out -> totals.in\n```\n\nThe observation reports `selected` deleted, the automatic removal of `orders.out -> selected.in` and `selected.out -> totals.in`, and the new connection `orders.out -> totals.in`. It also names invalidated results. Without the final command, `totals.in` would remain unconnected.\n\nTo retire the entire original analysis branch while keeping `orders`, delete both consumers in one Edit:\n\n```dataflow\ndelete operator selected\ndelete operator totals\n```\n\nTheir incident edges are removed automatically. This leaves no unused consumer with an unconnected input to block Execute.\n\nWith known file layouts and numeric amounts, this example sums transactions by region, joins budgets and filters regions over budget. The join checks that each region has at most one budget. Send the whole graph in one Edit, then Execute and Retrieve `over_budget`:\n\n```dataflow\ncreate operator transactions: scan(\"data/transactions.csv\")\ncreate operator budgets: scan(\"data/budgets.csv\")\ncreate operator spending: aggregate(by=[\"region\"], spent=sum(\"amount\"))\ncreate operator compared: join(on=\"region\", how=\"inner\", validate=\"many_to_one\")\ncreate operator over_budget: filter(lambda row: row[\"spent\"] is not None and row[\"budget\"] is not None and row[\"spent\"] > row[\"budget\"], doc=\"Regions whose total spending exceeds their budget\")\ncreate edge transactions.out -> spending.in\ncreate edge spending.out -> compared.left\ncreate edge budgets.out -> compared.right\ncreate edge compared.out -> over_budget.in\n```\n\nFor a calculation the catalog does not provide, connect the prepared table to a narrow `process`. Here `yearly_changes` already contains the yearly changes; the custom function computes only their correlation:\n\n```dataflow\ncreate operator correlation: process(fn=correlate, doc=\"Pearson correlation between yearly changes\")\n    def correlate(df):\n        import pandas as pd\n        return pd.DataFrame({\"correlation\": [df[\"x_change\"].corr(df[\"y_change\"])]})\ncreate edge yearly_changes.out -> correlation.in[0]\n```\n\nInspect a definition: `{\"type\":\"inspect\",\"target\":\"operator\",\"operator_id\":\"correlation\",\"include_implementation\":true}`. Inspect the graph: `{\"type\":\"inspect\",\"target\":\"graph\"}`. Retrieve reads output records.\n\nAfter the retrieved result establishes the answer:\n\n```json\n{\n  \"reasoning\": \"The retrieved result establishes the requested total.\",\n  \"actions\": [{\"type\": \"answer\", \"content\": \"42\"}]\n}\n```",
+  "analysis": {
+    "summary": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "attempts": 4,
+        "passes": 4,
+        "scored": 4,
+        "mean_score": 1.0,
+        "cost_usd": 0.201384,
+        "costs_known": 4,
+        "model_calls": 20,
+        "retrieval_views": {
+          "full": 8,
+          "sample_stats": 5,
+          "sample": 4
+        },
+        "retrieval_chars": 18178,
+        "reads_with_data": 3,
+        "reads_with_flow": 15,
+        "reads_with_upstream": 6,
+        "partial_full_reads": 0,
+        "successful_reads": 15,
+        "no_answer": 0,
+        "prefix_checks": 16,
+        "prefix_failures": 0,
+        "input_tokens": 230132,
+        "output_tokens": 7216,
+        "cached_tokens": 193947,
+        "reasoning_tokens": 0,
+        "cache_creation_tokens": 36129,
+        "cache_fraction": 0.842764152747119,
+        "actions": {
+          "edit": 12,
+          "execute": 12,
+          "retrieve": 17,
+          "answer": 4
+        },
+        "statuses": {
+          "ok": 41,
+          "error": 4
+        },
+        "edit_operations": {
+          "create_operator": 37,
+          "create_edge": 25,
+          "delete_operator": 8,
+          "update_operator": 4
+        },
+        "operators_created": {
+          "scan": 10,
+          "distinct": 1,
+          "filter": 4,
+          "union": 1,
+          "map": 4,
+          "aggregate": 3,
+          "join": 3,
+          "sort": 4,
+          "window": 1,
+          "limit": 3,
+          "cast": 2,
+          "project": 1
+        }
+      }
+    ],
+    "contrasts": [],
+    "rows": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "score": 1.0,
+        "pass": true,
+        "cost_usd": 0.0473,
+        "input_tokens": 43431,
+        "output_tokens": 1047,
+        "cached_tokens": 31192,
+        "reasoning_tokens": 0,
+        "cache_creation_tokens": 12227,
+        "no_answer": false,
+        "model_calls": 4,
+        "prefix_checks": 3,
+        "prefix_failures": 0,
+        "views": {
+          "full": 2,
+          "sample_stats": 1
+        },
+        "actions": {
+          "edit": 2,
+          "execute": 2,
+          "retrieve": 3,
+          "answer": 1
+        },
+        "statuses": {
+          "ok": 8
+        },
+        "edit_operations": {
+          "create_operator": 4,
+          "create_edge": 2
+        },
+        "operators_created": {
+          "scan": 2,
+          "distinct": 1,
+          "filter": 1
+        }
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "score": 1.0,
+        "pass": true,
+        "cost_usd": 0.057691,
+        "input_tokens": 45931,
+        "output_tokens": 1779,
+        "cached_tokens": 32574,
+        "reasoning_tokens": 0,
+        "cache_creation_tokens": 13345,
+        "no_answer": false,
+        "model_calls": 4,
+        "prefix_checks": 3,
+        "prefix_failures": 0,
+        "views": {
+          "sample": 2,
+          "full": 1,
+          "sample_stats": 1
+        },
+        "actions": {
+          "edit": 2,
+          "execute": 2,
+          "retrieve": 4,
+          "answer": 1
+        },
+        "statuses": {
+          "ok": 9
+        },
+        "edit_operations": {
+          "create_operator": 13,
+          "delete_operator": 2,
+          "create_edge": 11
+        },
+        "operators_created": {
+          "scan": 4,
+          "union": 1,
+          "map": 2,
+          "aggregate": 2,
+          "filter": 3,
+          "join": 1
+        }
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "score": 1.0,
+        "pass": true,
+        "cost_usd": 0.03319,
+        "input_tokens": 54011,
+        "output_tokens": 1377,
+        "cached_tokens": 50261,
+        "reasoning_tokens": 0,
+        "cache_creation_tokens": 3736,
+        "no_answer": false,
+        "model_calls": 5,
+        "prefix_checks": 4,
+        "prefix_failures": 0,
+        "views": {
+          "sample_stats": 2,
+          "sample": 1,
+          "full": 1
+        },
+        "actions": {
+          "edit": 3,
+          "execute": 3,
+          "retrieve": 4,
+          "answer": 1
+        },
+        "statuses": {
+          "ok": 9,
+          "error": 2
+        },
+        "edit_operations": {
+          "create_operator": 6,
+          "update_operator": 2,
+          "create_edge": 5
+        },
+        "operators_created": {
+          "scan": 1,
+          "sort": 2,
+          "window": 1,
+          "map": 1,
+          "limit": 1
+        }
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "score": 1.0,
+        "pass": true,
+        "cost_usd": 0.063203,
+        "input_tokens": 86759,
+        "output_tokens": 3013,
+        "cached_tokens": 79920,
+        "reasoning_tokens": 0,
+        "cache_creation_tokens": 6821,
+        "no_answer": false,
+        "model_calls": 7,
+        "prefix_checks": 6,
+        "prefix_failures": 0,
+        "views": {
+          "full": 4,
+          "sample": 1,
+          "sample_stats": 1
+        },
+        "actions": {
+          "edit": 5,
+          "execute": 5,
+          "retrieve": 6,
+          "answer": 1
+        },
+        "statuses": {
+          "ok": 15,
+          "error": 2
+        },
+        "edit_operations": {
+          "create_operator": 14,
+          "delete_operator": 6,
+          "update_operator": 2,
+          "create_edge": 7
+        },
+        "operators_created": {
+          "scan": 3,
+          "join": 2,
+          "map": 1,
+          "sort": 2,
+          "cast": 2,
+          "project": 1,
+          "limit": 2,
+          "aggregate": 1
+        }
+      }
+    ],
+    "retrievals": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator_id": "src",
+        "view": "full",
+        "status": "ok",
+        "result_version": "4e9487c6b8d8f1d8f39591eed32a2a2f865961ae2d2aad7cde793099dfc4c244",
+        "totalRows": 15,
+        "returnedRows": 15,
+        "totalColumns": 3,
+        "columnsShown": 3,
+        "complete": true,
+        "chars": 1595,
+        "data_facts": 0,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator_id": "idt",
+        "view": "full",
+        "status": "ok",
+        "result_version": "0aebf487c73412871fa683950664325dc9f0da5d68fb72f953aadb73c750e7b6",
+        "totalRows": 6,
+        "returnedRows": 6,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": true,
+        "chars": 809,
+        "data_facts": 0,
+        "flow_facts": 4,
+        "upstream_facts": 1
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator_id": "top",
+        "view": "sample_stats",
+        "status": "ok",
+        "result_version": "45ff1120da21393216e0ee6c69eab8c23df6d09f64a31196b048695a38694e54",
+        "totalRows": 55,
+        "returnedRows": 5,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": false,
+        "chars": 1769,
+        "data_facts": 10,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator_id": "a",
+        "view": "sample",
+        "status": "ok",
+        "result_version": "5f2204aa07d4668b8877cb8fd27c67d247f2a88bcb8fa68a8dfe5374613b1f24",
+        "totalRows": 5,
+        "returnedRows": 5,
+        "totalColumns": 3,
+        "columnsShown": 3,
+        "complete": true,
+        "chars": 972,
+        "data_facts": 0,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator_id": "b",
+        "view": "sample",
+        "status": "ok",
+        "result_version": "7f5fa421f69225f7a07c7a43166386d496082ac11b0bcbe092286b139f064b89",
+        "totalRows": 5,
+        "returnedRows": 5,
+        "totalColumns": 3,
+        "columnsShown": 3,
+        "complete": true,
+        "chars": 972,
+        "data_facts": 0,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator_id": "c",
+        "view": "full",
+        "status": "ok",
+        "result_version": "80bd1eb764ae20ad1f45cb6e91b53a7ea66a648e89c4392dbf93887b6bb348d3",
+        "totalRows": 1,
+        "returnedRows": 1,
+        "totalColumns": 1,
+        "columnsShown": 1,
+        "complete": true,
+        "chars": 1377,
+        "data_facts": 0,
+        "flow_facts": 6,
+        "upstream_facts": 3
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator_id": "m",
+        "view": "sample_stats",
+        "status": "ok",
+        "result_version": "ccb0d712f850f5637b50fa209edddf4ea341ad786605af76875a7559c50cbce3",
+        "totalRows": 30765,
+        "returnedRows": 5,
+        "totalColumns": 3,
+        "columnsShown": 3,
+        "complete": false,
+        "chars": 1602,
+        "data_facts": 8,
+        "flow_facts": 2,
+        "upstream_facts": 1
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator_id": "src",
+        "view": "sample_stats",
+        "status": "error",
+        "result_version": null,
+        "chars": 0,
+        "data_facts": 0,
+        "flow_facts": 0,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator_id": "src",
+        "view": "sample",
+        "status": "ok",
+        "result_version": "8adf0669fe7020b224ca1e11357241517aed3eb35624691b502e4eed9eccf535",
+        "totalRows": 10,
+        "returnedRows": 5,
+        "totalColumns": 3,
+        "columnsShown": 3,
+        "complete": false,
+        "chars": 695,
+        "data_facts": 0,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator_id": "top5",
+        "view": "full",
+        "status": "ok",
+        "result_version": "822530a984d6c55d6e691c7206f1c5edc47268099b018f01f92dcc57c7e18441",
+        "totalRows": 5,
+        "returnedRows": 5,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": true,
+        "chars": 617,
+        "data_facts": 0,
+        "flow_facts": 2,
+        "upstream_facts": 1
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator_id": "src",
+        "view": "sample_stats",
+        "status": "ok",
+        "result_version": "f55f354e9e92da2e0b5a6fa85da0169515014ee7ff26936ad700f8f2fcf4d291",
+        "totalRows": 303,
+        "returnedRows": 5,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": false,
+        "chars": 1111,
+        "data_facts": 9,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator_id": "ne",
+        "view": "full",
+        "status": "ok",
+        "result_version": "c6e0cd506ca0e6a342c373e4e6a2d8e02f7cd5b5840d51838f7dec11b2209498",
+        "totalRows": 6,
+        "returnedRows": 6,
+        "totalColumns": 1,
+        "columnsShown": 1,
+        "complete": true,
+        "chars": 248,
+        "data_facts": 0,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator_id": "idt",
+        "view": "sample",
+        "status": "ok",
+        "result_version": "0115c83f6033dd78aaea1ddff6bc0c35c7c56dcfc447cc369967c4d159e00d70",
+        "totalRows": 40,
+        "returnedRows": 5,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": false,
+        "chars": 726,
+        "data_facts": 0,
+        "flow_facts": 1,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator_id": "all",
+        "view": "sample_stats",
+        "status": "error",
+        "result_version": null,
+        "chars": 0,
+        "data_facts": 0,
+        "flow_facts": 0,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator_id": "l",
+        "view": "full",
+        "status": "ok",
+        "result_version": "50f47c2e74f7baf5091601ed6979eb85a9608bb00d0109e1d9ecbf1f41560539",
+        "totalRows": 15,
+        "returnedRows": 15,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": true,
+        "chars": 2316,
+        "data_facts": 0,
+        "flow_facts": 3,
+        "upstream_facts": 2
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 4,
+        "operator_id": "fn",
+        "view": "full",
+        "status": "ok",
+        "result_version": "b810febf5349c7cedcfc2253d47b71c3eca47efd1f08d4c541a3dbcc95c00971",
+        "totalRows": 52,
+        "returnedRows": 52,
+        "totalColumns": 2,
+        "columnsShown": 2,
+        "complete": true,
+        "chars": 1076,
+        "data_facts": 0,
+        "flow_facts": 3,
+        "upstream_facts": 0
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 5,
+        "operator_id": "l",
+        "view": "full",
+        "status": "ok",
+        "result_version": "ee4447cad3ec55a54b2d2bfd3818a2369cce6a56e87922a35a4d49d71714da0f",
+        "totalRows": 15,
+        "returnedRows": 15,
+        "totalColumns": 4,
+        "columnsShown": 4,
+        "complete": true,
+        "chars": 2293,
+        "data_facts": 0,
+        "flow_facts": 3,
+        "upstream_facts": 2
+      }
+    ],
+    "errors": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "action": {
+          "type": "execute"
+        },
+        "error": "{'operators': [{'id': 'src', 'status': 'error', 'message': \"[ERROR] scan `src` failed: [SCAN_PARSE; execute; revision 1969a7f5ee97add0] Cannot read 'noaa_wildfires_monthly_stats.csv' as csv: ParserError: Error tokenizing data. C error: Expected 1 fields in line 4, saw 4\\n. Preview and adjust reader options.\\nHint: Preview the raw lines and set delim/skip_lines/encoding to match; malformed rows are not skipped silently.\\nField: files\\nDiagnostic: diag_40c96c225cc55594e98bd870\"}], 'error': 'Execution failed due to the following error:\\nExecution error:\\n  src: (line 2) `return _native_scope[\"execute_native_from_engine\"](_native_spec, [])` - NativeError: NATIVE_ERROR_V2:{\"version\":1,\"operatorId\":\"src\",\"operatorRevision\":\"1969a7f5ee97add0\",\"code\":\"SCAN_PARSE\",\"stage\":\"execute\",\"message\":\"Cannot read \\'noaa_wildfires_monthly_stats.csv\\' as csv: ParserError: Error tokenizing data. C error: Expected 1 fields in line 4, saw 4\\\\n. Preview and adjust reader options.\",\"field\":\"files\"}'}"
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "action": {
+          "type": "retrieve",
+          "operator_id": "src",
+          "view": "sample_stats"
+        },
+        "error": "[ERROR] scan `src` failed: [SCAN_PARSE; execute; revision 1969a7f5ee97add0] Cannot read 'noaa_wildfires_monthly_stats.csv' as csv: ParserError: Error tokenizing data. C error: Expected 1 fields in line 4, saw 4\n. Preview and adjust reader options.\nHint: Preview the raw lines and set delim/skip_lines/encoding to match; malformed rows are not skipped silently.\nField: files\nDiagnostic: diag_40c96c225cc55594e98bd870"
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "action": {
+          "type": "execute"
+        },
+        "error": "Unconnected required inputs: nej.left, nej.right, m.in, srt.in, c.in, pr.in, lim.in. Create edges or delete unused operators before execute."
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "action": {
+          "type": "retrieve",
+          "operator_id": "all",
+          "view": "sample_stats"
+        },
+        "error": "No current result for all. Use execute after creating or editing its dataflow."
+      }
+    ]
+  },
+  "retrieval": {
+    "profile_checks": {
+      "profiles": 29,
+      "available": 25,
+      "columns": 141,
+      "partial": 4
+    },
+    "violations": [],
+    "adaptive_choices": {
+      "Sonnet55": {
+        "reads": 15,
+        "views": {
+          "full": 8,
+          "sample_stats": 3,
+          "sample": 4
+        },
+        "full_at_most_2000_chars": 6,
+        "full_over_10000_chars": 0,
+        "full_incomplete": 0,
+        "stats_reads": 3,
+        "stats_with_data": 3,
+        "stats_with_partial_coverage": 1
+      }
+    },
+    "large_adaptive_full_reads": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator": "l",
+        "view": "full",
+        "rationale": "Wire the graph.",
+        "chars": 2316,
+        "table": {
+          "totalRows": 15,
+          "returnedRows": 15,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 5,
+        "operator": "l",
+        "view": "full",
+        "rationale": "Normalize state names and numbers.",
+        "chars": 2293,
+        "table": {
+          "totalRows": 15,
+          "returnedRows": 15,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      }
+    ],
+    "reads": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator": "src",
+        "view": "full",
+        "rationale": "Preview the file.",
+        "chars": 1595,
+        "table": {
+          "totalRows": 15,
+          "returnedRows": 15,
+          "totalColumns": 3,
+          "columnsShown": 3,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": true
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator": "idt",
+        "view": "full",
+        "rationale": "Load full, take first row per state, filter.",
+        "chars": 809,
+        "table": {
+          "totalRows": 6,
+          "returnedRows": 6,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-easy-26",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator": "top",
+        "view": "sample_stats",
+        "rationale": "Load full, take first row per state, filter.",
+        "chars": 1769,
+        "table": {
+          "totalRows": 55,
+          "returnedRows": 5,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": false
+        },
+        "data_facts": 10,
+        "full_scope_data": true,
+        "partial_scope_data": false,
+        "coverage_notice": true,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator": "a",
+        "view": "sample",
+        "rationale": "Preview both files.",
+        "chars": 972,
+        "table": {
+          "totalRows": 5,
+          "returnedRows": 5,
+          "totalColumns": 3,
+          "columnsShown": 3,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": true
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator": "b",
+        "view": "sample",
+        "rationale": "Preview both files.",
+        "chars": 972,
+        "table": {
+          "totalRows": 5,
+          "returnedRows": 5,
+          "totalColumns": 3,
+          "columnsShown": 3,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": true
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator": "c",
+        "view": "full",
+        "rationale": "Load full data, compute rates per beach-year.",
+        "chars": 1377,
+        "table": {
+          "totalRows": 1,
+          "returnedRows": 1,
+          "totalColumns": 1,
+          "columnsShown": 1,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "environment-easy-3",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator": "m",
+        "view": "sample_stats",
+        "rationale": "Load full data, compute rates per beach-year.",
+        "chars": 1602,
+        "table": {
+          "totalRows": 30765,
+          "returnedRows": 5,
+          "totalColumns": 3,
+          "columnsShown": 3,
+          "complete": false
+        },
+        "data_facts": 8,
+        "full_scope_data": false,
+        "partial_scope_data": true,
+        "coverage_notice": true,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 2,
+        "operator": "src",
+        "view": "sample",
+        "rationale": "Preview raw lines.",
+        "chars": 695,
+        "table": {
+          "totalRows": 10,
+          "returnedRows": 5,
+          "totalColumns": 3,
+          "columnsShown": 3,
+          "complete": false
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": true
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator": "top5",
+        "view": "full",
+        "rationale": "Load, compute 3-month sums with lags.",
+        "chars": 617,
+        "table": {
+          "totalRows": 5,
+          "returnedRows": 5,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "wildfire-easy-1",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator": "src",
+        "view": "sample_stats",
+        "rationale": "Load, compute 3-month sums with lags.",
+        "chars": 1111,
+        "table": {
+          "totalRows": 303,
+          "returnedRows": 5,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": false
+        },
+        "data_facts": 9,
+        "full_scope_data": true,
+        "partial_scope_data": false,
+        "coverage_notice": true,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator": "ne",
+        "view": "full",
+        "rationale": "Preview the files.",
+        "chars": 248,
+        "table": {
+          "totalRows": 6,
+          "returnedRows": 6,
+          "totalColumns": 1,
+          "columnsShown": 1,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 1,
+        "operator": "idt",
+        "view": "sample",
+        "rationale": "Preview the files.",
+        "chars": 726,
+        "table": {
+          "totalRows": 40,
+          "returnedRows": 5,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": false
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": true
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 3,
+        "operator": "l",
+        "view": "full",
+        "rationale": "Wire the graph.",
+        "chars": 2316,
+        "table": {
+          "totalRows": 15,
+          "returnedRows": 15,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 4,
+        "operator": "fn",
+        "view": "full",
+        "rationale": "Check file names and fix commas.",
+        "chars": 1076,
+        "table": {
+          "totalRows": 52,
+          "returnedRows": 52,
+          "totalColumns": 2,
+          "columnsShown": 2,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      },
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "rep": 1,
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "step": 5,
+        "operator": "l",
+        "view": "full",
+        "rationale": "Normalize state names and numbers.",
+        "chars": 2293,
+        "table": {
+          "totalRows": 15,
+          "returnedRows": 15,
+          "totalColumns": 4,
+          "columnsShown": 4,
+          "complete": true
+        },
+        "data_facts": 0,
+        "full_scope_data": false,
+        "partial_scope_data": false,
+        "coverage_notice": false,
+        "source_preview_label": false
+      }
+    ],
+    "interpretation": "Size thresholds identify cases for manual review, not improper choices. Snapshot checks cover retained final results, not every historical result."
+  },
+  "delivery": {
+    "source": "/tmp/texera-sonnet-adaptive-pilot-20261001",
+    "groups": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "tasks": 4,
+        "missing_action_corrections": 4,
+        "tasks_with_missing_action_correction": 4,
+        "corrected_tasks_with_answer": 4,
+        "retrievals": 15,
+        "flow": 15,
+        "complete": 10,
+        "delivered": 15,
+        "upstream": 6,
+        "data": 3,
+        "frequencies": 2,
+        "tasks_with_data": 3,
+        "tasks_with_flow": 4,
+        "tasks_with_upstream": 4,
+        "tasks_with_ranges": 2,
+        "tasks_with_frequencies": 2,
+        "tasks_with_partial_stats": 1,
+        "ranges": 2,
+        "partial_stats": 1
+      }
+    ],
+    "delivery_errors": [],
+    "no_answers": [],
+    "profile_budget": {
+      "attempts_frequency_budget": 0
+    },
+    "attempts_with_conversion_failures": [
+      {
+        "model": "Sonnet55",
+        "arm": "adaptive_flow1",
+        "task": "legal-hard-14",
+        "sut": "DataflowSystemSonnet55_texera_sonnet_adaptive_pilot_20261001_adaptive_flow1_Rep1",
+        "casts": [
+          {
+            "operator": "c",
+            "rows": 48,
+            "failures": {
+              "# of Reports": 24
+            }
+          }
+        ]
+      }
+    ],
+    "scope": "Delivery is checked against the next recorded model request, including watchdog traces. Profile omissions cover final snapshots only. Conversion failures can be intentional; these counts do not label analytical errors or explain score changes."
+  },
+  "cache": {
+    "source": "/tmp/texera-sonnet-adaptive-pilot-20261001",
+    "totals": {
+      "inputTokens": 230132,
+      "outputTokens": 7216,
+      "cachedInputTokens": 193947,
+      "cacheCreationInputTokens": 36129,
+      "calls": 20,
+      "prefix_checks": 16,
+      "cost_usd": 0.201384
+    },
+    "cached_input_fraction": 0.842764152747119,
+    "failures": [],
+    "rows": [
+      {
+        "task": "legal-easy-26",
+        "calls": 4,
+        "usage": {
+          "inputTokens": 43431,
+          "outputTokens": 1047,
+          "cachedInputTokens": 31192,
+          "cacheCreationInputTokens": 12227
+        },
+        "fresh_input": 12,
+        "cost_usd": 0.0473,
+        "recomputed_cost": 0.047299900000000006,
+        "first_call_cached_input": 0,
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 8989,
+            "expected_cached": 8989,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 10182,
+            "expected_cached": 10182,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 12021,
+            "expected_cached": 12021,
+            "cache_match": true
+          }
+        ]
+      },
+      {
+        "task": "environment-easy-3",
+        "calls": 4,
+        "usage": {
+          "inputTokens": 45931,
+          "outputTokens": 1779,
+          "cachedInputTokens": 32574,
+          "cacheCreationInputTokens": 13345
+        },
+        "fresh_input": 12,
+        "cost_usd": 0.057691,
+        "recomputed_cost": 0.0576913,
+        "first_call_cached_input": 0,
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 9006,
+            "expected_cached": 9006,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 10372,
+            "expected_cached": 10372,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 13196,
+            "expected_cached": 13196,
+            "cache_match": true
+          }
+        ]
+      },
+      {
+        "task": "wildfire-easy-1",
+        "calls": 5,
+        "usage": {
+          "inputTokens": 54011,
+          "outputTokens": 1377,
+          "cachedInputTokens": 50261,
+          "cacheCreationInputTokens": 3736
+        },
+        "fresh_input": 14,
+        "cost_usd": 0.03319,
+        "recomputed_cost": 0.0331902,
+        "first_call_cached_input": 8689,
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 8985,
+            "expected_cached": 8985,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 9827,
+            "expected_cached": 9827,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 10488,
+            "expected_cached": 10488,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 12272,
+            "expected_cached": 12272,
+            "cache_match": true
+          }
+        ]
+      },
+      {
+        "task": "legal-hard-14",
+        "calls": 7,
+        "usage": {
+          "inputTokens": 86759,
+          "outputTokens": 3013,
+          "cachedInputTokens": 79920,
+          "cacheCreationInputTokens": 6821
+        },
+        "fresh_input": 18,
+        "cost_usd": 0.063203,
+        "recomputed_cost": 0.06320250000000001,
+        "first_call_cached_input": 8689,
+        "transitions": [
+          {
+            "step": 2,
+            "prefix_preserved": true,
+            "cached": 9031,
+            "expected_cached": 9031,
+            "cache_match": true
+          },
+          {
+            "step": 3,
+            "prefix_preserved": true,
+            "cached": 9972,
+            "expected_cached": 9972,
+            "cache_match": true
+          },
+          {
+            "step": 4,
+            "prefix_preserved": true,
+            "cached": 10613,
+            "expected_cached": 10613,
+            "cache_match": true
+          },
+          {
+            "step": 5,
+            "prefix_preserved": true,
+            "cached": 12586,
+            "expected_cached": 12586,
+            "cache_match": true
+          },
+          {
+            "step": 6,
+            "prefix_preserved": true,
+            "cached": 13670,
+            "expected_cached": 13670,
+            "cache_match": true
+          },
+          {
+            "step": 8,
+            "prefix_preserved": true,
+            "cached": 15359,
+            "expected_cached": 15359,
+            "cache_match": true
+          }
+        ]
+      }
+    ],
+    "scope": "Actual recorded model requests; append-only prefixes, Claude cached-prefix accounting, usage sums and costs at the frozen campaign rates. Cross-task cache warmth can differ."
+  },
+  "independent_profiles": {
+    "scope": "Counters independently recomputed from retained complete tables; simple CSV scans also re-read with pandas. Does not certify the agent's task semantics or custom code.",
+    "checks": {
+      "columns": 277,
+      "frequencies": 281,
+      "structure": 35,
+      "native": 35,
+      "source": 190,
+      "window": 8,
+      "cast": 3,
+      "join": 32
+    },
+    "total_checks": 861,
+    "failures": [],
+    "skipped": [
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "a",
+        "reason": "retained table incomplete",
+        "records": 345,
+        "rows": 15377
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "b",
+        "reason": "retained table incomplete",
+        "records": 345,
+        "rows": 15388
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "u",
+        "reason": "retained table incomplete",
+        "records": 345,
+        "rows": 30765
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "m",
+        "reason": "retained table incomplete",
+        "records": 1558,
+        "rows": 30765
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "g",
+        "reason": "retained table incomplete",
+        "records": 1400,
+        "rows": 2347
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "r",
+        "reason": "retained table incomplete",
+        "records": 1156,
+        "rows": 2347
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "y12",
+        "reason": "retained table incomplete",
+        "records": 1163,
+        "rows": 1171
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "y13",
+        "reason": "retained table incomplete",
+        "records": 1152,
+        "rows": 1176
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "j",
+        "reason": "retained table incomplete",
+        "records": 645,
+        "rows": 1138
+      },
+      {
+        "model": "Sonnet55",
+        "task": "environment-easy-3",
+        "operator": "f",
+        "reason": "input table incomplete"
+      }
+    ],
+    "operations": [
+      {
+        "model": "Sonnet55",
+        "task": "wildfire-easy-1",
+        "operator": "w",
+        "kind": "Window",
+        "counters": {
+          "partitions": 1,
+          "tieRows": 0,
+          "outputs": {
+            "p1": {
+              "boundaryNulls": 1,
+              "nullOutputs": 1
+            },
+            "p2": {
+              "boundaryNulls": 2,
+              "nullOutputs": 2
+            },
+            "d2": {
+              "boundaryNulls": 2,
+              "nullOutputs": 2
+            }
+          }
+        },
+        "properties": {
+          "orderBy": [
+            {
+              "col": "Date"
+            }
+          ],
+          "columns": [
+            {
+              "fn": "lag",
+              "as": "p1",
+              "col": "Acres Burned"
+            },
+            {
+              "fn": "lag",
+              "as": "p2",
+              "col": "Acres Burned",
+              "offset": 2
+            },
+            {
+              "fn": "lag",
+              "as": "d2",
+              "col": "Date",
+              "offset": 2
+            }
+          ]
+        }
+      },
+      {
+        "model": "Sonnet55",
+        "task": "legal-hard-14",
+        "operator": "c",
+        "kind": "Cast",
+        "counters": {
+          "# of Reports": 24
+        },
+        "examples": {
+          "# of Reports": {
+            "examples": [
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": ""
+                  }
+                ],
+                "count": 24,
+                "truncated": false
+              }
+            ],
+            "otherCount": 0
+          }
+        }
+      },
+      {
+        "model": "Sonnet55",
+        "task": "legal-hard-14",
+        "operator": "j",
+        "kind": "Join",
+        "counters": {
+          "type": "inner",
+          "nullsEqual": false,
+          "validate": "many_to_many",
+          "matchedOutputRows": 48,
+          "left": {
+            "rows": 660,
+            "eligibleRows": 660,
+            "nullKeyRows": 0,
+            "distinctKeys": 52,
+            "matchedRows": 48,
+            "unmatchedRows": 612,
+            "matchedKeys": 6,
+            "unmatchedKeys": 46,
+            "maxMultiplicity": 31,
+            "unmatchedExamples": [
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": "Alabama"
+                  }
+                ],
+                "count": 18,
+                "truncated": false
+              },
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": "Alaska"
+                  }
+                ],
+                "count": 5,
+                "truncated": false
+              },
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": "Arizona"
+                  }
+                ],
+                "count": 12,
+                "truncated": false
+              }
+            ],
+            "duplicateExamples": [
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": "Alabama"
+                  }
+                ],
+                "count": 18,
+                "truncated": false
+              },
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": "Alaska"
+                  }
+                ],
+                "count": 5,
+                "truncated": false
+              },
+              {
+                "values": [
+                  {
+                    "type": "str",
+                    "value": "Arizona"
+                  }
+                ],
+                "count": 12,
+                "truncated": false
+              }
+            ]
+          },
+          "right": {
+            "rows": 6,
+            "eligibleRows": 6,
+            "nullKeyRows": 0,
+            "distinctKeys": 6,
+            "matchedRows": 6,
+            "unmatchedRows": 0,
+            "matchedKeys": 6,
+            "unmatchedKeys": 0,
+            "maxMultiplicity": 1,
+            "unmatchedExamples": [],
+            "duplicateExamples": []
+          }
+        }
+      }
+    ]
+  },
+  "independent_source": {
+    "checks": 57,
+    "failures": [],
+    "details": [
+      {
+        "task": "environment-easy-3",
+        "metric": "map.row_count",
+        "actual": 30765,
+        "recorded": 30765
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_null.beach",
+        "actual": 0,
+        "recorded": 0
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_nonnull.beach",
+        "actual": 30720,
+        "recorded": 30720
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_null.year",
+        "actual": 0,
+        "recorded": 0
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_nonnull.year",
+        "actual": 30720,
+        "recorded": 30720
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_distinct.year",
+        "actual": 2,
+        "recorded": 2
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_frequency.year.2012",
+        "actual": 15377,
+        "recorded": 15377
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_frequency.year.2013",
+        "actual": 15343,
+        "recorded": 15343
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_null.v",
+        "actual": 0,
+        "recorded": 0
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_nonnull.v",
+        "actual": 30720,
+        "recorded": 30720
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_distinct.v",
+        "actual": 2,
+        "recorded": 2
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_frequency.v.0",
+        "actual": 29461,
+        "recorded": 29461
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_frequency.v.1",
+        "actual": 1259,
+        "recorded": 1259
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "map.prefix_duplicate_rows",
+        "actual": 27756,
+        "recorded": 27756
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.matched_output",
+        "actual": 1138,
+        "recorded": 1138
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.rows",
+        "actual": 1171,
+        "recorded": 1171
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.eligibleRows",
+        "actual": 1171,
+        "recorded": 1171
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.nullKeyRows",
+        "actual": 0,
+        "recorded": 0
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.distinctKeys",
+        "actual": 1171,
+        "recorded": 1171
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.matchedRows",
+        "actual": 1138,
+        "recorded": 1138
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.matchedKeys",
+        "actual": 1138,
+        "recorded": 1138
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.unmatchedRows",
+        "actual": 33,
+        "recorded": 33
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.unmatchedKeys",
+        "actual": 33,
+        "recorded": 33
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.maxMultiplicity",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.example_count.Harwich|Allen Harbor",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.example_unmatched.Harwich|Allen Harbor",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.example_count.Bourne|Briarwood Marine and Science",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.example_unmatched.Bourne|Briarwood Marine and Science",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.example_count.Orleans|Kent's Point",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.left.example_unmatched.Orleans|Kent's Point",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.rows",
+        "actual": 1176,
+        "recorded": 1176
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.eligibleRows",
+        "actual": 1176,
+        "recorded": 1176
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.nullKeyRows",
+        "actual": 0,
+        "recorded": 0
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.distinctKeys",
+        "actual": 1176,
+        "recorded": 1176
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.matchedRows",
+        "actual": 1138,
+        "recorded": 1138
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.matchedKeys",
+        "actual": 1138,
+        "recorded": 1138
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.unmatchedRows",
+        "actual": 38,
+        "recorded": 38
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.unmatchedKeys",
+        "actual": 38,
+        "recorded": 38
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.maxMultiplicity",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.example_count.Barnstable|Cross Street",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.example_unmatched.Barnstable|Cross Street",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.example_count.Mashpee|Maushop Village",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.example_unmatched.Mashpee|Maushop Village",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.example_count.Yarmouth|Ocean Club",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "join.right.example_unmatched.Yarmouth|Ocean Club",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "environment-easy-3",
+        "metric": "answer",
+        "actual": 268,
+        "recorded": 268
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "initial_cast_input_rows",
+        "actual": 35,
+        "recorded": 35
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "initial_cast_failures",
+        "actual": 8,
+        "recorded": 8
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "initial_cast_failure_observation",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "initial_cast_example.2,571",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "initial_cast_example.2,613",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "initial_cast_example.1,414",
+        "actual": 1,
+        "recorded": 1
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "final_cast_input_rows",
+        "actual": 48,
+        "recorded": 48
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "final_cast_blank_failures",
+        "actual": 24,
+        "recorded": 24
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "final_cast_failures_are_footer_or_blank",
+        "actual": true,
+        "recorded": true
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "top5_names",
+        "actual": [
+          "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+          "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+          "Hartford-West Hartford-East Hartford, CT Metropolitan Statistical Area",
+          "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area",
+          "Worcester, MA Metropolitan Statistical Area"
+        ],
+        "recorded": [
+          "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+          "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+          "Hartford-West Hartford-East Hartford, CT Metropolitan Statistical Area",
+          "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area",
+          "Worcester, MA Metropolitan Statistical Area"
+        ]
+      },
+      {
+        "task": "legal-hard-14",
+        "metric": "top5_counts",
+        "actual": [
+          19929,
+          5422,
+          2613,
+          2571,
+          2561
+        ],
+        "recorded": [
+          19929,
+          5422,
+          2613,
+          2571,
+          2561
+        ]
+      }
+    ],
+    "scope": "Independent source replay of the beach Map profile prefix, all beach Join counters/examples, final count, metro historical Cast failures and corrected ranking. Complements the retained-table profile audit."
+  },
+  "comparison": {
+    "baselines": [
+      {
+        "task": "legal-easy-26",
+        "score": 1.0,
+        "source": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-easy-26",
+        "stats": {
+          "input_tokens": 40217,
+          "output_tokens": 1235,
+          "total_tokens": 41452,
+          "reasoning_tokens": 0,
+          "cached_tokens": 29030,
+          "cache_creation_tokens": 11175,
+          "cost_usd": 0.046118,
+          "num_steps": 4,
+          "elapsed_seconds": 21.72
+        },
+        "first_call_usage": {
+          "inputTokens": 8655,
+          "outputTokens": 179,
+          "totalTokens": 8834,
+          "reasoningTokens": 0,
+          "cachedInputTokens": 0,
+          "cacheCreationInputTokens": 8651
+        }
+      },
+      {
+        "task": "legal-hard-14",
+        "score": 1.0,
+        "source": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/legal-hard-14",
+        "stats": {
+          "input_tokens": 86733,
+          "output_tokens": 2675,
+          "total_tokens": 89408,
+          "reasoning_tokens": 0,
+          "cached_tokens": 79975,
+          "cache_creation_tokens": 6740,
+          "cost_usd": 0.059631,
+          "num_steps": 7,
+          "elapsed_seconds": 47.69
+        },
+        "first_call_usage": {
+          "inputTokens": 8697,
+          "outputTokens": 235,
+          "totalTokens": 8932,
+          "reasoningTokens": 0,
+          "cachedInputTokens": 8351,
+          "cacheCreationInputTokens": 342
+        }
+      },
+      {
+        "task": "wildfire-easy-1",
+        "score": 1.0,
+        "source": "/tmp/texera-evidence-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_pilot_20261001_sample_stats_flow1_Rep1/wildfire-easy-1",
+        "stats": {
+          "input_tokens": 40437,
+          "output_tokens": 1176,
+          "total_tokens": 41613,
+          "reasoning_tokens": 0,
+          "cached_tokens": 37475,
+          "cache_creation_tokens": 2950,
+          "cost_usd": 0.026654,
+          "num_steps": 4,
+          "elapsed_seconds": 20.78
+        },
+        "first_call_usage": {
+          "inputTokens": 8651,
+          "outputTokens": 172,
+          "totalTokens": 8823,
+          "reasoningTokens": 0,
+          "cachedInputTokens": 8351,
+          "cacheCreationInputTokens": 296
+        }
+      },
+      {
+        "task": "environment-easy-3",
+        "score": 1.0,
+        "source": "/tmp/texera-evidence-join-pilot-20261001/system_scratch/DataflowSystemSonnet55_texera_evidence_join_pilot_20261001_sample_stats_flow1_Rep1/environment-easy-3",
+        "stats": {
+          "input_tokens": 51374,
+          "output_tokens": 1901,
+          "total_tokens": 53275,
+          "reasoning_tokens": 0,
+          "cached_tokens": 44383,
+          "cache_creation_tokens": 6979,
+          "cost_usd": 0.045358,
+          "num_steps": 4,
+          "elapsed_seconds": 34.78
+        },
+        "first_call_usage": {
+          "inputTokens": 8672,
+          "outputTokens": 222,
+          "totalTokens": 8894,
+          "reasoningTokens": 0,
+          "cachedInputTokens": 8351,
+          "cacheCreationInputTokens": 317
+        }
+      }
+    ],
+    "tasks": [
+      {
+        "task": "legal-easy-26",
+        "score_old": 1.0,
+        "score_new": 1.0,
+        "cost_old": 0.046118,
+        "cost_new": 0.0473,
+        "cost_difference": 0.0011820000000000025,
+        "calls_old": 4,
+        "calls_new": 4
+      },
+      {
+        "task": "environment-easy-3",
+        "score_old": 1.0,
+        "score_new": 1.0,
+        "cost_old": 0.045358,
+        "cost_new": 0.057691,
+        "cost_difference": 0.012332999999999997,
+        "calls_old": 4,
+        "calls_new": 4
+      },
+      {
+        "task": "wildfire-easy-1",
+        "score_old": 1.0,
+        "score_new": 1.0,
+        "cost_old": 0.026654,
+        "cost_new": 0.03319,
+        "cost_difference": 0.006535999999999997,
+        "calls_old": 4,
+        "calls_new": 5
+      },
+      {
+        "task": "legal-hard-14",
+        "score_old": 1.0,
+        "score_new": 1.0,
+        "cost_old": 0.059631,
+        "cost_new": 0.063203,
+        "cost_difference": 0.003571999999999992,
+        "calls_old": 7,
+        "calls_new": 7
+      }
+    ],
+    "old_total_cost": 0.17776100000000003,
+    "new_total_cost": 0.201384,
+    "relative_cost_increase": 0.13289191667463607,
+    "old_usage": {
+      "input_tokens": 218761,
+      "output_tokens": 6987,
+      "cached_tokens": 190863,
+      "cache_creation_tokens": 27844,
+      "num_steps": 19
+    },
+    "cost_difference_components_at_frozen_rates": {
+      "fresh_input": 4e-06,
+      "cache_read": 0.0006167999999999999,
+      "cache_creation": 0.020712500000000002,
+      "output": 0.0022900000000000004
+    },
+    "cache_mechanism": "Both initially parallel adaptive tasks started without a common cached prefix; the earlier environment pilot first call reused 8,351 input tokens. The generated adaptive prompt also adds 861 characters / about 338 initial tokens of view choices and examples. All 16 within-task cached-prefix transitions matched exactly. A different graph and one extra wildfire parsing-recovery call also affect costs."
+  },
+  "manual_findings": [
+    {
+      "task": "legal-easy-26",
+      "finding": "Full for a 15-line source preview and six final rows; sample_stats for 55 first-per-state rows. Counts show three missing category/count rows from footer content. Final six states correct; ranking uses source order, not independent numeric ranking."
+    },
+    {
+      "task": "environment-easy-3",
+      "finding": "Sample for two five-line previews, sample_stats for 30,765 mapped rows, full for a one-row count. Profile covers a clearly labeled 30,720-row prefix, not all rows. Community-plus-name key yields 268 and correct 1,138 matches with 33/38 unmatched; source replay confirms prefix statistics and examples."
+    },
+    {
+      "task": "wildfire-easy-1",
+      "finding": "Initial default CSV parse fails on metadata lines; recovery previews raw lines and sets skip_lines=3. Source sample_stats shows numeric types, no nulls and 200001..202503. Full retrieves five ranked windows, requiring date/total associations. Window offset/boundary facts match. Source month continuity confirmed in the preceding independent task reference; no graph continuity check here."
+    },
+    {
+      "task": "legal-hard-14",
+      "finding": "Initial disconnected graph fails validation. After wiring, full of 15 ranked rows carries Cast failures=8/35 with comma-formatted examples and Join matching four of six states with New Hampshire/Rhode Island unmatched. Next calls list 52 filename groups (1,076 characters) and then normalize names/counts. New result version has all six states matched; remaining 24/48 Cast failures are blank/footer rows. Correct top five names/counts; deduplication happens in the final response rather than in the graph."
+    }
+  ],
+  "remaining_issues": [
+    "All four tasks made one plain-text final response that required the existing local correction to submit an Answer action. These four extra calls are included in costs, and all completed successfully.",
+    "Rationales are short and often name the next step without explicitly justifying why full is needed. The observed sizes/purposes are sensible, but exact prompt compliance is incomplete.",
+    "Statistics were retrieved alongside already computed final answers, rather than always before constructing the calculation. Graph reductions still ran over complete data; the trace does not prove a sample_stats-first investigation strategy or a causal accuracy improvement."
+  ],
+  "resources": {
+    "cu_0": {
+      "cuid": 370,
+      "status": "terminated"
+    },
+    "cu_1": {
+      "cuid": 369,
+      "status": "terminated"
+    },
+    "disk_recovery": "Launcher waited before any model calls. A verified gzip archive of an immutable 1-GiB prefix of this worktree engine stdout was retained; the original prefix was sparsified while preserving file size and active suffix. Benchmark artifacts and other stacks unchanged. Archive metadata: /tmp/texera-evidence-pilot-20261001-services/logs/backend-stdout-prefix-20261001.json."
+  }
+}

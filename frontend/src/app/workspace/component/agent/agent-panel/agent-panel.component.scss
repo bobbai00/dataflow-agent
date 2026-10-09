@@ -22,6 +22,11 @@
   width: 100%;
   height: 100%;
   position: fixed;
+  // Anchor to the viewport's left edge. Without it the fixed host keeps its
+  // static x (the workspace's left edge, i.e. after the dashboard sider) while
+  // `width: 100%` is the full viewport width, so the right-anchored
+  // #agent-container overflowed the viewport by the sider's width.
+  left: 0;
   z-index: 3;
 }
 

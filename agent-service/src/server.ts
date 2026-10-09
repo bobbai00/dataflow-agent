@@ -17,17 +17,29 @@
  * under the License.
  */
 
+import { observationFormat, observationFormatPatch } from "./agent/native/observation-format";
+
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
+import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
+import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
+import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
 import { TexeraAgent } from "./agent/texera-agent";
-import { getVisibleResultHeaders } from "./agent/tools/tools-utility";
+import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import {
+  operatorInfoToSummary,
+  type OperatorResultSummary as OperatorResultSummaryWs,
+} from "./api/operator-result-summary";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
+import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
+import { inspectErrorSchema } from "./agent/native/inspect-error-query";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
+import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
@@ -51,11 +63,7 @@ import {
   ProbeRetirementConfigSchema,
   type ProbeRetirementConfig,
 } from "./agent/context/selector/probe-retirement";
-import {
-  applyRolePolicy,
-  RolePolicyConfigSchema,
-  type RolePolicyConfig,
-} from "./agent/context/selector/role-policy";
+import { applyRolePolicy, RolePolicyConfigSchema, type RolePolicyConfig } from "./agent/context/selector/role-policy";
 import {
   FoldResolvedRevisionsConfigSchema,
   type FoldResolvedRevisionsConfig,
@@ -85,7 +93,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentMode, ContextMode, OperatorResultSerializationMode } from "./types/agent";
+import { AgentMode, AgentState, ContextMode, OperatorResultSerializationMode } from "./types/agent";
 
 /**
  * Pick the driver from an optional explicit choice or fall back to
@@ -101,9 +109,38 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
 /** Turn index (0-based) in which each operator was last touched. */
-function lastTouchTurnByOperator(
-  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
-): { lastTouch: Map<string, number>; turnCount: number } {
+/**
+ * Which operators keep a FULL index entry (summary + schema) this step.
+ *
+ * The turn's own work and its direct inputs are unconditional — a turn that
+ * cannot see what it is editing rebuilds it, which is how operator counts reach
+ * the hundreds in the first place. Everything else is admitted
+ * most-recently-touched first until `cap` is reached; the remainder collapses to
+ * a bare header line, still named and still one `recallState` call away.
+ *
+ * Exported because this policy is where the 2026-08-06 accuracy regression
+ * lived, and a policy that can only be observed through a live benchmark run is
+ * a policy that gets its next bug the same expensive way.
+ */
+export function selectDetailedOperators(
+  frontier: string[],
+  upstream: string[],
+  lastTouch: Map<string, number>,
+  cap: number
+): Set<string> {
+  const keep = new Set<string>([...frontier, ...upstream]);
+  const byRecency = [...lastTouch.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [opId] of byRecency) {
+    if (keep.size >= cap) break;
+    keep.add(opId);
+  }
+  return keep;
+}
+
+function lastTouchTurnByOperator(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): {
+  lastTouch: Map<string, number>;
+  turnCount: number;
+} {
   const order: string[] = [];
   const seen = new Set<string>();
   for (const step of visibleSteps) {
@@ -127,7 +164,9 @@ function lastTouchTurnByOperator(
 /** Operator ids touched by the turn in progress (the newest messageId group) —
  *  the ones that render RICH under the turn-history index while everything
  *  older renders as a one-line entry. */
-function currentTurnOperatorIds(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): string[] {
+function currentTurnOperatorIds(
+  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
+): string[] {
   if (visibleSteps.length === 0) return [];
   const lastMessageId = visibleSteps[visibleSteps.length - 1].messageId;
   const ids = new Set<string>();
@@ -169,7 +208,7 @@ function getLearnedModel(): UtilityModel | null {
   return _learnedModel;
 }
 
-function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
+export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
   // One tuner per agent, built lazily and reused (it accumulates teacher-token
   // usage). Rebuilt if the teacher model id changes.
   let tuner: LLMContextTuner | undefined;
@@ -182,25 +221,40 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     return tuner;
   };
 
-  // The rich SDK context (`# User Task` / `# Current Dataflow` + decoration
-  // rungs). Controlled by the SELECT mode (settings.contextMode), the two
-  // DECORATE ordinal levels (flowLevel/dataLevel — which assembleContext expands
-  // into the individual decoration rungs via the catalog), plus the substrate /
-  // select / prior knobs below. The per-rung decoration booleans are NOT a
-  // public knob — they are the internal expansion target of the levels.
-  const sdkContext: ContextAssembler = async ({
+  // Layout and sampling are independent of the two explicit evidence channels.
+  // Ordinary renderers stay synchronous so debug/UI previews show the current
+  // snapshot. Only the opt-in LLM tuner needs an asynchronous result.
+  const sdkContext: ContextAssembler = ({
     visibleSteps,
     workflowState,
     snapshotStorage,
     settings,
     compilationResult,
+    turnNumberByMessageId,
+    offBranchTurns,
+    taskHistory,
   }) => {
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      taskContext: settings.taskContext,
+      taskHistory,
+      ...observationFormat(settings),
+      nativeEvidence: {
+        ...observationFormat(settings),
+        data: settings.dataEvidence,
+        flow: settings.flowEvidence,
+        maxChars: settings.maxOperatorResultCharLimit,
+        dataMaxChars: settings.dataEvidenceCharLimit,
+        flowMaxChars: settings.flowEvidenceCharLimit,
+        checks: settings.nativeChecks,
+      },
+      dataEvidence: settings.dataEvidence,
+      retrievalViews: settings.retrievalViews,
+      flowEvidence: settings.flowEvidence,
+      nativeChecks: settings.nativeChecks,
+      resultSelection: settings.resultSelection,
       includeOperatorProperties: settings.includeOperatorProperties,
-      flowLevel: settings.flowLevel,
-      dataLevel: settings.dataLevel,
       thoughtReplay: settings.thoughtReplay,
       agentTurns: settings.agentTurns,
       contextWindowTokens: settings.contextWindowTokens,
@@ -212,6 +266,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+      maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
       compactKeepLastSteps: settings.compactKeepLastSteps,
       showCompactMeter: settings.enableCompactTool,
       staticCompaction: settings.staticCompaction,
@@ -220,16 +275,40 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       turnHistoryIndex: settings.turnHistory === "index" ? true : undefined,
       thinObservations: settings.indexThinObservations !== false ? undefined : false,
       attemptReflection: settings.attemptReflection,
-      columnStats: settings.columnStats,
-      valueFormatFlags: settings.valueFormat,
-      tableStructureHint: settings.dataHints,
+      // Caching is not optional: unless an arm pins a layout, LATEST ships one
+      // message per operator block (opSplit) and DELTA ships the append-only
+      // tool-call transcript (native), the two framings gpt-5.6-* can credit.
+      messageLayout:
+        settings.messageLayout ??
+        (settings.versionedMode || settings.sessionTurns
+          ? "turnSplit"
+          : settings.contextMode === ContextMode.LATEST
+            ? "opSplit"
+            : "native"),
+      versionedCatalog: settings.versionedMode,
+      versionedHeads: settings.versionedHeads,
+      sessionTurns: settings.sessionTurns,
+      recallOperatorLevel: settings.recallOperatorLevel,
+      specAudit: settings.specAudit,
       // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
       foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
       foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
       // Write-time render prefs (DELTA event scoping; LATEST goes via overlay).
       renderPrefsEnabled: settings.enableRenderPrefs ? true : undefined,
       summarizePatch: settings.summarizeParams,
+      // Version-tree navigation: global turn numbers, and the turns a resume
+      // has branched away from (both empty on a single-branch session).
+      turnNumberByMessageId,
+      offBranchTurns,
     };
+    const evidenceSettings = {
+      data: settings.dataEvidence,
+      flow: settings.flowEvidence,
+      maxChars: settings.maxOperatorResultCharLimit,
+    };
+
+    if (settings.taskContext === "dependencies")
+      return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
     // base-preserving frontier decay > legacy contextMode.
@@ -240,6 +319,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       if (model) {
         const dossier = buildDossier(visibleSteps, snapshotStorage);
         const params = learnedSelectParams(dossier, model, latestTaskText(visibleSteps), settings.learnedConfig);
+        params.nativeEvidence = evidenceSettings;
         return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
           .messages;
       }
@@ -250,15 +330,20 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     // tune() on any failure.
     if (settings.tunerConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const { params } = await getTuner(settings.tunerConfig).tune(dossier, latestTaskText(visibleSteps));
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-        .messages;
+      return getTuner(settings.tunerConfig)
+        .tune(dossier, latestTaskText(visibleSteps))
+        .then(({ params }) => {
+          params.nativeEvidence = evidenceSettings;
+          return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+            .messages;
+        });
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
     // params from the live dossier. The dossier is built once and reused.
     if (settings.selectorConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       const params = selectParams(dossier, settings.selectorConfig);
+      params.nativeEvidence = evidenceSettings;
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
     }
@@ -312,11 +397,15 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
         });
         const frontier = currentTurnOperatorIds(visibleSteps);
         if (frontier.length > 0) {
-          // Caps on the rich set. Without them a heavy turn promotes most of the
-          // DAG: 58 code blocks and 134 tables at water-potability turn 30, 139 KB
-          // of a 196 KB prompt. Most-recent-first, because the operators a turn
-          // touched last are the ones it is still working on.
-          const CODE_CAP = settings.indexRichCode ?? 6;
+          // Cap on the UPSTREAM value channel only. There is deliberately no cap
+          // on code: an operator this turn is working on renders its code in
+          // full, however many of them there are. A partial view of the turn's
+          // own code is worse than useless — the model cannot tell whether the
+          // definition it needs is absent or merely not shown, so it rebuilds
+          // what it already has, which grows the turn and the operator count
+          // together. If a turn genuinely touches enough operators for this to
+          // hurt, the bug is the operator sprawl, and it is to be diagnosed
+          // where it happens rather than hidden here.
           const TABLE_CAP = settings.indexRichTables ?? 12;
           // Value channel, lineage-graded. The binary touched-this-turn rule
           // starved the values that this turn's formulas CONSUME: on the NFL
@@ -334,44 +423,74 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
             seenUp.add(src);
             upstream.push(src);
           }
-          // The turn's OWN work is never capped. Capping it by recency created a
-          // feedback loop: on a long turn the operators created earliest fell out
-          // of the rich set, so the model could not see what it had just built,
-          // rebuilt it, and grew the turn further — 33 operator writes on a turn
-          // that needs 3, with recalls for invented operator names.
-          // Recency ranking (most recent first) decides which of them show CODE,
-          // and the table budget applies to their UPSTREAMS only.
-          const recentFirst = [...frontier].reverse();
+          // The turn's OWN work is never capped, on either axis. Capping it by
+          // recency created a feedback loop: on a long turn the operators created
+          // earliest fell out of the rich set, so the model could not see what it
+          // had just built, rebuilt it, and grew the turn further — 33 operator
+          // writes on a turn that needs 3, with recalls for invented operator
+          // names. The table budget applies to their UPSTREAMS only.
           const overrides: Record<string, object> = {};
-          recentFirst.forEach((id, rank) => {
+          frontier.forEach(id => {
             // A generous per-operator char budget on the turn's own work. The
             // global 1k cap truncated exactly the results the answer is read
             // from, and the model's workaround was a chain of reformatting
             // operators (223 such calls in 20 netflix turns, against 44 for the
             // baseline). Bytes here are cheap next to a step: every extra step
             // re-sends the whole prompt.
-            const rich = { result: { latest: { detail: "sample", tuple: { maxChars: 4000 } } } };
-            overrides[id] = rank < CODE_CAP ? { property: { includeCode: true }, ...rich } : rich;
+            overrides[id] = {
+              property: { includeCode: true },
+              result: { latest: { detail: "sample", tuple: { maxChars: 4000 } } },
+            };
           });
           // Upstream inputs get VALUES as the budget allows — knowing an input
           // table's numbers matters more often than knowing how it was produced,
           // and code is the half the model can cheapest recall on demand.
-          upstream.reverse().slice(0, Math.max(0, TABLE_CAP)).forEach(id => {
-            overrides[id] = { result: { latest: { detail: "sample" } } };
-          });
+          upstream
+            .reverse()
+            .slice(0, Math.max(0, TABLE_CAP))
+            .forEach(id => {
+              overrides[id] = { result: { latest: { detail: "sample" } } };
+            });
           // OPERATOR SPRAWL is the other unbounded axis, and the sharper one. The
           // index lists every operator ever built: on my_uber_drivers the model
           // had created 737 by turn 30, and their index entries alone were 360 KB
-          // of a 559 KB prompt. So operators idle for more than `indexRecentTurns`
-          // turns — and not feeding this turn's work — collapse to a bare header
-          // line. They stay named (the model can still recall them by id) but stop
-          // paying for a summary and a schema on every step.
-          const RECENT_TURNS = settings.indexRecentTurns ?? 3;
-          const { lastTouch, turnCount } = lastTouchTurnByOperator(visibleSteps);
-          const keepDetailed = new Set<string>([...frontier, ...upstream]);
-          for (const [opId, turn] of lastTouch) {
-            if (turnCount - 1 - turn < RECENT_TURNS) keepDetailed.add(opId);
-          }
+          // of a 559 KB prompt. So operators outside this turn's work collapse to
+          // a bare header line — still named and recallable, but no longer paying
+          // for a summary and a schema on every step.
+          //
+          // WHAT SURVIVES IS A COUNT, NOT AN AGE. This was "touched within
+          // `indexRecentTurns` turns", and a turn count is the wrong control
+          // variable because it says nothing about how much state that admits —
+          // which is what the prompt actually pays for. Measured 2026-08-06,
+          // same-era, deepseek-v4-pro judge:
+          //
+          //   recentTurns=3   passnyc (31 ops) STARVED — from turn 5 the model saw
+          //                   4 result tables out of ~23 live operators, and
+          //                   accuracy fell 63.3% -> 40.0% against baseline.
+          //   recentTurns=12  passnyc 76.7%, water-potability 47.2%, energy 25.0%
+          //                   (baselines 63.3 / 41.7 / 16.7) — but nfl (277 ops)
+          //                   and uber (381 ops) FLOODED: context 360-600 kB and
+          //                   turn after turn burning the whole 40-step budget to
+          //                   produce an empty answer.
+          //
+          // Same constant, opposite failures, because 12 turns of a 31-operator
+          // task and 12 turns of a 381-operator task are not the same amount of
+          // context. So: keep the turn's own work unconditionally, then admit the
+          // most-recently-touched operators until a COUNT budget is spent. Small
+          // DAGs keep everything (no starvation); large ones keep a bounded, most
+          // relevant slice (no flood). Index entries are near-uniform in size, so
+          // a count is a good proxy for bytes and is far cheaper to compute.
+          // `indexDetailedOperators: 0` = no cap, which is the current default
+          // while `resumeFrom` is being evaluated on its own: resuming to an
+          // earlier base already bounds the DAG (measured 20-40% smaller mean,
+          // 30-50% smaller peak), and stacking the two would make it impossible
+          // to attribute a result to either.
+          const { lastTouch } = lastTouchTurnByOperator(visibleSteps);
+          const cap = settings.indexDetailedOperators ?? 0;
+          const keepDetailed =
+            cap > 0
+              ? selectDetailedOperators(frontier, upstream, lastTouch, cap)
+              : new Set<string>([...frontier, ...upstream, ...lastTouch.keys()]);
           for (const op of workflowState.getWorkflowContent().operators ?? []) {
             const id = (op as any)?.operatorID;
             if (typeof id !== "string" || keepDetailed.has(id) || overrides[id]) continue;
@@ -390,7 +509,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       // RULE A: role-keyed render policy (rich source / lean interior).
       if (settings.rolePolicyConfig) params = applyRolePolicy(params, dossier, settings.rolePolicyConfig);
       // Write-time render prefs: latest landed version's outputSummary /
-      // showOutputStatistics -> per-op overrides (LATEST snapshot render).
+      // outputSummary becomes a per-operator sample override (LATEST).
       if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
@@ -420,6 +539,21 @@ const agentStore = new Map<string, TexeraAgent>();
  *  can echo it back to the UI. Populated by `createAgentInstance`. */
 const agentDrivers = new Map<string, AgentDriverKind>();
 let agentCounter = 0;
+/**
+ * Per-process salt for agent ids.
+ *
+ * Ids used to be a bare `agent-<n>` from a module-level counter. That counter
+ * restarts at 0 whenever the service restarts (including a `bun --watch` hot
+ * reload), so a fresh process re-issues ids that concurrent benchmark tasks
+ * are still holding. The result: one task's cleanup `DELETE /api/agents/agent-8`
+ * removes the agent a DIFFERENT task is running on, and that task dies with
+ * "Agent not found" — 0 steps, 0 tokens, scored as a wrong answer. It looked
+ * like random flakiness (~30% of tasks) and was misread as a concurrency limit.
+ *
+ * The salt makes an id unique to the process that minted it, so a stale id from
+ * an earlier process can never address a live agent.
+ */
+const AGENT_ID_SALT = Math.random().toString(36).slice(2, 8);
 
 async function createAgentInstance(
   modelType: string,
@@ -427,8 +561,11 @@ async function createAgentInstance(
   customName?: string,
   explicitDriver?: AgentDriverKind
 ): Promise<{ agentId: string; agent: TexeraAgent }> {
-  const agentId = `agent-${++agentCounter}`;
+  const agentId = `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
+
+  const inputBudget = readInputBudget(process.env);
+  const modelCallLimit = Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0);
 
   const openai = createOpenAI({
     baseURL: `${config.modelsEndpoint}/api`,
@@ -436,6 +573,27 @@ async function createAgentInstance(
     // JWT (apache/texera#5421) and injects the LiteLLM master key downstream,
     // so the delegating user's JWT is the only credential this service sends.
     apiKey: delegateConfig.userToken,
+    // Every model request has a deadline; a request that never answers is
+    // abandoned and the turn retries it (TexeraAgent.sendMessage).
+    fetch: withRequestTimeout(
+      withRequiredToolChoice(
+        withModelWireTrace(
+          process.env.TEXERA_LLM_TRACE_DIR,
+          () => ({
+            agentId,
+            workflowId: delegateConfig.workflowId,
+            headId: agent.getHead(),
+            messageId: agent.getCurrentMessageId(),
+            inputBudget,
+            modelCallLimit,
+          }),
+          withInputBudget(
+            inputBudget,
+            withModelCallLimit(modelCallLimit, () => agent.getCurrentMessageId())
+          )
+        )
+      )
+    ),
   });
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml
@@ -443,7 +601,15 @@ async function createAgentInstance(
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
   const driver: LLMDriver =
-    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+    driverKind === "local-react"
+      ? new LocalReactTextDriver({ model })
+      : new VercelToolUseDriver({
+          model,
+          maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS
+            ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS)
+            : undefined,
+          maxRetries: process.env.MODEL_SDK_RETRIES ? Number(process.env.MODEL_SDK_RETRIES) : undefined,
+        });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -470,9 +636,29 @@ async function createAgentInstance(
   return { agentId, agent };
 }
 
-function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
+/** Render the agent's live settings in the wire shape shared by
+ *  `GET /:id`, `GET /:id/settings` and `PATCH /:id/settings` — one source so
+ *  a knob the frontend can set is always a knob it can read back. */
+const OBSERVATION_SETTINGS_SCHEMA = {
+  tableFormat: t.Optional(t.Union([t.Literal("markdown"), t.Literal("tsv")])),
+  ...Object.fromEntries(
+    ["keyValueColumns", "columnsShown", "definitionChars", "cellChars", "topValues", "catalogRecords"].map(key => [
+      key,
+      t.Optional(t.Integer({ minimum: 0, maximum: 100000 })),
+    ])
+  ),
+  answerEcho: t.Optional(t.Boolean()),
+  catalogStatistics: t.Optional(t.Boolean()),
+  multiTask: t.Optional(t.Boolean()),
+  taskContext: t.Optional(t.Union([t.Literal("trajectory"), t.Literal("dependencies")])),
+};
+
+function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   const agentSettings = agent.getSettings();
-  const settingsApi: AgentSettingsApi = {
+  return {
+    ...observationFormat(agentSettings),
+    multiTask: agentSettings.multiTask,
+    taskContext: agentSettings.taskContext,
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
@@ -481,9 +667,22 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     maxOperatorEdits: agentSettings.maxOperatorEdits,
-    allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
+    nativeProfileCollection: agentSettings.nativeProfileCollection,
+    dataEvidence: agentSettings.dataEvidence,
+    retrievalViews: agentSettings.retrievalViews,
+    fullResultCharLimit: agentSettings.fullResultCharLimit,
+    dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
+    flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
+    flowEvidence: agentSettings.flowEvidence,
+    dataflowReasoning: agentSettings.dataflowReasoning,
+    nativePromptDetail: agentSettings.nativePromptDetail,
+    nativeChecks: agentSettings.nativeChecks,
+    stateHistory: agentSettings.stateHistory,
+    stateLedger: agentSettings.stateLedger,
+    resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
+    messageLayout: agentSettings.messageLayout,
     parallelToolCalls: agentSettings.parallelToolCalls,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
     thoughtReplay: agentSettings.thoughtReplay,
@@ -496,12 +695,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     thoughtReplayK: agentSettings.thoughtReplayK,
     fewShotPrompt: agentSettings.fewShotPrompt,
     maxResultRows: agentSettings.maxResultRows,
-    flowLevel: agentSettings.flowLevel,
-    dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
-    columnStats: agentSettings.columnStats,
-    valueFormat: agentSettings.valueFormat,
-    dataHints: agentSettings.dataHints,
     toolDialect: agentSettings.toolDialect,
     summarizeParams: agentSettings.summarizeParams,
     selectorConfig: agentSettings.selectorConfig,
@@ -519,7 +713,10 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
   };
+}
 
+function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
+  const settingsApi = settingsToApi(agent);
   const delegateConfig = agent.getDelegateConfig();
 
   return {
@@ -633,7 +830,8 @@ function parseLearnedConfigInput(raw: unknown): LearnedConfig | null | undefined
   return parsed.data;
 }
 
-const agentsRouter = new Elysia({ prefix: "/agents" })
+// Reject unknown/retired settings instead of Elysia silently stripping them.
+const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   // Error handler must live on the same Elysia instance whose routes throw, or
   // its scope will not see the errors. Elysia 1.x defaults to local scoping for
   // .onError, so attach here rather than on the outer app.
@@ -641,7 +839,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     log.error({ err: error }, "request error");
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Body schema violations and malformed JSON are client errors, not 500s.
-    if (code === "VALIDATION" || code === "PARSE") {
+    if (code === "VALIDATION" || code === "PARSE" || error instanceof NativeCatalogSettingsError) {
       set.status = 400;
       return { error: errorMessage || "Invalid request body" };
     }
@@ -687,6 +885,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         throw new Error("Invalid or expired token");
       }
 
+      validateNativeSettings(settings);
+
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
         userToken,
@@ -697,73 +897,101 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
       const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name, driver);
 
-      if (settings) {
-        log.info(
-          {
-            agentId,
+      try {
+        if (settings) {
+          log.info(
+            {
+              agentId,
+              maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
+              maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+            },
+            "applying initial agent settings"
+          );
+          agent.updateSettings({
+            ...observationFormatPatch(settings),
+            multiTask: settings.multiTask,
+            taskContext: settings.taskContext,
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-          },
-          "applying initial agent settings"
-        );
-        agent.updateSettings({
-          maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-          maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-          operatorResultSerializationMode: settings.operatorResultSerializationMode
-            ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
-            : undefined,
-          toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
-          executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
-          disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
-          maxSteps: settings.maxSteps,
-          maxOperatorEdits: settings.maxOperatorEdits,
-          allowedOperatorTypes: settings.allowedOperatorTypes,
-          agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
-          contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
-          parallelToolCalls: settings.parallelToolCalls,
-          includeOperatorProperties: settings.includeOperatorProperties,
-          thoughtReplay: settings.thoughtReplay,
-          agentTurns: settings.agentTurns,
-          contextWindowTokens: settings.contextWindowTokens,
-          compactionStrategy: settings.compactionStrategy,
-          deckSampleRatio: settings.deckSampleRatio,
-          errorReflection: settings.errorReflection,
-          errorReflectionThreshold: settings.errorReflectionThreshold,
-          thoughtReplayK: settings.thoughtReplayK,
-          fewShotPrompt: settings.fewShotPrompt,
-          maxResultRows: settings.maxResultRows,
-          flowLevel: settings.flowLevel,
-          dataLevel: settings.dataLevel,
-          attemptReflection: settings.attemptReflection,
-          columnStats: settings.columnStats,
-          valueFormat: settings.valueFormat,
-          dataHints: settings.dataHints,
-          toolDialect: settings.toolDialect,
-          summarizeParams: parseSummarizePatch(settings.summarizeParams),
-          selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
-          frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
-          foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
-            (settings as any).foldResolvedRevisionsConfig
-          ),
-          probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
-          rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
-          learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
-          enableInspectTool: (settings as any).enableInspectTool,
-          enableRenderPrefs: (settings as any).enableRenderPrefs,
-          enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
-          sourceProvenanceHint: (settings as any).sourceProvenanceHint,
-          enableCompactTool: (settings as any).enableCompactTool,
-          compactKeepLastSteps: (settings as any).compactKeepLastSteps,
-          staticCompaction: (settings as any).staticCompaction,
-          userTaskPlacement: (settings as any).userTaskPlacement,
-          turnHistory: (settings as any).turnHistory,
-          enableRecallTool: (settings as any).enableRecallTool,
-          indexRichCode: (settings as any).indexRichCode,
-          indexRichTables: (settings as any).indexRichTables,
-          indexRecentTurns: (settings as any).indexRecentTurns,
-          indexThinObservations: (settings as any).indexThinObservations,
-          tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
-        });
+            operatorResultSerializationMode: settings.operatorResultSerializationMode
+              ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
+              : undefined,
+            toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
+            executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
+            disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
+            maxSteps: settings.maxSteps,
+            maxOperatorEdits: settings.maxOperatorEdits,
+            agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+            nativeProfileCollection: settings.nativeProfileCollection,
+            dataEvidence: settings.dataEvidence,
+            retrievalViews: settings.retrievalViews,
+            fullResultCharLimit: settings.fullResultCharLimit,
+            dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
+            flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
+            flowEvidence: settings.flowEvidence,
+            dataflowReasoning: settings.dataflowReasoning,
+            nativePromptDetail: settings.nativePromptDetail,
+            nativeChecks: settings.nativeChecks,
+            stateHistory: settings.stateHistory,
+            stateLedger: settings.stateLedger,
+            resultSelection: (settings as any).resultSelection,
+            contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
+            parallelToolCalls: settings.parallelToolCalls,
+            includeOperatorProperties: settings.includeOperatorProperties,
+            thoughtReplay: settings.thoughtReplay,
+            agentTurns: settings.agentTurns,
+            contextWindowTokens: settings.contextWindowTokens,
+            compactionStrategy: settings.compactionStrategy,
+            deckSampleRatio: settings.deckSampleRatio,
+            errorReflection: settings.errorReflection,
+            errorReflectionThreshold: settings.errorReflectionThreshold,
+            thoughtReplayK: settings.thoughtReplayK,
+            fewShotPrompt: settings.fewShotPrompt,
+            maxResultRows: settings.maxResultRows,
+            attemptReflection: settings.attemptReflection,
+            toolDialect: settings.toolDialect,
+            summarizeParams: parseSummarizePatch(settings.summarizeParams),
+            selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+            frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
+            foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
+              (settings as any).foldResolvedRevisionsConfig
+            ),
+            probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
+            rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
+            learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
+            enableInspectTool: (settings as any).enableInspectTool,
+            enableRenderPrefs: (settings as any).enableRenderPrefs,
+            enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
+            sourceProvenanceHint: (settings as any).sourceProvenanceHint,
+            enableCompactTool: (settings as any).enableCompactTool,
+            compactKeepLastSteps: (settings as any).compactKeepLastSteps,
+            staticCompaction: (settings as any).staticCompaction,
+            userTaskPlacement: (settings as any).userTaskPlacement,
+            turnHistory: (settings as any).turnHistory,
+            enableRecallTool: (settings as any).enableRecallTool,
+            recallMaxResultChars: (settings as any).recallMaxResultChars,
+            recallOperatorLevel: (settings as any).recallOperatorLevel,
+            specAudit: (settings as any).specAudit,
+            indexRichTables: (settings as any).indexRichTables,
+            indexDetailedOperators: (settings as any).indexDetailedOperators,
+            enableResumeTool: (settings as any).enableResumeTool,
+            enableAnswerGrounding: (settings as any).enableAnswerGrounding,
+            seedSources: (settings as any).seedSources,
+            messageLayout: (settings as any).messageLayout,
+            versionedMode: (settings as any).versionedMode,
+            versionedHeads: (settings as any).versionedHeads,
+            sessionTurns: (settings as any).sessionTurns,
+            indexThinObservations: (settings as any).indexThinObservations,
+            tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
+          });
+        }
+      } catch (error) {
+        // Graph-dependent validation happens after bootstrap. A rejected
+        // initial configuration must not leave a registered, unusable agent.
+        agent.destroy();
+        agentStore.delete(agentId);
+        agentDrivers.delete(agentId);
+        throw error;
       }
 
       return getAgentInfo(agentId, agent);
@@ -787,8 +1015,26 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
             maxOperatorEdits: t.Optional(t.Number()),
-            allowedOperatorTypes: t.Optional(t.Array(t.String())),
-            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
+            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+            ...OBSERVATION_SETTINGS_SCHEMA,
+            nativeProfileCollection: t.Optional(t.Boolean()),
+            dataEvidence: t.Optional(t.Boolean()),
+            retrievalViews: t.Optional(
+              t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
+                minItems: 1,
+                maxItems: 3,
+              })
+            ),
+            fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+            dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+            flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+            flowEvidence: t.Optional(t.Boolean()),
+            dataflowReasoning: t.Optional(t.Boolean()),
+            nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
+            nativeChecks: t.Optional(t.Boolean()),
+            stateHistory: t.Optional(t.Boolean()),
+            stateLedger: t.Optional(t.Boolean()),
+            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
@@ -802,12 +1048,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             thoughtReplayK: t.Optional(t.Number()),
             fewShotPrompt: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
-            flowLevel: t.Optional(t.Number()),
-            dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
-            columnStats: t.Optional(t.Boolean()),
-            valueFormat: t.Optional(t.Boolean()),
-            dataHints: t.Optional(t.Boolean()),
             toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
             // Deep-partial summarize() params patch; zod-validated in-handler
             // (the shape is too rich for a TypeBox mirror to earn its keep).
@@ -825,13 +1066,22 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
-      userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
-      turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
-      enableRecallTool: t.Optional(t.Boolean()),
-      indexRichCode: t.Optional(t.Number()),
-      indexRichTables: t.Optional(t.Number()),
-      indexRecentTurns: t.Optional(t.Number()),
-      indexThinObservations: t.Optional(t.Boolean()),
+            userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
+            turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
+            enableRecallTool: t.Optional(t.Boolean()),
+            recallMaxResultChars: t.Optional(t.Number()),
+            recallOperatorLevel: t.Optional(t.Boolean()),
+            specAudit: t.Optional(t.Boolean()),
+            indexRichTables: t.Optional(t.Number()),
+            indexDetailedOperators: t.Optional(t.Number()),
+            enableResumeTool: t.Optional(t.Boolean()),
+            enableAnswerGrounding: t.Optional(t.Boolean()),
+            seedSources: t.Optional(t.Boolean()),
+            messageLayout: t.Optional(t.String()),
+            versionedMode: t.Optional(t.Boolean()),
+            versionedHeads: t.Optional(t.Boolean()),
+            sessionTurns: t.Optional(t.Boolean()),
+            indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -841,10 +1091,25 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
   .get("/:id", ({ params: { id } }) => {
     const agent = getAgent(id);
+    // Version inventory: `(operatorId, turn)` pairs with their lineage. Small
+    // (ids and numbers), and the only way to confirm from outside that the
+    // store recorded what the graph actually did.
+    const versions = agent.versionStore.operatorIds().flatMap(opId =>
+      agent.versionStore.versionsOf(opId).map(turn => {
+        const v = agent.versionStore.get(opId, turn)!;
+        return {
+          operatorId: opId,
+          turn,
+          provisional: v.provisional,
+          inputRefs: v.inputRefs.map(r => `${r.operatorId} (turn ${r.turn})`),
+        };
+      })
+    );
     return {
       ...getAgentInfo(id, agent),
       workflow: agent.getWorkflowState().getWorkflowContent(),
       stepCount: agent.getReActSteps().length,
+      versions,
     };
   })
 
@@ -866,6 +1131,22 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
 
+  .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
+    const agent = getAgent(id);
+    const authorization = await authorizeDiagnosticRead(headers.authorization, agent.getDelegateConfig());
+    if (!authorization.ok) {
+      set.status = authorization.status;
+      return { error: authorization.error };
+    }
+    const query = inspectErrorSchema.safeParse(body);
+    if (!query.success) {
+      set.status = 400;
+      return { error: "Expected operatorId and optional revision/diagnosticId; no other fields are accepted." };
+    }
+    const inspection = agent.getSnapshotStorage().inspectNativeError(agent.getHead(), query.data);
+    if (!inspection.found) set.status = 404;
+    return inspection;
+  })
   .get("/:id/operator-results", ({ params: { id } }) => {
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
@@ -907,6 +1188,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
    * now." Convenient endpoint for batch drivers that just want the final
    * workflow after a turn without paginating through snapshots.
    */
+  .get("/:id/task-history", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    return { headId: agent.getHead(), tasks: agent.getTaskHistory() };
+  })
   .get("/:id/workflow", ({ params: { id } }) => {
     const agent = getAgent(id);
     return {
@@ -939,6 +1224,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       workflow: workflowEntry?.value ?? null,
       workflowSourceStepId: workflowEntry?.sourceStepId ?? null,
       results,
+      ...(storage.getAssociatedSnapshot(resolvedStepId).nativeObservations !== undefined
+        ? { nativeObservations: storage.getAssociatedSnapshot(resolvedStepId).nativeObservations }
+        : {}),
     };
   })
 
@@ -961,7 +1249,11 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
   .get("/:id/system-info", ({ params: { id } }) => {
     const agent = getAgent(id);
-    return agent.getSystemInfo();
+    return {
+      ...agent.getSystemInfo(),
+      inputBudget: readInputBudget(process.env),
+      modelCallLimit: Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0),
+    };
   })
 
   .post("/:id/stop", ({ params: { id } }) => {
@@ -969,6 +1261,86 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     agent.stop();
     return { status: "stopping" };
   })
+
+  // Load tables as the state in force before the first request: an edit
+  // program (one `scan` per saved table) plus execution, recorded as a hidden
+  // synthetic step with no model call. Used by the gold-prefix protocol.
+  .post(
+    "/:id/seed-state",
+    async ({ params: { id }, body, set }) => {
+      const agent = getAgent(id);
+      if (agent.getState() !== AgentState.AVAILABLE) {
+        set.status = 409;
+        return { error: `agent is ${agent.getState()} — seed state while it is idle` };
+      }
+      let receipt: Awaited<ReturnType<typeof agent.seedState>>;
+      try {
+        receipt = await agent.seedState(body.changes, body.completedTasks ?? 0);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Refusals about when or how state may be loaded are the caller's to fix.
+        if (/before the first request|requires native mode|seed state while it is idle|completedTasks/.test(message)) {
+          set.status = 409;
+          return { error: message };
+        }
+        throw error;
+      }
+      broadcastNextContext(id, agent);
+      return {
+        status: receipt.status,
+        error: receipt.error ?? null,
+        operators: receipt.operators,
+        actions: receipt.actions.map((item: (typeof receipt.actions)[number]) => ({
+          type: item.action.type,
+          status: item.status,
+          output: item.output,
+        })),
+        headId: agent.getHead(),
+      };
+    },
+    { body: t.Object({ changes: t.String(), completedTasks: t.Optional(t.Integer({ minimum: 0 })) }) }
+  )
+
+  // Synchronous one-turn REST entry point — the easy integration surface for
+  // external callers (scripts, notebooks, other services) that don't want to
+  // speak the WebSocket protocol. Runs one full agent turn and returns the
+  // final answer; the trace is then a GET /:id/react-steps away. WS clients
+  // attached to the same agent still receive every step/state frame live —
+  // the step callbacks fire regardless of which door the message came in.
+  .post(
+    "/:id/message",
+    async ({ params: { id }, body, set }) => {
+      const agent = getAgent(id);
+      const { content, messageSource, sources } = body as {
+        content: string;
+        messageSource?: "chat" | "feedback";
+        sources?: string[];
+      };
+      if (agent.getState() !== AgentState.AVAILABLE) {
+        set.status = 409;
+        return { error: `agent is ${agent.getState()} — one turn at a time` };
+      }
+      const result = await agent.sendMessage(content, messageSource, { sources });
+      const steps = agent.getReActSteps();
+      const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
+      const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      broadcastNextContext(id, agent);
+      return {
+        status: "complete",
+        state: agent.getState(),
+        answer: (endStep?.content ?? lastWithContent?.content ?? "").trim(),
+        steps: result.messages.length,
+        headId: agent.getHead(),
+      };
+    },
+    {
+      body: t.Object({
+        content: t.String(),
+        messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+        sources: t.Optional(t.Array(t.String())),
+      }),
+    }
+  )
 
   .post("/:id/clear", ({ params: { id } }) => {
     const agent = getAgent(id);
@@ -1050,34 +1422,14 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return Object.entries(allTypes).map(([type, description]) => ({ type, description }));
   })
 
-  .get("/:id/settings", ({ params: { id } }) => {
-    const agent = getAgent(id);
-    const agentSettings = agent.getSettings();
-    return {
-      maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
-      maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
-      operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
-      toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
-      executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
-      disabledTools: Array.from(agentSettings.disabledTools),
-      maxSteps: agentSettings.maxSteps,
-      maxOperatorEdits: agentSettings.maxOperatorEdits,
-      allowedOperatorTypes: agentSettings.allowedOperatorTypes,
-      agentMode: agentSettings.agentMode,
-      contextMode: agentSettings.contextMode,
-      parallelToolCalls: agentSettings.parallelToolCalls,
-      frontierDecayConfig: agentSettings.frontierDecayConfig,
-      foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
-      probeRetirementConfig: agentSettings.probeRetirementConfig,
-      rolePolicyConfig: agentSettings.rolePolicyConfig,
-    };
-  })
+  .get("/:id/settings", ({ params: { id } }) => settingsToApi(getAgent(id)))
 
   .patch(
     "/:id/settings",
     ({ params: { id }, body }) => {
       const agent = getAgent(id);
       const settings = body as UpdateAgentSettingsRequest;
+      validateEvidenceSettings(settings);
 
       log.info(
         {
@@ -1089,6 +1441,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       );
 
       agent.updateSettings({
+        ...observationFormatPatch(settings),
+        multiTask: settings.multiTask,
+        taskContext: settings.taskContext,
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
         operatorResultSerializationMode: settings.operatorResultSerializationMode
@@ -1100,8 +1455,20 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         maxOperatorEdits: settings.maxOperatorEdits,
-        allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+        nativeProfileCollection: settings.nativeProfileCollection,
+        dataEvidence: settings.dataEvidence,
+        retrievalViews: settings.retrievalViews,
+        fullResultCharLimit: settings.fullResultCharLimit,
+        dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
+        flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
+        flowEvidence: settings.flowEvidence,
+        dataflowReasoning: settings.dataflowReasoning,
+        nativePromptDetail: settings.nativePromptDetail,
+        nativeChecks: settings.nativeChecks,
+        stateHistory: settings.stateHistory,
+        stateLedger: settings.stateLedger,
+        resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         includeOperatorProperties: settings.includeOperatorProperties,
@@ -1117,12 +1484,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         thoughtReplayK: settings.thoughtReplayK,
         fewShotPrompt: settings.fewShotPrompt,
         maxResultRows: settings.maxResultRows,
-        flowLevel: settings.flowLevel,
-        dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
-        columnStats: settings.columnStats,
-        valueFormat: settings.valueFormat,
-        dataHints: settings.dataHints,
         toolDialect: settings.toolDialect,
         summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
@@ -1146,40 +1508,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       // so clients stay in sync.
       broadcastNextContext(id, agent);
 
-      const agentSettings = agent.getSettings();
-      return {
-        maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
-        maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
-        operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
-        toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
-        executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
-        disabledTools: Array.from(agentSettings.disabledTools),
-        maxSteps: agentSettings.maxSteps,
-        maxOperatorEdits: agentSettings.maxOperatorEdits,
-        allowedOperatorTypes: agentSettings.allowedOperatorTypes,
-        agentMode: agentSettings.agentMode,
-        contextMode: agentSettings.contextMode,
-        parallelToolCalls: agentSettings.parallelToolCalls,
-        includeOperatorProperties: agentSettings.includeOperatorProperties,
-        thoughtReplay: agentSettings.thoughtReplay,
-        errorReflection: agentSettings.errorReflection,
-        errorReflectionThreshold: agentSettings.errorReflectionThreshold,
-        thoughtReplayK: agentSettings.thoughtReplayK,
-        fewShotPrompt: agentSettings.fewShotPrompt,
-        maxResultRows: agentSettings.maxResultRows,
-        flowLevel: agentSettings.flowLevel,
-        dataLevel: agentSettings.dataLevel,
-        attemptReflection: agentSettings.attemptReflection,
-        columnStats: agentSettings.columnStats,
-        valueFormat: agentSettings.valueFormat,
-        dataHints: agentSettings.dataHints,
-        toolDialect: agentSettings.toolDialect,
-        frontierDecayConfig: agentSettings.frontierDecayConfig,
-        foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
-        probeRetirementConfig: agentSettings.probeRetirementConfig,
-        rolePolicyConfig: agentSettings.rolePolicyConfig,
-      sourceProvenanceHint: agentSettings.sourceProvenanceHint,
-      };
+      return settingsToApi(agent);
     },
     {
       body: t.Object({
@@ -1191,8 +1520,26 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxSteps: t.Optional(t.Number()),
         maxOperatorEdits: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
-        allowedOperatorTypes: t.Optional(t.Array(t.String())),
-        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
+        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+        ...OBSERVATION_SETTINGS_SCHEMA,
+        nativeProfileCollection: t.Optional(t.Boolean()),
+        dataEvidence: t.Optional(t.Boolean()),
+        retrievalViews: t.Optional(
+          t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
+            minItems: 1,
+            maxItems: 3,
+          })
+        ),
+        fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+        dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+        flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+        flowEvidence: t.Optional(t.Boolean()),
+        dataflowReasoning: t.Optional(t.Boolean()),
+        nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
+        nativeChecks: t.Optional(t.Boolean()),
+        stateHistory: t.Optional(t.Boolean()),
+        stateLedger: t.Optional(t.Boolean()),
+        resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
         includeOperatorProperties: t.Optional(t.Boolean()),
@@ -1206,12 +1553,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         thoughtReplayK: t.Optional(t.Number()),
         fewShotPrompt: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
-        flowLevel: t.Optional(t.Number()),
-        dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
-        columnStats: t.Optional(t.Boolean()),
-        valueFormat: t.Optional(t.Boolean()),
-        dataHints: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
         // Deep-partial summarize() params patch; zod-validated in-handler.
         // Pass null to clear a previously-set patch.
@@ -1241,20 +1583,8 @@ interface WsMessage {
   type: "message" | "stop" | "debug";
   content?: string;
   messageSource?: "chat" | "feedback";
-}
-
-interface OperatorResultSummaryWs {
-  state: string;
-  inputTuples: number;
-  outputTuples: number;
-  inputPortShapes?: { portIndex: number; rows: number; columns: number }[];
-  outputColumns?: number;
-  error?: string;
-  warnings?: string[];
-  consoleLogCount?: number;
-  totalRowCount?: number;
-  sampleRecords?: Record<string, any>[];
-  columnStats?: Record<string, string>;
+  /** Seeded source roots: the task's input files/globs (see `seedSources`). */
+  sources?: string[];
 }
 
 interface WsOutgoingMessage {
@@ -1266,7 +1596,7 @@ interface WsOutgoingMessage {
   headId?: string;
   operatorResults?: Record<string, OperatorResultSummaryWs>;
   workflowContent?: any;
-  /** Assembled next-step user-message content (markdown). Updated whenever
+  /** Assembled next-step transcript content (markdown/JSON). Updated whenever
    * steps, HEAD, workflow, or settings change. Same code path the LLM would
    * receive on the next prepareStep. */
   content?: string;
@@ -1274,29 +1604,6 @@ interface WsOutgoingMessage {
   stepId?: string;
   /** For "snapshot" events: the freshly recorded workflow content. */
   workflow?: any;
-}
-
-/**
- * Render one `OperatorInfo` into the wire shape the dashboard + websocket
- * clients expect. Kept separate from `getOperatorResultSummaries` so the
- * snapshots-by-stepId endpoint can reuse it instead of dumping raw
- * `OperatorInfo` (which inverts the field names — `result` vs
- * `sampleRecords` — and skips the precomputed `outputColumns`).
- */
-function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
-  return {
-    state: info.state,
-    inputTuples: info.inputTuples,
-    outputTuples: info.outputTuples,
-    inputPortShapes: info.inputPortShapes,
-    outputColumns: info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
-    error: info.error,
-    warnings: info.warnings,
-    consoleLogCount: info.consoleLogs?.length,
-    totalRowCount: info.totalRowCount,
-    sampleRecords: info.result,
-    columnStats: info.columnStats,
-  };
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
@@ -1341,7 +1648,7 @@ function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
 }
 
 export function buildApp() {
-  return new Elysia()
+  return new Elysia({ normalize: false })
     .use(cors())
     .use(dashboardPlugin)
     .group(env.API_PREFIX, app =>
@@ -1436,7 +1743,9 @@ export function buildApp() {
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
           try {
-            const result = await agent.sendMessage(msg.content, msg.messageSource);
+            const result = await agent.sendMessage(msg.content, msg.messageSource, {
+              sources: Array.isArray(msg.sources) ? msg.sources.filter(s => typeof s === "string") : undefined,
+            });
 
             agent.setStepCallback(null);
             agent.setSnapshotCallback(null);

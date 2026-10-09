@@ -33,11 +33,25 @@ import type { WorkflowCompilationResponse } from "../../api/compile-api";
  * compilation (e.g. `getNextStepContext()` previews or empty workflows).
  */
 export interface ContextAssemblerInput {
+  /** Original trajectories, including saved off-branch tasks, for task indexing. */
+  taskHistory?: readonly import("../task-history").TaskHistory[];
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;
   settings: AgentSettings;
   compilationResult: WorkflowCompilationResponse | null;
+  /** GLOBAL turn number per messageId (ask order over the whole session). The
+   *  branch is shorter than the session once a turn resumes from an earlier
+   *  one, so the renderer cannot derive these from `visibleSteps`. */
+  turnNumberByMessageId?: Map<string, number>;
+  /** Turns that exist but are not ancestors of HEAD — still listed, still
+   *  resumable. Empty for a session that never resumed. */
+  offBranchTurns?: Array<{
+    turn: number;
+    request: string;
+    answer?: string;
+    operators: string[];
+  }>;
 }
 
 /**
@@ -64,6 +78,9 @@ export type ContextAssembler = (input: ContextAssemblerInput) => ModelMessage[] 
  */
 export interface DriverStepFinish {
   text: string;
+  /** Provider reasoning summary for the step, when the model exposes one.
+   *  Display-only — never folded into `text`, which is replayed as context. */
+  reasoningText?: string;
   toolCalls?: Array<{ toolName: string; toolCallId: string; input: any }>;
   toolResults?: Array<{ toolCallId: string; output: any; isError?: boolean }>;
   usage?: TokenUsage;
@@ -105,6 +122,10 @@ export interface DriverRunTurnInput {
    *  calls per turn. The local-react driver always supports multiple Action
    *  pairs in a single turn — this flag is effectively a no-op there. */
   parallelToolCalls: boolean;
+  /** Native action mode always finishes through an answer action. */
+  requireToolCall?: boolean;
+  /** Set by onStepFinish after the answer action has been accepted. */
+  getFinalAnswer?: () => string | undefined;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool
@@ -124,6 +145,20 @@ export interface DriverRunTurnResult {
    *  the local-react driver returns the messages array it last sent. */
   messages: ModelMessage[];
   usage: TokenUsage;
+}
+
+/** Native turns end through Answer. Preserve billed usage when a provider
+ * stops with a plain-text plan so the agent can offer one protocol correction. */
+export class MissingAnswerActionError extends Error {
+  constructor(
+    readonly partial: DriverRunTurnResult,
+    readonly canContinue: boolean
+  ) {
+    super(
+      "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
+    );
+    this.name = "MissingAnswerActionError";
+  }
 }
 
 /**

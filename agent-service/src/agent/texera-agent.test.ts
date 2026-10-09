@@ -17,8 +17,9 @@
  * under the License.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { TexeraAgent } from "./texera-agent";
+import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { type ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { OperatorInfo } from "../types/execution";
@@ -726,9 +727,24 @@ function metadataEndpoint(): MockEndpoint {
 
 describe("TexeraAgent.initialize(delegateConfig) — delegate bootstrap", () => {
   let restore: () => void = () => {};
+  let restoreMetadata: () => void = () => {};
+
+  beforeEach(() => {
+    // Other suites can initialize the process-wide metadata cache (including
+    // through server.ts). Then initialize() correctly skips the mocked metadata
+    // endpoint, but TestOp is unknown and these fixtures never reach execution.
+    // Isolate this fixture's cache, not production initialization behavior.
+    const lookup = spyOn(WorkflowSystemMetadata, "getInstance").mockReturnValue(new WorkflowSystemMetadata());
+    restoreMetadata = () => lookup.mockRestore();
+  });
 
   afterEach(() => {
     restore();
+    restoreMetadata();
+  });
+
+  test("bootstrap fixtures start with uninitialized metadata, regardless of earlier test files", () => {
+    expect(makeAgent().getMetadataStore().isInitialized()).toBe(false);
   });
 
   test("creates an `initialize` step as the tree root anchoring both workflow + results", async () => {

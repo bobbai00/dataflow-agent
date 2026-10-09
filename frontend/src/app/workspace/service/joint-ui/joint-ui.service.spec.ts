@@ -19,7 +19,14 @@
 
 import { of } from "rxjs";
 import * as joint from "jointjs";
-import { JointUIService, operatorNameClass, operatorStateClass, operatorPortMetricsClass } from "./joint-ui.service";
+import {
+  JointUIService,
+  operatorAgentActionProgressClass,
+  operatorFriendlyNameClass,
+  operatorNameClass,
+  operatorStateClass,
+  operatorPortMetricsClass,
+} from "./joint-ui.service";
 import { CommentBox, OperatorPredicate } from "../../types/workflow-common.interface";
 import { OperatorState } from "../../types/execute-workflow.interface";
 import { Coeditor } from "../../../common/type/user";
@@ -290,6 +297,32 @@ describe("JointUIService", () => {
     });
   });
 
+  describe("getDefaultLinkCell (static)", () => {
+    it("builds a link routed with manhattan and connected with rounded corners", () => {
+      const link = JointUIService.getDefaultLinkCell();
+      expect(link).toBeInstanceOf(joint.dia.Link);
+      expect(link.get("router")).toEqual({ name: "manhattan" });
+      expect(link.get("connector")).toEqual({ name: "rounded" });
+    });
+
+    it("styles the connection stroke and hides the remove tool by default", () => {
+      const link = JointUIService.getDefaultLinkCell();
+      expect(link.attr(".connection/stroke")).toBe("#919191");
+      expect(link.attr(".connection/stroke-width")).toBe("2px");
+      // the delete affordance is present in the markup but hidden until hover.
+      expect(link.attr(".tool-remove/display")).toBe("none");
+      expect(link.attr(".tool-remove/fill")).toBe("#D8656A");
+    });
+
+    it("fills the source and target markers with the handle color", () => {
+      const link = JointUIService.getDefaultLinkCell();
+      expect(link.attr(".marker-source/fill")).toBe("#919191");
+      expect(link.attr(".marker-target/fill")).toBe("#919191");
+      expect(link.attr(".marker-source/stroke")).toBe("none");
+      expect(link.attr(".marker-target/stroke")).toBe("none");
+    });
+  });
+
   describe("getJointUserPointerName (static)", () => {
     it("prefixes the coeditor clientId with 'pointer_'", () => {
       expect(JointUIService.getJointUserPointerName({ clientId: "abc123" } as Coeditor)).toBe("pointer_abc123");
@@ -395,18 +428,42 @@ describe("JointUIService", () => {
       expect(entry.text).toBe("Aria: modified");
       expect(entry.visibility).toBe("visible");
     });
-    it("uses the default 'Agent' name when none is supplied", () => {
+    it("uses the default 'Bob' name when none is supplied", () => {
       const { paper, attrSpy } = makePaperWithModel();
       const service = new JointUIService(emptyMetadataStub as never);
       service.showAgentActionLabel(paper, "op-1", "viewed");
       const [payload] = attrSpy.mock.calls[0];
       const entry = Object.values(payload)[0] as { text: string };
-      expect(entry.text).toBe("Agent: viewed");
+      expect(entry.text).toBe("Bob: viewed");
     });
     it("no-ops when the model is missing", () => {
       const paper = { getModelById: vi.fn(() => null) } as unknown as joint.dia.Paper;
       const service = new JointUIService(emptyMetadataStub as never);
       expect(() => service.showAgentActionLabel(paper, "missing-op", "added")).not.toThrow();
+    });
+    it("colours the label and rings the operator per action type", () => {
+      const service = new JointUIService(emptyMetadataStub as never);
+      for (const action of ["viewed", "added", "modified"] as const) {
+        const { paper, attrSpy } = makePaperWithModel();
+        service.showAgentActionLabel(paper, "op-1", action, "Bob");
+        const [payload] = attrSpy.mock.calls[0] as [Record<string, any>];
+        const color = JointUIService.AGENT_ACTION_COLORS[action];
+        expect(payload[`.${operatorAgentActionProgressClass}`].fill).toBe(color);
+        expect(payload[`.${operatorAgentActionProgressClass}`]["font-size"]).toBe(
+          `${JointUIService.AGENT_ACTION_FONT_SIZE}px`
+        );
+        expect(payload["rect.boundary"].stroke).toBe(color);
+        expect(payload["rect.boundary"]["stroke-width"]).toBe(3);
+        // A read is visually weaker than a write.
+        expect(payload["rect.boundary"]["stroke-dasharray"]).toBe(action === "viewed" ? "6,5" : "none");
+      }
+    });
+    it("removes the ring when the label is hidden", () => {
+      const { paper, attrSpy } = makePaperWithModel();
+      const service = new JointUIService(emptyMetadataStub as never);
+      service.hideAgentActionLabel(paper, "op-1");
+      const [payload] = attrSpy.mock.calls[0] as [Record<string, any>];
+      expect(payload["rect.boundary"].stroke).toBe("none");
     });
     it("clears the label text and hides it on hideAgentActionLabel", () => {
       const { paper, attrSpy } = makePaperWithModel();
@@ -544,6 +601,22 @@ describe("JointUIService", () => {
       // getCustomOperatorStyleAttrs. truncateOperatorDisplayName is the no-op
       // identity for short names so the value comes through verbatim.
       expect(element.attr(`.${operatorNameClass}/text`)).toBe("Custom-Display");
+    });
+    it("labels the box above with `<operatorID>: <operatorType>`", () => {
+      const schema = minimalSchema("CSVFileScan", "CSV File Scan");
+      const service = new JointUIService(buildMetadataWithSchemas([schema]) as never);
+      const predicate = {
+        operatorID: "op5",
+        operatorType: "CSVFileScan",
+        operatorVersion: "v1",
+        operatorProperties: {},
+        inputPorts: [],
+        outputPorts: [],
+        showAdvanced: false,
+        isDisabled: false,
+      } as unknown as OperatorPredicate;
+      const element = service.getJointOperatorElement(predicate, { x: 0, y: 0 });
+      expect(element.attr(`.${operatorFriendlyNameClass}/text`)).toBe("op5: CSVFileScan");
     });
   });
 

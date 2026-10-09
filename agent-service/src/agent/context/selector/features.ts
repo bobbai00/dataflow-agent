@@ -118,20 +118,6 @@ function looksDirtyLoad(cols: string[]): boolean {
   return generic >= Math.max(1, Math.ceil(cols.length * 0.3));
 }
 
-/** Low-cardinality string column from the worker stats (`(str): … distinct=N`). */
-function hasLowCardCategorical(info: OperatorInfo | undefined, maxDistinct: number): boolean {
-  const stats = info?.columnStats;
-  if (!stats) return false;
-  for (const [k, v] of Object.entries(stats)) {
-    if (k.startsWith("__")) continue;
-    if (typeof v !== "string") continue;
-    if (!/^\(str\)/.test(v.trim())) continue;
-    const m = /distinct=(\d+)/.exec(v);
-    if (m && Number(m[1]) > 0 && Number(m[1]) <= maxDistinct) return true;
-  }
-  return false;
-}
-
 /** Sample-based: a text column that is mostly-but-not-entirely numeric. A
  *  selector INPUT feature only — the corresponding rendered hint (dtypeAnomaly)
  *  was removed per the raw-facts-only decision. */
@@ -270,9 +256,10 @@ export function extractFeatures(dossier: Dossier, opts: FeatureOptions = {}): Se
       columns: cols.length,
       wide: cols.length > wideColumns,
       dirtyLoad: looksDirtyLoad(cols),
-      categoricalLowCard: hasLowCardCategorical(info, categoricalMaxDistinct),
+      // Retired learned-model feature positions remain zero, not fed by old stats.
+      categoricalLowCard: false,
       numericAsText: hasNumericAsText(info),
-      hasColumnStats: !!info?.columnStats && Object.keys(info.columnStats).some(k => !k.startsWith("__")),
+      hasColumnStats: false,
     });
   }
 

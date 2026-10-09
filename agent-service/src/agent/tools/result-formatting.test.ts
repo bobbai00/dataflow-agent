@@ -18,7 +18,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatOperatorResult, formatSchemaLine } from "./result-formatting";
+import { formatOperatorResult, formatSchemaLine, readsFrom } from "./result-formatting";
+import { nativeTestTools } from "../native/test-support";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, OperatorLink, PortDescription } from "../../types/workflow";
@@ -133,209 +134,6 @@ describe("formatOperatorResult - table shape and metadata", () => {
     expect(lines[0]).toBe("Output Table: 1 rows, 1 cols");
     expect(lines[1]).toBe("truncated to 1 row");
     expect(lines[2]).toBe("something else");
-  });
-});
-
-describe("formatOperatorResult - small complete table stats", () => {
-  const stats = { value: "(numeric): null=0, mean=2.5, min=1, max=4" };
-  const rows = [1, 2, 3, 4].map((value, index) => ({ __row_index__: index, value }));
-
-  test("suppresses stats when all rows of a table smaller than five are visible", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: false, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("3\t4");
-    expect(out).not.toContain("Column Schema and stats:");
-  });
-
-  test("suppression is by PROOF, not table size — a fully visible 5-row table drops stats", () => {
-    // Was asserted the other way while a `totalRows < 5` bound gated the
-    // suppression. Size is not the question: with nothing truncated at the
-    // backend, renderer, column or cell level, every value is on screen and the
-    // stats block is arithmetic over data the agent can already read.
-    const fiveRows = [...rows, { __row_index__: 4, value: 5 }];
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 5, totalRowCount: 5, result: fiveRows, truncated: false, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).not.toContain("Column Schema and stats:");
-    expect(out).toContain("value"); // the data itself is untouched
-  });
-
-  test("a table too large to fully render KEEPS stats (the load-bearing case)", () => {
-    // 40 rows held but the renderer shows 5 ⇒ completeness unproven ⇒ stats stay.
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({
-        outputTuples: 40,
-        totalRowCount: 40,
-        result: Array.from({ length: 40 }, (_, i) => ({ __row_index__: i, value: i })),
-        truncated: false,
-        columnStats: stats,
-      }),
-      EMPTY_STATE,
-      { columnStats: true, maxResultRows: 5 }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when the backend result is truncated", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows.slice(0, 2), truncated: true, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when the backend does not prove the result is complete", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: undefined, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when the renderer samples away rows", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: false, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true, maxResultRows: 2 }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats for non-table result modes", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({
-        outputTuples: 4,
-        totalRowCount: 4,
-        resultMode: "scalar",
-        result: rows,
-        truncated: false,
-        columnStats: stats,
-      }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when held rows disagree with the reported total", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 3, totalRowCount: 3, result: rows, truncated: false, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when a visible cell was truncated independently", () => {
-    const truncatedRows = [{ __row_index__: 0, value: { nested: "prefix...[truncated]...suffix" } }, ...rows.slice(1)];
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({
-        outputTuples: 4,
-        totalRowCount: 4,
-        result: truncatedRows,
-        truncated: false,
-        columnStats: stats,
-      }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when visualization payload cells are hidden", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({
-        outputTuples: 1,
-        totalRowCount: 1,
-        result: [
-          {
-            __row_index__: 0,
-            __is_visualization__: true,
-            "html-content": "<div>hidden</div>",
-            label: "chart",
-          },
-        ],
-        truncated: false,
-        columnStats: { label: "(string): null=0, distinct=1" },
-      }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("<skipped: visualization content>");
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when shape-only detail hides every row", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: false, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true, detail: "shape" }
-    );
-
-    expect(out).not.toContain("3\t4");
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("keeps stats when wide-table rendering hides columns", () => {
-    const wideRow: Record<string, number> = { __row_index__: 0 };
-    for (let index = 0; index < 51; index++) wideRow[`column_${index}`] = index;
-
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({
-        outputTuples: 1,
-        totalRowCount: 1,
-        result: [wideRow],
-        truncated: false,
-        columnStats: stats,
-      }),
-      EMPTY_STATE,
-      { columnStats: true }
-    );
-
-    expect(out).toContain("showing first 25 and last 25 of 51 columns");
-    expect(out).toContain("Column Schema and stats:");
-  });
-
-  test("suppresses stats for a complete empty table while retaining its typed schema", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 0, totalRowCount: 0, result: [], truncated: false, columnStats: stats }),
-      EMPTY_STATE,
-      { columnStats: true, schemaInResult: true }
-    );
-
-    expect(out).toContain("Output Table: 0 rows, 0 cols");
-    expect(out).toContain("Schema (1 cols): value (numeric)");
-    expect(out).not.toContain("Column Schema and stats:");
   });
 });
 
@@ -633,5 +431,112 @@ describe("formatSchemaLine — compact typed schema (lever E)", () => {
     expect(withSchema).toContain("Schema (2 cols): id (numeric), amount (numeric)");
     const without = formatOperatorResult("op1", info, EMPTY_STATE, {});
     expect(without).not.toContain("Schema (");
+  });
+});
+
+describe("scoped columns", () => {
+  const info = makeOpInfo({
+    outputTuples: 3,
+    totalRowCount: 3,
+    truncated: false,
+    result: [
+      { __row_index__: 0, year: 2021, team: "A", yards: 5 },
+      { __row_index__: 1, year: 2022, team: "B", yards: 7 },
+      { __row_index__: 2, year: 2023, team: "C", yards: 9 },
+    ],
+    columnStats: {
+      year: "(numeric): null=0, distinct=3",
+      team: "(str): null=0, distinct=3",
+      yards: "(numeric): null=0, distinct=3",
+    },
+  });
+
+  test("`columns` projects the sample and the stats block; the Schema line stays complete", () => {
+    const text = formatOperatorResult("f", info, EMPTY_STATE, {
+      schemaInResult: true,
+      columns: ["year"],
+      maxResultRows: 2,
+    });
+    expect(text).toMatch(/Schema \(3 cols\)/);
+    expect(text).not.toContain("Column Schema and stats");
+    expect(text).not.toContain('- "team"');
+    expect(text).not.toMatch(/\tteam/); // no team column in the TSV
+    expect(text).toMatch(/\tyear/);
+  });
+
+  test("an empty `columns` list drops the stats block and leaves the sample whole", () => {
+    const text = formatOperatorResult("f", info, EMPTY_STATE, { columns: [], maxResultRows: 2 });
+    expect(text).not.toContain("Column Schema and stats");
+    expect(text).toMatch(/\tteam/);
+  });
+
+  test("detail shape with a scope keeps counts and the scoped stats, no rows", () => {
+    const text = formatOperatorResult("f", info, EMPTY_STATE, {
+      schemaInResult: true,
+      columns: ["year"],
+      detail: "shape",
+    });
+    expect(text).not.toMatch(/\t2021/);
+    expect(text).not.toContain("Column Schema and stats");
+    expect(text).not.toContain('- "yards"');
+  });
+});
+
+describe("formatOperatorResult - who is blamed when the run stops", () => {
+  // The engine aborts the whole run at the first failure and hands every
+  // unfinished operator the failed operator's payload. A consumer is told its
+  // upstream failed; a bystander is told the run stopped elsewhere and that its
+  // own definition is not implicated.
+  async function stateWithFailedJoin() {
+    const { state, tools } = nativeTestTools();
+    const result = await tools.dataflow.execute({
+      edits: [
+        'sales = scan("data/sales.csv")',
+        'names = scan("data/names.csv")',
+        'labeled = join(sales, names, on="region", how="left", validate="many_to_one")',
+        "label_count = aggregate(labeled, n=count())",
+        "sales_count = aggregate(sales, n=count())",
+      ].join("\n"),
+      observe: [],
+    });
+    if (typeof result === "string") throw new Error(result);
+    const revision = state.getOperator("labeled")!.nativeOp!.revision!;
+    const payload =
+      "NATIVE_ERROR_V2:" +
+      JSON.stringify({
+        version: 1,
+        operatorId: "labeled",
+        operatorRevision: revision,
+        code: "JOIN_CARDINALITY",
+        stage: "contract",
+        message: "many_to_one requires unique eligible right keys; duplicate ('west',).",
+        field: "validate",
+      });
+    return { state, payload };
+  }
+
+  test("a consumer names its failed upstream; a bystander is told the run stopped elsewhere", async () => {
+    const { state, payload } = await stateWithFailedJoin();
+    const consumer = formatOperatorResult("label_count", makeOpInfo({ error: payload }), state);
+    expect(consumer).toContain("- not run: aggregate `label_count`; upstream `labeled` failed");
+    expect(consumer).toContain("JOIN_CARDINALITY");
+    const bystander = formatOperatorResult("sales_count", makeOpInfo({ error: payload }), state);
+    expect(bystander).toContain(
+      "- not run: aggregate `sales_count`; the run stopped when `labeled` failed (JOIN_CARDINALITY)"
+    );
+    expect(bystander).toContain("`sales_count` does not read from `labeled`");
+    expect(bystander).not.toContain("upstream");
+    const root = formatOperatorResult("labeled", makeOpInfo({ error: payload }), state);
+    expect(root).toContain("- error JOIN_CARDINALITY:");
+    expect(root).toContain("- fix: Inspect key uniqueness");
+    expect(root).toContain("- at: validate");
+  });
+
+  test("readsFrom follows native inputs transitively", async () => {
+    const { state } = await stateWithFailedJoin();
+    expect(readsFrom("label_count", "sales", undefined, state)).toBe(true);
+    expect(readsFrom("label_count", "names", undefined, state)).toBe(true);
+    expect(readsFrom("sales_count", "labeled", undefined, state)).toBe(false);
+    expect(readsFrom("sales", "sales", undefined, state)).toBe(false);
   });
 });

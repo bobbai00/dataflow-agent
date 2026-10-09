@@ -19,6 +19,7 @@
 
 package org.apache.texera.amber.util
 
+import org.apache.texera.amber.core.workflow.PortIdentity
 import org.apache.texera.amber.core.virtualidentity.{
   ActorVirtualIdentity,
   OperatorIdentity,
@@ -66,7 +67,7 @@ object VirtualIdentityUtils {
       case workerNamePattern(_, operator, layerName, _) =>
         PhysicalOpIdentity(OperatorIdentity(operator), layerName)
       case other =>
-        // for special actorId such as SELF, CONTROLLER
+        // for special actorId such as SELF, COORDINATOR
         PhysicalOpIdentity(OperatorIdentity("__DummyOperator"), "__DummyLayer")
     }
   }
@@ -96,7 +97,7 @@ object VirtualIdentityUtils {
       case workerNamePattern(_, _, _, idx) =>
         Some(idx.toInt)
       case _ =>
-        // for special actorId such as SELF, CONTROLLER
+        // for special actorId such as SELF, COORDINATOR
         None
     }
   }
@@ -127,8 +128,14 @@ object VirtualIdentityUtils {
     */
   def getFromActorIdForInputPortStorage(
       storageURIStr: String,
-      toWorkerActorId: ActorVirtualIdentity
+      toWorkerActorId: ActorVirtualIdentity,
+      inputPortId: PortIdentity
   ): ActorVirtualIdentity = {
-    ActorVirtualIdentity(MATERIALIZATION_READER_ACTOR_PREFIX + storageURIStr + toWorkerActorId.name)
+    // The same saved output can feed several ports of one worker. Data and
+    // completion must be tracked independently for each destination port.
+    ActorVirtualIdentity(
+      MATERIALIZATION_READER_ACTOR_PREFIX + storageURIStr + toWorkerActorId.name +
+        s":input-${inputPortId.id}-internal-${inputPortId.internal}"
+    )
   }
 }

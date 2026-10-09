@@ -19,6 +19,7 @@
 
 package org.apache.texera.amber.util
 
+import org.apache.texera.amber.core.workflow.PortIdentity
 import org.apache.texera.amber.core.virtualidentity.{
   ActorVirtualIdentity,
   OperatorIdentity,
@@ -62,8 +63,8 @@ class VirtualIdentityUtilsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "fall back to __DummyOperator/__DummyLayer for non-worker actor names" in {
-    val controller = ActorVirtualIdentity("CONTROLLER")
-    val opId = VirtualIdentityUtils.getPhysicalOpId(controller)
+    val coordinator = ActorVirtualIdentity("COORDINATOR")
+    val opId = VirtualIdentityUtils.getPhysicalOpId(coordinator)
     opId.logicalOpId.id shouldBe "__DummyOperator"
     opId.layerName shouldBe "__DummyLayer"
   }
@@ -116,8 +117,8 @@ class VirtualIdentityUtilsSpec extends AnyFlatSpec with Matchers {
     // helper preserves the existing __DummyOperator sentinel so it
     // stays a drop-in replacement for the inline pattern at call sites
     // (see VirtualIdentityUtils.getLogicalOpId docstring).
-    val controller = ActorVirtualIdentity("CONTROLLER")
-    VirtualIdentityUtils.getLogicalOpId(controller) shouldBe "__DummyOperator"
+    val coordinator = ActorVirtualIdentity("COORDINATOR")
+    VirtualIdentityUtils.getLogicalOpId(coordinator) shouldBe "__DummyOperator"
     val self = ActorVirtualIdentity("SELF")
     VirtualIdentityUtils.getLogicalOpId(self) shouldBe "__DummyOperator"
   }
@@ -130,14 +131,14 @@ class VirtualIdentityUtilsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "return None for non-worker actor names" in {
-    // Special ActorVirtualIdentity values like CONTROLLER or SELF do not
+    // Special ActorVirtualIdentity values like COORDINATOR or SELF do not
     // match workerNamePattern. getWorkerIndex returns None rather than
     // throwing scala.MatchError, mirroring the graceful handling in
     // getPhysicalOpId and toShorterString. Returning Option forces each
     // caller to explicitly acknowledge the non-worker case rather than
     // silently propagating a sentinel value.
-    val controller = ActorVirtualIdentity("CONTROLLER")
-    VirtualIdentityUtils.getWorkerIndex(controller) shouldBe None
+    val coordinator = ActorVirtualIdentity("COORDINATOR")
+    VirtualIdentityUtils.getWorkerIndex(coordinator) shouldBe None
     val self = ActorVirtualIdentity("SELF")
     VirtualIdentityUtils.getWorkerIndex(self) shouldBe None
   }
@@ -177,8 +178,8 @@ class VirtualIdentityUtilsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "return the actor name unchanged when it does not match the worker pattern" in {
-    val controller = ActorVirtualIdentity("CONTROLLER")
-    VirtualIdentityUtils.toShorterString(controller) shouldBe "CONTROLLER"
+    val coordinator = ActorVirtualIdentity("COORDINATOR")
+    VirtualIdentityUtils.toShorterString(coordinator) shouldBe "COORDINATOR"
   }
 
   // ----- getFromActorIdForInputPortStorage -----
@@ -187,8 +188,24 @@ class VirtualIdentityUtilsSpec extends AnyFlatSpec with Matchers {
     val toWorker = ActorVirtualIdentity("Worker:WF1-myOp-main-0")
     val virtualReader = VirtualIdentityUtils.getFromActorIdForInputPortStorage(
       "iceberg:/warehouse/x",
-      toWorker
+      toWorker,
+      PortIdentity(0)
     )
-    virtualReader.name shouldBe "MATERIALIZATION_READER_iceberg:/warehouse/xWorker:WF1-myOp-main-0"
+    virtualReader.name shouldBe "MATERIALIZATION_READER_iceberg:/warehouse/xWorker:WF1-myOp-main-0:input-0-internal-false"
+  }
+
+  it should "keep repeated cached inputs on separate completion channels" in {
+    val toWorker = ActorVirtualIdentity("worker-1")
+    val uri = "vfs:///wid/23/eid/516/score"
+    val left =
+      VirtualIdentityUtils.getFromActorIdForInputPortStorage(uri, toWorker, PortIdentity(0))
+    val right =
+      VirtualIdentityUtils.getFromActorIdForInputPortStorage(uri, toWorker, PortIdentity(1))
+    val internal = VirtualIdentityUtils.getFromActorIdForInputPortStorage(
+      uri,
+      toWorker,
+      PortIdentity(0, internal = true)
+    )
+    Set(left, right, internal).size shouldBe 3
   }
 }

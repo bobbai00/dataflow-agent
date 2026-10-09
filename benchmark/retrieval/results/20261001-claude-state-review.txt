@@ -1,0 +1,91 @@
+Review of state-registry and the Claude interface fixes — 2026-10-01
+
+Scope and provenance
+
+Reviewed feat/state-registry at 0c8834fbfb61ad8f736e371d7591a247e1028c18.
+The other worktree was read only; its untracked LongDS environment and running
+services were left alone. No Amber engine changes were needed for the observed
+Haiku tool-input and finishing failures. The validation stack has an isolated
+LiteLLM gateway on 4001, access control on 9097 and agent on 3078. It uses our
+existing engine on 8085, without restarting that engine or the shared gateway.
+
+Actual engine overlap
+
+- 079ee3204 is in both branches: idle teardown retains operator-port cache rows
+  and cached Iceberg tables. CompletedFromCache also satisfies synchronous
+  execution completion. This fixes the old 30-second cache lifetime problem.
+- The state-registry Arrow input/output batching patches 819fa79ce/1495f4010
+  have identical stable patch IDs to our c8882ecc1/85ebb6a6d. They are already
+  present here; applying them again would duplicate the same changes.
+- Our worker-death detection (a46bab32c), buffer/copy release (f12a41d3d),
+  delayed input opening (74fb974fe), and bounded Iceberg commit batching
+  (7c5b5df59) are not in state-registry at the reviewed head. Do not attribute
+  those commits to that worktree.
+
+Changes on state-registry that deserve separate integration work
+
+- Wide-table evidence: 4870f9b70 and fd0e5d031 raise profiling to 400 columns,
+  a 512 KiB per-worker payload, 1 MiB result transport, and a 1-second time
+  budget. The Python collector, Scala transport and TypeScript decoder change
+  together. Prefix evidence can prove an observed value exists in that prefix;
+  it does not establish whole-table counts or absence. This branch still uses
+  the recorded 128-column/64 KiB/0.2-second limits with explicit coverage.
+  Increasing them would change the experimental treatment and needs a separate
+  matched pilot, especially on wide survey tables.
+- Pandas semantics (8bdf0d5bd) include default NA tokens, duplicate-header
+  renaming, null-group handling and preserved row labels. These change table
+  contents and operator contracts, so copying the runtime alone would make
+  our current prompts, schema and evidence disagree. Port with coordinated
+  tests and a fresh benchmark cohort.
+- The function/definition registry and LongDS task entries address reusable
+  analyses and historical results. They are a broader design than our explicit
+  graph action interface. Its repair review gives an important counterexample:
+  correcting a duplicated calculation downstream leaves the upstream copy
+  wrong even with perfectly fresh engine results. Preserve shared definitions
+  and fine-grained graph dependencies when applying semantic repairs.
+- The recent Answer guidance (815cd6f75) makes each requested conclusion
+  explicit. Our prompt keeps the requested answer format and now explicitly
+  places it inside answer.content, which is also needed for Sonnet 5.5.
+
+A nearby fix is on another branch
+
+The exact cached-producer recovery patch e88b41c19 is on
+fix/task-result-lifetime, not the reviewed state-registry head and not this
+branch. It recovers a result URI after execution-registry cleanup only when
+source execution and output port match, preserving historical lookup semantics.
+No corresponding recovery failure was observed in the Haiku full-run audit;
+it is a targeted follow-up for historical-result tests, not evidence that this
+cohort used stale cached results.
+
+Implemented interface fixes
+
+The dataflow action envelope remains strict locally. A LiteLLM callback
+preserves provider-side strictness on supported Claude aliases while moving
+unsupported bounds and costly regexes into descriptions. The live Haiku
+schema first failed with "Schema is too complex"; removing repeated regex
+constraints made the same action union work. Local AJV still checks those
+constraints, including string types and array bounds. No malformed JSON is
+silently decoded or repaired.
+
+Explicit project None defaults now match omission. Sample-statistics views
+label incomplete records separately from statistics coverage. The prompt
+explains full-coverage exhaustive nonnull values without inferring row order
+or cross-column pairs. It retains the native-operator and one-operation-per-
+operator principles, explains returned tables versus print output, and
+reserves Answer. Remaining-budget notices are immutable context events at
+three and one calls left; they do not change earlier cache prefixes or add
+model calls to the original budget.
+
+Sonnet 5.5 requires automatic tool choice; native mode still validates the
+final Answer contract. The initial task pilot found a correct plain-text No
+that failed that contract. A follow-up strengthens the prompt and adds a
+concrete Answer envelope to the single bounded protocol correction. Both
+original observations and failed first-attempt results are retained. The
+campaign audit now flags text-only replies and missing Answer actions.
+
+Provider references
+
+https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+https://docs.litellm.ai/docs/proxy/call_hooks
+https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
+https://platform.claude.com/docs/en/models/sonnet-5-5/overview

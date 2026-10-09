@@ -1,0 +1,51 @@
+KramaBench full retrieval × flow comparison — 2026-10-01
+
+Completed 1248/1248 attempts: 104 original tasks × two models × six settings × one repetition.
+Started 2026-10-01T10:45:09.963684+00:00; finished 2026-10-01T14:06:32.461181+00:00.
+
+Original evaluator results retained. The six unscored timeouts are nonpasses; mean_score_timeouts_zero assigns them zero only for campaign aggregation.
+stats.json costs for 1242 completed evaluations, plus recorded completed-model-call usage from watchdog traces for six timeouts. Same harness rates and cache discounts. Excludes evaluator, engine, and diagnostic run costs.
+Samples: 2000 characters, at most five rows. Full: 100000 characters. Data and flow evidence each add up to 2000 characters.
+
+Model | Retrieval/flow | Full passes/104 | Full-pass rate | Mean official score, timeouts=0 | Recorded model USD | Timeouts | No-answer failures
+Luna | full_flow0 | 60/104 | 57.7% | 61.1% | $0.543665 | 1 | 6
+Luna | full_flow1 | 63/104 | 60.6% | 65.4% | $0.508459 | 1 | 4
+Luna | sample_flow0 | 58/104 | 55.8% | 59.5% | $0.396510 | 0 | 10
+Luna | sample_flow1 | 67/104 | 64.4% | 69.8% | $0.446389 | 0 | 1
+Luna | sample_stats_flow0 | 66/104 | 63.5% | 67.0% | $0.418583 | 0 | 2
+Luna | sample_stats_flow1 | 59/104 | 56.7% | 60.8% | $0.460755 | 0 | 0
+Terra | full_flow0 | 71/104 | 68.3% | 71.7% | $4.752960 | 0 | 0
+Terra | full_flow1 | 73/104 | 70.2% | 74.1% | $4.375485 | 1 | 0
+Terra | sample_flow0 | 69/104 | 66.3% | 70.1% | $3.479595 | 1 | 0
+Terra | sample_flow1 | 69/104 | 66.3% | 70.5% | $3.626214 | 1 | 0
+Terra | sample_stats_flow0 | 67/104 | 64.4% | 70.1% | $3.890880 | 0 | 0
+Terra | sample_stats_flow1 | 68/104 | 65.4% | 69.7% | $4.184075 | 1 | 0
+
+Total recorded model cost: $27.083570. Earlier excluded diagnostics: $0.392015.
+
+Findings
+--------
+Without flow, sample_stats raises Luna full passes from 60 to 66 while lowering matched-task cost by 23.6% (103 fully priced pairs). Relative to sample-only, it adds eight full passes at 5.6% more total cost.
+For Terra, sample_stats lowers cost by 18.1% relative to full but gives 67 versus 71 full passes. Sample-only has 69 full passes and lower cost than sample_stats.
+Adding flow to sample-only raises Luna from 58 to 67 full passes at 12.6% more cost. Terra stays at 69 full passes.
+Combining stats and flow gives Luna 59 full passes, versus 66 with stats alone; Terra gives 68 versus 67. These benefits are not additive.
+The best observed pass counts are Luna sample+flow (67/104) and Terra full+flow (73/104). This is one stochastic repetition; most paired mean-score confidence intervals include zero.
+Luna sample+flow vs sample-only mean-score difference is +10.2 points (task-bootstrap 95% interval +2.0 to +18.2); this exploratory interval does not measure run-to-run variance or adjust for multiple comparisons.
+Luna no-answer failures vary by condition: sample-only has 10, sample+stats has two, sample+flow has one. Accuracy changes therefore also involve protocol completion, not only data interpretation.
+
+Audit and remaining failures
+----------------------------
+4922 context-prefix checks: zero failures. 11547 final profiles / 104356 columns: zero count/version invariant violations. Renderer replay of 11547 operator results: zero failures. Checks cover the available traces/final snapshots; they do not establish that every reasoning step or analytical answer was correct.
+805 stack-health samples: no unavailable service or process-identity change. All six owned computing units were terminated after the run.
+Six 900-second task timeouts: Luna full, flow off/on, wildfire-hard-19; Terra sample with flow and sample_stats with flow, astronomy-hard-11; Terra sample without flow and full with flow, astronomy-hard-7.
+The weather task encountered large-scan/cast execution timeouts. Astronomy traces include original benchmark path discrepancies, repeated source lookup, and long model computations. No attempt was rerun or replaced.
+Twenty-three scored Luna attempts ended without an Answer action; Terra had none. They remain scored failures.
+The launch-stage scan-repair hint whitespace bug was fixed before this cohort at 21fb91a77. Later traces confirm the corrected names are exposed.
+A separate interface inconsistency remains visible in seven action-error entries: file_column=None is shown in the signature but an explicit None is rejected. This is not repaired retroactively in the frozen cohort.
+
+Provenance
+----------
+Agent/runner 21fb91a77; engine 04e85b581; KramaBench 4658eb92db753805e0df3edc207ca46379eda43b
+Raw artifacts: /tmp/texera-retrieval-full-fixed-20261001
+Derived timeout usage: timeout-usage.json; per-attempt original stats/evaluation files remain unchanged.
+Machine-readable report and table accompany this file.

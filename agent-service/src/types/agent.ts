@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import { DEFAULT_OBSERVATION_FORMAT, type ObservationFormatSettings } from "../agent/native/observation-format";
+
 import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
 import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
@@ -25,6 +27,18 @@ import type { RolePolicyConfig } from "../agent/context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
 import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
+
+export type RetrievalView = "full" | "sample" | "sample_stats";
+
+export interface RetrievalSettings {
+  /** Available native Retrieve views. Omitted: sample_stats and full; sample can be enabled explicitly. */
+  retrievalViews?: RetrievalView[];
+  /** Full-view display ceiling (default 5,000). Native transport independently retains up to 100,000 characters. */
+  fullResultCharLimit?: number;
+  /** Separate per-retrieval evidence ceilings; records keep their own budget. */
+  dataEvidenceCharLimit?: number;
+  flowEvidenceCharLimit?: number;
+}
 
 export enum AgentState {
   UNAVAILABLE = "UNAVAILABLE",
@@ -45,6 +59,18 @@ export interface TokenUsage {
   reasoningTokens?: number;
 }
 
+/**
+ * Which operators one tool call touched. Keyed by tool-call index on the
+ * owning step (`operatorAccess[i]` describes `toolCalls[i]`). The frontend
+ * uses it to highlight operators on the canvas when a step is hovered and to
+ * answer "which steps touched operator X".
+ */
+export interface ToolOperatorAccess {
+  viewedOperatorIds: string[];
+  addedOperatorIds: string[];
+  modifiedOperatorIds: string[];
+}
+
 export interface ReActStep {
   id: string;
   parentId?: string;
@@ -53,6 +79,12 @@ export interface ReActStep {
   timestamp: number;
   role: "user" | "agent";
   content: string;
+  /** Reasoning summary the provider returned for this step, when it exposes
+   *  one (OpenAI reasoning models, Anthropic extended thinking). Kept out of
+   *  `content` on purpose: `content` is replayed to the model as context,
+   *  this is display-only — the chat's step list falls back to it when the
+   *  model emitted tool calls with no visible text. */
+  reasoningText?: string;
   isBegin: boolean;
   isEnd: boolean;
   toolCalls?: Array<{
@@ -68,6 +100,17 @@ export interface ReActStep {
   usage?: TokenUsage;
   inputMessages?: any[];
   messageSource?: "chat" | "feedback";
+  /** Per-tool-call operator access, derived from tool inputs/outputs at
+   *  step-record time (see `computeOperatorAccess`). Absent on steps with
+   *  no tool calls. */
+  operatorAccess?: Record<number, ToolOperatorAccess>;
+  /** Set on steps the service performed itself, with no model request behind
+   *  them. `"seed"`: the seeded source roots recorded before the first model
+   *  call of a turn (see `seedSources`). `"state"`: tables loaded as the state
+   *  in force before a session's first request (`seedState`); the step keeps
+   *  its snapshot and results but is never rendered into the model's context
+   *  and does not count as a task. Usage is zero by construction. */
+  synthetic?: "seed" | "state";
 }
 
 export enum OperatorResultSerializationMode {
@@ -75,28 +118,37 @@ export enum OperatorResultSerializationMode {
 }
 
 /**
- * Agent operating mode. CODE uses the unified `createOrModifyOperator` tool
- * (Python `def load()` / `def process(...)`); GENERAL uses typed
- * `addOperator`/`modifyOperator` tools and embeds operator schemas in the prompt.
+ * Agent operating mode.
+ *  - NATIVE (default): the model writes a program of `name = operator(...)`
+ *    expressions over the fixed operator catalog (`native/catalog.ts`), with
+ *    three custom operators that carry Python (filter, map, process). The
+ *    service compiles every operator to Python for the engine.
+ *  - CODE: the previous script-based approach — every operator is one free
+ *    Python `def load()` / `def process(...)` function written through
+ *    `createOrModifyOperator`.
  */
 export enum AgentMode {
   CODE = "code",
-  GENERAL = "general",
+  NATIVE = "native",
 }
 
 /**
- * Snapshot-selection policy for serializing the ReAct context (paper §5,
- * Phase 1). Trades trajectory fidelity for token cost; orthogonal to the
- * flow/data DECORATE levels (Phase 2).
- *
- * - DELTA — each event interleaved with its snapshot, rendering only the
- *   operators that event changed (unchanged operators are omitted; topology
- *   is embedded per-operator). Cost scales with distinct edits.
- * - LATEST — no per-event history; just the user task + the current snapshot.
- *   Cheapest. When flowLevel>0, a consolidated "Operators needing attention"
- *   flow section follows the snapshot — a targeted, lossy projection of the
- *   trajectory's failures/lineage (the middle ground between LATEST and DELTA).
+ * Which operator results the LATEST snapshot ships, and at what fidelity.
+ *  - "all":  every executed operator renders its full result block (legacy).
+ *  - "rule": ship only what the data decided (native mode): full blocks for
+ *            Scan/Aggregate/Join/UDF outputs, for the input of any
+ *            Aggregate/Join/UDF, and for frontier operators; a row-count line
+ *            for Filter/Distinct/Union/Limit; header only for Project/Sort and
+ *            for Compute whose columns' null/distinct counts did not move.
+ *  - "scoped": the rule, plus HOW MUCH of a shipped table: statistics and
+ *            sample values only for the columns the operator's parameters (and
+ *            its consumers') name, sample rows per type (scan 8, compute 3,
+ *            filter 0, aggregate all up to 20), and — in DELTA — an
+ *            upstream-caused re-execution as a one-line diff, not a table.
  */
+export type ResultSelection = "all" | "rule" | "scoped";
+
+/** Context layout and result sampling are independent of data/flow evidence. */
 export enum ContextMode {
   DELTA = "delta",
   LATEST = "latest",
@@ -111,7 +163,11 @@ export enum ContextMode {
  */
 export type CompactionStrategy = "sliding" | "compress";
 
-export interface AgentSettings {
+export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
+  /** Earlier tasks replayed in full, or indexed with versioned dependencies. */
+  taskContext?: "trajectory" | "dependencies";
+  /** Include the persistent-session instructions from the first request. */
+  multiTask: boolean;
   systemPrompt: string;
   disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
@@ -131,8 +187,13 @@ export interface AgentSettings {
    * the L1 (semantic thrashing) × L2 (super-linear context) cost blow-up.
    */
   maxOperatorEdits: number;
-  allowedOperatorTypes: string[];
   agentMode: AgentMode;
+  /** Collect table profiles and operator counters in the engine, independently
+   *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
+   *  each operator, so it cannot change on an existing workflow. */
+  nativeProfileCollection?: boolean;
+  /** Which operator results the snapshot ships (see ResultSelection). */
+  resultSelection: ResultSelection;
   contextMode: ContextMode;
   /**
    * When true, the model may emit multiple tool calls in a single assistant
@@ -183,24 +244,6 @@ export interface AgentSettings {
    * on value shape (no task literals). Disabled by default (no-op).
    */
   /**
-   * When true, each operator result carries a `Lineage:` line — input→output
-   * row counts (kept % of largest input) plus a conservative alarm on
-   * empty-output / fan-out-explosion transitions. Derived from row counts
-   * already carried in OperatorInfo (topology-level, no column/task literal).
-   * Targets the dominant silent-cardinality wrong-answer and the cost spiral
-   * tail. Disabled by default (no-op).
-   */
-  /**
-   * When true, a degenerate merge (near-zero key match, with an unmatched-key
-   * sample, or a many-to-many fan-out) flagged by the worker's transparent join
-   * instrumentation surfaces as a `Join check ⚠` line. Alarm-only; off by default.
-   */
-  /**
-   * When true, a DataLoading operator whose output reaches no downstream
-   * operator (a dead/forgotten load — typed-DAG reachability) gets a
-   * `Graph check ⚠` line. Off by default.
-   */
-  /**
    * Thought-replay reinjection rung (LATEST only). When true, the assembled
    * context gains a `# Reasoning` block — the last `thoughtReplayK` agent events,
    * each as its thought + the compressed actions it produced — and each operator
@@ -243,22 +286,27 @@ export interface AgentSettings {
   errorReflectionThreshold: number;
   fewShotPrompt: boolean;
   maxResultRows: number;
-  flowLevel: number;
-  dataLevel: number;
-  /** Standalone overlay (independent of `dataLevel`): when true, each operator
-   *  result carries the full per-column `Column Schema and stats:` block the worker
-   *  publishes (null/mean/min/max/distinct/top-N). Off by default. */
-  columnStats: boolean;
-  /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
-   *  append the `Format hints:` line for string columns that are numbers wearing
-   *  punctuation (currency/percent/thousands). Independent of `dataLevel` (which
-   *  can also enable it at L3). Off by default. */
-  valueFormat: boolean;
-  /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
-   *  append the `Output Table profile:` block (all-null rows/cols, duplicate rows,
-   *  unnamed columns). Independent of `dataLevel` (which can also enable it
-   *  at L2). Off by default. */
-  dataHints: boolean;
+  /** Bounded, version-bound column/table facts on explicitly observed results. */
+  dataEvidence: boolean;
+  /** Version-matched input/output facts on explicitly observed results. */
+  flowEvidence: boolean;
+  /** Retained for archived configurations. Native action calls always require
+   *  reasoning; native settings normalize this field to true. */
+  dataflowReasoning: boolean;
+  /** Native mode: `check:` lines under every executed operator whose own
+   *  assumptions the engine found violated on the full tables (header rows,
+   *  records repeated across sources, join fan-out, row effects inside a
+   *  process function). Off by default. */
+  nativeChecks: boolean;
+  /** Initial native reference material; omitted/full retains the complete prompt. */
+  nativePromptDetail?: "full" | "on_demand";
+  /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
+  stateHistory: boolean;
+  /** System-verified reuse of earlier state in native mode: a ledger of each
+   *  sealed task's tables in the Answer receipt, provenance cards for inputs
+   *  taken from earlier state in edit receipts, and execution notes for empty,
+   *  limited or subset inputs. Off by default. */
+  stateLedger: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -267,15 +315,7 @@ export interface AgentSettings {
    * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
    */
   toolDialect: LocalToolDialect;
-  /**
-   * Deep-partial patch over the summarize() parameter space
-   * (context/summarize/params.ts), applied on top of the params derived from
-   * the settings above (contextMode → preset, flowLevel/dataLevel → rungs, …).
-   * The door into every summarize knob the flat settings don't expose:
-   * per-operator overrides, code/result history, detail levels, metric
-   * subsets, sample-based tuple hints. Validated against
-   * SummarizeParamsPatchSchema at the API boundary. Undefined ⇒ no patch.
-   */
+  /** Context layout and result sampling are independent of data/flow evidence. */
   summarizeParams?: SummarizeParamsPatch;
   /**
    * When set, the per-step SELECTOR policy (context/selector) chooses the
@@ -305,15 +345,13 @@ export interface AgentSettings {
    */
   learnedConfig?: LearnedConfig;
   /**
-   * Expose the read-only `inspectResult` PULL tool to the model (Direction B).
-   * Lets the agent re-inspect an existing operator's cached result at more
-   * detail on demand instead of re-loading. Off by default. Every call is also
-   * a supervised label for training the push selector (pull-to-push).
+   * @deprecated Compatibility field; always false. The result-inspection tool
+   * has been removed. Native batch mode retrieves results with `observe`.
    */
   enableInspectTool: boolean;
   /**
    * Write-time render prefs: `createOrModifyOperator` accepts optional
-   * `outputSummary` ("minimal"|"standard") and `showOutputStatistics` (bool)
+   * `outputSummary` ("minimal"|"standard")
    * controlling how much of the op's result is RENDERED (view-only — the full
    * output is always computed and flows downstream). Gates the tool params,
    * the prompt section, and the render application. Off by default.
@@ -369,23 +407,99 @@ export interface AgentSettings {
    * says what exists, the tool fetches what matters. Off by default.
    */
   enableRecallTool: boolean;
+  /** Per-operator ceiling for recallState's `includeOutputTableSample`
+   *  (characters). Requests above it are clamped with a teaching message.
+   *  The ceiling is an experiment knob; the existence of a clamp is not. */
+  recallMaxResultChars: number;
+  /** OPERATOR-LEVEL recall (v3): recallState takes `ref: "opId (turn N)"` —
+   *  one version per pull, values on by default — instead of a whole turn.
+   *  Pairs with versionedMode (the catalog prints those addresses). */
+  recallOperatorLevel: boolean;
+  /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
+   *  — every requested quantity traced to an `opId (turn N)` + column, every
+   *  binding clause of the task text quoted and answered. Prompt-side only, and
+   *  layout-agnostic: the defect it targets (a 90%-correct answer that loses on
+   *  one unchecked clause — scope, population, sign, denominator, scale) was
+   *  measured at the same rate under `# Session` and `# Catalog`. */
+  specAudit: boolean;
   /**
-   * Turn-index caps: how many operators may render their CODE, and how many may
-   * render SAMPLE ROWS, ranked most-recently-touched first. Everything past the
-   * cap stays a one-line index entry and is a `recallState` call away. Without
-   * caps a heavy turn promotes most of the DAG back into the prompt (measured:
-   * 58 code blocks / 134 tables, 139 KB of a 196 KB prompt).
+   * How many UPSTREAM operators of the current turn's work may render sample
+   * rows, ranked most-recently-touched first; the rest stay a one-line index
+   * entry and are a `recallState` call away. There is no matching cap on code:
+   * the operators a turn is working on always render their code in full, because
+   * a partial view of the turn's own definitions makes the model rebuild what it
+   * already has.
    */
-  indexRichCode: number;
   indexRichTables: number;
   /**
-   * How many recent turns' operators keep a full index entry (summary + schema).
-   * Anything idle longer, and not feeding the current turn, collapses to a bare
-   * header line — still named and recallable, but no longer re-sent in detail.
-   * The index would otherwise grow with every operator ever created (737 by turn
-   * 30 on one task, 360 KB of a 559 KB prompt).
+   * How many operators keep a full index entry (summary + schema), beyond the
+   * ones this turn is working on, which are never evicted. Admitted
+   * most-recently-touched first; the rest collapse to a bare header line —
+   * still named and recallable, but no longer re-sent in detail. The index
+   * would otherwise grow with every operator ever created (737 by turn 30 on
+   * one task, 360 KB of a 559 KB prompt).
+   *
+   * This is a COUNT and not an age. It replaced `indexRecentTurns`, which was
+   * the same constant for a 31-operator task and a 381-operator one and so
+   * failed in both directions at once: at 3 turns passnyc could see 4 result
+   * tables out of ~23 live operators (63.3% -> 40.0%), and at 12 turns nfl and
+   * uber flooded to 360-600 kB and spent whole 40-step budgets returning
+   * nothing. A count bounds what the prompt actually pays for.
    */
-  indexRecentTurns: number;
+  indexDetailedOperators: number;
+  /**
+   * Expose `resumeFrom(turn)`: the model names the turn it builds on and the
+   * dataflow becomes that turn's state, instead of a recency rule choosing.
+   * Off by default — control arms keep a byte-identical prompt and tool set.
+   */
+  enableResumeTool: boolean;
+  /**
+   * Check that a final answer's substantive numbers trace to a materialized
+   * operator result or to state recalled this turn; on total failure, send one
+   * feedback round. Leverages the dataflow property that results are
+   * addressable tables — unverifiable in a plain transcript. Off by default.
+   */
+  enableAnswerGrounding: boolean;
+  /**
+   * SEEDED SOURCE ROOTS — when a message arrives with `sources`, scan every
+   * listed file and observe it BEFORE the first model call, recorded as an
+   * ordinary `dataflow` step with zero usage. A dataflow's roots are the one
+   * part of the graph the model cannot decide differently, so materializing
+   * them up front removes the scan-only opening step(s) every layout renders
+   * anyway. Off by default — control arms keep a byte-identical protocol.
+   */
+  seedSources: boolean;
+  /** Context layout and result sampling are independent of data/flow evidence. */
+  /** Context layout and result sampling are independent of data/flow evidence. */
+  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
+  /**
+   * VERSIONED MODE — the session as one immutable version DAG addressed by
+   * (operatorId, turnId). Three coupled changes, one flag:
+   *   render: the context is a single `# Catalog` — finished turns as
+   *     Task / Dataflow delta / Answer entries, the turn in progress as the
+   *     last entry (its steps carry full observations; recall output persists
+   *     there as an ordinary observation). No `# Dataflow` section: state
+   *     renders once, at creation, and the prompt is append-only.
+   *   tools: `createOrModifyOperator` requires `upstreams` (def-arg → version
+   *     turn) and `fromTurn` on revisions, validated against the version store
+   *     with errors that list the valid turns.
+   *   prompt: the versioned.md fragment replaces recall.md's layout section.
+   * Off by default — byte-parity with legacy when off.
+   */
+  versionedMode: boolean;
+  /** Versioned mode: render the Latest-versions pointer table (default true).
+   *  Exposed for the A/B measuring what dropping it costs. */
+  versionedHeads: boolean;
+  /** SESSION LAYOUT (non-versioned multi-turn): group the context by turn —
+   *  `# Session` with one `## Turn N` entry per turn (### Task, ### Steps in
+   *  DELTA / ### Dataflow in LATEST, ### Final Answer), closed by a
+   *  `# Your Task` directive pointing at the current turn. The ReAct render
+   *  knobs apply unchanged inside each turn. Purely a re-grouping of the same
+   *  information the flat event log carries — the fair baseline layout for
+   *  comparisons against versionedMode. Ignored when versionedMode is on
+   *  (the catalog is already turn-grouped). Off by default — byte-parity
+   *  with the legacy flat layout when off. */
+  sessionTurns: boolean;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -425,37 +539,36 @@ export interface AgentSettings {
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
+  taskContext: "trajectory",
+  ...DEFAULT_OBSERVATION_FORMAT,
+  multiTask: false,
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
+  fullResultCharLimit: 5000,
+  retrievalViews: ["sample_stats", "full"],
+  dataEvidenceCharLimit: 2000,
+  flowEvidenceCharLimit: 2000,
   operatorResultSerializationMode: OperatorResultSerializationMode.TSV,
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   maxSteps: 100,
   maxOperatorEdits: 0,
-  allowedOperatorTypes: [
-    "CSVFileScan",
-    "Filter",
-    "Projection",
-    "TypeCasting",
-    "Sort",
-    "Limit",
-    "Distinct",
-    "Union",
-    "KeywordSearch",
-    "HashJoin",
-    "Aggregate",
-    "LineChart",
-    "BarChart",
-    "PieChart",
-    "Histogram",
-    "Scatterplot",
-    "WordCloud",
-    "PythonUDFV2",
-  ],
-  agentMode: AgentMode.CODE,
-  contextMode: ContextMode.LATEST,
-  parallelToolCalls: false,
+  agentMode: AgentMode.NATIVE,
+  // Collected by default so evidence can be switched on without rebuilding
+  // the workflow; exposure stays opt-in below.
+  nativeProfileCollection: true,
+  dataEvidence: false,
+  flowEvidence: false,
+  dataflowReasoning: true,
+  nativeChecks: false,
+  nativePromptDetail: "full",
+  stateHistory: false,
+  stateLedger: false,
+  resultSelection: "all",
+  // Replay event-owned observations; evidence exposure is explicitly opt-in.
+  contextMode: ContextMode.DELTA,
+  parallelToolCalls: true,
   includeOperatorProperties: true,
   attemptReflection: false,
   thoughtReplay: true,
@@ -468,11 +581,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
   maxResultRows: 0,
-  flowLevel: 0,
-  dataLevel: 0,
-  columnStats: false,
-  valueFormat: false,
-  dataHints: false,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
   enableRenderPrefs: false,
@@ -484,9 +592,23 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   userTaskPlacement: "top",
   turnHistory: "full",
   enableRecallTool: false,
-  indexRichCode: 6,
+  recallMaxResultChars: 5000,
+  recallOperatorLevel: false,
+  specAudit: false,
   indexRichTables: 12,
-  indexRecentTurns: 3,
+  // 0 = no cap. The count cap is off while the version-tree model is being
+  // evaluated: resumeFrom bounds the DAG by choosing an earlier base, and the
+  // two mechanisms need measuring apart before they are stacked.
+  indexDetailedOperators: 0,
+  enableResumeTool: false,
+  enableAnswerGrounding: false,
+  seedSources: false,
+  versionedMode: false,
+  // Default OFF: the A/B measured wrong-reference errors at 0.8%/write with
+  // and without the table — it is derivable from the entries and buys nothing
+  // at this scale. Kept as a flag for much longer sessions.
+  versionedHeads: false,
+  sessionTurns: false,
   indexThinObservations: false,
 };
 
@@ -543,7 +665,10 @@ export interface AgentDelegateConfig {
   computingUnitId?: number;
 }
 
-export interface AgentSettingsApi {
+export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  taskContext?: "trajectory" | "dependencies";
+  multiTask?: boolean;
+  messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
@@ -552,11 +677,20 @@ export interface AgentSettingsApi {
   disabledTools?: string[];
   maxSteps?: number;
   maxOperatorEdits?: number;
-  allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general";
+  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
+  nativeProfileCollection?: boolean;
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
+  dataflowReasoning?: boolean;
+  nativeChecks?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
+  stateHistory?: boolean;
+  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
+  /** Native mode result selection: "all" (default), "rule" or "scoped". */
+  resultSelection?: "all" | "rule" | "scoped";
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
@@ -568,11 +702,6 @@ export interface AgentSettingsApi {
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
   maxResultRows?: number;
-  flowLevel?: number;
-  dataLevel?: number;
-  columnStats?: boolean;
-  valueFormat?: boolean;
-  dataHints?: boolean;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
   summarizeParams?: SummarizeParamsPatch;
@@ -588,7 +717,7 @@ export interface AgentSettingsApi {
   rolePolicyConfig?: RolePolicyConfig;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
-  /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
+  /** @deprecated Ignored; the result-inspection tool cannot be enabled. */
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;
@@ -604,6 +733,20 @@ export interface AgentSettingsApi {
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
+  /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
+  userTaskPlacement?: "top" | "bottom";
+  /** Prior-turn rendering: verbatim vs compact catalogue (see AgentSettings.turnHistory). */
+  turnHistory?: "full" | "index";
+  /** Expose the read-only recallState tool (see AgentSettings.enableRecallTool). */
+  enableRecallTool?: boolean;
+  /** Service-side clamp on a recall pull's result chars (see AgentSettings.recallMaxResultChars). */
+  recallMaxResultChars?: number;
+  /** Upstream operators allowed to render sample rows (see AgentSettings.indexRichTables). */
+  indexRichTables?: number;
+  /** Operators keeping a full index entry (see AgentSettings.indexDetailedOperators). */
+  indexDetailedOperators?: number;
+  /** Turn-grouped session layout (see AgentSettings.sessionTurns). */
+  sessionTurns?: boolean;
 }
 
 export interface AgentInfo {
@@ -629,7 +772,9 @@ export interface CreateAgentRequest {
   driver?: AgentDriverKind;
 }
 
-export interface UpdateAgentSettingsRequest {
+export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  taskContext?: "trajectory" | "dependencies";
+  multiTask?: boolean;
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
@@ -638,11 +783,20 @@ export interface UpdateAgentSettingsRequest {
   disabledTools?: string[];
   maxSteps?: number;
   maxOperatorEdits?: number;
-  allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general";
+  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
+  nativeProfileCollection?: boolean;
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
+  dataflowReasoning?: boolean;
+  nativeChecks?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
+  stateHistory?: boolean;
+  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
+  /** Native mode result selection: "all" (default), "rule" or "scoped". */
+  resultSelection?: "all" | "rule" | "scoped";
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
@@ -654,11 +808,6 @@ export interface UpdateAgentSettingsRequest {
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
   maxResultRows?: number;
-  flowLevel?: number;
-  dataLevel?: number;
-  columnStats?: boolean;
-  valueFormat?: boolean;
-  dataHints?: boolean;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
   summarizeParams?: SummarizeParamsPatch;
@@ -674,7 +823,7 @@ export interface UpdateAgentSettingsRequest {
   rolePolicyConfig?: RolePolicyConfig | null;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
-  /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
+  /** @deprecated Ignored; the result-inspection tool cannot be enabled. */
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;

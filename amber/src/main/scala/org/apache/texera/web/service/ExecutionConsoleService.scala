@@ -29,7 +29,7 @@ import org.apache.texera.amber.core.storage.{DocumentFactory, VFSURIFactory}
 import org.apache.texera.amber.core.tuple.Tuple
 import org.apache.texera.amber.core.virtualidentity.{ActorVirtualIdentity, OperatorIdentity}
 import org.apache.texera.amber.core.workflow.WorkflowContext
-import org.apache.texera.amber.engine.architecture.controller.ExecutionStateUpdate
+import org.apache.texera.amber.engine.architecture.coordinator.ExecutionStateUpdate
 import org.apache.texera.amber.engine.architecture.rpc.controlcommands.ConsoleMessageType.COMMAND
 import org.apache.texera.amber.engine.architecture.rpc.controlcommands.{
   ConsoleMessage,
@@ -325,7 +325,7 @@ class ExecutionConsoleService(
   //Receive evaluate python expression
   addSubscription(wsInput.subscribe((req: PythonExpressionEvaluateRequest, uidOpt) => {
     val result = Await.result(
-      client.controllerInterface.evaluatePythonExpression(
+      client.coordinatorInterface.evaluatePythonExpression(
         EvaluatePythonExpressionRequest(req.expression, req.operatorId),
         ()
       ),
@@ -364,8 +364,14 @@ class ExecutionConsoleService(
       addConsoleMessage(consoleStore, req.operatorId, newMessage)
     }
 
-    client.controllerInterface.debugCommand(AmberDebugCommandRequest(req.workerId, req.cmd), ())
+    client.coordinatorInterface.debugCommand(AmberDebugCommandRequest(req.workerId, req.cmd), ())
 
   }))
 
+  // The console-writer executor is per-execution; without this it outlives the
+  // execution and its thread leaks for the life of the JVM.
+  override def unsubscribeAll(): Unit = {
+    super.unsubscribeAll()
+    consoleWriterThread.shutdown()
+  }
 }

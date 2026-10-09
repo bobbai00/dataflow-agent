@@ -18,9 +18,11 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from loguru import logger
+from pyarrow import Table
 
-from core.models import State, StateFrame
-from core.models.internal_queue import DataElement
+from core.models import DataFrame, InternalQueue, State, StateFrame, Tuple
+from core.models.internal_queue import DataElement, ECMElement, InputPortReadError
 from core.models.schema import Schema
 from core.storage.runnables.input_port_materialization_reader_runnable import (
     InputPortMaterializationReaderRunnable,
@@ -28,7 +30,122 @@ from core.storage.runnables.input_port_materialization_reader_runnable import (
 from proto.org.apache.texera.amber.core import (
     ActorVirtualIdentity,
     ChannelIdentity,
+    PortIdentity,
 )
+from proto.org.apache.texera.amber.engine.architecture.sendsemantics import (
+    OneToOnePartitioning,
+    Partitioning,
+)
+
+
+def test_one_to_one_cached_reader_routes_rows_from_its_virtual_actor():
+    worker = ActorVirtualIdentity("worker-1")
+    uri = "vfs:///wid/23/eid/516/score"
+    from core.util.virtual_identity import get_from_actor_id_for_input_port_storage
+
+    port = PortIdentity(id=1, internal=False)
+    channel = ChannelIdentity(get_from_actor_id_for_input_port_storage(uri, worker, port), worker, False)
+    reader = InputPortMaterializationReaderRunnable(
+        uri,
+        MagicMock(),
+        worker,
+        Partitioning(one_to_one_partitioning=OneToOnePartitioning(channels=[channel], batch_size=1)),
+        port_id=port,
+    )
+    reader.tuple_schema = Schema(raw_schema={"x": "INTEGER"})
+    frames = list(reader.tuple_to_batch_with_filter(Tuple({"x": 2}, schema=reader.tuple_schema)))
+    assert frames[0].frame.to_pydict() == {"x": [2]}
+
+
+def test_read_failure_is_delivered_to_worker_instead_of_only_logged():
+    reader = _build_reader(ActorVirtualIdentity("worker-1"))
+    reader.materialization = MagicMock()
+    reader.state_document = MagicMock()
+    reader.state_document.get.return_value = iter([])
+    err = OSError("cached parquet read failed")
+    reader.materialization.get.side_effect = err
+    reader.partitioner.flush.side_effect = lambda receiver, ecm: [ecm]
+    reader.run()
+    failures = [
+        call.args[0] for call in reader.queue.put.call_args_list if getattr(call.args[0], "exception", None) is err
+    ]
+    assert len(failures) == 1, "The main loop must receive the reader failure"
+    assert failures[0].tag.is_control, "A failed read must wake the worker even if data is paused"
+    assert _emitted_ecm_names(reader) == ["StartChannel"], "Failed input must never signal successful completion"
+    assert reader.finished() is False
+
+
+def test_read_failure_wakes_a_worker_with_data_disabled_and_reports_error():
+    from core.architecture.managers.context import Context
+    from core.runnables.main_loop import MainLoop
+
+    worker = ActorVirtualIdentity("Worker:WF23-report-main-0")
+    queue = InternalQueue()
+    data_channel = ChannelIdentity(ActorVirtualIdentity("reader"), worker, False)
+    queue.put(DataElement(tag=data_channel, payload=DataFrame(frame=Table.from_pydict({"x": [1]}))))
+    queue.disable_data(InternalQueue.DisableType.DISABLE_BY_PAUSE)
+    err = OSError("missing cached parquet")
+    entry = InputPortReadError(tag=ChannelIdentity(data_channel.from_worker_id, worker, True), exception=err)
+    queue.put(entry)
+    assert queue.get() is entry
+    loop = MainLoop.__new__(MainLoop)
+    loop.context = Context(worker.name, queue)
+    loop._check_exception = MagicMock()
+    loop.receive(entry)
+    assert loop.context.exception_manager.has_exception()
+    loop._check_exception.assert_called_once()
+
+
+DOCUMENT_FACTORY = (
+    "core.storage.runnables.input_port_materialization_reader_runnable.DocumentFactory"
+)
+
+
+def _build_reader(worker_actor_id, schema=None):
+    """Build a reader without running __init__ (which would resolve a real
+    partitioner and a real storage URI). Mirrors the fixture in
+    TestRunStateReadingBlock, but parameterised so the tuple-loop tests can
+    drive the partitioner themselves.
+    """
+    reader = InputPortMaterializationReaderRunnable.__new__(
+        InputPortMaterializationReaderRunnable
+    )
+    reader.uri = "vfs:///wf/0/exec/0/result/op-a"
+    reader.worker_actor_id = worker_actor_id
+    reader.tuple_schema = (
+        schema if schema is not None else Schema(raw_schema={"x": "INTEGER"})
+    )
+    reader._stopped = False
+    reader._finished = False
+    reader.materialization = None
+    reader.state_document = None
+    reader.OPEN_ATTEMPTS = 2
+    reader.OPEN_BACKOFF_SECONDS = 0
+    reader.channel_id = ChannelIdentity(
+        worker_actor_id, worker_actor_id, is_control=False
+    )
+    reader.queue = MagicMock()
+    reader.on_schema = None
+    reader.partitioner = MagicMock()
+    reader.partitioner.flush.return_value = []
+    return reader
+
+
+def _emitted_data_frames(reader):
+    return [
+        call.args[0].payload
+        for call in reader.queue.put.call_args_list
+        if isinstance(call.args[0], DataElement)
+        and isinstance(call.args[0].payload, DataFrame)
+    ]
+
+
+def _emitted_ecm_names(reader):
+    return [
+        call.args[0].payload.id.id
+        for call in reader.queue.put.call_args_list
+        if isinstance(call.args[0], ECMElement)
+    ]
 
 
 class TestRunStateReadingBlock:
@@ -52,24 +169,36 @@ class TestRunStateReadingBlock:
         instance.tuple_schema = Schema(raw_schema={"x": "INTEGER"})
         instance._stopped = False
         instance._finished = False
+        instance.materialization = None
+        instance.state_document = None
         instance.channel_id = ChannelIdentity(me, me, is_control=False)
         instance.queue = MagicMock()
+        instance.on_schema = None
         instance.partitioner = MagicMock()
         # No tuple-batches and no ECM-flush payloads in these tests.
         instance.partitioner.flush.return_value = []
         return instance
 
     def test_state_rows_are_emitted_as_state_frames(self, runnable):
-        state_a = State({"loop_counter": 0})
-        state_b = State({"loop_counter": 1})
+        state_a = State({"i": 0})
+        state_b = State({"i": 1})
 
-        # The state document yields opaque tuples; from_tuple deserializes
-        # them. Patch from_tuple so we don't have to wire a real
-        # serialization.
+        # The state document yields opaque multi-column tuples. State.from_tuple
+        # (patched) deserializes the content column; the reader reads the
+        # loop-control columns directly off the row and carries them onto the
+        # emitted StateFrame envelope.
+        row_a = {
+            State.LOOP_COUNTER: 0,
+            State.LOOP_START_ID: "loop-a",
+        }
+        row_b = {
+            State.LOOP_COUNTER: 1,
+            State.LOOP_START_ID: "loop-b",
+        }
         result_doc = MagicMock()
         result_doc.get.return_value = iter([])  # No materialized tuples.
         state_doc = MagicMock()
-        state_doc.get.return_value = iter(["row-a", "row-b"])
+        state_doc.get.return_value = iter([row_a, row_b])
 
         with (
             patch(
@@ -96,4 +225,251 @@ class TestRunStateReadingBlock:
             and isinstance(call.args[0].payload, StateFrame)
         ]
         assert [sf.payload.frame for sf in state_frames] == [state_a, state_b]
+        assert [sf.payload.loop_counter for sf in state_frames] == [0, 1]
+        assert [sf.payload.loop_start_id for sf in state_frames] == ["loop-a", "loop-b"]
         assert runnable._finished is True
+
+
+class TestTupleToBatchWithFilter:
+    """The reader reuses the *output*-side partitioner to decide which
+    tuples this worker would have received, then keeps only its own
+    share. Batches addressed to the other (hypothetical) downstream
+    workers must be dropped, otherwise a shuffled materialized port would
+    replay every partition into every worker.
+    """
+
+    @pytest.fixture
+    def me(self):
+        return ActorVirtualIdentity(name="me")
+
+    def test_only_batches_addressed_to_this_worker_are_yielded(self, me):
+        other = ActorVirtualIdentity(name="other")
+        reader = _build_reader(me)
+        reader.partitioner.add_tuple_to_batch.return_value = [
+            (other, [Tuple({"x": 9})]),
+            (me, [Tuple({"x": 1}), Tuple({"x": 2})]),
+            (other, [Tuple({"x": 8})]),
+        ]
+
+        frames = list(reader.tuple_to_batch_with_filter(Tuple({"x": 0})))
+
+        assert len(frames) == 1
+        assert frames[0].frame.to_pydict() == {"x": [1, 2]}
+
+    def test_no_batch_for_this_worker_yields_nothing(self, me):
+        other = ActorVirtualIdentity(name="other")
+        reader = _build_reader(me)
+        reader.partitioner.add_tuple_to_batch.return_value = [
+            (other, [Tuple({"x": 9})]),
+        ]
+
+        assert list(reader.tuple_to_batch_with_filter(Tuple({"x": 0}))) == []
+
+    def test_tuples_to_data_frame_projects_the_schema_column_order(self, me):
+        # Column order and arrow types come from the tuple schema, not from
+        # the tuple's own field order -- the downstream arrow reader relies
+        # on that alignment.
+        schema = Schema(raw_schema={"x": "INTEGER", "y": "STRING"})
+        reader = _build_reader(me, schema=schema)
+
+        frame = reader.tuples_to_data_frame(
+            [Tuple({"y": "a", "x": 1}), Tuple({"y": "b", "x": 2})]
+        )
+
+        assert frame.frame.column_names == ["x", "y"]
+        assert frame.frame.to_pydict() == {"x": [1, 2], "y": ["a", "b"]}
+        assert frame.frame.schema == schema.as_arrow_schema()
+
+
+class TestRunTupleLoop:
+    """Cover the tuple-replay half of run(): each stored tuple is cast to
+    the port schema, routed through the partitioner filter, and emitted as
+    a DataFrame between the StartChannel and EndChannel ECMs.
+    """
+
+    @pytest.fixture
+    def me(self):
+        return ActorVirtualIdentity(name="me")
+
+    def test_empty_materialization_publishes_schema_before_channel_markers(self, me):
+        reader = _build_reader(me, Schema(raw_schema={"actual": "LONG"}))
+        events = []
+        reader.on_schema = lambda schema: events.append(schema)
+        reader.emit_ecm = lambda name, alignment: events.append(name)
+        self._run_with_documents(reader, [])
+        assert events == [reader.tuple_schema, "StartChannel", "EndChannel"]
+        assert reader.finished()
+
+    @staticmethod
+    def _run_with_documents(reader, tuples):
+        result_doc = MagicMock()
+        result_doc.get.return_value = iter(tuples)
+        state_doc = MagicMock()
+        state_doc.get.return_value = iter([])  # no materialized states
+        with patch(DOCUMENT_FACTORY) as mock_factory:
+            mock_factory.open_document.side_effect = [
+                (result_doc, reader.tuple_schema),
+                (state_doc, None),
+            ]
+            reader.run()
+        return result_doc
+
+    def test_tuples_are_cast_to_the_port_schema_before_emission(self, me):
+        reader = _build_reader(me)
+        # A materialized INT column can come back as a float (pandas
+        # promotes null-holding int columns to float64). Without the
+        # cast_to_schema() call the arrow conversion below would not
+        # produce ints.
+        reader.partitioner.add_tuple_to_batch.side_effect = lambda tup: [(me, [tup])]
+
+        self._run_with_documents(reader, [Tuple({"x": 1.0}), Tuple({"x": 2})])
+
+        frames = _emitted_data_frames(reader)
+        assert [frame.frame.to_pydict() for frame in frames] == [
+            {"x": [1]},
+            {"x": [2]},
+        ]
+        assert all(
+            isinstance(value, int)
+            for frame in frames
+            for value in frame.frame.column("x").to_pylist()
+        )
+        assert reader.finished() is True
+
+    def test_channel_is_bracketed_by_start_and_end_ecms(self, me):
+        reader = _build_reader(me)
+        # Make the partitioner behave like the real one: flush hands back
+        # the ECM so it reaches the queue.
+        reader.partitioner.flush.side_effect = lambda receiver, ecm: [ecm]
+        reader.partitioner.add_tuple_to_batch.side_effect = lambda tup: [(me, [tup])]
+
+        self._run_with_documents(reader, [Tuple({"x": 1})])
+
+        assert _emitted_ecm_names(reader) == ["StartChannel", "EndChannel"]
+        # The data must land between the two ECMs.
+        payload_kinds = [
+            type(call.args[0]).__name__ for call in reader.queue.put.call_args_list
+        ]
+        assert payload_kinds == ["ECMElement", "DataElement", "ECMElement"]
+
+    def test_stop_halts_replay_but_still_closes_the_channel(self, me):
+        reader = _build_reader(me)
+        reader.partitioner.flush.side_effect = lambda receiver, ecm: [ecm]
+        reader.partitioner.add_tuple_to_batch.side_effect = lambda tup: [(me, [tup])]
+
+        reader.stop()
+        self._run_with_documents(reader, [Tuple({"x": 1}), Tuple({"x": 2})])
+
+        # No tuple is replayed once stopped ...
+        assert _emitted_data_frames(reader) == []
+        reader.partitioner.add_tuple_to_batch.assert_not_called()
+        # ... but the channel is still closed, so the downstream port
+        # alignment does not hang waiting for an EndChannel.
+        assert _emitted_ecm_names(reader) == ["StartChannel", "EndChannel"]
+        assert reader.finished() is True
+
+    def test_stop_sets_the_flag_before_run(self, me):
+        reader = _build_reader(me)
+        assert reader._stopped is False
+
+        reader.stop()
+
+        assert reader._stopped is True
+
+
+class TestRunErrorHandling:
+    """Detached reader failures must reach the worker through its queue.
+    A reader that failed must not report itself as finished --
+    otherwise start_input_port_mat_reader_threads would skip retrying it.
+    """
+
+    @pytest.fixture
+    def me(self):
+        return ActorVirtualIdentity(name="me")
+
+    def test_open_document_failure_is_logged_and_leaves_reader_unfinished(self, me):
+        reader = _build_reader(me)
+        messages = []
+        handler_id = logger.add(messages.append, level="ERROR")
+        try:
+            with patch(DOCUMENT_FACTORY) as mock_factory:
+                mock_factory.open_document.side_effect = RuntimeError(
+                    "catalog unreachable"
+                )
+                reader.run()  # must not raise
+        finally:
+            logger.remove(handler_id)
+
+        assert reader.finished() is False
+        reader.queue.put.assert_called_once()
+        assert reader.queue.put.call_args.args[0].tag.is_control
+        assert "catalog unreachable" in str(reader.queue.put.call_args.args[0].exception)
+        assert any("catalog unreachable" in str(message) for message in messages)
+
+    def test_open_retries_a_failure_then_reads(self, me):
+        # The catalog can refuse connections for a while ("too many clients").
+        reader = _build_reader(me)
+        reader.partitioner.flush.side_effect = lambda receiver, ecm: [ecm]
+        result_doc = MagicMock()
+        result_doc.get.return_value = iter([])
+        state_doc = MagicMock()
+        state_doc.get.return_value = iter([])
+        handler_id = logger.add(lambda _: None, level="WARNING")
+        try:
+            with patch(DOCUMENT_FACTORY) as mock_factory:
+                mock_factory.open_document.side_effect = [
+                    RuntimeError("sorry, too many clients already"),
+                    (result_doc, reader.tuple_schema),
+                    (state_doc, None),
+                ]
+                reader.run()
+        finally:
+            logger.remove(handler_id)
+
+        assert reader.finished() is True
+        assert _emitted_ecm_names(reader) == ["StartChannel", "EndChannel"]
+
+    def test_open_gives_up_after_its_attempts_naming_the_input(self, me):
+        reader = _build_reader(me)
+        handler_id = logger.add(lambda _: None, level="WARNING")
+        try:
+            with patch(DOCUMENT_FACTORY) as mock_factory:
+                mock_factory.open_document.side_effect = RuntimeError(
+                    "sorry, too many clients already"
+                )
+                with pytest.raises(RuntimeError) as raised:
+                    reader.open()
+        finally:
+            logger.remove(handler_id)
+
+        assert str(raised.value) == (
+            f"Could not open the stored input {reader.uri} after 2 attempts: "
+            "sorry, too many clients already"
+        )
+        assert mock_factory.open_document.call_count == 2
+        reader.queue.put.assert_not_called()
+
+    def test_failure_midway_leaves_the_reader_unfinished(self, me):
+        reader = _build_reader(me)
+        reader.partitioner.add_tuple_to_batch.side_effect = RuntimeError(
+            "bad partition"
+        )
+        result_doc = MagicMock()
+        result_doc.get.return_value = iter([Tuple({"x": 1})])
+        state_doc = MagicMock()
+        state_doc.get.return_value = iter([])
+
+        handler_id = logger.add(lambda _: None, level="ERROR")
+        try:
+            with patch(DOCUMENT_FACTORY) as mock_factory:
+                mock_factory.open_document.side_effect = [
+                    (result_doc, reader.tuple_schema),
+                    (state_doc, None),
+                ]
+                reader.run()
+        finally:
+            logger.remove(handler_id)
+
+        # The EndChannel is never reached, so the reader stays unfinished.
+        assert reader.finished() is False
+        assert _emitted_ecm_names(reader) == []

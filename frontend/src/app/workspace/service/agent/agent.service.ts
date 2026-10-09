@@ -60,21 +60,21 @@ export interface AgentSettingsApi {
   /** Maximum number of steps per message */
   maxSteps?: number;
   /** List of allowed operator types (empty = all operators allowed) */
-  allowedOperatorTypes?: string[];
-  /** Agent operating mode: "code" (Python load/process) or "general" (typed operators) */
-  agentMode?: "code" | "general";
-  /** Snapshot-selection policy for ReAct context (paper §5): "full" interleaves
-   *  every snapshot in full, "delta" interleaves snapshots with only changed
-   *  operators rendered in full, "latest" emits one trailing snapshot of
-   *  the current state. */
-  contextMode?: "full" | "delta" | "latest";
+  /** Agent operating mode: "native" (operator expressions + filter/map/process) or "code" (Python load/process) */
+  agentMode?: "code" | "native";
+  /** Snapshot-selection policy for ReAct context (paper §5): "delta"
+   *  interleaves snapshots with only changed operators rendered in full,
+   *  "latest" emits one trailing snapshot of the current state. The agent
+   *  service accepts exactly these two values. */
+  contextMode?: "delta" | "latest";
   /** When true, the model may emit multiple tool calls in one assistant turn.
    *  The agent serializes them in topological order via `ToolCallScheduler`. */
   parallelToolCalls?: boolean;
   /** When true, every non-error operator result that the backend annotated
    *  with `columnStats` is followed by a `Column stats:` block (one line per
-   *  column) in the assembled context. */
-  statsEnabled?: boolean;
+   *  column) in the assembled context. Wire name matches the agent-service
+   *  knob (`AgentSettings.columnStats`). */
+  columnStats?: boolean;
 }
 
 /** LLM driver picked at agent construction. `vercel-tool-use` is the
@@ -131,7 +131,9 @@ export interface OperatorResultSummary {
   consoleLogCount?: number;
   totalRowCount?: number;
   sampleRecords?: Record<string, any>[];
-  resultStatistics?: Record<string, string>;
+  /** Per-column stats JSON strings keyed by column name — the agent service's
+   *  `OperatorResultSummaryWs.columnStats`. */
+  columnStats?: Record<string, string>;
 }
 
 /**
@@ -373,6 +375,7 @@ export class AgentService {
       timestamp: new Date(apiStep.timestamp),
       role: apiStep.role || "agent",
       content: apiStep.content || "",
+      reasoningText: apiStep.reasoningText,
       isBegin: apiStep.isBegin || false,
       isEnd: apiStep.isEnd || false,
       toolCalls: apiStep.toolCalls,
@@ -1090,10 +1093,7 @@ export class AgentService {
    */
   public getSnapshotTree(agentId: string): Observable<SnapshotTreeResponse> {
     return this.http
-      .get<SnapshotTreeResponse>(
-        `${this.AGENT_API_BASE}/agents/${agentId}/snapshot-tree`,
-        this.agentHeaders(agentId)
-      )
+      .get<SnapshotTreeResponse>(`${this.AGENT_API_BASE}/agents/${agentId}/snapshot-tree`, this.agentHeaders(agentId))
       .pipe(catchError(() => of({ rootId: "", nodes: [] } as SnapshotTreeResponse)));
   }
 
@@ -1337,7 +1337,6 @@ export class AgentService {
             executionTimeoutMinutes: 10,
             disabledTools: [],
             maxSteps: 10,
-            allowedOperatorTypes: [],
           })
         )
       );
@@ -1370,17 +1369,6 @@ export class AgentService {
           return throwError(() => new Error(errorMsg));
         })
       );
-  }
-
-  /**
-   * Get all available operator types for an agent.
-   */
-  public getAvailableOperatorTypes(agentId: string): Observable<Array<{ type: string; description: string }>> {
-    return this.http
-      .get<
-        Array<{ type: string; description: string }>
-      >(`${this.AGENT_API_BASE}/agents/${agentId}/operator-types`, this.agentHeaders(agentId))
-      .pipe(catchError(() => of([])));
   }
 
   // ============================================================================

@@ -38,7 +38,6 @@ import type { LogicalLink, LogicalPlan } from "../../src/api/execution-api";
 import type { OperatorPredicate, WorkflowContent } from "../../src/types/workflow";
 import type { OperatorInfo, SyncExecutionResult } from "../../src/types/execution";
 
-import { CODE_WORKFLOW_SPECS } from "./code-workflows";
 import { CODE_MODE_WORKFLOW_SPECS } from "./code-mode-workflows";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,7 +55,7 @@ const LOCAL_CU_URI =
   process.env.TEXERA_LOCAL_CU_URI ?? process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT ?? "http://localhost:8085";
 
 interface WorkflowJob {
-  label: string; // e.g. "[Code] Iris Chain"
+  label: string; // e.g. "[CodeMode] W1 single-input chain"
   name: string; // unique persisted name for this run
   description: string;
   content: WorkflowContent;
@@ -101,15 +100,6 @@ async function loadGeneralWorkflows(): Promise<WorkflowJob[]> {
     });
   }
   return jobs;
-}
-
-function buildCodeWorkflows(): WorkflowJob[] {
-  return CODE_WORKFLOW_SPECS.map(spec => ({
-    label: spec.name,
-    name: spec.name,
-    description: spec.description,
-    content: spec.build(DATA_DIR),
-  }));
 }
 
 function buildCodeModeWorkflows(): WorkflowJob[] {
@@ -235,7 +225,8 @@ function buildLogicalPlanFromContent(content: WorkflowContent): LogicalPlan {
 function summarizeOperatorInfo(opId: string, info: OperatorInfo): string {
   if (info.error) return `  ✗ ${opId}: ${info.error.split("\n")[0]}`;
   const rows = info.totalRowCount ?? info.outputTuples ?? 0;
-  const cols = info.result && info.result.length > 0 ? Object.keys(info.result[0]).filter(k => k !== "__row_index__").length : "?";
+  const cols =
+    info.result && info.result.length > 0 ? Object.keys(info.result[0]).filter(k => k !== "__row_index__").length : "?";
   return `  ✓ ${opId}: rows=${rows} cols=${cols} state=${info.state}`;
 }
 
@@ -408,11 +399,10 @@ async function main(): Promise<void> {
   const ownerEmail = user.email || user.name;
 
   const generalWorkflows = await loadGeneralWorkflows();
-  const codeWorkflows = buildCodeWorkflows();
+  // Code mode emits DataLoading / DataProcessing operators; the legacy
+  // PythonUDFV2 specs were retired with the operator the agent no longer writes.
   const codeModeWorkflows = buildCodeModeWorkflows();
-  log(
-    `loaded ${generalWorkflows.length} general + ${codeWorkflows.length} code + ${codeModeWorkflows.length} code-mode workflows`
-  );
+  log(`loaded ${generalWorkflows.length} general + ${codeModeWorkflows.length} code-mode workflows`);
 
   const usage = collectDatasetUsage(generalWorkflows);
   log(`general workflows reference ${usage.size} dataset(s): ${[...usage.keys()].join(", ") || "(none)"}`);
@@ -436,13 +426,18 @@ async function main(): Promise<void> {
       const remap = new Map(
         provisioned.map(p => [
           p.originalDataset,
-          { newOwner: p.newOwner, newDataset: p.newDataset, newVersion: p.newVersion, originalDataset: p.originalDataset },
+          {
+            newOwner: p.newOwner,
+            newDataset: p.newDataset,
+            newVersion: p.newVersion,
+            originalDataset: p.originalDataset,
+          },
         ])
       );
       rewriteDatasetPaths(generalWorkflows, remap);
     }
 
-    const allJobs = [...generalWorkflows, ...codeWorkflows, ...codeModeWorkflows];
+    const allJobs = [...generalWorkflows, ...codeModeWorkflows];
     for (const job of allJobs) {
       try {
         const { wid, ok } = await runWorkflow(token, job, runId, cuid);

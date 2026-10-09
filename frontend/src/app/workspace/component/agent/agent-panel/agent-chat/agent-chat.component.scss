@@ -409,6 +409,26 @@
   }
 }
 
+// Time axis (left gutter): one label per rank, aligned with the node centres.
+.tree-time-axis {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-right: 1px solid #f0f0f0;
+  pointer-events: none;
+}
+
+.tree-time-label {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font-size: 9px;
+  line-height: 1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  color: #8c8c8c;
+  white-space: nowrap;
+}
+
 // SVG edges
 .tree-edges {
   position: absolute;
@@ -420,31 +440,33 @@
 .tree-edge {
   fill: none;
   stroke: #d9d9d9;
-  stroke-width: 1.5;
+  stroke-width: 1.25;
 
   &.on-path {
-    stroke: #91d5ff;
-    stroke-width: 2;
+    stroke: #69b1ff;
+    stroke-width: 1.75;
   }
 
+  // Abandoned branches: dashed and faded, so a fork away from the active
+  // lineage reads as a side branch rather than a fainter continuation.
   &.off-path {
-    opacity: 0.4;
+    opacity: 0.65;
+    stroke-dasharray: 3 3;
   }
 }
 
-// Snapshot nodes — single row, rounded rectangle. Every node shares one
-// neutral colour; only the active snapshot (the one currently rendered on the
-// canvas) is tinted and outlined.
+// Snapshot nodes — compact single-line pills. Nodes on the active path get a
+// blue outline; the active snapshot (rendered on the canvas) is filled blue.
 .snapshot-node {
   position: absolute;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 0 6px;
   background: #ffffff;
-  border: 1.5px solid #d9d9d9;
-  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+  border-radius: 11px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   cursor: pointer;
   transition:
     opacity 0.2s ease,
@@ -456,29 +478,36 @@
     background: #f5f5f5;
   }
 
+  // On the root→active path: blue outline, so the lineage reads at a glance.
+  &.on-path {
+    border-color: #69b1ff;
+    .snapshot-node-label {
+      color: #1d39c4;
+    }
+  }
+
   // Off the active path: dimmed (still the same base colour).
   &.off-path {
-    opacity: 0.5;
+    opacity: 0.45;
     &:hover {
       opacity: 0.85;
     }
   }
 
-  // The active snapshot — distinct fill + a dashed outline highlight.
+  // The active snapshot — solid fill, white label.
   &.is-active {
-    background: #e6f7ff;
-    border-color: #1890ff;
-    outline: 2px dashed #fa8c16;
-    outline-offset: 1px;
+    background: #1677ff;
+    border-color: #1677ff;
+    box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.18);
 
     .snapshot-node-label {
-      color: #0958d9;
+      color: #ffffff;
       font-weight: 600;
     }
   }
 
   .snapshot-node-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     color: #595959;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
@@ -487,15 +516,7 @@
     text-overflow: ellipsis;
     width: 100%;
     text-align: center;
-    line-height: 1.2;
-  }
-
-  .snapshot-node-time {
-    font-size: 9px;
-    font-family: monospace;
-    color: #8c8c8c;
-    white-space: nowrap;
-    line-height: 1.2;
+    line-height: 1;
   }
 }
 
@@ -694,4 +715,91 @@
 
 .next-context-meta {
   font-size: 11px;
+}
+
+// Settings → Parameters → "Panel Views": stacked switch rows.
+.settings-param-switches {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.settings-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #595959;
+  cursor: pointer;
+}
+
+// ---------------------------------------------------------------------------
+// Drag & drop file upload
+// ---------------------------------------------------------------------------
+
+.agent-chat-container {
+  position: relative;
+}
+
+// Covers the whole panel while a file drag is in progress. `pointer-events: none`
+// matters: the overlay must not swallow the drop, and it must not generate its
+// own dragleave when it appears under the pointer.
+.file-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+  background: rgba(24, 144, 255, 0.06);
+  border: 2px dashed #1890ff;
+  border-radius: 6px;
+  color: #1890ff;
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+
+  i {
+    font-size: 28px;
+  }
+}
+
+.file-upload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px 0;
+}
+
+.file-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #595959;
+
+  i {
+    font-size: 12px;
+    color: #1890ff;
+  }
+
+  &.failed i {
+    color: #ff4d4f;
+  }
+}
+
+.file-upload-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.file-upload-status {
+  color: #8c8c8c;
+  flex-shrink: 0;
 }

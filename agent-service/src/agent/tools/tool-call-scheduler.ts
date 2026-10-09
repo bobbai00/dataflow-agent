@@ -102,7 +102,7 @@ export function defaultProducedOpId(toolName: string, input: any): string | unde
     toolName === "modifyOperator" ||
     toolName === "deleteOperator"
   ) {
-    const id = (input as any).operatorId;
+    const id = (input as any).operatorId ?? (input as any).id;
     return typeof id === "string" && id.length > 0 ? id : undefined;
   }
   return undefined;
@@ -143,10 +143,7 @@ export interface SchedulerOptions {
  * executed; the validation inside each tool's `execute` will produce a
  * meaningful error per call.
  */
-export function computeTopologicalOrder(
-  batch: ScheduledCall[],
-  opts: Required<SchedulerOptions>
-): number[] {
+export function computeTopologicalOrder(batch: ScheduledCall[], opts: Required<SchedulerOptions>): number[] {
   const n = batch.length;
   if (n <= 1) return batch.map((_, i) => i);
 

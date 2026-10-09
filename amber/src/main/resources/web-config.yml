@@ -21,10 +21,10 @@ server:
   applicationContextPath: /
   applicationConnectors:
     - type: http
-      port: 8080
+      port: ${TEXERA_WEB_PORT:-8080}
   adminConnectors:
     - type: http
-      port: 8081
+      port: ${TEXERA_WEB_ADMIN_PORT:-8081}
   requestLog:
     type: classic
     timeZone: UTC

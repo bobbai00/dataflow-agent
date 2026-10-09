@@ -91,6 +91,15 @@
   border-radius: 8px;
   flex-shrink: 0;
 
+  // The two marks have very different ink coverage (Claude's burst fills its
+  // canvas, OpenAI's knot is drawn with generous padding), so they are sized
+  // individually rather than by one shared box.
+  .model-provider-icon {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+  }
+
   i {
     font-size: 28px;
     color: #1890ff;

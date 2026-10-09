@@ -478,7 +478,6 @@ function richLatestParams() {
     compilationResult: null,
     agentMode: AgentMode.CODE,
     schemaInResult: true,
-    columnStats: true,
   });
 }
 
@@ -494,15 +493,15 @@ describe("frontier decay", () => {
     expect(source.result.latest.detail).toBe("sample");
     expect(source.result.latest.tuple.sampleRows).toBe(3);
     expect(source.result.latest.column.schema).toBe(true);
-    expect(source.result.latest.column.stats).toBe(false);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
 
     const nearFrontier = resolveOperatorParams(params, "agg");
     expect(nearFrontier.result.latest.tuple.sampleRows).toBe(0);
-    expect(nearFrontier.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(nearFrontier.result.latest.column ?? {}, "stats")).toBe(false);
 
     const frontier = resolveOperatorParams(params, "answer");
     expect(frontier.result.latest.tuple.sampleRows).toBe(0);
-    expect(frontier.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(frontier.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("validates the conservative row and age bounds", () => {
@@ -523,7 +522,7 @@ describe("frontier decay", () => {
     for (const sourceId of ["src_a", "src_b"]) {
       const source = resolveOperatorParams(params, sourceId);
       expect(source.result.latest.tuple.sampleRows).toBe(0);
-      expect(source.result.latest.column.stats).toBe(true);
+      expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
     }
   });
 
@@ -532,7 +531,7 @@ describe("frontier decay", () => {
     const source = resolveOperatorParams(params, "src");
 
     expect(source.result.latest.tuple.sampleRows).toBe(0);
-    expect(source.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("protects dirty loads whose generic headers may need raw rows", () => {
@@ -546,7 +545,7 @@ describe("frontier decay", () => {
     const source = resolveOperatorParams(params, "src");
 
     expect(source.result.latest.tuple.sampleRows).toBe(0);
-    expect(source.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("requires the sole consumer to be healthy in the current leaf snapshot", () => {
@@ -557,14 +556,14 @@ describe("frontier decay", () => {
     const params = applyFrontierDecay(richLatestParams(), dossier, parseFrontierDecayConfig({}));
     const source = resolveOperatorParams(params, "src_a");
     expect(source.result.latest.tuple.sampleRows).toBe(0);
-    expect(source.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("keeps parents on the consumer's first healthy materialization event", () => {
     const params = applyFrontierDecay(richLatestParams(), firstHealthyConsumerDossier(), parseFrontierDecayConfig({}));
     const source = resolveOperatorParams(params, "src_a");
     expect(source.result.latest.tuple.sampleRows).toBe(0);
-    expect(source.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("ignores healthy consumer results that predate a later rewrite", () => {
@@ -575,7 +574,7 @@ describe("frontier decay", () => {
     );
     const source = resolveOperatorParams(params, "src_a");
     expect(source.result.latest.tuple.sampleRows).toBe(0);
-    expect(source.result.latest.column.stats).toBe(true);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("does not apply the current-snapshot policy to delta history", () => {
@@ -583,7 +582,6 @@ describe("frontier decay", () => {
       compilationResult: null,
       agentMode: AgentMode.CODE,
       schemaInResult: true,
-      columnStats: true,
     });
 
     expect(applyFrontierDecay(delta, healthyChainDossier(), parseFrontierDecayConfig({}))).toEqual(delta);
@@ -627,6 +625,6 @@ describe("frontier decay", () => {
     );
     const source = resolveOperatorParams(patched, "src");
     expect(source.result.latest.tuple.sampleRows).toBe(2);
-    expect(source.result.latest.column.stats).toBe(false);
+    expect(Object.hasOwn(source.result.latest.column ?? {}, "stats")).toBe(false);
   });
 });

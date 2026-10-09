@@ -1,0 +1,25 @@
+session,turns,analysis_focus,state_management_opportunity,review_turns,update_labels,rollback_labels,counterfactual_labels,max_direct_dependency_span,rollback_labels_with_direct_span_at_least_10
+business/netflix_movies_and_tv_shows/task2,34,"Launch-market attribution, maturity and timing",Selective rollback and branch composition,"17,20,29,31",15,14,10,30,8
+business/netflix_movies_and_tv_shows/task3,36,Opportunity scoring and practical-market screening,Mixed historical components on a current market screen,"29,34",14,12,13,30,5
+business/netflix_movies_and_tv_shows/task4,32,Production-market portfolio and readiness,Correct update propagation across independently timed ingredients,"27,30",10,6,10,29,5
+business/nyc_restaurants_data_food_ordering_and_delivery/task2,33,"Restaurant commissions, service, quality and customer cohorts",Undo one penalty while keeping current customer and quality judgments,"17,24,28",11,8,5,30,6
+community/kaggle-survey-2018/task3,30,"Fairness, explainability and reproducibility survey topics",Primarily cross-topic retrieval; useful control for historical labels,"24,28,30",7,8,0,27,8
+community/kaggle-survey-2019/task1,30,"PhD skills, networks, country clusters and salaries",Preserve full cohorts beside salary-filtered branches,"22,28,30",5,5,0,27,5
+community/kaggle-survey-2019/task3,30,"Degree cohorts, salary definitions and model importance",Keep distinct high-earner definitions and fitted model artifacts,"10,26,28",2,3,0,29,3
+community/kaggle-survey-2020/task2,30,Cross-year survey tools and language usage,Reuse and lineage control; no annotated rollback,"13,27,30",0,0,1,27,0
+community/kaggle-survey-2022/task1,27,Country-factor distributions and maturity profiles,Composition control; no annotated rollback,"18,26,27",4,0,0,25,0
+community/kaggle-survey-2022/task2,30,"AutoML adopter cohorts, denominators and role intensity",Selective rollback while keeping current denominator and skew anchors,"14,16,29,30",8,3,7,25,1
+education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task2,30,Engagement time windows and state characteristics,Aggregation and scope control; most long links reuse existing tables,"24,27,29",7,1,0,29,1
+education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3,30,"Matched engagement samples, subgroup filters and state rankings",Keep several cohort and aggregation choices separate,"23,28,29",11,4,6,27,4
+education/world_university_rankings/task3,23,ARWU recomputed scores and country rankings,Simple adjacent-version comparison; weak version-loss test,"2,19,23",4,1,5,20,0
+geoscience/marmara-region-earthquakes-apr-2324-2025/task1,36,"Earthquake cleaning, pressure, corridor and sequence models",Branch isolation and rolling back one spatial assignment rule,"18,29,30,34",9,12,5,35,7
+geoscience/phase-ii-widsdatathon2022/task1,40,"Energy geometry, denominators and pollution risk",Disconnected branch retention and old-score/current-cohort composition,"25,30,37,38",9,4,5,38,3
+geoscience/phase-ii-widsdatathon2022/task3,36,"County health-risk cleanup, deleted fields and domain scores",Recover removed subgroup columns; update only clinical dependents,"14,24,25,33",13,7,7,30,5
+geoscience/water-potability/task1,34,Water-chemistry repairs and repeated severity screens,Changed imputation propagates downstream; query earlier repaired state,"24,28,34",13,5,6,32,3
+social_good/careerVillage_org/task1,30,"Career questions, answer times, tags and notification cohorts",Read-mostly reuse/control; no annotated rollback,"22,28,30",2,0,0,29,0
+social_good/careerVillage_org/task2,30,"Professional matching, clustering, tag quality and salaries",Read-mostly reuse and fitted-artifact control; no annotated rollback,"19,22,29",4,0,0,29,0
+social_good/data_science_for_good_kiva_crowdfunding/task1,37,"Kiva funding, poverty, partner rules and recommendation cohorts",Compose old funding/partner rules with current complete-data boundary,"27,28,29,34",11,12,13,31,9
+social_good/passnyc/task1,30,"School cohorts, clustering and intervention priorities",Scope/denominator control rather than lost-state recovery,"20,26,27",10,3,5,24,3
+sports/big_data_derby_2022/task1,35,"Horse welfare screens, references and weighted alerts",Rollback references without reverting the current sample and trend,"12,23,27,34",10,10,7,31,4
+sports/march_madness_analytics/task1,32,"Basketball screening, halftime boundaries and resilience",Composition of old screens with current pressure-weighted signals,"27,30,32",8,7,6,24,4
+sports/nfl_big_data_bowl_2023/task1,42,"NFL protection formulas, candidates and team scores",Old formula/current candidate pool and selective team-rule rollback,"32,33,34",11,13,12,40,7

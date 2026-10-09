@@ -67,10 +67,7 @@ Result:
   	customer_id	name	email	signup_date	tier
   0	C001	Alice	alice@example.com	2023-01-15	gold
   ...
-  Column Schema and stats:
-  - "tier" (str): null=0, distinct=3, top_5={"gold"=4200, "silver"=3800, "bronze"=2000}
-  - "customer_id" (str): null=0, distinct=10000
-  - "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30
+  Schema (2 cols): tier (str), customer_id (str)
 
 ### Operator `orders` (DataLoading)
 Summary: Load orders.csv (skip 1 banner line)
@@ -82,10 +79,7 @@ Result:
   	order_id	customer_id	amount	order_date
   0	O001	C001	250.00	2024-11-05
   ...
-  Column Schema and stats:
-  - "customer_id" (str): null=0, distinct=10000
-  - "order_date" (datetime): null=0, min=2024-09-15, max=2024-11-12
-  - "amount" (numeric): null=0, mean=219.2, min=95.00, max=520.0
+  Schema (2 cols): customer_id (str), amount (numeric)
 ```
 
 Thought: Parse verified — row counts plausible, headers are real column names, value ranges sensible. Join-key check: `customer_id` has null=0 on BOTH tables — safe key. The next step CONSUMES both loads, so one dependent call this turn.
@@ -107,9 +101,7 @@ Result:
   	customer_id	name	email	signup_date	tier	order_id	amount	order_date
   0	C001	Alice	alice@example.com	2023-01-15	gold	O4521	1200.00	2024-11-10
   ...
-  Column Schema and stats:
-  - "customer_id" (str): null=0, distinct=312
-  - "amount" (numeric): null=0, mean=485.3, min=15.00, max=2500
+  Schema (2 cols): customer_id (str), amount (numeric)
 ```
 
 Thought: Stats confirm the join worked (312 distinct customers had recent orders). Now aggregate by customer, apply the $1000 premium threshold, and take the top 5 by total spending — all in one operator.

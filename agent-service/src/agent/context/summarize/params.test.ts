@@ -37,7 +37,7 @@ describe("SummarizeParams schema", () => {
     expect(p.trajectory.observations).toBe("delta");
     expect(p.currentSnapshot).toBe(true);
     expect(p.operators.defaults.result.latest.detail).toBe("sample");
-    expect(p.operators.defaults.result.latest.column.statsMetrics).toBe("all");
+    expect(Object.hasOwn(p.operators.defaults.result.latest.column ?? {}, "statsMetrics")).toBe(false);
     expect(p.operators.defaults.result.history.lastK).toBe(0);
     expect(p.operators.defaults.property.includeCode).toBe(false);
     expect(p.operators.overrides).toEqual({});
@@ -47,7 +47,7 @@ describe("SummarizeParams schema", () => {
     expect(() => parseSummarizeParams({ trajectory: { events: "bogus" } })).toThrow();
     expect(() => parseSummarizeParams({ operators: { defaults: { result: { latest: { detail: "x" } } } } })).toThrow();
     expect(() =>
-      parseSummarizeParams({ operators: { defaults: { result: { latest: { column: { statsMetrics: ["nope"] } } } } } })
+      parseSummarizeParams({ operators: { defaults: { result: { latest: { column: { stats: true } } } } } })
     ).toThrow();
   });
 
@@ -98,12 +98,7 @@ describe("mapLegacyToParams — the presets", () => {
     // …including with every legacy knob turned on:
     const maxed = mapLegacyToParams(ContextMode.LATEST, {
       compilationResult: null,
-      agentMode: AgentMode.GENERAL,
-      flowLevel: 3,
-      dataLevel: 3,
-      columnStats: true,
-      valueFormatFlags: true,
-      tableStructureHint: true,
+      agentMode: AgentMode.CODE,
       thoughtReplay: true,
       agentTurns: true,
       errorReflection: true,
@@ -112,24 +107,5 @@ describe("mapLegacyToParams — the presets", () => {
       contextWindowTokens: 1000,
     });
     expect(needsExtras(maxed)).toBe(false);
-  });
-
-  test("decorate levels expand to flow/data params", () => {
-    const p = mapLegacyToParams(ContextMode.LATEST, {
-      compilationResult: null,
-      agentMode: AgentMode.CODE,
-      flowLevel: 2,
-      dataLevel: 1,
-    });
-    expect(p.flow.loaderHints).toBe(true); // flow L1
-    expect(p.flow.errorContext).toBe(true); // flow L2 (error-context)
-    expect(p.flow.graphAudit).toBe(false); // flow L3 not reached
-    expect(p.operators.defaults.result.latest.column.schema).toBe(true); // data L1
-    expect(p.operators.defaults.result.latest.column.structuralHints).toBe(false); // data L2 not reached
-  });
-
-  test("GENERAL agent mode maps to compiledSchemas", () => {
-    const p = mapLegacyToParams(ContextMode.LATEST, { compilationResult: null, agentMode: AgentMode.GENERAL });
-    expect(p.compiledSchemas).toBe(true);
   });
 });

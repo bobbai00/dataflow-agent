@@ -1,0 +1,1683 @@
+{
+  "_metadata": {
+    "visibility": "evaluator only; never sent to agents",
+    "purpose": "Post-run trace-audited mappings, not score-selected mappings. Each check names its columns and analytical role; it does not certify the whole analysis.",
+    "population": "Named-university checks exclude the reference-excluded unnamed row. Cleaned earthquake checks accept an explicitly materialized retention mask.",
+    "timezone": "Terra dataflow code explicitly localized to Europe/Istanbul; its UTC instants are converted back before comparing source clock labels. Downstream hour-bucket errors remain failures.",
+    "missing": "No complete pressure table is exported in three of four dataflow sessions; these checks are unknown."
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__terra__dataflow__catalog": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "earthquake_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "reported_time": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        },
+        "timezones": {
+          "origin_time": "Europe/Istanbul"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "earthquake_spatial_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "earthquake_spatial_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_activity_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "earthquake_sequence_cleaned",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "earthquake_sequence_cleaned",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "_saved_earthquake_sequence_grid_5c66e0da19ab",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": null,
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__terra__dataflow__trajectory": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "earthquake_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "parsed_occurrence_time": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        },
+        "timezones": {
+          "origin_time": "Europe/Istanbul"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "earthquake_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "is_far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "earthquake_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "is_marmara_main_activity_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "earthquake_sequence_cleaned",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "earthquake_sequence_cleaned",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "earthquake_sequence_preclean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": "earthquake_cleaned_pressure",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__luna__dataflow__catalog": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "eq_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "parsed_time": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "eq_spatial",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "eq_spatial",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "eq_cleaned",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "eq_cleaned",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "_saved_eq_not_far_ab82df59a641",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": null,
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__luna__dataflow__trajectory": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "eq_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "parsed_timestamp": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "eq_spatial",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "eq_spatial",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "eq_clean_with_magnitude",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [],
+        "where": [
+          {
+            "column": "retained",
+            "equals": true
+          }
+        ]
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "eq_clean_with_magnitude",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [],
+        "where": [
+          {
+            "column": "retained",
+            "equals": true
+          }
+        ]
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "eq_clean_with_magnitude",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": null,
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__terra__python__catalog": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "earthquake_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "occurrence_time": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "earthquake_analysis_task2",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "earthquake_analysis_task2",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_activity_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "sequence_analysis_clean3",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "sequence_analysis_clean3",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "pre",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": "ret5",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__terra__python__trajectory": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "ordered_event_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "occurrence_timestamp": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "ordered_event_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "ordered_event_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_activity_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "sequence_cleaned_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "sequence_cleaned_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "precleaned_sequence_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": "pressure_analysis",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__luna__python__catalog": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "analysis_table",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "parsed_timestamp": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "at",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "at",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "clean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "clean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "work",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": "clean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "geoscience__marmara-region-earthquakes-apr-2324-2025__task1__luna__python__trajectory": {
+    "1": [
+      {
+        "role": "ordered_source_time",
+        "oracle_turn": 1,
+        "oracle_name": "work_time",
+        "actual_name": "analysis_event_table",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "origin_time"
+        ],
+        "rename": {
+          "parsed_timestamp": "origin_time"
+        },
+        "types": {
+          "origin_time": "datetime_wall"
+        }
+      }
+    ],
+    "2": [
+      {
+        "role": "spatial_working_table",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "analysis_event_table_spatial",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "place_family",
+          "distance_km",
+          "bearing_sector",
+          "near_city",
+          "far_outlier"
+        ],
+        "rename": {
+          "istanbul_distance_km": "distance_km",
+          "far_distance": "far_outlier"
+        }
+      },
+      {
+        "role": "main_belt_membership",
+        "oracle_turn": 2,
+        "oracle_name": "work_spatial",
+        "actual_name": "analysis_event_table_spatial",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "main_activity_band"
+        ],
+        "rename": {
+          "marmara_main_belt": "main_activity_band"
+        }
+      }
+    ],
+    "3": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 3,
+        "oracle_name": "current_events",
+        "actual_name": "sequence_clean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "4": [
+      {
+        "role": "retained_event_population",
+        "oracle_turn": 4,
+        "oracle_name": "current_events",
+        "actual_name": "sequence_clean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      },
+      {
+        "role": "original_events_used_by_comparison",
+        "oracle_turn": 4,
+        "oracle_name": "pre_clean_events",
+        "actual_name": "sequence_preclean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": []
+      }
+    ],
+    "5": [
+      {
+        "role": "retained_pressure_values",
+        "oracle_turn": 5,
+        "oracle_name": "current_events",
+        "actual_name": "pressure_clean",
+        "keys": [
+          "event_id"
+        ],
+        "columns": [
+          "pressure_initial"
+        ],
+        "rename": {
+          "pressure_score": "pressure_initial"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__terra__dataflow__catalog": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "arwu_rankings",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "arwu_2015_country_rows",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__terra__dataflow__trajectory": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "arwu_rankings",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "arwu_2015_country_normalized",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__luna__dataflow__catalog": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "_saved_arwu_774195199f80",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "country_assignment_2015",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country_final": "country",
+          "total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__luna__dataflow__trajectory": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu_scored",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu_scored",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "arwu",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "arwu_2015",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__terra__python__catalog": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "recomputed_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "recomputed_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "arwu",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "y2015",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "recomputed_total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__terra__python__trajectory": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu_recomputed",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "arwu_raw",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "arwu_2015",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__luna__python__catalog": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "recomputed_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "recomputed_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "a",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "original_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "r15",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "recomputed_total_score": "total_score"
+        }
+      }
+    ]
+  },
+  "education__world_university_rankings__task3__luna__python__trajectory": {
+    "1": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 1,
+        "oracle_name": "data",
+        "actual_name": "arwu",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "recomputed_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "role": "named_universities_recomputed_score",
+        "oracle_turn": 2,
+        "oracle_name": "data",
+        "actual_name": "arwu",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "recomputed_total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      },
+      {
+        "role": "named_universities_original_score",
+        "oracle_turn": 2,
+        "oracle_name": "raw",
+        "actual_name": "arwu_raw",
+        "keys": [
+          "year",
+          "university_name",
+          "world_rank",
+          "pub"
+        ],
+        "columns": [
+          "total_score"
+        ],
+        "rename": {
+          "total_score": "total_score"
+        },
+        "where": [
+          {
+            "column": "university_name",
+            "nonempty": true
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "role": "2015_country_working_table",
+        "oracle_turn": 3,
+        "oracle_name": "data_2015",
+        "actual_name": "subset2015",
+        "keys": [
+          "university_name"
+        ],
+        "columns": [
+          "country",
+          "total_score"
+        ],
+        "rename": {
+          "country": "country",
+          "recomputed_total_score": "total_score"
+        }
+      }
+    ]
+  }
+}

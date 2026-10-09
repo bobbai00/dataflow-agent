@@ -122,8 +122,10 @@ class MachineLearningScorerOpDesc extends PythonOperatorDescriptor {
       case _                           => throw new IllegalArgumentException("Unknown metric type")
     }
 
-  private def getSelectedMetrics(): EncodableString = {
-    // Return a string of metrics using the getEachScorerName() method
+  // Must be a plain String, not EncodableString: this is a raw Python fragment
+  // spliced verbatim into `metric_list = [...]`. An EncodableString would be
+  // re-encoded as one quoted value, collapsing the list into a single element.
+  private def getSelectedMetrics(): String = {
     val metric = if (isRegression) regressionMetrics else classificationMetrics
     metric.map(metric => getMetricName(metric)).mkString("'", "','", "'")
   }
@@ -155,7 +157,9 @@ class MachineLearningScorerOpDesc extends PythonOperatorDescriptor {
          |  # if the label is not a string, convert it to string
          |  labels = ['class_' + str(label) if type(label) != str else label for label in labels]
          |  result['Class'] = labels
-         |  result_df = pd.DataFrame(result)
+         |  # Column order must match the declared output schema: 'Class' first,
+         |  # then the metrics in the order they were selected.
+         |  result_df = pd.DataFrame(result)[['Class'] + metric_list]
          |
          |  return result_df
          |

@@ -28,6 +28,7 @@ from core.models import (
     TupleOperatorV2,
 )
 from core.models.operator import Operator, TableOperator
+from core.models.schema.schema import Schema
 
 
 class _ConcreteOperator(TupleOperatorV2):
@@ -227,6 +228,16 @@ class TestBatchOperatorValidation:
 
 
 class TestTableOperator:
+    def test_empty_input_and_buffer_access_preserve_each_port_schema(self):
+        op = _ConcreteTable()
+        op._set_input_schema(0, Schema(raw_schema={"x": "LONG"}))
+        op._set_input_schema(1, Schema(raw_schema={"label": "STRING"}))
+        assert list(op._buffered_table(0).columns) == ["x"]
+        assert str(op._buffered_table(0)["x"].dtype) == "Int64"
+        list(op.on_finish(port=1))
+        list(op.on_finish(port=0))
+        assert [list(table.columns) for table in op.received_tables] == [["label"], ["x"]]
+
     def test_process_tuple_buffers_input_and_yields_none(self):
         # process_tuple is @final on TableOperator: it must record the tuple
         # internally and yield exactly one None so the framework's iterator

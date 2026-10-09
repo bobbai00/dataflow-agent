@@ -22,7 +22,7 @@ package org.apache.texera.web.service
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.texera.amber.core.virtualidentity.{ExecutionIdentity, WorkflowIdentity}
 import org.apache.texera.amber.core.workflow.WorkflowContext
-import org.apache.texera.amber.engine.architecture.controller.{ControllerConfig, Workflow}
+import org.apache.texera.amber.engine.architecture.coordinator.{CoordinatorConfig, Workflow}
 import org.apache.texera.amber.engine.architecture.rpc.controlcommands.EmptyRequest
 import org.apache.texera.amber.engine.architecture.rpc.controlreturns.WorkflowAggregatedState._
 import org.apache.texera.amber.engine.common.Utils
@@ -43,7 +43,7 @@ import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutions
 import org.apache.texera.web.storage.{ExecutionCacheUsageStore, ExecutionStateStore}
 import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
 import org.apache.texera.web.{ComputingUnitMaster, SubscriptionManager, WebsocketInput}
-import org.apache.texera.workflow.WorkflowCompiler
+import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 
 import java.net.URI
 import scala.collection.mutable
@@ -76,7 +76,7 @@ object WorkflowExecutionService {
 }
 
 class WorkflowExecutionService(
-    controllerConfig: ControllerConfig,
+    coordinatorConfig: CoordinatorConfig,
     val workflowContext: WorkflowContext,
     resultService: ExecutionResultService,
     cacheService: OperatorPortCacheService,
@@ -88,9 +88,14 @@ class WorkflowExecutionService(
 ) extends SubscriptionManager
     with LazyLogging {
 
-  workflowContext.workflowSettings = request.workflowSettings
-  val wsInput = new WebsocketInput(errorHandler)
+  private val phaseTracker = new ExecutionPhaseTracker()
+  def phaseMetrics: ExecutionPhaseMetrics = phaseTracker.snapshot
 
+  // Wire error/state reporting first, before any other construction work, so a
+  // fatalErrors update (recorded by errorHandler) always has an emitter.
+  // Construction itself does no external work and cannot throw; the throwing
+  // work lives in executeWorkflow(), whose failures reach the UI through this
+  // same handler.
   addSubscription(
     executionStateStore.metadataStore.registerDiffHandler((oldState, newState) => {
       val outputEvents = new mutable.ArrayBuffer[TexeraWebSocketEvent]()
@@ -116,6 +121,9 @@ class WorkflowExecutionService(
       newState.lastUpdate.toList
     })
   )
+
+  workflowContext.workflowSettings = request.workflowSettings
+  val wsInput = new WebsocketInput(errorHandler)
 
   private def createStateEvent(state: ExecutionMetadataStore): WorkflowStateEvent = {
     if (state.isRecovering && state.state != COMPLETED) {
@@ -145,7 +153,8 @@ class WorkflowExecutionService(
   private def computeCachedOutputs(
       physicalPlan: org.apache.texera.amber.core.workflow.PhysicalPlan
   ): Map[GlobalPortIdentity, CachedOutput] = {
-    cacheService.lookupCachedOutputs(workflowContext.workflowId, physicalPlan)
+    cacheService.lookupCachedOutputs(workflowContext.workflowId, physicalPlan) ++
+      HistoricalResultService.bindings(workflowContext.workflowId, physicalPlan, request.workflowSettings.savedOutputs)
   }
 
   /**
@@ -178,11 +187,15 @@ class WorkflowExecutionService(
     */
   def executeWorkflow(): Unit = {
     try {
-      workflow = new WorkflowCompiler(workflowContext)
-        .compile(request.logicalPlan)
+      val compilationResult = phaseTracker.observeCompilation {
+        new WorkflowCompiler(workflowContext)
+          .compile(request.logicalPlan, CompilationErrorHandling.Strict)
+      }
+      workflow = Workflow.fromCompilationResult(workflowContext, compilationResult)
       val cachedOutputsByPort = computeCachedOutputs(workflow.physicalPlan)
-      val cachedOutputs = cachedOutputsByPort.map { case (gpid, cached) =>
-        gpid.serializeAsString -> cached
+      val cachedOutputs = cachedOutputsByPort.map {
+        case (gpid, cached) =>
+          gpid.serializeAsString -> cached
       }
       workflowContext.workflowSettings =
         workflowContext.workflowSettings.copy(cachedOutputs = cachedOutputs)
@@ -193,32 +206,34 @@ class WorkflowExecutionService(
       )
     } catch {
       case err: Throwable =>
+        // stop here: `workflow` is still null, so falling through would NPE
+        // below and mask the reported compilation error
         errorHandler(err)
+        return
     }
 
     client = ComputingUnitMaster.createAmberRuntime(
       workflow.context,
       workflow.physicalPlan,
-      controllerConfig,
+      coordinatorConfig,
       errorHandler
     )
     executionReconfigurationService =
       new ExecutionReconfigurationService(client, executionStateStore, workflow)
     executionStatsService = new ExecutionStatsService(client, executionStateStore, workflow.context)
-    executionCacheService =
-      new ExecutionCacheService(
-        client,
-        cacheService,
-        workflow.context,
-        workflow.physicalPlan,
-        executionStateStore
-      )
+    executionCacheService = new ExecutionCacheService(
+      client,
+      cacheService,
+      workflow.context,
+      workflow.physicalPlan,
+      executionStateStore
+    )
     executionRuntimeService = new ExecutionRuntimeService(
       client,
       executionStateStore,
       wsInput,
       executionReconfigurationService,
-      controllerConfig.faultToleranceConfOpt,
+      coordinatorConfig.faultToleranceConfOpt,
       workflowContext.workflowId.id,
       request.emailNotificationEnabled,
       userEmailOpt,
@@ -241,7 +256,8 @@ class WorkflowExecutionService(
     executionStateStore.statsStore.updateState(stats =>
       stats.withStartTimeStamp(System.currentTimeMillis())
     )
-    client.controllerInterface
+    phaseTracker.markRuntimeStartAttempted()
+    client.coordinatorInterface
       .startWorkflow(EmptyRequest(), ())
       .onFailure(err => {
         errorHandler(err)

@@ -33,6 +33,7 @@
 
 import { generateText, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
+import { MissingAnswerActionError } from "./types";
 import type { TokenUsage } from "../../types/agent";
 
 export interface VercelToolUseDriverOptions {
@@ -40,25 +41,39 @@ export interface VercelToolUseDriverOptions {
   /** Sampling temperature. Defaults to 0.2, matching the pre-refactor
    *  hardcoded value in TexeraAgent.sendMessage. */
   temperature?: number;
+  maxOutputTokens?: number;
+  maxRetries?: number;
 }
 
 export class VercelToolUseDriver implements LLMDriver {
   private readonly model: LanguageModel;
   private readonly temperature: number;
+  private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
+    this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
+    // Sonnet 5.5 rejects forced tool use. The native Answer contract is still
+    // enforced below, including the bounded correction for a text-only reply.
+    const modelId = typeof this.model === "string" ? this.model : this.model.modelId;
+    const supportsForcedTools = !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
+    // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
+    // cannot carry it because its usage schema has no such field.
+    let cacheCreationTotal = 0;
+    const updatedToolOutputs = new Map<string, unknown>();
     const result = await generateText({
       model: this.model,
+      ...this.requestLimits,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
+      toolChoice: input.requireToolCall && supportsForcedTools ? "required" : "auto",
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -73,9 +88,21 @@ export class VercelToolUseDriver implements LLMDriver {
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
-      onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
+      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
+        // Preserve cache writes from raw provider usage. Gateways expose both
+        // OpenAI's cache_write_tokens and Anthropic's cache_creation_tokens;
+        // the SDK's flattened usage does not retain either field reliably.
+        const stepCacheCreation = Number(
+          (response as any)?.body?.usage?.prompt_tokens_details?.cache_write_tokens ??
+            (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
+            (response as any)?.body?.usage?.cache_creation_input_tokens ??
+            0
+        );
+        cacheCreationTotal += stepCacheCreation;
+        const before = new Map(toolResults?.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
         await input.onStepFinish({
           text: text || "",
+          reasoningText: reasoningText || undefined,
           toolCalls: toolCalls?.map(tc => ({
             toolName: tc.toolName,
             toolCallId: tc.toolCallId,
@@ -83,8 +110,7 @@ export class VercelToolUseDriver implements LLMDriver {
           })),
           toolResults: toolResults?.map(tr => {
             const outputStr = typeof tr.output === "string" ? tr.output : "";
-            const isError =
-              !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
+            const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
             return {
               toolCallId: tr.toolCallId,
               output: tr.output,
@@ -100,9 +126,18 @@ export class VercelToolUseDriver implements LLMDriver {
                 // step, so reasoning/cache must ride on each step's usage.
                 reasoningTokens: (usage as any).reasoningTokens,
                 cachedInputTokens: (usage as any).cachedInputTokens,
+                cacheCreationInputTokens: stepCacheCreation,
               }
             : undefined,
         });
+        // The SDK cloned response.messages before calling this hook. Preserve
+        // outputs completed by the agent here so the returned archive reflects
+        // the same completed actions used by the next prepareStep.
+        for (const tr of toolResults ?? []) {
+          if (JSON.stringify(tr.output) !== before.get(tr.toolCallId)) {
+            updatedToolOutputs.set(tr.toolCallId, structuredClone(tr.output));
+          }
+        }
       },
     });
 
@@ -113,11 +148,36 @@ export class VercelToolUseDriver implements LLMDriver {
       totalTokens: finalUsage?.totalTokens ?? 0,
       reasoningTokens: finalUsage?.reasoningTokens ?? 0,
       cachedInputTokens: finalUsage?.cachedInputTokens ?? 0,
+      cacheCreationInputTokens: cacheCreationTotal,
     };
-    return {
-      text: result.text,
-      messages: result.response.messages,
+    const completed: DriverRunTurnResult = {
+      text: input.getFinalAnswer?.() ?? result.text,
+      messages: result.response.messages.map(message =>
+        message.role !== "tool"
+          ? message
+          : {
+              ...message,
+              content: message.content.map(part =>
+                part.type === "tool-result" && part.output.type === "json" && updatedToolOutputs.has(part.toolCallId)
+                  ? {
+                      ...part,
+                      output: {
+                        type: "json" as const,
+                        value: JSON.parse(JSON.stringify(updatedToolOutputs.get(part.toolCallId))),
+                      },
+                    }
+                  : part
+              ),
+            }
+      ),
       usage,
     };
+    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
+      throw new MissingAnswerActionError(
+        completed,
+        result.finishReason === "stop" && !result.toolCalls.length && result.steps.length < input.maxSteps
+      );
+    }
+    return completed;
   }
 }

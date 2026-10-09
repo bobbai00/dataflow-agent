@@ -28,6 +28,10 @@ import org.apache.texera.amber.core.storage.model.VirtualDocument
 import org.apache.texera.amber.core.storage.result._
 import org.apache.texera.amber.core.storage.{DocumentFactory, VFSURIFactory}
 import org.apache.texera.amber.core.tuple.{AttributeType, Tuple, TupleUtils}
+import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde.SerdeOps
+import org.apache.texera.dao.SqlServer
+import org.apache.texera.dao.jooq.generated.tables.daos.OperatorPortExecutionsDao
+import org.apache.texera.dao.jooq.generated.tables.pojos.OperatorPortExecutions
 import org.apache.texera.amber.core.virtualidentity.{
   ExecutionIdentity,
   OperatorIdentity,
@@ -35,7 +39,11 @@ import org.apache.texera.amber.core.virtualidentity.{
 }
 import org.apache.texera.amber.core.workflow.OutputPort.OutputMode
 import org.apache.texera.amber.core.workflow.{PhysicalOp, PhysicalPlan, PortIdentity}
-import org.apache.texera.amber.engine.architecture.controller.{ExecutionStateUpdate, FatalError}
+import org.apache.texera.amber.engine.architecture.coordinator.{
+  ExecutionStateUpdate,
+  FatalError,
+  OperatorPortResultUriAvailable
+}
 import org.apache.texera.amber.engine.architecture.rpc.controlreturns.WorkflowAggregatedState.{
   COMPLETED,
   FAILED,
@@ -65,6 +73,29 @@ import scala.concurrent.duration.DurationInt
 import scala.language.existentials
 
 object ExecutionResultService {
+
+  /**
+    * Callback body for `OperatorPortResultUriAvailable`: persist the URI to
+    * `operator_port_executions`. Lives on the companion (not the class) so
+    * tests and fixture-row writers can drive the same insert as the
+    * production callback without re-implementing the schema mapping.
+    *
+    * `executionId` comes from the caller rather than the event payload —
+    * the engine→web event is execution-scoped, so re-encoding the eid into
+    * the wire and decoding it on receipt would be redundant.
+    */
+  def persistOperatorPortResultUri(
+      executionId: ExecutionIdentity,
+      evt: OperatorPortResultUriAvailable
+  ): Unit = {
+    val pojo = new OperatorPortExecutions()
+    pojo.setWorkflowExecutionId(executionId.id.toInt)
+    pojo.setGlobalPortId(evt.globalPortId.serializeAsString)
+    pojo.setResultUri(evt.uri.toString)
+    new OperatorPortExecutionsDao(
+      SqlServer.getInstance().createDSLContext().configuration()
+    ).insert(pojo)
+  }
 
   private val defaultPageSize: Int = 5
   private val binaryPreviewLeadingBits: Int = 10
@@ -124,7 +155,10 @@ object ExecutionResultService {
     * This function takes a collection of Tuples and converts each tuple into a JSON ObjectNode.
     * For binary data, it formats the bytes into a readable hex string representation with length info.
     * For string values longer than maxStringLength (100), it truncates them.
-    * NULL values are converted to the string "NULL".
+    * By default NULL values are converted to the string "NULL".
+    * The opt-in structured API instead preserves JSON nulls, uses decimal strings
+    * for int64 values outside JavaScript's safe range, and defers string truncation
+    * to the request's display budget. Its result schema describes those encodings.
     *
     * @param tuples The collection of Tuples to convert
     * @param isVisualization Whether this is for visualization rendering (affects string truncation)
@@ -132,7 +166,8 @@ object ExecutionResultService {
     */
   def convertTuplesToJson(
       tuples: Iterable[Tuple],
-      isVisualization: Boolean = false
+      isVisualization: Boolean = false,
+      structuredResults: Boolean = false
   ): List[ObjectNode] = {
     val maxStringLength = 100
 
@@ -143,7 +178,7 @@ object ExecutionResultService {
             val fieldValue = tuple.getField[AnyRef](idx)
 
             Option(fieldValue) match {
-              case None => "NULL"
+              case None => if (structuredResults) null else "NULL"
               case Some(value) =>
                 attr.getType match {
                   case AttributeType.BINARY =>
@@ -172,8 +207,9 @@ object ExecutionResultService {
                                   math.ceil(binaryPreviewLeadingBits.toDouble / BitsPerByte).toInt
                                 val trailingBytesNeeded =
                                   math.ceil(binaryPreviewTrailingBits.toDouble / BitsPerByte).toInt
-                                val leading = bytesToBinaryString(byteArray.take(leadingBytesNeeded))
-                                  .take(binaryPreviewLeadingBits)
+                                val leading =
+                                  bytesToBinaryString(byteArray.take(leadingBytesNeeded))
+                                    .take(binaryPreviewLeadingBits)
                                 val trailing = bytesToBinaryString(
                                   byteArray.takeRight(trailingBytesNeeded)
                                 ).takeRight(binaryPreviewTrailingBits)
@@ -189,10 +225,29 @@ object ExecutionResultService {
                     }
                   case AttributeType.STRING =>
                     val stringValue = value.asInstanceOf[String]
-                    if (stringValue.length > maxStringLength && !isVisualization)
+                    if (
+                      stringValue.length > maxStringLength && !isVisualization && !structuredResults
+                    )
                       stringValue.take(maxStringLength) + "..."
                     else
                       stringValue
+                  case AttributeType.LONG if structuredResults =>
+                    val number = value.asInstanceOf[java.lang.Long].longValue()
+                    if (number > 9007199254740991L || number < -9007199254740991L)
+                      number.toString
+                    else value
+                  case AttributeType.TIMESTAMP if structuredResults =>
+                    // Native results store UTC clock values in timezone-free
+                    // Arrow/Iceberg TIMESTAMP columns. The Iceberg reader uses
+                    // Timestamp.valueOf, which assigns the server's timezone;
+                    // toInstant would then shift the displayed value a second
+                    // time. Preserve the stored clock and attach its known UTC
+                    // zone, matching the Python result and its profile.
+                    value
+                      .asInstanceOf[java.sql.Timestamp]
+                      .toLocalDateTime
+                      .toInstant(java.time.ZoneOffset.UTC)
+                      .toString
                   case _ => value
                 }
             }
@@ -410,6 +465,19 @@ class ExecutionResultService(
       )
     )
 
+    // Must be registered before the workflow starts. The engine fires
+    // OperatorPortResultUriAvailable as soon as each port's storage doc
+    // is materialized; if no subscriber is attached at that point the
+    // URI is silently never persisted to operator_port_executions, which
+    // means the dashboard can later compute results just fine but can
+    // never look them up. Today the WS and sync REST entry points both
+    // call attachToExecution before startWorkflow — keep that ordering.
+    addSubscription(
+      client.registerCallback[OperatorPortResultUriAvailable](evt =>
+        ExecutionResultService.persistOperatorPortResultUri(executionId, evt)
+      )
+    )
+
     addSubscription(
       workflowStateStore.resultStore.registerDiffHandler((oldState, newState) => {
         val buf = mutable.HashMap[String, ExecutionResultService.WebResultUpdate]()
@@ -451,7 +519,7 @@ class ExecutionResultService(
                   )
 
                 if (storageUri.nonEmpty) {
-                  val (_, _, globalPortIdOption, _) = VFSURIFactory.decodeURI(storageUri.get)
+                  val globalPortIdOption = VFSURIFactory.decodeURI(storageUri.get).globalPortId
                   val opStorage = DocumentFactory.openDocument(storageUri.get)._1
 
                   allTableStats(opId.id) = opStorage.getTableStatistics
@@ -537,7 +605,7 @@ class ExecutionResultService(
           .map(uri => {
             val count = DocumentFactory.openDocument(uri)._1.getCount.toInt
 
-            val (_, _, globalPortIdOption, _) = VFSURIFactory.decodeURI(uri)
+            val globalPortIdOption = VFSURIFactory.decodeURI(uri).globalPortId
 
             // Retrieve the mode of the specified output port
             val mode = physicalPlan

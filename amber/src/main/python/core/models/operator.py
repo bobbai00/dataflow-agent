@@ -24,7 +24,8 @@ from typing import Iterator, List, Mapping, Optional, Union, MutableMapping, Pro
 
 from . import Table, TableLike, Tuple, TupleLike, Batch, BatchLike
 from .state import State
-from .table import all_output_to_tuple
+from .schema import Schema
+from .table import all_output_to_tuple, table_from_ipc_bytes, table_to_ipc_bytes
 
 import base64
 
@@ -269,19 +270,72 @@ class TableOperator(TupleOperatorV2):
     be provided upon using.
     """
 
+    # Whether a port's buffered input is kept after on_finish builds its Table.
+    _keeps_input_after_finish = False
+
     def __init__(self):
         super().__init__()
         self._Operator__internal_is_source: bool = False
         self.__table_data: Mapping[int, List[Tuple]] = defaultdict(list)
+        # Whole Arrow batches, buffered as they arrive (see `_buffer_arrow`).
+        self.__arrow_data: Mapping[int, List] = defaultdict(list)
+        self.__input_schemas: MutableMapping[int, Schema] = {}
+
+    def _set_input_schema(self, port: int, schema: Schema) -> None:
+        """Runtime-only port metadata, including dynamically discovered schemas."""
+        self.__input_schemas[port] = schema
 
     @overrides.final
     def process_tuple(self, tuple_: Tuple, port: int) -> Iterator[Optional[TupleLike]]:
         self.__table_data[port].append(tuple_)
         yield
 
+    def _buffer_arrow(self, port: int, table) -> None:
+        """Buffer a whole input batch as it arrived (a pyarrow.Table). The
+        main loop uses this instead of one ``process_tuple`` call per row;
+        ``_buffered_table`` converts the port's batches once, column by
+        column."""
+        self.__arrow_data[port].append(table)
+
     def on_finish(self, port: int) -> Iterator[Optional[TableLike]]:
-        table = Table(self.__table_data[port])
+        table = self._buffered_table(port)
+        if not self._keeps_input_after_finish:
+            # The Table holds the rows now. Drop the buffered input so the
+            # operator does not run beside a second copy of it (1.3 GB of
+            # Arrow next to a 3 GB frame for an 8.6 M-row input).
+            self.__table_data.pop(port, None)
+            self.__arrow_data.pop(port, None)
         yield from self.process_table(table, port)
+
+    def _buffered_table(self, port: int) -> Table:
+        """Tuples buffered for ``port`` so far, materialized as a Table.
+
+        Exposed so subclasses (e.g. ``LoopStartOperator``) can read the
+        buffer outside the ``process_table`` callback without reaching into
+        the parent's name-mangled private field. Inside this class
+        ``self.__table_data`` resolves via normal name mangling, so a future
+        rename of ``TableOperator`` keeps callers transparent.
+        """
+        schema = self.__input_schemas.get(port)
+        tuples = self.__table_data[port]
+        batches = self.__arrow_data[port]
+        if not batches:
+            return Table(tuples, schema=schema)
+        from core.models.table import arrow_batches_to_frame
+        from core.models.tuple import ArrowTableTupleProvider
+
+        frame = arrow_batches_to_frame(batches, schema) if not tuples else None
+        if frame is not None:
+            return Table(frame)
+        # Mixed buffers or columns the conversion does not cover: the Tuple
+        # path, rows in arrival order (tuples arrive only when no batch did).
+        rows = list(tuples)
+        for batch in batches:
+            rows.extend(
+                Tuple({name: accessor for name in batch.column_names}, schema=schema)
+                for accessor in ArrowTableTupleProvider(batch)
+            )
+        return Table(rows, schema=schema)
 
     @abstractmethod
     def process_table(self, table: Table, port: int) -> Iterator[Optional[TableLike]]:
@@ -295,3 +349,200 @@ class TableOperator(TupleOperatorV2):
             time, or None.
         """
         yield
+
+
+# ``table`` is the loop's input table, seeded by the runtime into the eval/exec
+# namespaces the loop expressions run in. It is NOT user state: a user loop
+# variable of the same name collides with it, so both operators raise on
+# collision (see ``_reserved_name_error``) rather than silently dropping the
+# user's value. The envelope names (``loop_counter`` / ``loop_start_id``) never
+# enter user state -- they ride the StateFrame envelope (see
+# ``core.models.payload``). The loop-back write address is setup config, not
+# state (see ``loopStartStateUris`` on the ``InitializeExecutorRequest`` proto).
+_TABLE_KEY = "table"
+_RESERVED_STATE_KEYS: frozenset = frozenset({_TABLE_KEY})
+
+
+def _reserved_name_error(name: str) -> ValueError:
+    return ValueError(
+        f"'{name}' is reserved by the loop runtime (it is the loop's input "
+        f"table); rename the loop variable."
+    )
+
+
+def _strip_reserved(state: State) -> State:
+    """Return ``state`` without the runtime-reserved keys (``_RESERVED_STATE_KEYS``)."""
+    return State(
+        {key: value for key, value in state.items() if key not in _RESERVED_STATE_KEYS}
+    )
+
+
+def _eval_loop_expr(expr: str, state: State, table: Optional[Table]):
+    """Evaluate ``expr`` directly against the loop variables plus ``table``.
+
+    Runs in a throwaway namespace seeded with the loop variables and ``table``
+    so the seeded ``table`` neither leaks into nor is clobbered out of the
+    persistent loop ``state``. Shared by LoopStart's ``output`` expression and
+    LoopEnd's ``condition``.
+
+    The namespace is passed as ``eval`` globals (not a locals-only mapping):
+    a generator expression / comprehension / lambda in the user's expression
+    resolves its free variables against globals, so a locals-only namespace
+    would raise ``NameError`` on otherwise-valid expressions like
+    ``all(x > threshold for x in items)``. The namespace is discarded, so the
+    ``__builtins__`` that ``eval`` injects into it does not matter here.
+    """
+    namespace = {**state, _TABLE_KEY: table}
+    return eval(expr, namespace)
+
+
+class LoopStartOperator(TableOperator):
+    """Base class for the runtime side of a Loop Start operator.
+
+    The generator in ``LoopStartOpDesc.scala`` emits a thin
+    ``ProcessLoopStartOperator(LoopStartOperator)`` subclass that wires the
+    user-supplied ``initialization`` and ``output`` expressions into
+    ``open()`` and ``process_table()``; all substantive logic lives here.
+
+    ``open()`` seeds ``self.state`` with the user's loop variables;
+    ``process_state`` merges upstream state in; ``produce_state_on_finish``
+    emits those variables plus the input table (Arrow IPC; see
+    ``table_to_ipc_bytes`` in ``core.models.table``) to the matching LoopEnd.
+    ``loop_counter`` and the nested pass-through are owned by
+    ``MainLoop._process_state_frame``, not this operator.
+
+    Subclass contract: the generated subclass overrides ``open()`` and
+    ``process_table()`` only; all other methods are ``@overrides.final``. After
+    ``open()`` returns ``self.state`` holds only the user's loop variables --
+    not the reserved ``table``; see the ``_RESERVED_STATE_KEYS`` module comment
+    for the ``table`` vs envelope-borne counter/id split.
+    """
+
+    # produce_state_on_finish hands the buffered input table to the Loop End.
+    _keeps_input_after_finish = True
+
+    @overrides.final
+    def process_state(self, state: State, port: int) -> Optional[State]:
+        # First-entry only: merge upstream state into self.state. The nested
+        # pass-through (a frame already stamped with a LoopStartId) and all
+        # loop_counter bookkeeping are owned by the worker runtime
+        # (main_loop._process_state_frame), so this operator never sees the
+        # counter and never mutates the State it is handed.
+        self.state.update(state)
+        return None
+
+    @overrides.final
+    def run_initialization(self, initialization_code: str) -> None:
+        # Run the user's `initialization` to seed the loop variables, then keep
+        # them as self.state. The namespace is passed as exec globals (not a
+        # locals-only mapping) so a comprehension / generator expression /
+        # lambda in the init resolves its free variables -- a locals-only
+        # namespace raises NameError on otherwise-valid init code. exec injects
+        # `__builtins__` into that globals dict, so drop it before it reaches
+        # the persisted state (it is not JSON-serializable and would break the
+        # State materialization on the back-edge). A user variable named
+        # `table` is left in place so produce_state_on_finish flags the
+        # collision rather than silently dropping it.
+        namespace: dict = {}
+        exec(initialization_code, namespace)
+        namespace.pop("__builtins__", None)
+        self.state = State(namespace)
+
+    @overrides.final
+    def eval_output(self, output_expr: str, table: Table) -> TableLike:
+        return _eval_loop_expr(output_expr, self.state, table)
+
+    @overrides.final
+    def produce_state_on_finish(self, port: int) -> State:
+        # Emit the user's loop variables plus the buffered input table for the
+        # matching LoopEnd. The table rides as an Arrow IPC stream, not pickle
+        # (see `table_to_ipc_bytes` in core.models.table for why). Reads the
+        # buffer through `_buffered_table` so a rename of `TableOperator`
+        # doesn't silently break this.
+        # A user loop variable named `table` would be overwritten by the input
+        # table below, so flag the collision instead of silently dropping it.
+        if _TABLE_KEY in self.state:
+            raise _reserved_name_error(_TABLE_KEY)
+        produced = State(self.state)
+        produced[_TABLE_KEY] = table_to_ipc_bytes(self._buffered_table(port))
+        return produced
+
+
+class LoopEndOperator(TableOperator):
+    """Base class for the runtime side of a Loop End operator.
+
+    The generator in ``LoopEndOpDesc.scala`` emits a thin
+    ``ProcessLoopEndOperator(LoopEndOperator)`` subclass that wires the
+    user-supplied ``update`` expression into ``process_state(...)`` (via
+    ``run_update``) and the ``condition`` expression into ``condition()`` (via
+    ``eval_condition``); all substantive logic lives here.
+
+    ``process_table`` yields each input table through as-is; ``process_state``
+    runs the user's ``update`` and persists only user variables back into
+    ``self.state`` (keeping the decoded table on ``self._loop_table``);
+    ``condition()`` decides whether ``MainLoop.complete()`` fires the back-edge.
+
+    Subclass contract: the generated subclass overrides ``process_state()`` and
+    ``condition()`` only; all other methods are ``@overrides.final``.
+    ``self.state`` / ``self._loop_table`` start empty and are populated only by
+    ``run_update`` on the matching-loop consume, so ``condition()`` returns
+    ``False`` until that first consume -- a LoopEnd that never consumed a
+    matching state (e.g. an inner LoopEnd that only forwarded outer-loop
+    pass-through state) must not fire the back-edge. Reserved names: see
+    ``_RESERVED_STATE_KEYS``.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # MainLoop.complete() calls condition() on every LoopEnd, including one
+        # that never consumed a matching state (an inner LoopEnd that only
+        # forwarded outer-loop pass-through state, or a loop that completed
+        # without a matching-branch consume). run_update is what populates
+        # self.state / self._loop_table, so initialize them here to avoid
+        # AttributeError; a None _loop_table means "nothing consumed yet" and
+        # condition() short-circuits to False (see eval_condition).
+        self.state: State = State()
+        self._loop_table: Optional[Table] = None
+
+    @overrides.final
+    def process_table(self, table: Table, port: int) -> Iterator[Optional[TableLike]]:
+        yield table
+
+    @overrides.final
+    def run_update(self, update_code: str, state: State) -> None:
+        # Run the user's `update` in a throwaway namespace seeded with the
+        # incoming loop variables and the input table, then persist the user
+        # variables back into self.state. The table arrives as an Arrow IPC
+        # stream, not pickle (see `table_to_ipc_bytes` in core.models.table
+        # for why); the decoded table is kept on self._loop_table so
+        # condition() can read it after the update.
+        input_table = table_from_ipc_bytes(state[_TABLE_KEY])
+        namespace = {**state, _TABLE_KEY: input_table}
+        # Pass the namespace as exec globals (not a locals-only mapping) so a
+        # comprehension / generator expression / lambda in the user's `update`
+        # resolves its free variables -- a locals-only namespace raises
+        # NameError on otherwise-valid update code. exec injects `__builtins__`
+        # into that globals dict; drop it so it does not leak into self.state.
+        exec(update_code, namespace)
+        namespace.pop("__builtins__", None)
+        # `table` is runtime-owned; a user `update` that rebinds (or deletes)
+        # it (a loop variable named `table`) would be silently dropped by the
+        # strip below, so flag the collision instead.
+        if namespace.get(_TABLE_KEY) is not input_table:
+            raise _reserved_name_error(_TABLE_KEY)
+        self._loop_table = input_table
+        self.state = _strip_reserved(namespace)
+
+    @overrides.final
+    def eval_condition(self, condition_expr: str) -> bool:
+        # No matching state was consumed (run_update never ran, so _loop_table
+        # is still None): the loop never iterated here, so do not continue.
+        # Returning False also avoids evaluating the user's condition against
+        # loop variables that don't exist yet (which would raise NameError).
+        if self._loop_table is None:
+            return False
+        return _eval_loop_expr(condition_expr, self.state, self._loop_table)
+
+    @abstractmethod
+    def condition(self) -> bool:
+        pass

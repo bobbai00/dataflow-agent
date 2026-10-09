@@ -1,482 +1,312 @@
-# AGENTS.md
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one
+  ~ or more contributor license agreements.  See the NOTICE file
+  ~ distributed with this work for additional information
+  ~ regarding copyright ownership.  The ASF licenses this file
+  ~ to you under the Apache License, Version 2.0 (the
+  ~ "License"); you may not use this file except in compliance
+  ~ with the License.  You may obtain a copy of the License at
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing,
+  ~ software distributed under the License is distributed on an
+  ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  ~ KIND, either express or implied.  See the License for the
+  ~ specific language governing permissions and limitations
+  ~ under the License.
+-->
 
-## Architecture Map
+# AGENTS.md — the Dataflow Agent repository
 
-Apache Texera: Scala/sbt backend services + the Amber workflow execution
-engine, an Angular UI, and the agent service. JVM modules wired in
-[`build.sbt`](build.sbt).
+## 1. What this repo is
 
-| Area | Path | Detail |
-| --- | --- | --- |
-| Workflow execution engine (Amber) | `amber/` | [amber/README.md](amber/README.md) |
-| Backend services | `config-service/`, `access-control-service/`, `file-service/`, `computing-unit-managing-service/`, `workflow-compiling-service/` | `build.sbt` |
-| Shared Scala libs | `common/` (`auth`, `config`, `dao`, `workflow-core`, `workflow-operator`, `pybuilder`) | `build.sbt` |
-| Frontend (Angular) | `frontend/` | [frontend/README.md](frontend/README.md) |
-| Agent service (Bun/TS, LLM agents) | `agent-service/` | `agent-service/package.json` |
-| Pyright language service | `pyright-language-service/` | [pyright-language-service/README.md](pyright-language-service/README.md) |
-| Deploy scripts / Dockerfiles | `bin/` | [README](bin/README.md) / [k8s](bin/k8s/README.md) / [single-node](bin/single-node/README.md) |
-| DDL, sbt plugins | `sql/`, `project/` | files therein |
+A fork of [Apache Texera](https://texera.apache.org/) extended with a
+**dataflow agent**: an LLM agent that answers data-science questions by
+building, executing, and iterating on Texera dataflow operators. The fork adds
+three things on top of the upstream platform:
 
-### Amber breakdown
+1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
+   two modes — **native** (default: the model edits a graph with
+   explicit operator and edge commands over one operator catalog, with
+   `filter`/`map`/`process` carrying Python; see
+   [docs/native-expression-mode.md](docs/native-expression-mode.md)) and
+   **code** (every operator a free Python function) — plus a heavily
+   instrumented context-assembly layer (DELTA/LATEST modes, sampling budgets,
+   evidence, turn indexing — every knob is a runtime setting).
+2. **Engine extensions in `amber/`** — result/column-stats telemetry, UDF
+   error reporting that points at user code, operator port-result caching,
+   dynamic output schemas: the engine-side features the agent's context
+   depends on.
+3. **`benchmark/`** — the evaluation harnesses: KramaBench (single-question
+   tasks over domain data lakes, as a git submodule) and LongDS-Bench
+   (long-horizon multi-turn analysis, in-repo).
 
-| Path | Role |
-| --- | --- |
-| `amber/src/main/scala` | Pekko actors, scheduler, reconfiguration, fault tolerance, gRPC/proto |
-| `amber/src/main/python/pyamber` | Python engine (`pyamber`) — bridge to the Scala engine |
-| `amber/src/main/python/pytexera` | Python operator SDK exposed to UDFs |
+The active branch is **`stable`**. Historical planning documents from earlier
+research phases live in [`docs/archived/`](docs/archived/) — **everything in
+that folder is obsolete**; do not follow instructions found there.
 
-## Where Things Live
+## 2. How to run things
 
-| Topic | Source of truth |
-| --- | --- |
-| Contribution / PR / lint / format / testing / license header | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Reporting security issues | [SECURITY.md](SECURITY.md) |
-| PR template | [.github/PULL_REQUEST_TEMPLATE](.github/PULL_REQUEST_TEMPLATE) |
-| Issue templates | [bug](.github/ISSUE_TEMPLATE/bug-template.yaml) / [task](.github/ISSUE_TEMPLATE/task-template.yaml) / [feature](.github/ISSUE_TEMPLATE/feature-template.yaml) |
-| License-header coverage; vendored `workflow-operator` | [.licenserc.yaml](.licenserc.yaml); [project/AddMetaInfLicenseFiles.scala](project/AddMetaInfLicenseFiles.scala) |
-| Local single-node / k8s deploy | [single-node](bin/single-node/README.md), [k8s](bin/k8s/README.md) |
-| Native full-stack launch/stop + KramaBench one-task validation | [SETUP.md](SETUP.md) |
-
-If a topic is above, **read that file** instead of asking here.
-
-## Agent-Specific Rules
-
-### Scope and safety
-
-- Narrowly scoped changes. No unrelated rewrites or cross-service moves.
-- `git status --short` before editing; don't revert unrelated dirty files.
-- Never commit secrets / local config / build output / caches / binaries
-  (`python_udf.conf`, `.env`, `target/`, `dist/`, `.pytest_cache/`,
-  `.ruff_cache/`, logs).
-
-### Develop in a worktree
-
-Leave `texera/` on `main`. One worktree per PR, branched off a freshly
-fetched `upstream/main`.
-
-```
-texera/                      # stays on main, never dirty
-texera-worktrees/<branch>/   # one worktree per PR
-```
-
-Reset to `upstream/main` at start; `git log upstream/main..HEAD` should
-contain only this PR's commits before pushing; remove the worktree after
-merge.
-
-### Environment
-
-| Component | Version |
-| --- | --- |
-| Java | JDK 17 |
-| Scala | 2.13 |
-| Python | 3.12 |
-| Node | 24 |
-
-One Python venv shared across worktrees, sibling of the texera checkout:
-
-```
-<workspace>/
-├── texera/                   # main checkout
-├── texera-worktrees/<br>/    # per-PR worktrees
-└── venv312/                  # shared Python 3.12 venv
-```
+Everything runs from the repo root. Full quick start in
+[README.md](README.md); the short version:
 
 ```bash
-python3.12 -m venv ../venv312 && source ../venv312/bin/activate
-pip install -r amber/requirements.txt -r amber/operator-requirements.txt
-# For pytest or running bin/python-proto-gen.sh, also install dev deps:
-pip install -r amber/dev-requirements.txt
+uv sync --all-extras                # Python venv for the engine's UDF workers
+source .venv/bin/activate && bash bin/python-proto-gen.sh   # REQUIRED once per clone
+cp .env.example .env                # fill in provider keys (see §7)
+bin/local-dev.sh up                 # docker infra + JVM services + agent + frontend
+bin/local-dev.sh status             # 14 services green; frontend :4200
 ```
 
-Tests that spawn Python workers need an interpreter path. Edit `python.path`
-in [`udf.conf`](common/config/src/main/resources/udf.conf) or
-`export UDF_PYTHON_PATH="$(pwd)/../venv312/bin/python"` (env var overrides).
-Without it, `sbt` Python-integration tests fail to launch a worker.
+The proto step is **not optional on a fresh clone**: `amber/src/main/python/proto/`
+is generated and gitignored, and without it every Python UDF worker dies at
+import, so executions never signal and the engine kills them at its 240 s
+timeout — which surfaces as agent turns that hang rather than as an error.
+It needs `protoc` on PATH (see §8).
 
-[`.jvmopts`](.jvmopts) holds every `--add-opens` flag Texera needs for
-JDK 17+, with each group annotated by its upstream source (Kryo,
-Apache Arrow, Apache Pekko). sbt's launcher and the [`.run/`](.run)
-configs read it automatically; for raw `java` launches, pass it as an
-argfile: `java @.jvmopts -jar …`. If a future library version or a new
-code path triggers an `InaccessibleObjectException`, add the open to
-`.jvmopts`. [`project/JdkOptions.scala`](project/JdkOptions.scala)
-propagates the changed options to forked test JVMs, `Compile / run`
-forks (e.g. `sbt <project>/run` and `bgRun`), sbt-native-packager dist
-launchers, and IntelliJ.
+`bin/local-dev.sh` is the only supported launcher for development: it
+bootstraps the postgres schema (DDL + liquibase), runs `sbt dist`, starts the
+LiteLLM proxy with your keys, and manages every service (`up` / `down` /
+`status` / `logs <svc>` / `auto`). Agents should use the non-interactive
+subcommands, never the `-i` TUI. Per-service ops, logs, and the
+troubleshooting playbook (network-switch S3 drift, UDF python resolution,
+proto regeneration): [docs/local-dev-with-agent.md](docs/local-dev-with-agent.md).
 
-### Branch and commit naming
+Service ports: config 9094 · access-control (LLM proxy) 9096 · file 9092 ·
+compiling 9090 · CU-managing 8082 · texera-web 8080 · CU-master 8085 ·
+agent-service 3001 · frontend 4200 · LiteLLM 4000.
 
-Short, **Conventional Commits**, same shape for branch and commit subject.
-
-| Kind | Branch | Commit |
-| --- | --- | --- |
-| Feature | `feat/agent-workflow-edit` | `feat(agent-service): enable workflow edit` |
-| Bug fix | `fix/marker-replay` | `fix(amber): marker replay during reconfiguration` |
-| Tests | `test/pyamber-handlers` | `test(pyamber): add handler unit tests` |
-| Chore | `chore/angular-21` | `chore(deps): upgrade frontend to Angular 21` |
-| CI | `ci/cache-action-bump` | `ci: bump coursier/cache-action to v8.1.0` |
-
-Both ≤ ~60 chars. For code changes, if you use a scope, use the module name
-(`amber`, `pyamber`, `frontend`, `agent-service`, `file-service`, …) — not
-`amber-python`. Use `chore(deps): ...` for dependency-only updates, and
-`ci: ...` for CI-only changes. No `Co-authored-by:` trailer for the repo
-owner.
-
-### Issues and PRs
-
-Issue-first; both stay short.
+## 3. System architecture
 
 ```
-issue (template + Type)  ->  PR (Closes #N, template)  ->  review  ->  merge
+Frontend (:4200) ──ws/rest──▶ texera-web (:8080) ──┐
+                                                   │ compile: WorkflowCompilingService (:9090)
+External callers ──rest/ws──▶ agent-service (:3001)│ compute: ComputingUnitManaging (:8082)
+                               │    │              ▼
+                               │    └─workflow CRUD/exec──▶ Amber engine (CU-master :8085)
+                               │                              └─ Python UDF workers (.venv)
+                               └─LLM calls──▶ access-control-service (:9096)
+                                                └─ proxies ──▶ LiteLLM (:4000) ──▶ providers
 ```
 
-- Every change starts as an issue (minor typo / docs excepted). File against
-  `apache/texera`, never a fork.
-- Pick the right template **and** set the GitHub Issue **Type** explicitly
-  (`Bug` / `Task` / `Feature`); the template's `type:` frontmatter doesn't
-  always apply on creation.
-- Reference the issue: `Closes #N` (or `Fixes` / `Resolves`, or "related to").
-- Issue titles are **plain prose**; never use the Conventional Commits
-  format (`type(scope): ...`) — that prefix is for commit and PR titles only.
-- Task issues match `task-template.yaml` exactly.
-- Prefer **tables** and small **ASCII diagrams** over long bullets. Don't
-  restate the diff or the template.
-- For bugs, lead with **root cause** and a **before -> after** sketch:
-  ```
-  Before:  reconfiguration -> replay marker -> worker hangs
-  After:   reconfiguration -> replay marker -> resume from checkpoint
-  ```
-- **Frontend PRs**: any visible UI change requires screenshots / GIF,
-  **before / after** side by side. For purely visual fixes that's the
-  primary verification under "How was this PR tested?"; interactive flows
-  also list manual steps (click path, browser, viewport).
+- **`amber/`** contains two logically distinct things: the Texera web app
+  (`org.apache.texera.web.*`, Dropwizard REST + websockets) and the Amber
+  dataflow engine (`org.apache.texera.amber.engine.*`, Pekko actors;
+  workers spawn Python sub-processes loading `pytexera`/`pyamber`).
+- **Request path**: frontend/agent → texera-web → compiling service
+  (logical → physical plan) → CU-managing (allocate) → Amber engine
+  (execute, stream results). The sbt module graph in `build.sbt` mirrors this.
+- **`agent-service/`** is a standalone Bun/Elysia process, NOT part of the
+  sbt build. Tools live in `src/agent/tools/` (`dataflow` action tool and
+  upsert for native mode, code authoring for code mode, execution,
+  inspection/recall); the native catalog, expression parser and Python runtime
+  in `src/agent/native/`; context assembly in `src/agent/context/` and
+  `src/agent/util/context-utils.ts`; the ReAct loop in
+  `src/agent/texera-agent.ts`. **Never import frontend or amber code from
+  agent-service** — it is a process boundary.
+- **LLM path**: the agent never holds a provider key. It sends the user's JWT
+  to the access-control-service, which injects the LiteLLM master key and
+  forwards to the proxy. Model list: `bin/single-node/litellm-config.yaml`
+  (claude-haiku-4.5 / sonnet-5 / opus-5, gpt-5.2 / 5-mini / 5.6, and
+  gpt-5.6-luna/-tara at medium reasoning effort).
+- **Data resolution**: task files are addressed by relative `data/...` paths.
+  Repo root symlinks `data → benchmark/Kramabench/data`, and
+  `amber/data → ../data` covers the CU-master's working directory, so the
+  same path resolves in the harnesses, the JVMs, and the Python workers.
+- **Gotcha**: JVM services must run with
+  `GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true`, otherwise the
+  access-control-service returns `403 {"error": "Copilot feature is disabled"}`
+  for `/api/chat/*` and every agent run dies before its first tool call. It
+  ships in `.env.example`, so it reaches the JVMs through the repo-root `.env`.
+  `bin/single-node/.env` also sets it, but that file is passed only to
+  `docker compose` — it does NOT reach the natively-launched JVM services.
 
-### Tests come first
+## 4. Connecting to the agent
 
-TDD. Write the test before the source change.
+REST surface on `:3001` under `/api/agents` — full curl walkthrough in
+[README.md §2](README.md). The loop:
 
-```
-write/adjust test (red)  ->  edit source (green)  ->  refactor
-```
+| Step | Call |
+|---|---|
+| auth | `POST :8080/api/auth/login` → JWT (the agent acts on the user's behalf) |
+| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (`agentMode`, `dataEvidence`, `flowEvidence`, budgets, every context knob) |
+| run a turn | `POST /api/agents/:id/message` `{content}` — **synchronous**; returns `{answer, state, steps, headId}`; 409 while a turn runs |
+| inspect | `GET /:id/react-steps` (trace) · `/:id/workflow` (DAG) · `/:id/operator-results` · `/:id/snapshots/:stepId` |
+| tune live | `GET`/`PATCH /:id/settings` |
+| control | `POST /:id/stop` · `/:id/clear` · `/:id/checkout` · `DELETE /:id` |
+| stream | `WS /:id/react` — per-step frames (what the frontend uses) |
 
-| Situation | Order |
-| --- | --- |
-| New feature / behavior change | Failing test, then implement. |
-| Bug fix | Regression test reproducing the bug, then fix. |
-| Code with **no tests** | **Characterization tests** pin current behavior first; only then change source. |
-| Refactor (no behavior change) | Tests stay green throughout — no assertion edits. |
+Multi-turn sessions: keep POSTing `/message` to the same agent — operators,
+results, and history carry (LongDS-Bench drives it exactly this way).
+Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
+Python in `benchmark/Kramabench/dataflow_agent.py`.
 
-Every test must cover:
+Tools per mode: native exposes one tool, `dataflow(reasoning, actions)`;
+code exposes `createOrModifyOperator` and `deleteOperator`. `recallState`,
+`resumeFrom` and `compactContext` are opt-in in either mode.
+The rendered native system prompt, tool definitions and operator reference
+live in [native-mode/](native-mode/), generated from the code by
+`bun run render:native-reference` (a test fails when they drift).
 
-- **Both directions**: positive (valid → expected) **and** negative (invalid
-  / error → specific failure mode).
-- **Edge cases**: empty / null / zero / max / boundary, unicode,
-  concurrency/order, missing or malformed config.
-- **Don't assume valid.** External input (user / API / file / message) must
-  be tested with bad input.
+### Default agent configuration
 
-Don't claim "tested" without commands. Paste the exact `sbt testOnly` /
-`pytest` / `yarn test:ci` / `bun test` invocation under "How was this PR
-tested?".
+`DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
+created with no `settings` runs: **`agentMode: native`** (explicit graph
+commands; `code` is the other mode), **`contextMode: delta`**,
+**`nativeProfileCollection: true`**, **`dataEvidence: false`** and
+**`flowEvidence: false`**. Native retrieval choices control data-statistics
+exposure; `flowEvidence` independently adds flow metadata. Collection is
+compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
+`maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
+(K=10). Native mode forces provider parallel tool calls off (the action list is
+the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
+"index"` all off). Optional recall, resume, and compaction tools are off;
+graph inspection is built into `dataflow`. See [README.md §2](README.md) for
+the full table.
 
-### CI labels & gating
+Native Retrieve requires a `view`: `full`, `sample`, or `sample_stats`. Session
+`retrievalViews` controls the available choices and takes precedence over
+`dataEvidence`; when omitted, full/sample are available and `dataEvidence`
+additionally enables sample_stats. `fullResultCharLimit` defaults to 100,000;
+`maxOperatorResultCharLimit` and `maxResultRows` bound samples. Statistics and
+automatic flow metadata have separate `dataEvidenceCharLimit` and
+`flowEvidenceCharLimit` budgets (2,000 each). Execution retains the large
+bounded result for every arm; switching views never executes. See
+[docs/retrieval-views.md](docs/retrieval-views.md).
 
-CI runs are **selected by PR labels**, not by file diff.
+Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
+`allowedOperatorTypes`, and the old level/statistics overlays) produce an
+error, not a compatibility mapping. Schema and samples fill one result budget;
+each enabled evidence kind appends within its own budget, so evidence never
+displaces rows; a complete small table suppresses redundant data facts.
+`dataflowReasoning` is retained for archived settings and normalized to true
+in native mode. Every call requires a brief rationale and an ordered list of
+`inspect`, `edit`, `execute`, `retrieve`, or `answer` actions. Edits do not
+execute; retrieval never executes; Answer must be the sole action and ends
+the loop. Each Edit is atomic. A failure skips later actions while earlier completed edits remain. After
+an execution failure, inspect and retrieve may read independent completed results.
+`inspectResult` is never exposed. See
+[docs/native-expression-mode.md](docs/native-expression-mode.md) and
+[docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark
+arms must run their recorded revisions; do not reinterpret old labels.
 
-```
-diff -> pr-labeler -> labels on PR -> required-checks maps labels to stacks -> CI runs
-```
+Benchmark arms override these per experiment (`Kramabench/systems/dataflow_system.py`,
+`benchmark/longds/arms.py`), so an arm's configuration and the service default
+are independent — read the arm, not the default, when interpreting a result.
 
-- Path → label rules: [`.github/labeler.yml`](.github/labeler.yml)
-- Label → stacks (`LABEL_STACKS`, source of truth):
-  [`.github/workflows/required-checks.yml`](.github/workflows/required-checks.yml).
-  Read it directly; don't duplicate the mapping here.
-- Need extra coverage the diff doesn't imply (e.g. a `common/` change you
-  suspect breaks the frontend)? **Add the relevant label manually**.
-- Empty stack union (docs-only / dev-only / `dependencies` / `feature` /
-  `fix` / `refactor` / `release/*` only) skips every build stack on purpose.
-- `release/*` labels select backport targets; removing one cancels that
-  backport.
+## 5. Benchmarking
 
-## Frontend
-
-The Angular frontend lives in `frontend/`.
-
-- Node engine: `>=20.19.0`.
-- Package manager: Yarn 4.14.1 via Corepack.
-- Formatting is Prettier plus prettier-eslint. Prettier uses 2 spaces,
-  semicolons, double quotes, `printWidth: 120`, and LF endings.
-- Unit tests are Karma/Jasmine. Specs should live next to frontend code as
-  `.spec.ts` files.
-
-Useful commands:
+One driver for both benchmarks, run from the repo root
+([benchmark/README.md](benchmark/README.md) for details):
 
 ```bash
-cd frontend
-corepack enable
-corepack prepare yarn@4.14.1 --activate
-yarn install --immutable --inline-builds --network-timeout=100000
-yarn format:ci
-yarn format:fix
-yarn lint
-yarn test --watch=false
-yarn test:ci
-yarn build:ci
-yarn start
+bin/bench.sh setup                  # one-time: submodule, venv, data, symlinks
 ```
 
-For UI changes, include screenshots/GIFs or clear manual verification steps in
-the PR description when the behavior is visual or interactive.
+**KramaBench** (general benchmark — 104 single-question tasks, 6 domain data
+lakes; `benchmark/Kramabench` submodule, branch `stable`):
 
-## Agent Service
+```bash
+bin/bench.sh kb systems             # list runnable SUT configurations
+bin/bench.sh kb tasks --sut DataflowSystemGPT52LatestSchemaConverge \
+    --ids "legal-easy-3 wildfire-easy-1" --parallel
+bin/bench.sh kb scores --sut <SUT>  # official scores / leaderboard
+bin/bench.sh kb failed / cost / tokens / traces / reeval / compare ...
+```
 
-The standalone LLM agent service lives in `agent-service/`.
+A **system (SUT)** is a `DataflowSystem` subclass in
+`Kramabench/systems/dataflow_system.py` fixing one knob configuration
+(model, DELTA/LATEST, sampling budget, stats…). Only arms with recorded
+results are kept; campaign reports with the numbers live in
+`Kramabench/judgment_runs/` — start with
+`mini_star/LUNA_TERRA_FINAL_TABLE.md` (Anchor/C1–C5 on gpt-5.6-luna/terra),
+`mini_star/FINAL_REPORT.md` (gpt-5-mini vs gpt-5.2 knob star), and
+`mini_star/GPT56_CAMPAIGN_REPORT.md`.
 
-- Runtime/package tool in CI: Bun 1.3.3.
-- Source is TypeScript ESM.
+**LongDS-Bench** (agent benchmark — 68 tasks / 2,225 turns of multi-turn
+analysis where turn N+1 depends on state built in 1..N; `benchmark/longds`,
+part of this repo):
 
-Useful commands:
+```bash
+bin/bench.sh longds download --task sports/nfl_big_data_bowl_2023/task1
+bin/bench.sh longds prepare  --task sports/nfl_big_data_bowl_2023/task1
+bin/bench.sh longds run      --task sports__nfl_big_data_bowl_2023__task1 --arm haiku-delta-1k
+bin/bench.sh longds judge    --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
+```
+
+Arms live in `benchmark/longds/arms.py`. Run artifacts (per-turn prompt,
+response, ReAct trace, workflow JSON, cost) land under each harness's
+`system_scratch/<SUT>/<task>/`.
+
+## 6. Agent-service e2e suites
+
+Fast smoke of the whole stack (backends must be up; no `bun run dev` needed):
 
 ```bash
 cd agent-service
-bun install --frozen-lockfile
-bun run format:check
-bun run typecheck
-bun test
-bun run dev
+bun run e2e                                    # static workflows through execution
+bun run e2e:agent                              # real agent driving the LLM gateway
+bun run benchmark/e2e/context-tuning-run.ts    # context-knob smoke matrix
+bun run benchmark/e2e/context-format-check.ts  # LATEST/DELTA assembled-context markers
+bun test && bun run typecheck                  # unit tests + types
 ```
 
-## GitHub PR Writing
+## 7. Credentials
 
-Texera requires Conventional Commit PR titles and commit messages. Closed PRs
-commonly use titles like:
+Single source: the repo-root **`.env`** (`cp .env.example .env`), loaded by
+both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 
-- `feat(agent-service): enable Texera Agent to do workflow editing and execution`
-- `fix(amber): Python internal marker replay during reconfiguration`
-- `fix(frontend): version history timestamp display`
-- `test(amber-python): add unit tests for evaluate-expression and retry-current-tuple handlers`
-- `chore(deps): upgrade frontend to Angular 21`
-- `ci: bump coursier/cache-action to v8.1.0`
+| Variable | Used by |
+|---|---|
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | LiteLLM container — only the providers you call |
+| `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` | optional: swap the local proxy for an external OpenAI-compatible gateway |
+| `JUDGE_BASE_URL`, `JUDGE_API_KEY` | optional: LongDS judge endpoint (defaults to the local proxy) |
+| `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-4o-mini directly — a dummy key silently zeroes paraphrase metrics |
+| `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
 
-Use the existing `.github/PULL_REQUEST_TEMPLATE` sections:
+**Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build
+output, logs are all gitignored — keep it that way.
 
-- `What changes were proposed in this PR?`
-- `Any related issues, documentation, discussions?`
-- `How was this PR tested?`
-- `Was this PR authored or co-authored using generative AI tooling?`
+## 8. Conventions for working in this repo
 
-PR description conventions from recent closed PRs:
+- **Environment**: JDK 17, Scala 2.13, Python 3.12 (uv-managed `.venv`, pinned
+  by `.python-version` — without it `uv` may pick an older system/conda python),
+  Node 24, Bun, `protoc` (any 3.2x; the generated stubs are gitignored), and
+  Docker Compose **v2.20+** (older plugins reject the `--progress` flag
+  `bin/local-dev/main.sh` passes, and the failure is silent: infra reports
+  containers up while nothing started, then `sbt dist` fails jOOQ codegen with
+  `not found: value SITE_SETTINGS`). `.jvmopts` carries the `--add-opens` flags
+  JDK 17 needs; `project/JdkOptions.scala` propagates them to forked JVMs.
+- **Scope**: narrowly scoped changes; `git status --short` before editing;
+  never revert unrelated dirty files (local config edits are often
+  deliberate).
+- **Branches/commits**: Conventional Commits, ≤ ~60 chars, module as scope
+  (`feat(agent-service): ...`, `fix(amber): ...`). This fork's PR base is the
+  fork's own branches, not upstream `main`.
+- **Tests first**: failing test → implement → green. Bug fixes start with a
+  regression test. `agent-service`: `bun test`; Scala: `sbt <Project>/test`;
+  Python engine: `pytest` from `amber/src/main/python`.
+- **Python protos**: `bash bin/python-proto-gen.sh` (inside the venv, `protoc`
+  on PATH) once per fresh clone AND after any proto change. `amber/src/main/python/proto/`
+  is gitignored, so a clone never has it; the symptom of forgetting is hanging
+  executions, not an import error you can see.
+- **Formatting/lint/license headers**: [CONTRIBUTING.md](CONTRIBUTING.md);
+  every source file carries the ASF header (`.licenserc.yaml`).
+- **Upstream sync**: this fork tracks `apache/texera`; merges from upstream
+  land on the fork's main line and are then merged into `stable`.
 
-- Start with the reason for the change, not just the files touched.
-- For bugs, state the root cause and the before/after behavior.
-- For features, describe the user-facing capability and key implementation
-  pieces.
-- Link issues with `Closes #1234`, `Fixes #1234`, or `Resolves #1234` when the
-  PR should close the issue.
-- Include exact test commands and, when useful, the specific test names or pass
-  counts.
-- For UI work, add screenshots/GIFs or explicit manual verification notes.
-- If no automated tests were added, explain why and list manual tests.
-- Answer the AI tooling question explicitly. If AI was used, use the
-  `Generated-by: <tool and version>` wording from the template or a similarly
-  explicit disclosure. If not, write `No`.
+## 9. Where things live
 
-## GitHub Issue Writing
-
-Use the issue templates in `.github/ISSUE_TEMPLATE`.
-
-Bug reports should include:
-
-- What happened and what was expected.
-- Reproduction steps that another contributor can run.
-- Texera version, usually `1.1.0-incubating (Pre-release/Master)` for current
-  main.
-- Commit hash when known.
-- Browser information for frontend bugs.
-- Relevant logs or stack traces in fenced code blocks.
-
-Task and feature issues should include:
-
-- A concise task/feature summary.
-- Motivation or user impact.
-- Proposed action or scope, ideally as concrete bullets.
-- Priority (`P0` through `P3`) and task type.
-- File paths, classes, or modules when the work is already localized.
-
-Recent closed issues are usually specific and actionable: they name the failing
-test, exact command, affected files/classes, observable symptoms, and expected
-fix direction. Preserve that style for future issues.
-
-## Before Opening a PR
-
-Run the narrowest checks that cover the change, then broaden when touching shared
-behavior:
-
-- Scala/backend: targeted `testOnly`, then `sbt scalafmtCheckAll`,
-  `sbt "scalafixAll --check"`, and `sbt test` as appropriate.
-- Python runtime: `ruff check .`, `ruff format --check .`, and targeted/full
-  `pytest` from `amber/src/main/python`.
-- Frontend: `yarn format:ci`, targeted/full `yarn test:ci`, and
-  `yarn build:ci`.
-- Agent service: `bun run format:check`, `bun run typecheck`, and `bun test`.
-
-If a full check is too expensive or cannot run locally, state exactly what was
-run and why the omitted check was skipped.
-
-## Fork notes (this checkout)
-
-This is a downstream fork. Items below are either fork-specific or non-obvious
-gotchas not derivable from a quick read of the tree.
-
-### Branch / PR base
-
-- Active branch: `feat/agent-copilot-refactored`.
-- The PR base for this fork's feature work is `feat/agent-copilot` — **not**
-  `master` or upstream `main`. Open fork-internal PRs against
-  `feat/agent-copilot`; only sync to upstream `main` from the fork's main
-  branch.
-- `.java-version` pins JDK 17 locally even though upstream CI still uses
-  Temurin JDK 11. Local builds may diverge from CI on JVM-version-sensitive
-  behavior — verify against CI before assuming a problem is environmental.
-
-### Big-picture architecture (read once, then skim)
-
-`amber/` is one sbt project but contains two logically distinct things, which
-is the most common source of "where does this code live" confusion:
-
-1. **Texera web application** under `org.apache.texera.web.*` — Dropwizard
-   server (REST + websockets + collaboration). Notable resources:
-   `web/resource/aiassistant/` (integration with `agent-service/`),
-   `web/model/websocket/`, `web/model/collab/`, `web/auth/`.
-2. **Amber dataflow engine** under `org.apache.texera.amber.engine.*` — the
-   distributed actor runtime. `engine/architecture/` holds master/worker
-   actor code; workers spawn Python sub-processes that load
-   `pytexera`/`pyamber`.
-
-Typical workflow request path: Frontend → web app (`amber/`) →
-`WorkflowCompilingService` (compiles logical → physical plan) →
-`ComputingUnitManagingService` (allocates compute) → Amber engine
-(executes, streams state/results back over websockets). The sbt module graph
-in `build.sbt` mirrors this — services that compile depend on
-`WorkflowOperator`, services that execute depend on `WorkflowExecutionService`.
-Operator-semantics changes typically touch `common/workflow-operator` (metadata
-+ JSON schema), `common/workflow-core` (physical plan / scheduling), the
-engine, and possibly the Python runtime.
-
-### Agent service ↔ Texera
-
-`agent-service/` is a standalone Bun/Elysia process — **not** part of the sbt
-build. It's invoked from `web/resource/aiassistant/` with a user JWT + workflow
-ID, and:
-
-- Reads/writes workflows via REST (`api/workflow-api.ts`).
-- Compiles via `compile-api.ts` (calls `WorkflowCompilingService`).
-- Triggers executions via `execution-api.ts`.
-- Calls LLMs through the LiteLLM proxy configured in
-  `bin/litellm-config.yaml`.
-
-Agent tools live in `agent-service/src/agent/tools/` (CRUD operators,
-code-operator authoring, execution); state is in `workflow-state.ts` /
-`workflow-result-state.ts`; `AgentMode` selects between system prompts in
-`prompts.ts`. **Do not import frontend or amber code from `agent-service/`** —
-it's a separate process boundary.
-
-For native full-stack validation with KramaBench, follow
-[`SETUP.md`](SETUP.md). The JVM services must be launched with
-`GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true`; otherwise AccessControlService
-returns `403 {"error": "Copilot feature is disabled"}` for `/api/chat/*`, and
-the agent trace ends before tool use.
-
-### Python runtime layout
-
-- `amber/src/main/python/pyamber/` — worker entrypoint, talks to the Scala
-  worker over Arrow Flight RPC. `texera_run_python_worker.py` is the script
-  entry.
-- `amber/src/main/python/pytexera/` — user-facing API that custom Python
-  operators import.
-- `amber/src/main/python/proto/` — generated; regenerate with
-  `bin/python-proto-gen.sh`. The frontend has the parallel
-  `bin/frontend-proto-gen.sh` for its TS protos.
-
-### Gotchas
-
-- **Scalafix before scalafmt**, always — `sbt scalafixAll && sbt scalafmtAll`.
-  Reverse order can leave fixable lint that the formatter then re-formats.
-- **IntelliJ test working directory**: amber tests must run with cwd
-  `amber/`; tests for other services run with cwd at the repo root. Wrong cwd
-  produces confusing classpath/resource-not-found failures.
-- **Pinned dep overrides in `build.sbt`** (don't "upgrade" without checking):
-  Jackson is pinned to `2.18.6` per-module because Dropwizard 4 needs ≥
-  2.16.1; Netty is pinned to `4.1.96.Final` for Arrow 14 compatibility. See
-  the `dependencyOverrides` blocks per project.
-- **Frontend monaco aliasing**: `vscode` and `monaco-editor` are aliased to
-  `@codingame/monaco-vscode-*` via `resolutions` in `frontend/package.json`.
-  Do not "fix" those imports — they're intentional.
-- **Licensing settings**: `common/workflow-operator` uses
-  `asfLicensingSettingsWithVendored` (it vendors mbknor code under a separate
-  attribution); everything else uses `asfLicensingSettings`. Defined in
-  `project/AddMetaInfLicenseFiles.scala`.
-
-### Convenience entry points
-
-- `bin/fix-format.sh [--scala|--frontend|--python|--all]` — wraps the three
-  formatters; CI checks each independently so you can run just the target you
-  touched.
-- `.run/*.run.xml` — IntelliJ run configs are the canonical source for main
-  classes and JVM args of every service (useful when reading `build.sbt`
-  doesn't make it obvious which `Main` to launch).
-- `bin/server.sh`, `bin/workflow-computing-unit.sh` — launch from a built
-  `amber/target/texera-*` distribution after `bin/build-services.sh`
-  (`sbt clean dist` + unzip).
-- `tests/` — end-to-end workflow scenarios with `run_services.sh` /
-  `run_workflows.sh` / `upload_workflows.py` for driving the live stack via
-  REST. These are integration scenarios, not sbt/pytest unit tests.
-
-### Python toolchain
-
-- Supported CI Python versions: 3.10, 3.11, 3.12, 3.13.
-- Ruff config is in `amber/src/main/python/pyproject.toml` (this is a
-  ruff-only config, separate from the project-level `pyproject.toml` at
-  the repo root).
-- Ruff line length is 88 and target version is `py310`.
-- Generated protobuf code under `amber/src/main/python/proto` is excluded from
-  Ruff.
-
-### Dependencies
-
-The project-level `pyproject.toml` at the repo root holds the runtime
-Python deps for local development and for the runtime PVE feature (see
-`PveManager.scala`, which `pip install`s the project on each PVE
-creation). `[project.dependencies]` is the base set; `[project.optional-dependencies]`
-defines `dev` (test/lint) and `kramabench` (domain extras). `uv.lock` is
-committed.
-
-Local dev:
-
-```bash
-uv sync --all-extras   # creates .venv with base + dev + kramabench
-.venv/bin/pytest amber/src/main/python   # or whichever target
-```
-
-Plain pip also works for one-off installs:
-
-```bash
-pip install --extra-index-url https://download.pytorch.org/whl/cpu .
-pip install --extra-index-url https://download.pytorch.org/whl/cpu .[dev]
-```
-
-The `--extra-index-url` is required for the `torch==2.8.0+cpu` pin on Linux
-x86_64. uv reads `[tool.uv.sources]` and handles this automatically; plain
-pip needs the flag.
-
-`amber/dev-requirements.txt` still exists separately — it holds CI-only
-test deps (currently `pytest-cov`) installed *after* the LICENSE-binary
-snapshot so they never appear in `pip-licenses` output.
-
-The legacy `amber/requirements.txt` and `amber/operator-requirements.txt`
-have been removed. Some Docker/CI/licensing helpers still reference them
-(root `Dockerfile`, `bin/computing-unit-{master,worker}.dockerfile`,
-`bin/licensing/check_binary_deps.py`, `.github/labeler.yml`,
-`.github/workflows/build.yml`) and will need follow-up work before those
-paths can be exercised; they don't affect local development on this
-branch.
+| Topic | Source of truth |
+|---|---|
+| Quick start, agent REST API | [README.md](README.md) |
+| Stack launcher deep dive + troubleshooting | [docs/local-dev-with-agent.md](docs/local-dev-with-agent.md) |
+| Benchmarks (setup, running, scoring) | [benchmark/README.md](benchmark/README.md), [benchmark/longds/README.md](benchmark/longds/README.md) |
+| KramaBench result reports | `benchmark/Kramabench/judgment_runs/` |
+| LiteLLM model list | [bin/litellm-config.yaml](bin/litellm-config.yaml), [bin/single-node/litellm-config.yaml](bin/single-node/litellm-config.yaml) |
+| Contribution / PR / lint / format | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Security reporting | [SECURITY.md](SECURITY.md) |
+| Engine internals | [amber/README.md](amber/README.md) |
+| Single-node / k8s deploy | [bin/single-node](bin/single-node/README.md), [bin/k8s](bin/k8s/README.md) |
+| **Obsolete** research/planning notes | [docs/archived/](docs/archived/) — do not follow |

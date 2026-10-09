@@ -64,24 +64,25 @@ def serialize_global_port_identity(obj: GlobalPortIdentity) -> str:
     ``(logicalOpId=<logicalOpId>,layerName=<layerName>,
     portId=<portId.id>,isInternal=<portId.internal>,isInput=<input>)``
 
-    Raises ValueError if `logicalOpId` or `layerName` contains an underscore
-    (VFS URI parsing relies on the absence of '_'), or if `portId` is negative.
+    Raises ValueError if `logicalOpId` or `layerName` contains an underscore or a
+    slash (VFS URI parsing relies on the absence of both), or if `portId` is
+    negative. Mirrors GlobalPortIdentitySerde (Scala).
     """
     logical_op_id = obj.op_id.logical_op_id.id
     layer_name = obj.op_id.layer_name
     port_id = obj.port_id.id
     is_internal = obj.port_id.internal
     is_input_port = obj.input
-    if "_" in logical_op_id:
-        raise ValueError(
-            f"logicalOpId must not contain '_' "
-            f"(VFS URI parsing relies on this): {logical_op_id}"
-        )
-    if "_" in layer_name:
-        raise ValueError(
-            f"layerName must not contain '_' "
-            f"(VFS URI parsing relies on this): {layer_name}"
-        )
+    for field, value in (("logicalOpId", logical_op_id), ("layerName", layer_name)):
+        # '_' would collide with the separator the storage key is built from, and
+        # '/' would add path segments to the VFS URI this string is interpolated
+        # into -- letting an id forge structure the URI never meant to have.
+        for forbidden in ("_", "/"):
+            if forbidden in value:
+                raise ValueError(
+                    f"{field} must not contain '{forbidden}' "
+                    f"(VFS URI parsing relies on this): {value}"
+                )
     if port_id < 0:
         raise ValueError(f"portId must be non-negative: {port_id}")
     return (
@@ -120,18 +121,24 @@ def deserialize_global_port_identity(encoded_str: str) -> GlobalPortIdentity:
 
 
 def get_from_actor_id_for_input_port_storage(
-    storage_uri_str: str, to_worker_actor_id: ActorVirtualIdentity
+    storage_uri_str: str, to_worker_actor_id: ActorVirtualIdentity, port_id: PortIdentity
 ) -> ActorVirtualIdentity:
     """
-    Constructs an ActorVirtualIdentity for input port storage.
+    Identify the reader by storage, worker and destination port. One saved
+    output may feed several ports of the same worker; they must have distinct
+    data and completion channels.
 
     Args:
         storage_uri_str (str): The string representation of the storage URI.
+        port_id (PortIdentity): The destination input port.
 
     Returns:
         ActorVirtualIdentity: A new virtual identity created by
         prefixing the storage URI.
     """
     return ActorVirtualIdentity(
-        MATERIALIZATION_READER_ACTOR_PREFIX + storage_uri_str + to_worker_actor_id.name
+        MATERIALIZATION_READER_ACTOR_PREFIX
+        + storage_uri_str
+        + to_worker_actor_id.name
+        + f":input-{port_id.id}-internal-{str(port_id.internal).lower()}"
     )

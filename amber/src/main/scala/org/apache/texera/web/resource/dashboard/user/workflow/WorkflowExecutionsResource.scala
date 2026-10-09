@@ -44,7 +44,7 @@ import org.apache.texera.dao.jooq.generated.tables.daos.WorkflowExecutionsDao
 import org.apache.texera.dao.jooq.generated.tables.pojos.{WorkflowExecutions, User => UserPojo}
 import org.apache.texera.web.dao.OperatorPortCacheDao
 import org.apache.texera.web.model.http.request.result.ResultExportRequest
-import org.apache.texera.web.model.websocket.request.LogicalPlanPojo
+import org.apache.texera.common.compiler.model.LogicalPlanPojo
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource._
 import org.apache.texera.web.service.{
   ExecutionsMetadataPersistService,
@@ -53,7 +53,7 @@ import org.apache.texera.web.service.{
 }
 import org.jooq.DSLContext
 import play.api.libs.json.Json
-import org.apache.texera.workflow.WorkflowCompiler
+import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 
 import java.net.URI
 import java.sql.Timestamp
@@ -263,22 +263,6 @@ object WorkflowExecutionsResource {
     restrictionMap.toMap
   }
 
-  def insertOperatorPortResultUri(
-      eid: ExecutionIdentity,
-      globalPortId: GlobalPortIdentity,
-      uri: URI
-  ): Unit = {
-    context
-      .insertInto(OPERATOR_PORT_EXECUTIONS)
-      .columns(
-        OPERATOR_PORT_EXECUTIONS.WORKFLOW_EXECUTION_ID,
-        OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID,
-        OPERATOR_PORT_EXECUTIONS.RESULT_URI
-      )
-      .values(eid.id.toInt, globalPortId.serializeAsString, uri.toString)
-      .execute()
-  }
-
   def insertOperatorExecutions(
       eid: Long,
       opId: String,
@@ -457,7 +441,7 @@ object WorkflowExecutionsResource {
   ): Unit = {
     context
       .update(OPERATOR_PORT_EXECUTIONS)
-      .set(OPERATOR_PORT_EXECUTIONS.RESULT_SIZE, Integer.valueOf(size.toInt))
+      .set(OPERATOR_PORT_EXECUTIONS.RESULT_SIZE, java.lang.Long.valueOf(size))
       .where(OPERATOR_PORT_EXECUTIONS.WORKFLOW_EXECUTION_ID.eq(eid.id.toInt))
       .and(OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID.eq(globalPortId.serializeAsString))
       .execute()
@@ -477,13 +461,25 @@ object WorkflowExecutionsResource {
       .map(URI.create)
 
     if (statsUriOpt.isPresent) {
-      val size = DocumentFactory.openDocument(statsUriOpt.get)._1.getTotalFileSize
-      context
-        .update(WORKFLOW_EXECUTIONS)
-        .set(WORKFLOW_EXECUTIONS.RUNTIME_STATS_SIZE, Integer.valueOf(size.toInt))
-        .where(WORKFLOW_EXECUTIONS.EID.eq(eid.id.toInt))
-        .execute()
+      updateRuntimeStatsSize(
+        eid,
+        DocumentFactory.openDocument(statsUriOpt.get)._1.getTotalFileSize
+      )
     }
+  }
+
+  /**
+    * Stores an already-measured runtime statistics size, mirroring updateResultSize.
+    *
+    * @param eid  Execution ID associated with the runtime statistics document.
+    * @param size Size of the runtime statistics in bytes.
+    */
+  def updateRuntimeStatsSize(eid: ExecutionIdentity, size: Long): Unit = {
+    context
+      .update(WORKFLOW_EXECUTIONS)
+      .set(WORKFLOW_EXECUTIONS.RUNTIME_STATS_SIZE, java.lang.Long.valueOf(size))
+      .where(WORKFLOW_EXECUTIONS.EID.eq(eid.id.toInt))
+      .execute()
   }
 
   /**
@@ -502,14 +498,28 @@ object WorkflowExecutionsResource {
       .map(URI.create)
 
     if (uriOpt.isPresent) {
-      val size = DocumentFactory.openDocument(uriOpt.get)._1.getTotalFileSize
-      context
-        .update(OPERATOR_EXECUTIONS)
-        .set(OPERATOR_EXECUTIONS.CONSOLE_MESSAGES_SIZE, Integer.valueOf(size.toInt))
-        .where(OPERATOR_EXECUTIONS.WORKFLOW_EXECUTION_ID.eq(eid.id.toInt))
-        .and(OPERATOR_EXECUTIONS.OPERATOR_ID.eq(opId.id))
-        .execute()
+      updateConsoleMessageSize(
+        eid,
+        opId,
+        DocumentFactory.openDocument(uriOpt.get)._1.getTotalFileSize
+      )
     }
+  }
+
+  /**
+    * Stores an already-measured console message size, mirroring updateResultSize.
+    *
+    * @param eid  Execution ID associated with the console message.
+    * @param opId Operator ID of the corresponding operator.
+    * @param size Size of the console messages in bytes.
+    */
+  def updateConsoleMessageSize(eid: ExecutionIdentity, opId: OperatorIdentity, size: Long): Unit = {
+    context
+      .update(OPERATOR_EXECUTIONS)
+      .set(OPERATOR_EXECUTIONS.CONSOLE_MESSAGES_SIZE, java.lang.Long.valueOf(size))
+      .where(OPERATOR_EXECUTIONS.WORKFLOW_EXECUTION_ID.eq(eid.id.toInt))
+      .and(OPERATOR_EXECUTIONS.OPERATOR_ID.eq(opId.id))
+      .execute()
   }
 
   /**
@@ -524,26 +534,62 @@ object WorkflowExecutionsResource {
       portId: PortIdentity
   ): Option[URI] = {
     def isMatchingExternalPortURI(uri: URI): Boolean = {
-      val (_, _, globalPortIdOption, resourceType) = VFSURIFactory.decodeURI(uri)
-      globalPortIdOption.exists { globalPortId =>
+      val components = VFSURIFactory.decodeURI(uri)
+      components.globalPortId.exists { globalPortId =>
         !globalPortId.portId.internal &&
         globalPortId.opId.logicalOpId == opId &&
         globalPortId.portId == portId &&
-        resourceType == VFSResourceType.RESULT
+        components.resourceType == VFSResourceType.RESULT
       }
     }
 
-    val urisOfEid: List[URI] =
+    val registered: List[(String, URI)] =
       context
-        .select(OPERATOR_PORT_EXECUTIONS.RESULT_URI)
+        .select(OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID, OPERATOR_PORT_EXECUTIONS.RESULT_URI)
         .from(OPERATOR_PORT_EXECUTIONS)
         .where(OPERATOR_PORT_EXECUTIONS.WORKFLOW_EXECUTION_ID.eq(eid.id.toInt))
-        .fetchInto(classOf[String])
+        .fetch()
         .asScala
         .toList
-        .map(URI.create)
+        .map(row => row.get(OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID) ->
+          URI.create(row.get(OPERATOR_PORT_EXECUTIONS.RESULT_URI)))
 
-    urisOfEid.find(isMatchingExternalPortURI)
+    org.apache.texera.web.service.HistoricalResultService.registeredResult(registered, opId, portId).orElse {
+      // Cleanup removes execution registry rows but preserves cached documents.
+      // Recover only this exact producer; the latest result for an operator may
+      // belong to a different execution and must not satisfy a historical read.
+      new OperatorPortCacheDao(SqlServer.getInstance())
+        .listBySourceExecutionIds(Seq(eid.id))
+        .find { entry =>
+          val components = VFSURIFactory.decodeURI(entry.resultUri)
+          components.executionId == eid &&
+          components.workflowId.id == entry.workflowId &&
+          isMatchingExternalPortURI(entry.resultUri)
+        }
+        .map(_.resultUri)
+    }
+  }
+
+  /**
+    * Record one output port's materialized result URI for an execution.
+    * Used by the cached-region path (RegionExecutionManager) to replay a
+    * cached port's URI into operator_port_executions so downstream reads
+    * (result panel, cache reuse) resolve exactly like a live run.
+    */
+  def insertOperatorPortResultUri(
+      eid: ExecutionIdentity,
+      globalPortId: GlobalPortIdentity,
+      uri: URI
+  ): Unit = {
+    context
+      .insertInto(OPERATOR_PORT_EXECUTIONS)
+      .columns(
+        OPERATOR_PORT_EXECUTIONS.WORKFLOW_EXECUTION_ID,
+        OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID,
+        OPERATOR_PORT_EXECUTIONS.RESULT_URI
+      )
+      .values(eid.id.toInt, globalPortId.serializeAsString, uri.toString)
+      .execute()
   }
 
   /**
@@ -710,7 +756,7 @@ class WorkflowExecutionsResource {
             val storage =
               SequentialRecordStorage.getStorage[ReplayLogRecord](Some(new URI(logLocation)))
             val result = new mutable.ArrayBuffer[EmbeddedControlMessageIdentity]()
-            storage.getReader("CONTROLLER").mkRecordIterator().foreach {
+            storage.getReader("COORDINATOR").mkRecordIterator().foreach {
               case destination: ReplayDestination =>
                 result.append(destination.id)
               case _ =>
@@ -763,10 +809,14 @@ class WorkflowExecutionsResource {
   @GET
   @Produces(Array(MediaType.APPLICATION_JSON))
   @Path("/{wid}/stats/{eid}")
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
   def retrieveWorkflowRuntimeStatistics(
       @PathParam("wid") wid: Integer,
-      @PathParam("eid") eid: Integer
+      @PathParam("eid") eid: Integer,
+      @Auth sessionUser: SessionUser
   ): List[WorkflowRuntimeStatistics] = {
+    validateUserCanAccessWorkflow(sessionUser.getUser.getUid, wid)
+
     // Create URI for runtime statistics
     val uriString: String = context
       .select(WORKFLOW_EXECUTIONS.RUNTIME_STATS_URI)
@@ -930,9 +980,12 @@ class WorkflowExecutionsResource {
       @Auth sessionUser: SessionUser
   ): CacheInvalidationResponse = {
     validateUserCanWriteWorkflow(sessionUser.getUser.getUid, wid)
-    val workflow = try {
+    val physicalPlan = try {
       val workflowContext = new WorkflowContext(workflowId = WorkflowIdentity(wid.toLong))
-      new WorkflowCompiler(workflowContext).compile(request)
+      new WorkflowCompiler(workflowContext)
+        .compile(request, CompilationErrorHandling.Strict)
+        .physicalPlan
+        .getOrElse(throw new IllegalStateException("compilation produced no physical plan"))
     } catch {
       case err: Throwable =>
         throw new BadRequestException(s"Failed to compile workflow for cache invalidation: ${err.getMessage}")
@@ -940,7 +993,7 @@ class WorkflowExecutionsResource {
     val dao = new OperatorPortCacheDao(SqlServer.getInstance())
     val cacheService = new OperatorPortCacheService(dao)
     val removedCount =
-      cacheService.invalidateMismatchedCacheEntries(WorkflowIdentity(wid.toLong), workflow.physicalPlan)
+      cacheService.invalidateMismatchedCacheEntries(WorkflowIdentity(wid.toLong), physicalPlan)
     CacheInvalidationResponse(removedCount)
   }
 

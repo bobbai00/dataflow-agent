@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import os
+
 import pyarrow as pa
 from pyiceberg.catalog import Catalog
 from pyiceberg.schema import Schema
@@ -24,6 +26,16 @@ from typing import List, TypeVar, Callable, Iterable
 
 from core.storage.model.buffered_item_writer import BufferedItemWriter
 from core.storage.storage_config import StorageConfig
+
+# Rows are serialized per buffer (``buffer_size`` rows) but committed to the
+# catalog together. A commit per buffer made large results quadratic: every
+# commit refreshes and rewrites table metadata that grows with the number of
+# snapshots, so an 8.6 M-row scan (2,100 buffers) spent about 200 s in commits
+# (pyiceberg, 300 commits of 4,096 rows: 27.5 s; one commit of the same rows:
+# 0.5 s). Pending Arrow data is committed once it reaches COMMIT_BYTES and at
+# close. The cap stays far below pyiceberg's 512 MB target file size, so each
+# commit writes one data file and the files keep the rows' order.
+COMMIT_BYTES = int(os.environ.get("TEXERA_ICEBERG_COMMIT_BYTES", 64 * 1024 * 1024))
 
 # Define a type variable for the data type T
 T = TypeVar("T")
@@ -65,6 +77,10 @@ class IcebergTableWriter(BufferedItemWriter[T]):
 
         # Internal state
         self.buffer: List[T] = []
+        # Serialized buffers waiting for the next catalog commit.
+        self.commit_bytes = COMMIT_BYTES
+        self.pending: List[pa.Table] = []
+        self.pending_bytes = 0
 
         # Load the Iceberg table
         self.table: Table = self.catalog.load_table(
@@ -100,27 +116,68 @@ class IcebergTableWriter(BufferedItemWriter[T]):
         """
         if not self.buffer:
             return
-        df = self.serde(self.table_schema, self.buffer)
-
-        def append_to_table_with_retry(pa_df: pa.Table) -> None:
-            @retry(
-                wait=wait_random_exponential(0.001, 10),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            )
-            def append_with_retry():
-                self.table.refresh()
-                self.table.append(pa_df)
-
-            append_with_retry()
-
-        append_to_table_with_retry(df)
+        self._stage(self.serde(self.table_schema, self.buffer))
         self.buffer.clear()
 
+    def _stage(self, table: pa.Table) -> None:
+        """Queue serialized rows for the next commit; commit once enough are pending."""
+        if table.num_rows == 0:
+            return
+        self.pending.append(table)
+        self.pending_bytes += table.nbytes
+        if self.pending_bytes >= self.commit_bytes:
+            self._commit_pending()
+
+    def _commit_pending(self) -> None:
+        """Commit the queued rows as one data file in one snapshot."""
+        if not self.pending:
+            return
+        rows = (
+            self.pending[0]
+            if len(self.pending) == 1
+            else pa.concat_tables(self.pending)
+        )
+        self.pending = []
+        self.pending_bytes = 0
+        self._append(rows)
+
+    def _append(self, pa_df: pa.Table) -> None:
+        """Append one data file, retrying commit conflicts (see _flush_buffer)."""
+
+        @retry(
+            wait=wait_random_exponential(0.001, 10),
+            stop=stop_after_attempt(10),
+            reraise=True,
+        )
+        def append_with_retry():
+            self.table.refresh()
+            self.table.append(pa_df)
+
+        append_with_retry()
+
+    def put_arrow(self, table: pa.Table) -> None:
+        """Append rows already in Arrow, in the port's plain schema, after the
+        buffered items: the data files the serde writes for the same rows,
+        one per ``buffer_size`` rows, without one item per row."""
+        from core.storage.iceberg.iceberg_utils import arrow_to_stored_table
+
+        self._flush_buffer()
+        # Cast the whole table, then slice. A cast of a slice keeps its whole
+        # column's data buffer (string to large_string shares it), and writing
+        # such slices held about 0.2 GB more per commit of an 8.6 M-row table.
+        stored = arrow_to_stored_table(self.table_schema, table)
+        # Slices of about one commit each, so a commit's file stays near the cap.
+        per_commit = max(
+            self.buffer_size,
+            stored.num_rows * self.commit_bytes // max(stored.nbytes, 1),
+        )
+        for offset in range(0, stored.num_rows, per_commit):
+            self._stage(stored.slice(offset, per_commit))
+
     def close(self) -> None:
-        """Close the writer, ensuring any remaining buffered items are flushed."""
-        if self.buffer:
-            self._flush_buffer()
+        """Close the writer: flush the buffer and commit everything pending."""
+        self._flush_buffer()
+        self._commit_pending()
 
     @buffer_size.setter
     def buffer_size(self, value):

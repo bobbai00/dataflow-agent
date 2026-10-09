@@ -31,7 +31,7 @@ import org.apache.texera.amber.core.workflow.{
   WorkflowContext,
   WorkflowSettings
 }
-import org.apache.texera.amber.engine.architecture.controller._
+import org.apache.texera.amber.engine.architecture.coordinator._
 import org.apache.texera.amber.engine.common.AmberRuntime
 import org.apache.texera.amber.engine.e2e.TestUtils.{
   buildWorkflow,
@@ -42,7 +42,7 @@ import org.apache.texera.amber.engine.e2e.TestUtils.{
 }
 import org.apache.texera.amber.operator.TestOperators
 import org.apache.texera.amber.operator.aggregate.AggregationFunction
-import org.apache.texera.workflow.LogicalLink
+import org.apache.texera.common.compiler.model.LogicalLink
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, Outcome, Retries}
 
@@ -141,7 +141,7 @@ class DataProcessingSpec
       assert(schema.getAttribute("id").getType == AttributeType.LONG)
       assert(schema.getAttribute("first_name").getType == AttributeType.STRING)
       assert(schema.getAttribute("flagged").getType == AttributeType.BOOLEAN)
-      assert(schema.getAttribute("year").getType == AttributeType.INTEGER)
+      assert(schema.getAttribute("year").getType == AttributeType.LONG)
       assert(schema.getAttribute("created_at").getType == AttributeType.TIMESTAMP)
       assert(schema.getAttributes.length == 9)
     }
@@ -164,9 +164,9 @@ class DataProcessingSpec
       assert(schema.getAttribute("id").getType == AttributeType.LONG)
       assert(schema.getAttribute("first_name").getType == AttributeType.STRING)
       assert(schema.getAttribute("flagged").getType == AttributeType.BOOLEAN)
-      assert(schema.getAttribute("year").getType == AttributeType.INTEGER)
+      assert(schema.getAttribute("year").getType == AttributeType.LONG)
       assert(schema.getAttribute("created_at").getType == AttributeType.TIMESTAMP)
-      assert(schema.getAttribute("test_object.array2.another").getType == AttributeType.INTEGER)
+      assert(schema.getAttribute("test_object.array2.another").getType == AttributeType.LONG)
       assert(schema.getAttributes.length == 13)
     }
   }

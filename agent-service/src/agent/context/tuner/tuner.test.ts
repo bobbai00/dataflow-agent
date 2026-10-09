@@ -83,8 +83,8 @@ describe("translateTunerOutput → SummarizeParams", () => {
     expect(br.result.latest.detail).toBe("sample");
     expect(br.result.latest.tuple.sampleRows).toBe(12);
     expect(br.property.includeCode).toBe(true);
-    expect(br.result.latest.column.stats).toBe(true);
-    expect(br.result.latest.column.structuralHints).toBe(true);
+    expect(Object.hasOwn(br.result.latest.column ?? {}, "stats")).toBe(false);
+    expect(Object.hasOwn(br.result.latest.column ?? {}, "structuralHints")).toBe(false);
     expect(resolveOperatorParams(params, "report").result.latest.detail).toBe("shape");
   });
 

@@ -35,6 +35,7 @@ export interface LogicalPlan {
   links: LogicalLink[];
   opsToViewResult?: string[];
   opsToReuseResult?: string[];
+  savedOutputs?: Record<string, { executionId: string; operatorId: string; outputPort: number }>;
 }
 
 import { getBackendConfig } from "./backend-api";
@@ -84,6 +85,8 @@ export async function executeWorkflowSync(
     timeoutSeconds: options.timeoutSeconds ?? 300,
     maxOperatorResultCharLimit: options.maxOperatorResultCharLimit ?? 4000,
     maxOperatorResultCellCharLimit: options.maxOperatorResultCellCharLimit ?? 2000,
+    ...(logicalPlan.savedOutputs && Object.keys(logicalPlan.savedOutputs).length
+      ? { workflowSettings: { savedOutputs: logicalPlan.savedOutputs } } : {}),
   };
 
   const response = await fetch(url, {

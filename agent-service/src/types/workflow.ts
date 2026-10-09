@@ -49,6 +49,19 @@ export interface PortDescription {
 }
 
 export interface OperatorPredicate {
+  /** Internal immutable input handle. The engine resolves its exact producer;
+   * this is not an executable copy of the historical definition. */
+  readonly savedResult?: {
+    taskId: number;
+    stepId: string;
+    operatorId: string;
+    executionId: string;
+    outputPort: number;
+    resultVersion?: string;
+  };
+  /** Provenance of a copied historical definition. Saved observations keep
+   * their original identity; they are not a materialization of this new ID. */
+  readonly stateOrigin?: { taskId: number; stepId: string; operatorId: string; subgraphHash: string };
   readonly operatorID: string;
   readonly operatorType: string;
   readonly operatorVersion: string;
@@ -62,6 +75,27 @@ export interface OperatorPredicate {
   readonly viewResult?: boolean;
   readonly markedForReuse?: boolean;
   readonly customDisplayName?: string;
+  /**
+   * NATIVE mode: the typed view of an operator the service compiled from
+   * parameters (`type`, `properties`, ordered `inputs`). The engine only ever
+   * sees the generated `code` in `operatorProperties`; this field is for the
+   * renderer and result selection, and is never forwarded in execution payloads.
+   */
+  readonly nativeOp?: {
+    type: string;
+    properties: Record<string, unknown>;
+    inputs: string[];
+    /** Public graph ports in logical input order. */
+    graph?: { inputPorts: string[] };
+    revision?: string;
+    profileCollection?: boolean;
+    /** The assignment as the model wrote it (`x = filter(...)`). */
+    source?: string;
+    /** Top-level `def` sources the statement refers to, by name. */
+    functions?: Record<string, string>;
+    /** A shared-function call's settings with defaults filled in. */
+    settings?: Record<string, unknown>;
+  };
 }
 
 export interface LogicalOperator {

@@ -52,6 +52,10 @@ export interface ReActStep {
   timestamp: Date;
   role: "user" | "agent";
   content: string;
+  /** Provider reasoning summary for this step, when the model exposes one.
+   *  Display-only: the chat's step list shows it when `content` is empty
+   *  (models that emit tool calls with no visible preamble). */
+  reasoningText?: string;
   isBegin: boolean;
   isEnd: boolean;
   toolCalls?: any[];

@@ -1,0 +1,912 @@
+{
+  "title": "LongDS first-question comparison after rebasing Dataflow actions",
+  "date": "2026-10-01",
+  "implementation": {
+    "branch": "feat/longds-task1-rebased",
+    "worktree": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1",
+    "candidate_revision": "8f40e8116b2ac37f77c8b7fdee79541e2623d1c0",
+    "actions_base": "88c9b91465da8832e4bef1c8c0694dbc4c5ee7b3",
+    "original_branch_preserved": "feat/dataflow-next",
+    "changes": [
+      "Rebased the 11 existing history/retrieval commits onto dataflow-actions; reconciled historical reads with explicit full/sample/sample_stats views.",
+      "Normalize nullable Float32/Float64 columns to NumPy float64 at the Process input boundary; retain nullable integers and other types.",
+      "Allow the experiment harness to supply common first-question text without modifying the original context, question or reference answer."
+    ],
+    "validation": {
+      "python_tests": 231,
+      "native_runtime_tests": 40,
+      "typecheck": "passed",
+      "bun_tests": "1188 passed initially; one fresh-worktree failure required generated Python protos. Generated them and reran the affected transport/action/prompt checks: 88 passed, 0 failed.",
+      "live_engine": "Passed historical reads, fork execution, rewiring and baseline isolation on the private stack.",
+      "old_trace_replay": "Exact saved Terra scoring code matches all five reference pressures and wait scores after numeric normalization.",
+      "new_trace_counterfactual": "For the new Terra r3 scoring spec and recorded input dtypes, disabling only normalization changes 726 of 727 pressures, including all five reported scores. Armenia changes from 65.270 to 65.274. Both versions remain within 0-100 in this case, so range checks alone would miss it.",
+      "logs": "/var/tmp/texera-task1-integration-20261001"
+    }
+  },
+  "protocol": {
+    "scope": "First question only of two state-dependent sessions; three repetitions per model and agent. These trials test initial calculation and retained-state quality.",
+    "dataset_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+    "sessions": [
+      "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+      "social_good__data_science_for_good_kiva_crowdfunding__task1"
+    ],
+    "models": [
+      "gpt-5.6-luna",
+      "gpt-5.6-terra"
+    ],
+    "agents": [
+      "Native Dataflow with historical inspect/fork/retrieve enabled",
+      "Original DSGym MultiTurnReActDSAgent"
+    ],
+    "trials": 24,
+    "solver_reruns": 0,
+    "call_limit": 40,
+    "output_token_limit": 8192,
+    "reasoning_effort": "medium",
+    "user_message": "Identical task text with common JSON/raw-supporting-fields instruction. Native rendering adds a 33-character event heading. System prompts and action protocols differ.",
+    "dsgym_system_prompt": "Original upstream system prompt with its data-directory placeholder filled.",
+    "correctness_judge": "deepseek/deepseek-v4-pro",
+    "correctness_prompt_sha256": "5bb32f993b72cb515a675f55808145247bc81211dd05e7253135bb01b0d2c300",
+    "error_annotation": "Original paper Appendix E.3 wording, applied by Codex gpt-5.5 xhigh. All five incorrect answers annotated; 19 passing trials require no annotation model call under that protocol.",
+    "annotation_integrity": "24 bundles and all original reference fields/hashes verified; zero integrity errors.",
+    "environment_versions": {
+      "engine": {
+        "pandas": "2.2.3",
+        "numpy": "2.1.0"
+      },
+      "script_kernel": {
+        "pandas": "2.2.3",
+        "numpy": "2.2.4"
+      }
+    },
+    "protocol_limits": [
+      "Adapted diagnostic, not a paper-protocol leaderboard submission.",
+      "SDK retries were disabled. The original DSGym backend separately allowed up to three attempts per generation; three requests timed out and have no returned usage.",
+      "Three repetitions on two selected sessions cannot establish general benchmark superiority or a stable error probability.",
+      "The rebase, runtime fix and common answer contract changed together. Only the deterministic numeric counterfactual isolates a causal effect."
+    ]
+  },
+  "results": {
+    "groups": [
+      {
+        "model": "gpt-5.6-luna",
+        "agent": "dataflow",
+        "runs": 6,
+        "judged": 6,
+        "correct": 6,
+        "total_estimated_solver_cost_usd": 0.04660928,
+        "mean_estimated_solver_cost_usd": 0.0077682133333333335,
+        "median_estimated_solver_cost_usd": 0.00725439,
+        "native_upper_total_usd": 0.04915783,
+        "input_tokens": 306925,
+        "cached_tokens": 255954,
+        "output_tokens": 26080,
+        "reported_calls": 32,
+        "attempted_calls": 32,
+        "cache_hit_fraction": 0.833930113219842,
+        "missing_response_attempts": 0,
+        "full_population_correct": 2
+      },
+      {
+        "model": "gpt-5.6-luna",
+        "agent": "dsgym",
+        "runs": 6,
+        "judged": 6,
+        "correct": 1,
+        "total_estimated_solver_cost_usd": 0.04217348,
+        "mean_estimated_solver_cost_usd": 0.0070289133333333335,
+        "median_estimated_solver_cost_usd": 0.004519914999999999,
+        "native_upper_total_usd": null,
+        "input_tokens": 60749,
+        "cached_tokens": 43899,
+        "output_tokens": 30904,
+        "reported_calls": 12,
+        "attempted_calls": 12,
+        "cache_hit_fraction": 0.7226291790811371,
+        "missing_response_attempts": 0,
+        "full_population_correct": 1
+      },
+      {
+        "model": "gpt-5.6-terra",
+        "agent": "dataflow",
+        "runs": 6,
+        "judged": 6,
+        "correct": 6,
+        "total_estimated_solver_cost_usd": 0.37731739999999997,
+        "mean_estimated_solver_cost_usd": 0.06288623333333333,
+        "median_estimated_solver_cost_usd": 0.0629648,
+        "native_upper_total_usd": 0.3961884,
+        "input_tokens": 186049,
+        "cached_tokens": 148307,
+        "output_tokens": 22681,
+        "reported_calls": 22,
+        "attempted_calls": 22,
+        "cache_hit_fraction": 0.7971394632596789,
+        "missing_response_attempts": 0,
+        "full_population_correct": 6
+      },
+      {
+        "model": "gpt-5.6-terra",
+        "agent": "dsgym",
+        "runs": 6,
+        "judged": 6,
+        "correct": 6,
+        "total_estimated_solver_cost_usd": 0.7440825,
+        "mean_estimated_solver_cost_usd": 0.12401375,
+        "median_estimated_solver_cost_usd": 0.1275928,
+        "native_upper_total_usd": null,
+        "input_tokens": 158872,
+        "cached_tokens": 128630,
+        "output_tokens": 53567,
+        "reported_calls": 35,
+        "attempted_calls": 38,
+        "cache_hit_fraction": 0.8096455007805026,
+        "missing_response_attempts": 3,
+        "full_population_correct": 6
+      }
+    ],
+    "dataflow_reference_numeric_fields_correct": 498,
+    "dataflow_reference_numeric_fields_checked": 498,
+    "dataflow_ranked_identities_and_order": "Correct in all 12 trials.",
+    "terra_estimated_solver_cost_reduction": 0.492909186817322,
+    "terra_conservative_reduction_allowing_unknown_native_cache_writes": 0.4675477517613974,
+    "original_error_labels": {
+      "total_incorrect_tasks": 5,
+      "primary_error_type_counts": {
+        "Statistical / Domain Reasoning Error": 1,
+        "Planning Error": 0,
+        "Instruction Following Error": 4,
+        "Coding / Implementation Error": 0,
+        "Context Memory Error": 0,
+        "State Management Error": 0,
+        "Cascade Error": 0
+      },
+      "all_error_type_counts": {
+        "Statistical / Domain Reasoning Error": 1,
+        "Planning Error": 0,
+        "Instruction Following Error": 5,
+        "Coding / Implementation Error": 1,
+        "Context Memory Error": 0,
+        "State Management Error": 0,
+        "Cascade Error": 0
+      },
+      "cascade_error_count": 0,
+      "main_failure_patterns": []
+    },
+    "partial_score_note": "Post-hoc field coverage and numerical checks are saved separately from original judgments. Luna DSGym r2 omits five loan counts but gets the derived components correct; the original judge passes it.",
+    "per_trial": [
+      {
+        "arm": "luna-dataflow-r1",
+        "model": "gpt-5.6-luna",
+        "repeat": 1,
+        "agent": "dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dataflow-r1/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.0092727,
+        "upper_native_cost_estimate_usd": 0.0098529,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 31599,
+        "cached_tokens": 19995,
+        "output_tokens": 5460,
+        "elapsed_seconds": 75.06255936100206,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "luna-dsgym-r1",
+        "model": "gpt-5.6-luna",
+        "repeat": 1,
+        "agent": "dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dsgym-r1/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 0,
+        "estimated_solver_cost_usd": 0.0016144,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 1,
+        "attempted_calls": 1,
+        "missing_response_calls": [],
+        "input_tokens": 1207,
+        "cached_tokens": 0,
+        "output_tokens": 1094,
+        "elapsed_seconds": 18.98892500900547,
+        "original_reference_numeric_fields": {
+          "correct": 0,
+          "present": 0,
+          "expected": 48
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dataflow-r1",
+        "model": "gpt-5.6-luna",
+        "repeat": 1,
+        "agent": "dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dataflow-r1/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.008691,
+        "upper_native_cost_estimate_usd": 0.009271650000000001,
+        "reported_calls": 5,
+        "attempted_calls": 5,
+        "missing_response_calls": [],
+        "input_tokens": 59133,
+        "cached_tokens": 47520,
+        "output_tokens": 4515,
+        "elapsed_seconds": 96.64258114199765,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dsgym-r1",
+        "model": "gpt-5.6-luna",
+        "repeat": 1,
+        "agent": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dsgym-r1/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 0,
+        "estimated_solver_cost_usd": 0.006394349999999999,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 1,
+        "attempted_calls": 1,
+        "missing_response_calls": [],
+        "input_tokens": 3090,
+        "cached_tokens": 0,
+        "output_tokens": 4685,
+        "elapsed_seconds": 59.90153902699967,
+        "original_reference_numeric_fields": {
+          "correct": 0,
+          "present": 0,
+          "expected": 35
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dataflow-r2",
+        "model": "gpt-5.6-luna",
+        "repeat": 2,
+        "agent": "dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dataflow-r2/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.01283768,
+        "upper_native_cost_estimate_usd": 0.013486680000000001,
+        "reported_calls": 12,
+        "attempted_calls": 12,
+        "missing_response_calls": [],
+        "input_tokens": 118684,
+        "cached_tokens": 105704,
+        "output_tokens": 6773,
+        "elapsed_seconds": 106.90226360000088,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "luna-dsgym-r2",
+        "model": "gpt-5.6-luna",
+        "repeat": 2,
+        "agent": "dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dsgym-r2/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 0,
+        "estimated_solver_cost_usd": 0.00065228,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 1,
+        "attempted_calls": 1,
+        "missing_response_calls": [],
+        "input_tokens": 1207,
+        "cached_tokens": 1204,
+        "output_tokens": 523,
+        "elapsed_seconds": 9.225842189000105,
+        "original_reference_numeric_fields": {
+          "correct": 0,
+          "present": 0,
+          "expected": 48
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dataflow-r2",
+        "model": "gpt-5.6-luna",
+        "repeat": 2,
+        "agent": "dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dataflow-r2/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.00498606,
+        "upper_native_cost_estimate_usd": 0.00520696,
+        "reported_calls": 3,
+        "attempted_calls": 3,
+        "missing_response_calls": [],
+        "input_tokens": 29061,
+        "cached_tokens": 24643,
+        "output_tokens": 3008,
+        "elapsed_seconds": 51.73197845599498,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dsgym-r2",
+        "model": "gpt-5.6-luna",
+        "repeat": 2,
+        "agent": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dsgym-r2/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.01886743,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 27775,
+        "cached_tokens": 21444,
+        "output_tokens": 14047,
+        "elapsed_seconds": 120.61925679600245,
+        "original_reference_numeric_fields": {
+          "correct": 30,
+          "present": 30,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "luna-dataflow-r3",
+        "model": "gpt-5.6-luna",
+        "repeat": 3,
+        "agent": "dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dataflow-r3/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.00581778,
+        "upper_native_cost_estimate_usd": 0.00608798,
+        "reported_calls": 5,
+        "attempted_calls": 5,
+        "missing_response_calls": [],
+        "input_tokens": 38853,
+        "cached_tokens": 33449,
+        "output_tokens": 3390,
+        "elapsed_seconds": 47.424496257997816,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dsgym-r3",
+        "model": "gpt-5.6-luna",
+        "repeat": 3,
+        "agent": "dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dsgym-r3/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 0,
+        "estimated_solver_cost_usd": 0.00264548,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 1,
+        "attempted_calls": 1,
+        "missing_response_calls": [],
+        "input_tokens": 1207,
+        "cached_tokens": 1204,
+        "output_tokens": 2184,
+        "elapsed_seconds": 20.391980182001134,
+        "original_reference_numeric_fields": {
+          "correct": 0,
+          "present": 0,
+          "expected": 48
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dataflow-r3",
+        "model": "gpt-5.6-luna",
+        "repeat": 3,
+        "agent": "dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dataflow-r3/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.005004059999999999,
+        "upper_native_cost_estimate_usd": 0.005251659999999999,
+        "reported_calls": 3,
+        "attempted_calls": 3,
+        "missing_response_calls": [],
+        "input_tokens": 29595,
+        "cached_tokens": 24643,
+        "output_tokens": 2934,
+        "elapsed_seconds": 55.38498979700671,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "luna-dsgym-r3",
+        "model": "gpt-5.6-luna",
+        "repeat": 3,
+        "agent": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/luna-dsgym-r3/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 0,
+        "estimated_solver_cost_usd": 0.01199954,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 26263,
+        "cached_tokens": 20047,
+        "output_tokens": 8371,
+        "elapsed_seconds": 96.03683167699637,
+        "original_reference_numeric_fields": {
+          "correct": 0,
+          "present": 0,
+          "expected": 35
+        },
+        "correct_full_population_available": false
+      },
+      {
+        "arm": "terra-dataflow-r1",
+        "model": "gpt-5.6-terra",
+        "repeat": 1,
+        "agent": "dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dataflow-r1/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.079758,
+        "upper_native_cost_estimate_usd": 0.0858985,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 33621,
+        "cached_tokens": 21340,
+        "output_tokens": 4244,
+        "elapsed_seconds": 68.35369159599941,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dsgym-r1",
+        "model": "gpt-5.6-terra",
+        "repeat": 1,
+        "agent": "dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dsgym-r1/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.1191003,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 11021,
+        "cached_tokens": 6394,
+        "output_tokens": 8855,
+        "elapsed_seconds": 99.44069773299998,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dataflow-r1",
+        "model": "gpt-5.6-terra",
+        "repeat": 1,
+        "agent": "dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dataflow-r1/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.0606084,
+        "upper_native_cost_estimate_usd": 0.0637234,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 34992,
+        "cached_tokens": 28762,
+        "output_tokens": 3533,
+        "elapsed_seconds": 85.92462842600071,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dsgym-r1",
+        "model": "gpt-5.6-terra",
+        "repeat": 1,
+        "agent": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dsgym-r1/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.13608530000000002,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 6,
+        "attempted_calls": 7,
+        "missing_response_calls": [
+          "000001"
+        ],
+        "input_tokens": 37836,
+        "cached_tokens": 31739,
+        "output_tokens": 9542,
+        "elapsed_seconds": 287.9361631099964,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dataflow-r2",
+        "model": "gpt-5.6-terra",
+        "repeat": 2,
+        "agent": "dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dataflow-r2/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.0653212,
+        "upper_native_cost_estimate_usd": 0.0680732,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 29210,
+        "cached_tokens": 23706,
+        "output_tokens": 4131,
+        "elapsed_seconds": 67.76045615200564,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dsgym-r2",
+        "model": "gpt-5.6-terra",
+        "repeat": 2,
+        "agent": "dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dsgym-r2/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.1009847,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 6,
+        "attempted_calls": 6,
+        "missing_response_calls": [],
+        "input_tokens": 17335,
+        "cached_tokens": 13546,
+        "output_tokens": 7401,
+        "elapsed_seconds": 67.96031787100219,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dataflow-r2",
+        "model": "gpt-5.6-terra",
+        "repeat": 2,
+        "agent": "dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dataflow-r2/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.0490684,
+        "upper_native_cost_estimate_usd": 0.0508454,
+        "reported_calls": 3,
+        "attempted_calls": 3,
+        "missing_response_calls": [],
+        "input_tokens": 26996,
+        "cached_tokens": 23442,
+        "output_tokens": 3106,
+        "elapsed_seconds": 77.32299002799846,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dsgym-r2",
+        "model": "gpt-5.6-terra",
+        "repeat": 2,
+        "agent": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dsgym-r2/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.1361667,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 7,
+        "attempted_calls": 7,
+        "missing_response_calls": [],
+        "input_tokens": 40244,
+        "cached_tokens": 34696,
+        "output_tokens": 9614,
+        "elapsed_seconds": 133.1528998529975,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dataflow-r3",
+        "model": "gpt-5.6-terra",
+        "repeat": 3,
+        "agent": "dataflow",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dataflow-r3/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.0699812,
+        "upper_native_cost_estimate_usd": 0.0729987,
+        "reported_calls": 4,
+        "attempted_calls": 4,
+        "missing_response_calls": [],
+        "input_tokens": 33151,
+        "cached_tokens": 27116,
+        "output_tokens": 4374,
+        "elapsed_seconds": 70.20922082099423,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dsgym-r3",
+        "model": "gpt-5.6-terra",
+        "repeat": 3,
+        "agent": "dsgym",
+        "task": "business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dsgym-r3/business__nyc_restaurants_data_food_ordering_and_delivery__task2",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.10579730000000001,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 7,
+        "attempted_calls": 9,
+        "missing_response_calls": [
+          "000001",
+          "000002"
+        ],
+        "input_tokens": 27410,
+        "cached_tokens": 21324,
+        "output_tokens": 7194,
+        "elapsed_seconds": 434.91391398799897,
+        "original_reference_numeric_fields": {
+          "correct": 48,
+          "present": 48,
+          "expected": 48
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dataflow-r3",
+        "model": "gpt-5.6-terra",
+        "repeat": 3,
+        "agent": "dataflow",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dataflow-r3/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.0525802,
+        "upper_native_cost_estimate_usd": 0.0546492,
+        "reported_calls": 3,
+        "attempted_calls": 3,
+        "missing_response_calls": [],
+        "input_tokens": 28079,
+        "cached_tokens": 23941,
+        "output_tokens": 3293,
+        "elapsed_seconds": 119.03014933899976,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      },
+      {
+        "arm": "terra-dsgym-r3",
+        "model": "gpt-5.6-terra",
+        "repeat": 3,
+        "agent": "dsgym",
+        "task": "social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "run_dir": "/var/tmp/texera-task1-integration-20261001/runs/terra-dsgym-r3/social_good__data_science_for_good_kiva_crowdfunding__task1",
+        "score": 1,
+        "estimated_solver_cost_usd": 0.1459482,
+        "upper_native_cost_estimate_usd": null,
+        "reported_calls": 5,
+        "attempted_calls": 5,
+        "missing_response_calls": [],
+        "input_tokens": 25026,
+        "cached_tokens": 20931,
+        "output_tokens": 10961,
+        "elapsed_seconds": 108.81843075600045,
+        "original_reference_numeric_fields": {
+          "correct": 35,
+          "present": 35,
+          "expected": 35
+        },
+        "correct_full_population_available": true
+      }
+    ]
+  },
+  "findings": [
+    {
+      "finding": "The numeric runtime defect is real and independently reproducible.",
+      "evidence": "The old saved formula was correct. Replaying it with only the float representation changed fixes its results. A new Terra trial still fails when only that normalization is disabled.",
+      "implication": "Keep the narrow runtime repair as part of the baseline; do not attribute those numeric failures to historical state retrieval."
+    },
+    {
+      "finding": "Correct first answers do not establish reusable state.",
+      "evidence": "All three Luna Kiva answers pass, but none retains the full 727-row scored population as an operator result. The first two also hide the cleaned loan table inside their Process callback. The third retains cleaned loans but truncates the pressure result. Luna Restaurants r3 similarly saves only the top eight watch rows.",
+      "implication": "Historical retrieval can read saved outputs. Recovering these hidden intermediates requires editing and recomputing code. The missing tables were never materialized as graph outputs."
+    },
+    {
+      "finding": "The existing prompt already contains the intended structural rules.",
+      "evidence": "Actual requests include One operator, one operation, Use predefined operators, and the instruction to keep full reusable populations separate from limited reports.",
+      "implication": "This is a compliance/salience problem. Adding more catalogue concepts or repeating the same instruction is not established as a solution."
+    },
+    {
+      "finding": "Terra preserves useful state while maintaining lower measured cost.",
+      "evidence": "All six Terra Dataflow trials and all six Terra DSGym trials pass. Full scored populations match the audited reference fields in both agents. Dataflow uses 22 calls and 22,681 output tokens versus 35 successful calls and 53,567 output tokens for DSGym, plus three timed-out DSGym attempts.",
+      "implication": "This subset supports the feasibility of structured reusable computation at comparable cost; it does not establish a multitask retrieval gain."
+    },
+    {
+      "finding": "The fresh-question script failures are visible in the traces.",
+      "evidence": "Four Luna script trials return without executing Python. One Kiva trial reverses percentile direction, percentile-ranks the raw completion gap, and repairs weight scaling without fixing those earlier mistakes. The complete original task instructions remain available.",
+      "implication": "These are neither cascades from an earlier task nor explained by missing historical state. The labels agree with direct trace inspection."
+    },
+    {
+      "finding": "Original accuracy/error labels miss successful-answer state defects.",
+      "evidence": "Original E.3 classifies failed answers only, so it does not label the four passing Luna Dataflows with incomplete materialized state. A Restaurants answer also reports 44 eligible units despite 70 in its saved graph, while its required top-eight table is correct and receives a pass.",
+      "implication": "Retain original scores and labels, and add deterministic state availability, population membership, field coverage and value checks. Treat the ancillary 44-versus-70 claim separately from the required answer fields."
+    },
+    {
+      "finding": "The original DSGym text protocol can waste generated output.",
+      "evidence": "Nine Terra responses contain multiple Python blocks. The upstream environment executes the first block and resumes after its observation; later generated blocks and information sections do not represent executed work.",
+      "implication": "A separately labeled stop-at-end-of-Python protocol control could reduce script cost. Preserve this campaign as the original-agent baseline."
+    }
+  ],
+  "monitoring": {
+    "prefix_changes": 0,
+    "loop_alerts": 0,
+    "native_cache_hit_fractions": {
+      "luna": 0.833930113219842,
+      "terra": 0.7971394632596789
+    },
+    "timed_out_script_requests": 3,
+    "script_backend_retries_observed": 3,
+    "correctness_judge_requests": 24,
+    "correctness_judge_reported_cost_usd": 0.031454357100000004,
+    "estimated_solver_cost_usd_excluding_unknown_timeout_usage": 1.21018266,
+    "codex_annotation_usage": {
+      "input_tokens": 1245687,
+      "cached_input_tokens": 1054592,
+      "output_tokens": 27579,
+      "reasoning_output_tokens": 10329
+    },
+    "codex_annotation_dollar_cost": null,
+    "cost_limits": [
+      "Cost uses the predeclared repository price table; these are estimates, not provider billing.",
+      "Missing-response attempts have unknown token cost; recorded usage is a lower bound for those runs.",
+      "Native streaming usage omits cache-write counts; report its conservative price-table upper estimate separately.",
+      "SDK retries are disabled; original DSGym backend independently allows three attempts per generate call.",
+      "First task text is identical; native user-message formatting adds a 33-character event heading.",
+      "Recorded cache hits can include earlier repetitions; cache hit fractions are not cold-start guarantees.",
+      "Solver costs exclude correctness judging and Codex annotation. Annotation dollar charges are not available from these artifacts."
+    ],
+    "shutdown": {
+      "private_containers_running": [],
+      "private_listeners": [],
+      "shared_jvm_pids_present": {
+        "936256": true,
+        "938118": true
+      },
+      "shared_containers_observed": [
+        "0308099793fb litellm",
+        "7cf063f3a1fb texera-postgres",
+        "6dbcdd3a3b7b texera-lakefs",
+        "9517ad590064 texera-minio"
+      ],
+      "note": "Only the texera-task1-20261001 profile, containers and systemd units were managed. Shared LiteLLM container ID changed during the campaign; no commands targeted it."
+    }
+  },
+  "next_experiment": {
+    "baseline": "Keep candidate 8f40e8116 and the completed runs frozen.",
+    "first_gate": {
+      "change": "Try one concise task-start instruction: create named outputs for the cleaned working table, eligibility decision and full scored population; branch a separate Sort/Limit report from the full population. Keep this salient near the task, rather than lengthening the general tool reference.",
+      "scope": "Six new Luna first-question trials: these same two sessions, three repetitions. Compare with the six frozen Luna trials.",
+      "measure": [
+        "Original correctness",
+        "Exact required answer fields",
+        "Retained complete population and its keys",
+        "Correct formulas and eligibility ancestry",
+        "Total solver cost including repairs and retries"
+      ],
+      "decision": "Do not move to broader state-retrieval claims unless the full tables are reliably exposed at acceptable cost. Prompt effectiveness remains unproven."
+    },
+    "retrieval_ablation": {
+      "initial_state": "Give both conditions the same independently validated complete Task 1 graph and answer. This isolates retrieval from initial formula mistakes.",
+      "conditions": [
+        "Same graph and append-only ReAct history with historical inspect/fork/retrieve",
+        "Same graph and general state-preservation instructions with historical tools disabled"
+      ],
+      "prefixes": [
+        "Kiva Tasks 2-4: funding revision, no-wait sensitivity, restored-current comparison",
+        "Restaurants Tasks 2-5: watch-list reuse, operating groups, temporary feedback change, return to Task 3 advance units"
+      ],
+      "order": "Run one matched pair per session on Luna, then Terra if the deterministic state audit shows a useful signal. Use longer sessions only after those checks.",
+      "measure": [
+        "Exact historical operator/result selected",
+        "Full membership and current-versus-baseline values",
+        "Original judge plus E.3 error labels",
+        "Partial numerical coverage",
+        "Solver cost and raw cache usage"
+      ],
+      "interpretation": "Report this as a controlled seeded diagnostic, separately from natural end-to-end sessions."
+    },
+    "runtime_scope": "Use the existing graph, versions and inspect/fork/retrieve actions. No new catalog or task-registry implementation is warranted by this evidence.",
+    "harness_followup": "Make backend retries explicit and symmetric, capture exceptions at each attempt, and separately test the original DSGym stop boundary. Do not retroactively alter these results."
+  },
+  "artifacts": {
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/annotate_campaign.py": "0f7d46bc81bbdb34b3d262fdac06917b5125cda09cfa14a21f62069a6b2c472e",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/annotations/aggregate.json": "8678b344480a26303ec5e3c2cb0a3ba19c6bd6a01d008a7a869d1ad2406fce8e",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/annotations/campaign.json": "6e8160efbc57cf0931411e6dec4b81cbc8f8e889c5c7f01b837290e62fc1de34",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/audit_references.py": "32e4c3bd3f76d1c9ab5dbaf7cc7de70df52484d8d63f7d637f7ce141ccdc65d4",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/audit_state.py": "b28e0bd9d5b45f684c6a029cba7f32642f26a90457d17806e968aaa9fa588016",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/audit_telemetry.py": "ee70471f2f6987c2615663e8e7a29041efb24dc0710ef5bc0ffc4ce18b7a5829",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/campaign.json": "5ccd01356bfabdcd8db25a3686a68952d01728d6d0c55ec56fda1abd28b659b0",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/dsgym_matched.py": "476fee8ba381642465ebcee5fbaf8ff9af2e8e71cf8d6973f3d175c124592883",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/extract_audit.py": "00e133026e09e7c6250e0141fcefb3ae4a595b2eaee6d0f1358ee82bbb75f833",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/replay_native.py": "cba03d4d772795f7ef4590fcf9f6447570e4d5958c9a608e0f7137b926ea5c7b",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/results.csv": "c4f4667494c2244f73912afa97998a091bc61694d510bd657b421e30a9a3c266",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/run_campaign.py": "d656e78a98ef681ce686bd32fc5a026913b5b6a30d77b1134b2b47f80ce0e73d",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/run_script_job.py": "97d33f593fe3c8f61f573bc96b0e8fc0739bce9879802eaeccc573f870a03727",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/score_components.py": "1200dbd4a3ab4794e373df2bf282a956699bdfa4fc10a60ece9a30e4604db952",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/shutdown-verification.json": "5e347ca38fd0c9955506fbd5713d2dc754d693497b1de8e5dd5aef1b650a60b5",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/summarize_campaign.py": "dce3b6931368ae7b0245cdab75141bbad6500cbe4106ab169a510e276daf2086",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/summary.json": "2d06d1597ff39eee6120690ce1ac3060061e8accc170021c0e2c84fbea87fcc2",
+    "/home/bob/Desktop/dataflow-agent/.claude/worktrees/longds-task1/logs/longds-task1-20261001/verification.json": "d2c54ef30583b325b7845ecc55a56f177120adbf9980bcce66e385ee2c5b50be",
+    "/var/tmp/texera-task1-integration-20261001/manual-audit/components.json": "7ebb2e4209c9b34f732046998eb03c6a53ca6ae62600ebc62261ec594c2f166a",
+    "/var/tmp/texera-task1-integration-20261001/manual-audit/state.json": "a75e70a520fcc5be172fa5943312d8a8b67c2eef5f21a049dc5bada20e38668b",
+    "/var/tmp/texera-task1-integration-20261001/manual-audit/summary.json": "86de1a062c8a4bc51e39b7e4a2d24de59d7de47193a27314273324940612ab55",
+    "/var/tmp/texera-task1-integration-20261001/manual-audit/telemetry.json": "a8417e38a2762b5f5e518d00ed28be3098a5cf739aa90652e5a54459b6f57c06",
+    "/var/tmp/texera-task1-integration-20261001/manual-audit/terra-dataflow-r3--social_good__data_science_for_good_kiva_crowdfunding__task1/numeric-counterfactual.json": "0716754eef2dc897d49c94fa0908358527a61dcf55a5feee236376e9fc00d71c"
+  },
+  "raw_runs": "/var/tmp/texera-task1-integration-20261001/runs",
+  "limitations": [
+    "First-question results cannot measure long-horizon State Management or Cascade Error reduction.",
+    "Native full-table audits replay the saved final specifications outside the JVM. All operator row counts match saved engine snapshots; this is not a full transport/cache replay.",
+    "Full-state checks cover population identities and listed core metrics, not every possible field or future task requirement.",
+    "Low cost on trials that never execute code is not comparable to successful analysis cost.",
+    "Dataflow and DSGym retain different representations; script kernels can retain substantial state, while graph lineage makes dependencies and historical versions explicit."
+  ]
+}

@@ -29,10 +29,12 @@ import {
   OnChanges,
   SimpleChanges,
 } from "@angular/core";
+import { HttpErrorResponse } from "@angular/common/http";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { Subject } from "rxjs";
 import { distinctUntilChanged, filter, pairwise, startWith, takeUntil } from "rxjs/operators";
 import { AgentState, ReActStep } from "../../../../service/agent/agent-types";
+import { AgentFileUpload, AgentFileUploadService } from "../../../../service/agent/agent-file-upload.service";
 import { AgentInfo, AgentService, SnapshotTreeResponse } from "../../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
@@ -42,7 +44,7 @@ import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzSpaceCompactItemDirective } from "ng-zorro-antd/space";
 import { NzButtonComponent } from "ng-zorro-antd/button";
-import { NgIf, NgFor } from "@angular/common";
+import { NgIf, NgFor, NgSwitch, NgSwitchCase } from "@angular/common";
 import { MarkdownComponent } from "ngx-markdown";
 import { NzSpinComponent } from "ng-zorro-antd/spin";
 import {
@@ -60,7 +62,6 @@ import { NzSelectComponent, NzOptionComponent } from "ng-zorro-antd/select";
 import { NzInputNumberComponent } from "ng-zorro-antd/input-number";
 import { NzTagComponent } from "ng-zorro-antd/tag";
 import { NzSwitchComponent } from "ng-zorro-antd/switch";
-import * as dagre from "dagre";
 
 /**
  * One snapshot rendered as a clickable box in the snapshot tree (left rail).
@@ -83,6 +84,12 @@ export interface SnapshotNode {
   y: number;
   width: number;
   height: number;
+}
+
+/** One row of the time axis drawn left of the tree: a rank's y and its clock time. */
+export interface SnapshotTimeRow {
+  y: number;
+  label: string;
 }
 
 /**
@@ -113,9 +120,7 @@ export interface ChatCardRow {
  * collapse into a single `card`; everything else (user messages, action-less
  * agent replies) renders as a regular `message`.
  */
-export type ChatItem =
-  | { kind: "message"; step: ReActStep; index: number }
-  | { kind: "card"; rows: ChatCardRow[] };
+export type ChatItem = { kind: "message"; step: ReActStep; index: number } | { kind: "card"; rows: ChatCardRow[] };
 
 @UntilDestroy()
 @Component({
@@ -130,6 +135,8 @@ export type ChatItem =
     NzButtonComponent,
     NgIf,
     NgFor,
+    NgSwitch,
+    NgSwitchCase,
     MarkdownComponent,
     NzSpinComponent,
     NzInputDirective,
@@ -156,6 +163,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   @ViewChild("messageContainer", { static: false }) messageContainer?: ElementRef;
   @ViewChild("messageInput", { static: false }) messageInput?: ElementRef;
   @ViewChild("timelineContainer", { static: false }) timelineContainer?: ElementRef;
+  @ViewChild("treeViewport", { static: false }) treeViewport?: ElementRef<HTMLElement>;
 
   /** All steps (for timeline rendering) */
   public agentResponses: ReActStep[] = [];
@@ -171,6 +179,12 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public availableTools: Array<{ name: string; description: string; inputSchema: any }> = [];
   public agentState: AgentState = AgentState.UNAVAILABLE;
 
+  /** True while a file is being dragged over the panel (drop-zone overlay). */
+  public isFileDragOver = false;
+  /** In-flight and just-finished drops, newest last; cleared a beat after they finish. */
+  public fileUploads: AgentFileUpload[] = [];
+  private fileDragDepth = 0;
+
   /**
    * Debug mode toggle. When true, the input bypasses the LLM:
    *   - `Function(name='...', arguments='...')` → parsed and executed as a
@@ -180,6 +194,41 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * if the LLM had produced the same tool call.
    */
   public debugMode = false;
+  /** Panel-display preferences (per browser, persisted in localStorage). Both
+   *  default to hidden: the next-step context preview and the User/Debug input
+   *  toggle are power-user views, switched on from Settings → Parameters. */
+  private static readonly SHOW_NEXT_CONTEXT_KEY = "agent-chat-show-next-context";
+  private static readonly SHOW_DEBUG_TOGGLE_KEY = "agent-chat-show-debug-toggle";
+  public showNextContextPanel: boolean = AgentChatComponent.readPref(AgentChatComponent.SHOW_NEXT_CONTEXT_KEY);
+  public showDebugToggle: boolean = AgentChatComponent.readPref(AgentChatComponent.SHOW_DEBUG_TOGGLE_KEY);
+
+  private static readPref(key: string): boolean {
+    try {
+      return localStorage.getItem(key) === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  private static writePref(key: string, value: boolean): void {
+    try {
+      localStorage.setItem(key, String(value));
+    } catch {
+      // storage unavailable (private mode / tests) — preference just isn't persisted
+    }
+  }
+
+  public setShowNextContextPanel(show: boolean): void {
+    this.showNextContextPanel = show;
+    if (!show) this.showNextContext = false;
+    AgentChatComponent.writePref(AgentChatComponent.SHOW_NEXT_CONTEXT_KEY, show);
+  }
+
+  public setShowDebugToggle(show: boolean): void {
+    this.showDebugToggle = show;
+    if (!show) this.debugMode = false; // hiding the toggle always returns to User mode
+    AgentChatComponent.writePref(AgentChatComponent.SHOW_DEBUG_TOGGLE_KEY, show);
+  }
 
   /** Placeholder shown in the input box, switches with debug mode. */
   public get inputPlaceholder(): string {
@@ -210,6 +259,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public snapshotTree: SnapshotTreeResponse | null = null;
   public snapshotNodes: SnapshotNode[] = [];
   public snapshotEdges: SnapshotEdge[] = [];
+  /** Time axis rows (one per tree rank), rendered in the left gutter. */
+  public snapshotTimeRows: SnapshotTimeRow[] = [];
+  /** Width of the time-axis gutter in px; nodes are laid out to its right. */
+  public readonly treeTimeAxisWidth = 58;
   /** Monotonic guard so a slow snapshot-tree fetch can't clobber a newer one. */
   private snapshotTreeSeq = 0;
   /** Step id to scroll/highlight once visibleSteps refreshes after a checkout. */
@@ -236,13 +289,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsToolTimeoutSeconds = 120; // 2 minutes default
   public settingsExecutionTimeoutMinutes = 10; // 10 minutes default
   public settingsMaxSteps = 10; // Default max steps per message
-  public settingsAgentMode: "code" | "general" = "code"; // Agent operating mode
-  public settingsContextMode: "full" | "delta" | "latest" = "latest"; // ReAct context selection policy
+  public settingsAgentMode: "code" | "native" = "native"; // Agent operating mode
+  public settingsContextMode: "delta" | "latest" = "delta"; // ReAct context selection policy
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
   public settingsStatsEnabled: "enabled" | "disabled" = "enabled"; // Append Column stats block to operator results
-  public settingsAllowedOperatorTypes: string[] = []; // Allowed operator types for general mode
-  public allAvailableOperatorTypes: Array<{ type: string; description: string }> = []; // All operator types from backend
-  public operatorTypeSearchQuery = ""; // Search filter for operator types
 
   // Track if we disabled auto-persist so we can re-enable it on destroy
   private disabledAutoPersist = false;
@@ -255,7 +305,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     private workflowActionService: WorkflowActionService,
     private notificationService: NotificationService,
     private cdr: ChangeDetectorRef,
-    private workflowPersistService: WorkflowPersistService
+    private workflowPersistService: WorkflowPersistService,
+    private agentFileUploadService: AgentFileUploadService
   ) {}
 
   ngOnInit(): void {
@@ -295,24 +346,15 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .getReActStepsObservable(this.agentInfo.id)
       .pipe(untilDestroyed(this))
       .subscribe(steps => {
-        const previousLength = this.visibleSteps.length;
         this.agentResponses = steps;
         this.updateVisibleSteps();
         this.buildChatItems();
         this.shouldScrollToBottom = true;
 
-        // Automatically highlight the latest visible step
-        if (this.visibleSteps.length > 0) {
-          const latestIndex = this.visibleSteps.length - 1;
-          const previousLatestIndex = previousLength - 1;
-
-          if (
-            this.hoveredMessageIndex === null ||
-            this.hoveredMessageIndex === previousLatestIndex ||
-            this.hoveredMessageIndex >= this.visibleSteps.length
-          ) {
-            this.setHoveredMessage(latestIndex);
-          }
+        // The canvas highlight follows the pointer only — new steps never grab
+        // it. Drop a hover that a checkout left pointing past the end.
+        if (this.hoveredMessageIndex !== null && this.hoveredMessageIndex >= this.visibleSteps.length) {
+          this.setHoveredMessage(null);
         }
 
         // Trigger change detection
@@ -472,12 +514,129 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     }
   }
 
-  public setHoveredMessage(index: number | null): void {
-    // When unhovered (null), automatically revert to latest step
-    if (index === null && this.visibleSteps.length > 0) {
-      index = this.visibleSteps.length - 1;
-    }
+  // ============================================================================
+  // Drag & drop file upload
+  // ============================================================================
 
+  /** How long a finished upload row stays visible before it clears itself. */
+  private static readonly UPLOAD_ROW_LINGER_MS = 2500;
+
+  /** Only file drags open the drop zone — dragging an operator must not. */
+  private static isFileDrag(event: DragEvent): boolean {
+    const types = event.dataTransfer?.types;
+    return !!types && Array.from(types).includes("Files");
+  }
+
+  public onFileDragEnter(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.fileDragDepth++;
+    this.isFileDragOver = true;
+  }
+
+  public onFileDragOver(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    // Without preventDefault the browser navigates to the file on drop.
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  /**
+   * `dragleave` fires for every child element the pointer crosses, so count
+   * enters/leaves instead of clearing on the first one — otherwise the overlay
+   * flickers as the pointer moves across the panel.
+   */
+  public onFileDragLeave(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    this.fileDragDepth = Math.max(0, this.fileDragDepth - 1);
+    if (this.fileDragDepth === 0) {
+      this.isFileDragOver = false;
+    }
+  }
+
+  public onFileDrop(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.fileDragDepth = 0;
+    this.isFileDragOver = false;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length > 0) {
+      this.uploadDroppedFiles(files);
+    }
+  }
+
+  /**
+   * Upload dropped files into the user's `agent-uploads` dataset and append the
+   * resulting dataset paths to the message being composed, so the next thing
+   * the user types is the task for those files.
+   */
+  private uploadDroppedFiles(files: File[]): void {
+    const pending: AgentFileUpload[] = files.map(file => ({
+      fileName: AgentFileUploadService.sanitizeFileName(file.name),
+      percentage: 0,
+      status: "uploading",
+    }));
+    this.fileUploads = [...this.fileUploads, ...pending];
+    this.cdr.detectChanges();
+
+    this.agentFileUploadService
+      .uploadFiles(files)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: update => {
+          this.mergeUploadState(update);
+          if (update.status === "done" && update.path) {
+            this.appendToMessage(update.path);
+          }
+          this.cdr.detectChanges();
+        },
+        error: (err: unknown) => {
+          const message = err instanceof HttpErrorResponse ? err.error?.message || err.message : String(err);
+          this.notificationService.error(`File upload failed: ${message}`);
+          pending.forEach(p => this.mergeUploadState({ ...p, status: "failed", error: message }));
+          this.cdr.detectChanges();
+          this.scheduleUploadRowCleanup();
+        },
+        complete: () => this.scheduleUploadRowCleanup(),
+      });
+  }
+
+  private mergeUploadState(update: AgentFileUpload): void {
+    const index = this.fileUploads.findIndex(u => u.fileName === update.fileName && u.status !== "done");
+    if (index === -1) {
+      this.fileUploads = [...this.fileUploads, update];
+      return;
+    }
+    this.fileUploads = this.fileUploads.map((u, i) => (i === index ? { ...u, ...update } : u));
+  }
+
+  /** Append text to the composer, keeping whatever the user already typed. */
+  private appendToMessage(text: string): void {
+    const current = this.currentMessage.trimEnd();
+    this.currentMessage = current.length > 0 ? `${current} ${text}` : text;
+    this.messageInput?.nativeElement.focus();
+  }
+
+  private scheduleUploadRowCleanup(): void {
+    setTimeout(() => {
+      this.fileUploads = this.fileUploads.filter(u => u.status !== "done" && u.status !== "failed");
+      this.cdr.detectChanges();
+    }, AgentChatComponent.UPLOAD_ROW_LINGER_MS);
+  }
+
+  public setHoveredMessage(index: number | null): void {
+    // Unhovering clears the canvas labels: the highlight is a pointer affordance,
+    // nothing keeps it lit on its own.
     this.hoveredMessageIndex = index;
     const hoveredStep = index !== null && index >= 0 ? this.visibleSteps[index] : null;
     this.agentService.setHoveredMessage(this.agentInfo.id, hoveredStep);
@@ -520,14 +679,13 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsToolTimeoutSeconds = settings.toolTimeoutSeconds ?? 120;
         this.settingsExecutionTimeoutMinutes = settings.executionTimeoutMinutes ?? 10;
         this.settingsMaxSteps = settings.maxSteps ?? 10;
-        this.settingsAllowedOperatorTypes = settings.allowedOperatorTypes ?? [];
-        this.settingsAgentMode = settings.agentMode ?? "code";
-        this.settingsContextMode = settings.contextMode ?? "latest";
+        this.settingsAgentMode = settings.agentMode ?? "native";
+        this.settingsContextMode = settings.contextMode ?? "delta";
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
         this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
-        // Backend default for `statsEnabled` is true — missing means "enabled".
-        this.settingsStatsEnabled = settings.statsEnabled === false ? "disabled" : "enabled";
+        // Backend default for `columnStats` is true — missing means "enabled".
+        this.settingsStatsEnabled = settings.columnStats === false ? "disabled" : "enabled";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -535,16 +693,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.agentInfo.settings.agentMode = settings.agentMode;
           this.agentInfo.settings.contextMode = settings.contextMode;
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
-          this.agentInfo.settings.statsEnabled = settings.statsEnabled;
+          this.agentInfo.settings.columnStats = settings.columnStats;
         }
-      });
-
-    // Fetch all available operator types
-    this.agentService
-      .getAvailableOperatorTypes(this.agentInfo.id)
-      .pipe(untilDestroyed(this))
-      .subscribe(types => {
-        this.allAvailableOperatorTypes = types.sort((a, b) => a.type.localeCompare(b.type));
       });
   }
 
@@ -891,7 +1041,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         const row: ChatCardRow = {
           step,
           index,
-          thinking: (step.content || "").trim(),
+          // `content` is the model's visible preamble; reasoning models often
+          // emit tool calls with none, and only expose a reasoning summary.
+          thinking: (step.content || step.reasoningText || "").trim(),
           actions: this.getActionLabels(step),
         };
         if (currentCard) {
@@ -980,11 +1132,17 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Lay out the snapshot tree with dagre (top-to-bottom). Every node shows its
-   * snapshot id; all nodes share one colour except the active one (the
-   * snapshot currently rendered on the canvas — HEAD's snapshot), which gets a
-   * distinct fill plus a dashed outline. Snapshots on the root→active path are
-   * drawn brighter.
+   * Lay out the snapshot tree as a time line (top-to-bottom): the y axis is
+   * chronological, so **every snapshot gets its own row** — two snapshots never
+   * share a level, even when they are siblings on different branches. Branches
+   * are separated on the x axis instead, each fork taking the next free lane
+   * (git-log style). Rows are ordered by timestamp under the constraint that a
+   * parent is always placed above its children.
+   *
+   * Every node shows its snapshot id; all nodes share one colour except the
+   * active one (the snapshot currently rendered on the canvas — HEAD's
+   * snapshot), which gets a distinct fill plus a dashed outline. Snapshots on
+   * the root→active path are drawn brighter.
    *
    * The synthetic empty-root snapshot (the backend's "S0") is excluded by the
    * agent service, so every node here is a real, step-owned snapshot; its
@@ -995,12 +1153,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     // During playback only the snapshots revealed so far are shown, so they
     // appear progressively; otherwise the full tree is rendered.
     const allNodes = tree ? tree.nodes : [];
-    const nodes = this.playbackRevealedIds
-      ? allNodes.filter(n => this.playbackRevealedIds!.has(n.id))
-      : allNodes;
+    const nodes = this.playbackRevealedIds ? allNodes.filter(n => this.playbackRevealedIds!.has(n.id)) : allNodes;
     if (!tree || nodes.length === 0) {
       this.snapshotNodes = [];
       this.snapshotEdges = [];
+      this.snapshotTimeRows = [];
       this.treeCanvasWidth = 200;
       this.treeHeight = 100;
       return;
@@ -1017,13 +1174,19 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       cursor = byId.get(cursor)?.parentId;
     }
 
-    const minNodeWidth = 70;
-    const maxNodeWidth = 200;
+    // Compact pills: one line (the snapshot id). The timestamp lives on the
+    // time axis to the left, one label per row, so rows stay short.
+    const minNodeWidth = 40;
+    const maxNodeWidth = 160;
     const charWidth = 7;
-    const horizontalPadding = 16;
-    const nodeHeight = 40; // two lines: snapshot id + HH:MM:SS timestamp
-    const marginX = 16;
-    const marginY = 16;
+    const horizontalPadding = 14;
+    const nodeHeight = 22;
+    const rowPitch = nodeHeight + 8;
+    // Wide enough that a lane's pills clear the vertical edge line of the lane
+    // to their left, so parallel branches read as separate columns.
+    const laneIndent = 34;
+    const marginX = 10;
+    const marginY = 10;
 
     const nodeWidths = new Map<string, number>();
     for (const n of nodes) {
@@ -1031,52 +1194,78 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       nodeWidths.set(n.id, width);
     }
 
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: "TB", nodesep: 16, ranksep: 36, marginx: marginX, marginy: marginY });
-    g.setDefaultEdgeLabel(() => ({}));
-    for (const n of nodes) {
-      g.setNode(n.id, { width: nodeWidths.get(n.id)!, height: nodeHeight });
-    }
-    const ids = new Set(nodes.map(n => n.id));
-    for (const n of nodes) {
-      if (n.parentId && ids.has(n.parentId)) g.setEdge(n.parentId, n.id);
-    }
-    dagre.layout(g);
+    const ordered = AgentChatComponent.orderSnapshotsByTime(nodes);
+    const lanes = AgentChatComponent.assignSnapshotLanes(ordered);
 
-    this.snapshotNodes = nodes.map(n => {
-      const dn = g.node(n.id);
-      return {
-        id: n.id,
-        reactStepId: n.reactStepId,
-        timeLabel: AgentChatComponent.formatClockTime(n.timestamp),
-        isRoot: !n.parentId,
-        isActive: n.id === activeId,
-        isOnActivePath: activePath.has(n.id),
-        x: dn.x,
-        y: dn.y,
-        width: nodeWidths.get(n.id)!,
-        height: nodeHeight,
-      };
+    this.snapshotNodes = ordered.map((n, row) => ({
+      id: n.id,
+      reactStepId: n.reactStepId,
+      timeLabel: AgentChatComponent.formatClockTime(n.timestamp),
+      isRoot: !n.parentId,
+      isActive: n.id === activeId,
+      isOnActivePath: activePath.has(n.id),
+      x: this.treeTimeAxisWidth + marginX + lanes.get(n.id)! * laneIndent + nodeWidths.get(n.id)! / 2,
+      y: marginY + nodeHeight / 2 + row * rowPitch,
+      width: nodeWidths.get(n.id)!,
+      height: nodeHeight,
+    }));
+
+    // Time axis: one label per row, since each row holds exactly one snapshot.
+    // Consecutive rows with the same clock time show the label once, so bursts
+    // of snapshots inside the same second don't repeat it.
+    let lastLabel = "";
+    this.snapshotTimeRows = this.snapshotNodes.map(n => {
+      const label = n.timeLabel === lastLabel ? "" : n.timeLabel;
+      lastLabel = n.timeLabel;
+      return { y: n.y, label };
     });
 
     const nodeMap = new Map(this.snapshotNodes.map(n => [n.id, n]));
-    this.snapshotEdges = g.edges().map(e => {
-      const source = nodeMap.get(e.v)!;
-      const target = nodeMap.get(e.w)!;
-      const onPath = activePath.has(e.v) && activePath.has(e.w);
-      const halfH = source.height / 2;
-      const targetHalfH = target.height / 2;
-      const path =
-        source.x === target.x
-          ? `M ${source.x} ${source.y + halfH} L ${target.x} ${target.y - targetHalfH}`
-          : `M ${source.x} ${source.y + halfH} C ${source.x} ${(source.y + target.y) / 2}, ${target.x} ${(source.y + target.y) / 2}, ${target.x} ${target.y - targetHalfH}`;
-      return { sourceId: e.v, targetId: e.w, path, isOnActivePath: onPath };
-    });
+    this.snapshotEdges = ordered
+      .filter(n => n.parentId && nodeMap.has(n.parentId))
+      .map(n => {
+        const source = nodeMap.get(n.parentId!)!;
+        const target = nodeMap.get(n.id)!;
+        const onPath = activePath.has(n.parentId!) && activePath.has(n.id);
+        const startY = source.y + source.height / 2;
+        const endY = target.y - target.height / 2;
+        // Same lane: a straight drop. Different lane (a fork): peel off right
+        // below the parent, then run down the child's own lane — so the split
+        // is visible at the fork point instead of the branch shadowing its
+        // sibling's column for several rows before stepping sideways.
+        const peelY = Math.min(startY + Math.min(14, (endY - startY) / 2), endY);
+        const path =
+          source.x === target.x
+            ? `M ${source.x} ${startY} L ${target.x} ${endY}`
+            : `M ${source.x} ${startY} C ${source.x} ${peelY}, ${target.x} ${startY}, ${target.x} ${peelY} ` +
+              `L ${target.x} ${endY}`;
+        return { sourceId: n.parentId!, targetId: n.id, path, isOnActivePath: onPath };
+      });
 
     const maxX = Math.max(...this.snapshotNodes.map(n => n.x + n.width / 2), 180);
     const maxY = Math.max(...this.snapshotNodes.map(n => n.y + n.height / 2), 80);
     this.treeCanvasWidth = Math.max(180, maxX + marginX);
     this.treeHeight = maxY + marginY;
+    setTimeout(() => this.scrollActiveSnapshotIntoView(), 0);
+  }
+
+  /**
+   * Keep the active snapshot visible in the rail. One row per snapshot means a
+   * long session scrolls past the viewport, so centre the active row whenever it
+   * sits outside the visible band — and leave the scroll alone when it doesn't,
+   * so this never fights a user who scrolled back through history.
+   */
+  private scrollActiveSnapshotIntoView(): void {
+    const viewport = this.treeViewport?.nativeElement;
+    const active = this.snapshotNodes.find(n => n.isActive);
+    if (!viewport || !active || viewport.clientHeight === 0) {
+      return;
+    }
+    const top = active.y - active.height / 2;
+    const bottom = active.y + active.height / 2;
+    if (top < viewport.scrollTop || bottom > viewport.scrollTop + viewport.clientHeight) {
+      viewport.scrollTop = Math.max(0, active.y - viewport.clientHeight / 2);
+    }
   }
 
   /** Format an epoch-ms timestamp as HH:MM:SS, or "" when unknown. */
@@ -1090,6 +1279,73 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     }
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  /**
+   * Chronological row order for the snapshot tree: repeatedly take the oldest
+   * snapshot whose parent is already placed, so rows read as a time line while
+   * a parent never lands below one of its children (timestamps come from the
+   * owning ReAct step and can tie or be missing). Snapshots with no timestamp
+   * sort last among the currently placeable ones; the input order breaks ties.
+   */
+  public static orderSnapshotsByTime(nodes: SnapshotTreeResponse["nodes"]): SnapshotTreeResponse["nodes"] {
+    const ids = new Set(nodes.map(n => n.id));
+    const remaining = nodes.map((node, inputIndex) => ({ node, inputIndex }));
+    const placed = new Set<string>();
+    const ordered: SnapshotTreeResponse["nodes"] = [];
+
+    while (remaining.length > 0) {
+      const ready = remaining.filter(
+        ({ node }) => !node.parentId || !ids.has(node.parentId) || placed.has(node.parentId)
+      );
+      // Cycle or a parent outside the node set: fall back to input order so the
+      // rail still renders every snapshot instead of dropping the rest.
+      const pool = ready.length > 0 ? ready : remaining;
+      let best = pool[0];
+      for (const candidate of pool) {
+        const a = candidate.node.timestamp ?? Number.POSITIVE_INFINITY;
+        const b = best.node.timestamp ?? Number.POSITIVE_INFINITY;
+        if (a < b || (a === b && candidate.inputIndex < best.inputIndex)) {
+          best = candidate;
+        }
+      }
+      ordered.push(best.node);
+      placed.add(best.node.id);
+      remaining.splice(
+        remaining.findIndex(entry => entry === best),
+        1
+      );
+    }
+    return ordered;
+  }
+
+  /**
+   * Lane (x column) per snapshot, assigned over the chronological row order: a
+   * parent's **chronologically first** child continues its lane, every later
+   * child — i.e. every fork — opens the next lane to the right, and roots each
+   * get their own lane.
+   *
+   * Deliberately independent of HEAD: lanes depend only on the snapshots and
+   * their timestamps, so checking out another snapshot leaves the tree's shape
+   * untouched and moves only the highlight. Layout therefore grows
+   * append-only — an existing node never changes column or row.
+   */
+  public static assignSnapshotLanes(ordered: SnapshotTreeResponse["nodes"]): Map<string, number> {
+    const firstChild = new Map<string, string>();
+    for (const node of ordered) {
+      if (node.parentId !== undefined && !firstChild.has(node.parentId)) {
+        firstChild.set(node.parentId, node.id);
+      }
+    }
+
+    const lanes = new Map<string, number>();
+    let nextFreeLane = 0;
+    for (const node of ordered) {
+      const parentLane = node.parentId === undefined ? undefined : lanes.get(node.parentId);
+      const continuesParent = node.parentId !== undefined && firstChild.get(node.parentId) === node.id;
+      lanes.set(node.id, parentLane !== undefined && continuesParent ? parentLane : nextFreeLane++);
+    }
+    return lanes;
   }
 
   /**
@@ -1190,9 +1446,19 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       }
       return undefined;
     };
-    return this.agentResponses
-      .filter(s => associatedOwner(s.id) === reactStepId)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const ownerStep = reactStepId ? stepMap.get(reactStepId) : undefined;
+    return (
+      this.agentResponses
+        .filter(s => associatedOwner(s.id) === reactStepId)
+        // A group must never cross a turn boundary. Only action-bearing steps own
+        // snapshots, so the *next* turn's request — a user message — resolves to
+        // this turn's snapshot; checking out the deepest member would then park
+        // HEAD on a question this snapshot predates, showing it in the transcript
+        // and branching the following turn off it. Every step of a turn carries
+        // that turn's `messageId`, so the owner's id fences the group.
+        .filter(s => !ownerStep || s.messageId === ownerStep.messageId)
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    );
   }
 
   /** Whether the play button is enabled: snapshots exist and the agent is idle. */
@@ -1461,7 +1727,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const enabled = this.settingsStatsEnabled === "enabled";
     this.agentService
       .updateAgentSettings(this.agentInfo.id, {
-        statsEnabled: enabled,
+        columnStats: enabled,
       })
       .pipe(untilDestroyed(this))
       .subscribe({
@@ -1470,74 +1736,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.refreshSystemInfo();
         },
         error: () => {}, // Error already handled by service
-      });
-  }
-
-  /**
-   * Toggle an operator type in the allowed list and save.
-   */
-  public toggleOperatorType(operatorType: string, enabled: boolean): void {
-    if (enabled) {
-      if (!this.settingsAllowedOperatorTypes.includes(operatorType)) {
-        this.settingsAllowedOperatorTypes = [...this.settingsAllowedOperatorTypes, operatorType];
-      }
-    } else {
-      this.settingsAllowedOperatorTypes = this.settingsAllowedOperatorTypes.filter(t => t !== operatorType);
-    }
-    this.saveAllowedOperatorTypes();
-  }
-
-  /**
-   * Check if an operator type is enabled (in allowed list).
-   */
-  public isOperatorTypeEnabled(operatorType: string): boolean {
-    return this.settingsAllowedOperatorTypes.includes(operatorType);
-  }
-
-  /**
-   * Enable all operator types.
-   */
-  public enableAllOperatorTypes(): void {
-    this.settingsAllowedOperatorTypes = this.allAvailableOperatorTypes.map(op => op.type);
-    this.saveAllowedOperatorTypes();
-  }
-
-  /**
-   * Deselect all operator types.
-   */
-  public deselectAllOperatorTypes(): void {
-    this.settingsAllowedOperatorTypes = [];
-    this.saveAllowedOperatorTypes();
-  }
-
-  /**
-   * Get filtered operator types based on search query.
-   */
-  public getFilteredOperatorTypes(): Array<{ type: string; description: string }> {
-    if (!this.operatorTypeSearchQuery) {
-      return this.allAvailableOperatorTypes;
-    }
-    const query = this.operatorTypeSearchQuery.toLowerCase();
-    return this.allAvailableOperatorTypes.filter(
-      op => op.type.toLowerCase().includes(query) || op.description.toLowerCase().includes(query)
-    );
-  }
-
-  /**
-   * Save allowed operator types to backend.
-   */
-  private saveAllowedOperatorTypes(): void {
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, {
-        allowedOperatorTypes: this.settingsAllowedOperatorTypes,
-      })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => {
-          const count = this.settingsAllowedOperatorTypes.length;
-          this.notificationService.success(count === 0 ? "All operators enabled" : `${count} operators enabled`);
-        },
-        error: () => {},
       });
   }
 

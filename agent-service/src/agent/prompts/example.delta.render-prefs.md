@@ -28,21 +28,13 @@ Observation:
   	customer_id	name	email	signup_date	tier
   0	C001	Alice	alice@example.com	2023-01-15	gold
   ...
-  Column Schema and stats:
-  - "tier" (str): null=0, distinct=3, top_5={"gold"=4200, "silver"=3800, "bronze"=2000}
-  - "customer_id" (str): null=0, distinct=10000
-  - "email" (str): null=0, distinct=9998
-  - "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30
+  Schema (3 cols): tier (str), customer_id (str), email (str)
 - operator orders updated
   Output Table: 50000 rows, 4 cols
   	order_id	customer_id	amount	order_date
   0	O001	C001	250.00	2024-11-05
   ...
-  Column Schema and stats:
-  - "order_id" (str): null=0, distinct=50000
-  - "customer_id" (str): null=0, distinct=10000
-  - "amount" (numeric): null=0, mean=219.2, min=95.00, max=520.0
-  - "order_date" (datetime): null=0, min=2024-09-15, max=2024-11-12
+  Schema (3 cols): order_id (str), customer_id (str), amount (numeric)
 ```
 
 Thought: Stats look clean — customers has 10,000 distinct customer_ids (all unique, valid join key); tier has 3 distinct values with gold most common. Orders has 10,000 distinct customer_ids matching customers, amount ranges $95–$520 with no nulls, order_date spans Sep–Nov 2024. Join key aligns perfectly → safe inner join, then filter to the last 30 days. The `readme` operator was pure investigation — its definitions (premium ≥ $1000, recent = 30 days) are in my reasoning now, so I delete it in the same turn.
@@ -62,11 +54,7 @@ Observation:
   Inputs: customers (10000 rows, 5 cols), orders (50000 rows, 4 cols)
   Output Table: 1247 rows, 8 cols
   ...
-  Column Schema and stats:
-  - "customer_id" (str): null=0, distinct=312
-  - "email" (str): null=5, distinct=310
-  - "order_date" (datetime): null=0, min=2024-10-18, max=2024-11-17
-  - "amount" (numeric): null=0, mean=485.3, min=15.00, max=2500
+  Schema (3 cols): customer_id (str), email (str), amount (numeric)
 ```
 
 Thought: Stats confirm the join worked — 312 distinct customer_ids (down from 10,000: only 312 customers ordered recently), 5 email nulls (acceptable), order_date now spans exactly the last 30 days. Aggregate by customer, then top 5 by total spending.
@@ -86,12 +74,11 @@ Observation:
   	customer_id	name	total_spending
   0	C001	Alice	12450.00
   ...
-  Column Schema and stats:
-  - "total_spending" (numeric): null=0, mean=8810, min=6290, max=12450
+  Schema (1 cols): total_spending (numeric)
 ```
 
 Thought: Stats show total_spending min=$6,290 — all 5 already exceed the $1,000 premium threshold, but the filter isn't explicit. Enforce it so the result is correct by construction.
 
-Tool call: `top5` (modify) = same aggregation + `spending[spending['total_spending'] >= 1000]` before `.nlargest(5)`, with outputSummary="minimal", showOutputStatistics=false — I already studied this result; the re-edit only adds a guard, so shape + a few rows suffice. Observation: `Output Table: 5 rows, 3 cols` + first/last rows; the premium filter is now explicit (full data unchanged in the backend).
+Tool call: `top5` (modify) = same aggregation + `spending[spending['total_spending'] >= 1000]` before `.nlargest(5)`, with outputSummary="minimal" — I already studied this result; the re-edit only adds a guard, so shape + a few rows suffice. Observation: `Output Table: 5 rows, 3 cols` + first/last rows; the premium filter is now explicit (full data unchanged in the backend).
 
 Final answer: Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), Eve ($6,290).

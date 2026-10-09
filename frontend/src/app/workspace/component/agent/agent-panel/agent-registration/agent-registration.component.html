@@ -19,7 +19,7 @@
 
 <div class="agent-registration-container">
   <div class="registration-header">
-    <h3>Welcome to Texera Agent!</h3>
+    <h3>Welcome to Bob!</h3>
     <p>Select a model type and create an AI agent to assist with your data science tasks</p>
   </div>
 
@@ -52,10 +52,19 @@
         [class.selected]="selectedModelType === modelType.id"
         (click)="selectModelType(modelType.id)">
         <div class="model-icon">
-          <i
-            nz-icon
-            [nzType]="modelType.icon"
-            nzTheme="outline"></i>
+          <!-- Provider mark when we recognise the vendor, ant-design glyph
+               otherwise (local or self-hosted models). -->
+          <img
+            *ngIf="providerIconSrc(modelType.id) as iconSrc; else glyphIcon"
+            [src]="iconSrc"
+            [alt]="providerName(modelType.id)"
+            class="model-provider-icon" />
+          <ng-template #glyphIcon>
+            <i
+              nz-icon
+              [nzType]="modelType.icon"
+              nzTheme="outline"></i>
+          </ng-template>
         </div>
         <div class="model-info">
           <h5>{{ modelType.name }}</h5>

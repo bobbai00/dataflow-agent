@@ -28,13 +28,23 @@ import { tool } from "ai";
 import { WorkflowState } from "../workflow-state";
 import { createToolResult, createErrorResult } from "./tools-utility";
 import { type WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import type { NativeValidationRepair } from "../native/validation-repair";
 
 export interface ToolContext {
   metadataStore?: WorkflowSystemMetadata;
+  nativeValidationRepair?: NativeValidationRepair;
+  /** Replaying recorded edits: accept the retired `fork … as …` and `update … from task N` commands. */
+  legacyVersionCommands?: boolean;
   settings?: {
     maxOperatorResultCharLimit?: number;
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
+    nativeProfileCollection?: boolean;
+    /** Native `dataflow` tool: require the `reasoning` argument. */
+    dataflowReasoning?: boolean;
+    /** Native operators carry the lineage their engine-side checks need. */
+    nativeChecks?: boolean;
+    stateHistory?: boolean;
   };
 }
 

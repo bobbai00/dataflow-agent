@@ -205,9 +205,52 @@ export class WorkflowState {
     return this.operatorPositions.get(operatorId);
   }
 
-  addLink(link: OperatorLink): void {
+  /**
+   * Add a link, refusing shapes the engine cannot execute.
+   *
+   * A self-link (`X -> X`) makes the workflow cyclic; the execution service
+   * rejects the ENTIRE plan with `400 Unable to process JSON`, so one bad edge
+   * silently kills every later execution in the session. Measured: one such
+   * link at turn 28 of a 42-turn task left 15 turns cyclic, every operator
+   * rendering `(not executed)`, and the model rewriting them in a loop until
+   * its step budget died (5 turns, ~$0.90 each).
+   *
+   * Returning false rather than throwing: callers already report link outcomes
+   * to the model, and a rejected edge must leave the graph untouched.
+   */
+  addLink(link: OperatorLink): boolean {
+    if (link.source.operatorID === link.target.operatorID) return false;
     this.links.set(link.linkID, link);
     this.linkAddSubject.next(link);
+    return true;
+  }
+
+  /**
+   * Would adding `source -> target` close a cycle? True when `source` is
+   * already reachable FROM `target` (or they are the same operator).
+   *
+   * Cheap DFS over current links; used by the write path to reject a cyclic
+   * wiring with a teaching error instead of shipping a plan the engine will
+   * refuse wholesale.
+   */
+  wouldCreateCycle(sourceOperatorId: string, targetOperatorId: string): boolean {
+    if (sourceOperatorId === targetOperatorId) return true;
+    const downstream = new Map<string, string[]>();
+    for (const l of this.links.values()) {
+      const arr = downstream.get(l.source.operatorID);
+      if (arr) arr.push(l.target.operatorID);
+      else downstream.set(l.source.operatorID, [l.target.operatorID]);
+    }
+    const seen = new Set<string>();
+    const stack = [targetOperatorId];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (cur === sourceOperatorId) return true;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const next of downstream.get(cur) ?? []) stack.push(next);
+    }
+    return false;
   }
 
   getLink(linkId: string): OperatorLink | undefined {
@@ -233,6 +276,46 @@ export class WorkflowState {
     return this.getAllLinks().filter(
       link => link.source.operatorID === operatorId || link.target.operatorID === operatorId
     );
+  }
+
+  /**
+   * The upstream closure of SEVERAL targets at once, deduplicated.
+   *
+   * Execution only ever needs the ancestors of the operators whose results are
+   * wanted. Building that set one target at a time and unioning it keeps the
+   * shipped plan proportional to the work, not to the session: a 215-operator
+   * NFL workflow asked for two sibling leaves ships ~10 operators, not 215.
+   *
+   * This exists because the single-target `getSubDAG` was the ONLY pruning
+   * path — a multi-target request fell back to the entire workflow, whose JSON
+   * crossed the execution service's request limit at ~200 KB and returned
+   * `400 Unable to process JSON`. Every operator in that step then rendered as
+   * `(not executed)`, and the model rewrote them in a loop until the step
+   * budget died (measured: 5 such turns on one task, ~$0.90 each).
+   */
+  getSubDAGForTargets(targetOperatorIds: readonly string[]): {
+    operators: OperatorPredicate[];
+    links: OperatorLink[];
+  } {
+    const operators: OperatorPredicate[] = [];
+    const links: OperatorLink[] = [];
+    const seenOps = new Set<string>();
+    const seenLinks = new Set<string>();
+    for (const target of targetOperatorIds) {
+      const part = this.getSubDAG(target);
+      for (const op of part.operators) {
+        if (seenOps.has(op.operatorID)) continue;
+        seenOps.add(op.operatorID);
+        operators.push(op);
+      }
+      for (const link of part.links) {
+        const key = `${link.source.operatorID}:${link.source.portID}->${link.target.operatorID}:${link.target.portID}`;
+        if (seenLinks.has(key)) continue;
+        seenLinks.add(key);
+        links.push(link);
+      }
+    }
+    return { operators, links };
   }
 
   getSubDAG(targetOperatorId: string): { operators: OperatorPredicate[]; links: OperatorLink[] } {
@@ -277,6 +360,30 @@ export class WorkflowState {
    * downstream sink causes the backend to re-run the edited op and every
    * descendant on the path to that sink.
    */
+  /**
+   * Every enabled operator reachable downstream of `startOpId` (excluding it).
+   * NATIVE mode materializes all of these after an edit — a modified operator
+   * changes every table below it, and the typed render shows each of them —
+   * where code mode only re-materializes the sinks.
+   */
+  getDownstreamOperators(startOpId: string): string[] {
+    const allLinks = this.getAllLinks();
+    const visited = new Set<string>();
+    const stack: string[] = [startOpId];
+    while (stack.length > 0) {
+      const opId = stack.pop()!;
+      for (const link of allLinks) {
+        if (link.source.operatorID !== opId) continue;
+        const tgt = link.target.operatorID;
+        if (visited.has(tgt) || this.getOperator(tgt)?.isDisabled) continue;
+        visited.add(tgt);
+        stack.push(tgt);
+      }
+    }
+    visited.delete(startOpId);
+    return Array.from(visited);
+  }
+
   getDownstreamSinks(startOpId: string): string[] {
     const startOp = this.getOperator(startOpId);
     if (!startOp || startOp.isDisabled) return [];

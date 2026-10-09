@@ -121,7 +121,7 @@ export function validateOperatorId(name: string): string | null {
   return validatePythonVariableName(name);
 }
 
-function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
+export function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
   const funcPattern = /def\s+(\w+)\s*\(([^)]*)\)/;
   const match = funcPattern.exec(code);
 
@@ -551,7 +551,8 @@ function regexContractCheck(code: string): ContractResult {
 
 function validateInputParameters(
   workflowState: WorkflowState,
-  parameters: string[]
+  parameters: string[],
+  operatorId?: string
 ): { inputOperators: OperatorPredicate[] } | { error: string } {
   const inputOperators: OperatorPredicate[] = [];
   const missingParams: string[] = [];
@@ -571,6 +572,37 @@ function validateInputParameters(
         `Input parameter(s) not found as operators: [${missingParams.join(", ")}]. ` +
         `Each parameter in def process(${parameters.join(", ")}) must reference an existing operator.`,
     };
+  }
+
+  // An operator cannot consume its own output: the graph holds ONE node per
+  // id, so `def process(X)` while writing `X` is the edge `X -> X`, which
+  // makes the workflow cyclic and causes the execution service to reject every
+  // subsequent plan wholesale. Caught here, before anything mutates, with the
+  // two things the model can actually do instead.
+  if (operatorId && parameters.includes(operatorId)) {
+    return {
+      error:
+        `\`${operatorId}\` cannot take itself as an input — an operator's own output is not available to it, ` +
+        `and the link would make the dataflow cyclic. Either fold the extra work into \`${operatorId}\`'s own ` +
+        `code (drop \`${operatorId}\` from its parameters), or give the new step a DIFFERENT operator id that ` +
+        `reads \`${operatorId}\`.`,
+    };
+  }
+
+  // Same rule one hop out: a parameter that is DOWNSTREAM of this operator
+  // closes a longer cycle. Only meaningful for an existing operator.
+  if (operatorId && workflowState.getOperator(operatorId)) {
+    for (const param of parameters) {
+      if (param === operatorId) continue;
+      if (workflowState.wouldCreateCycle(param, operatorId)) {
+        return {
+          error:
+            `\`${param}\` cannot be an input to \`${operatorId}\`: \`${param}\` is downstream of ` +
+            `\`${operatorId}\`, so the link would close a cycle. Build the new step as a separate operator ` +
+            `reading \`${param}\` instead.`,
+        };
+      }
+    }
   }
 
   return { inputOperators };
@@ -599,11 +631,70 @@ function createInputLinks(
       },
     };
 
-    workflowState.addLink(link);
-    createdLinkIds.push(linkId);
+    // A refused edge (self-link) is skipped, not recorded: reporting a link
+    // the graph does not have would tell the model its wiring succeeded.
+    if (workflowState.addLink(link)) createdLinkIds.push(linkId);
   }
 
   return createdLinkIds;
+}
+
+/**
+ * Version store for STRICT (operatorId, turnId) addressing (versioned mode).
+ * Supplied by the agent, which owns the turn history: for each operator
+ * lineage, the finished turns that changed it (with that turn's code), plus
+ * the in-progress turn's number so same-turn work is referenceable.
+ */
+/** Tiny TSV sample of a stored OperatorInfo for the input-values channel —
+ *  header + rows up to ~600 chars, prefixed with the true total row count so
+ *  a partial view can never masquerade as the whole table. */
+function formatUpstreamSample(info: unknown, cap = 600): string | undefined {
+  const rows = Array.isArray((info as any)?.result) ? ((info as any).result as Record<string, unknown>[]) : undefined;
+  if (!rows || rows.length === 0) return undefined;
+  const cols = Object.keys(rows[0] ?? {}).filter(c => !c.startsWith("__"));
+  if (cols.length === 0) return undefined;
+  const lines = [cols.join("\t")];
+  for (const r of rows) {
+    lines.push(cols.map(c => String(r[c] ?? "")).join("\t"));
+    if (lines.reduce((n, l) => n + l.length + 1, 0) > cap) break;
+  }
+  let body = lines.join("\n");
+  if (body.length > cap) body = body.slice(0, cap) + " …";
+  const total = typeof (info as any).totalRowCount === "number" ? (info as any).totalRowCount : rows.length;
+  return `(${total} rows total):\n${body}`;
+}
+
+export interface OperatorVersionStore {
+  /** Sorted finished-turn numbers at which `operatorId` was written, with code. */
+  versionsOf(operatorId: string): Array<{ turn: number; code: string }>;
+  /** The 1-based number of the turn in progress. */
+  currentTurn(): number;
+  /** Operator ids written so far in the turn in progress. */
+  touchedThisTurn(): Set<string>;
+  /** The operator's materialized result as of the END of `turn` (the version
+   *  a cross-turn `upstreams` ref names). Powers the input-values channel:
+   *  the first write against an old version gets that version's sample values
+   *  attached to its observation, so derivations over inherited state are
+   *  made with the actual numbers in view. Optional — absent disables the
+   *  channel, nothing else changes. */
+  resultOf?(operatorId: string, turn: number): unknown;
+  /** Resolve `(operatorId, turn)` to the operator to actually wire from —
+   *  the live node when it already is that version, otherwise a pinned copy
+   *  of it (see VersionCheckout). `writingOperatorId` is the operator being
+   *  defined by the current call: a reference to it must always pin, because
+   *  the live node is about to become a different version. Optional — absent
+   *  keeps the legacy behavior of wiring to the live node by name. */
+  checkout?(
+    operatorId: string,
+    turn: number,
+    writingOperatorId?: string
+  ): { operatorId: string; pinned: boolean } | { error: string };
+  /** The reference a checked-out copy froze (`panel_base (turn 1)`), or
+   *  undefined for a live operator. Provenance is tracked beside the graph, NOT
+   *  in `operatorProperties`: those are schema-validated with
+   *  `additionalProperties: false`, so a marker stored there makes the pin
+   *  unexecutable. Optional — absent disables the edit-a-pin guard. */
+  pinnedLabelOf?(operatorId: string): string | undefined;
 }
 
 export function createCreateOrModifyOperatorTool(
@@ -615,7 +706,12 @@ export function createCreateOrModifyOperatorTool(
   // Code visible to the agent is the DEFAULT — true for every DELTA config
   // (events carry `code:`) and for LATEST with code in the snapshot. Only pass
   // false for the one code-blind case: LATEST with the snapshot flag off.
-  codeShownEnabled = true
+  codeShownEnabled = true,
+  // Versioned mode: every reference to earlier state must carry its turn —
+  // `upstreams` maps each def-arg to the version turn it builds on, and a
+  // revision must name `fromTurn`. Off ⇒ schema and behavior are byte-identical
+  // to legacy.
+  versionStore?: OperatorVersionStore
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
 
@@ -631,6 +727,11 @@ export function createCreateOrModifyOperatorTool(
   // never runs mid-`sendMessage`); each KramaBench task uses a fresh agent, so
   // the counters reset per task.
   const guardEditCounts = new Map<string, number>();
+  // Input-values channel (versioned mode): which cross-turn upstream versions
+  // have already had their sample values attached this turn. First reference
+  // pays once; repeats are free because the note persists in the step log.
+  let upstreamShownTurnKey = "";
+  const shownUpstreams = new Set<string>();
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -665,27 +766,50 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           .string()
           .describe("Unique operator name (valid Python variable). Other operators reference this as input parameter."),
         code: z.string().describe("Python function: def load() or def process(...)"),
-        summary: z
-          .string()
-          .describe(
-            // DEFAULT: the agent can read its own code (DELTA events, or LATEST
-            // with code in the snapshot), so the summary carries lineage only,
-            // not logic — restating it duplicates what is already on screen.
-            codeShownEnabled
-              ? "One short line naming what this operator does at a glance — the subject and the gist only " +
-                  '(e.g. "Load orders.csv" or "Filter orders_clean to 2024, sum amount by customer_id"). ' +
-                  "Do NOT restate the detailed logic; your code is shown to you and carries the specifics."
-              : // Code-blind (LATEST without code in the snapshot): the summaries
-                // are the ONLY record of what each operator does, so they must
-                // carry the logic themselves.
-                "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
-                  "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
-                  'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
-                  "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
-          ),
+        summary: z.string().describe(
+          // DEFAULT: the agent can read its own code (DELTA events, or LATEST
+          // with code in the snapshot), so the summary carries lineage only,
+          // not logic — restating it duplicates what is already on screen.
+          codeShownEnabled
+            ? "One short line naming what this operator does at a glance — the subject and the gist only " +
+                '(e.g. "Load orders.csv" or "Filter orders_clean to 2024, sum amount by customer_id"). ' +
+                "Do NOT restate the detailed logic; your code is shown to you and carries the specifics."
+            : // Code-blind (LATEST without code in the snapshot): the summaries
+              // are the ONLY record of what each operator does, so they must
+              // carry the logic themselves.
+              "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
+                "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
+                'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
+                "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
+        ),
       };
+      const versionedShape: Record<string, z.ZodType> = versionStore
+        ? {
+            upstreams: z
+              .array(z.string())
+              .optional()
+              .describe(
+                "REQUIRED for def process(...): one versioned reference per parameter, written exactly as the " +
+                  'catalog prints them — "opId (turn N)", e.g. ["scores (turn 3)", "labels (turn 9)"]. ' +
+                  "N must be a turn that actually WROTE that operator — one of the turn numbers the catalog " +
+                  'shows for it — not just any turn the operator existed in. "scores (turn 7)" is an error ' +
+                  "when scores was last written at turn 3, and the error lists the turns you can pick from. " +
+                  "`Latest versions` names the newest of each; use the current turn's number for operators you " +
+                  "created this turn. Omit for def load()."
+              ),
+            from: z
+              .string()
+              .optional()
+              .describe(
+                "REQUIRED when operatorId already exists: the version this revision derives from, as " +
+                  '"opId (turn N)" — usually its latest. N must be a turn that actually wrote this operator, ' +
+                  "exactly as the catalog prints it. Makes every revision's ancestry explicit."
+              ),
+          }
+        : {};
       const richSchema = z.object({
         ...baseShape,
+        ...versionedShape,
         outputSummary: z
           .enum(["minimal", "standard"])
           .optional()
@@ -694,24 +818,18 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               "'standard' (default) = the normal view. View-only — the operator always computes its full output " +
               "and downstream operators always receive the complete data. Applies to this version until the next edit."
           ),
-        showOutputStatistics: z
-          .boolean()
-          .optional()
-          .describe(
-            "Whether the per-column statistics block of this operator's output is shown to you. View-only; " +
-              "defaults to the session default. Applies to this version until the next edit."
-          ),
       });
       // Control arms (flag off) must not even SEE the pref params — swap in the
       // base schema; the runtime args type is the rich one (fields just absent).
-      return (renderPrefsEnabled ? richSchema : z.object(baseShape)) as typeof richSchema;
+      return (renderPrefsEnabled ? richSchema : z.object({ ...baseShape, ...versionedShape })) as typeof richSchema;
     })(),
     execute: async (args: {
       operatorId: string;
       code: string;
       summary?: string;
       outputSummary?: "minimal" | "standard";
-      showOutputStatistics?: boolean;
+      upstreams?: string[];
+      from?: string;
     }) => {
       try {
         const { operatorId, code, summary } = args;
@@ -744,9 +862,18 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         }
         const contractWarning = contract?.kind === "warning" ? contract.message : null;
 
+        // In versioned mode a reference to the operator being written is
+        // LEGAL — it checks out that version as a pin (`X__t28 -> X`), which
+        // is a DAG and is what the model means by "build on what I just had".
+        // Only without checkout is a self-reference genuinely a self-loop.
+        const selfReferenceChecksOut = Boolean(versionStore?.checkout);
         let inputOperators: OperatorPredicate[] = [];
         if (isDataProcessing && parameters.length > 0) {
-          const validation = validateInputParameters(workflowState, parameters);
+          const validation = validateInputParameters(
+            workflowState,
+            parameters,
+            selfReferenceChecksOut ? undefined : operatorId
+          );
           if ("error" in validation) {
             return createErrorResult(validation.error);
           }
@@ -754,6 +881,179 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         }
 
         const existingOperator = findOperatorByName(workflowState, operatorId);
+
+        // A checked-out version is history made executable — editing it would
+        // change what an already-recorded version means, which is exactly the
+        // immutability the store exists to guarantee.
+        const pinnedFrom = existingOperator ? versionStore?.pinnedLabelOf?.(existingOperator.operatorID) : undefined;
+        if (typeof pinnedFrom === "string") {
+          return createErrorResult(
+            `\`${operatorId}\` is a checked-out copy of ${pinnedFrom} and cannot be edited — earlier versions are ` +
+              "permanent. Revise the live operator instead, or create a new operator that reads this one."
+          );
+        }
+
+        // STRICT VERSION ADDRESSING (versioned mode). Every dependency on
+        // earlier state is written down as (operatorId, turnId) and checked
+        // against the version store, so building on the wrong version is a
+        // visible, correctable mistake instead of a silent inheritance. Every
+        // rejection lists the valid versions — a rejection that does not say
+        // what to do instead produces verbatim retry loops (measured: 35
+        // identical calls, a full step budget, no answer). Unambiguous cases
+        // (stray `from` on a create; missing `from` on a same-turn
+        // self-revision) proceed with a NOTE instead of a rejection — those
+        // rejections cost a step each and taught nothing (65 + a share of 15
+        // across three runs), and the create-rejection fed rename sprawl.
+        const versionNotes: string[] = [];
+        if (versionStore) {
+          // The one notation, everywhere: `opId (turn N)` — exactly what the
+          // catalog prints, so what the model reads is what it writes. The
+          // parser is tolerant of spacing; everything else is an error that
+          // shows the exact expected form.
+          const REF_RE = /^\s*(\S+)\s*\(\s*turn\s+(\d+)\s*\)\s*$/i;
+          const parseRef = (raw: string): { opId: string; turn: number } | undefined => {
+            const m = REF_RE.exec(raw ?? "");
+            return m ? { opId: m[1], turn: Number(m[2]) } : undefined;
+          };
+          const refsOf = (opId: string): string => {
+            const turns = versionStore.versionsOf(opId).map(v => v.turn);
+            if (versionStore.touchedThisTurn().has(opId)) turns.push(versionStore.currentTurn());
+            return turns.length > 0
+              ? `\`${opId}\` has versions: ${turns.map(t => `${opId} (turn ${t})`).join(", ")}`
+              : `\`${opId}\` has no versions yet`;
+          };
+          const validTurn = (opId: string, turn: number): boolean => {
+            if (versionStore.versionsOf(opId).some(v => v.turn === turn)) return true;
+            return versionStore.touchedThisTurn().has(opId) && turn === versionStore.currentTurn();
+          };
+          if (parameters.length > 0) {
+            const provided = new Map<string, number>();
+            for (const raw of args.upstreams ?? []) {
+              const ref = parseRef(raw);
+              if (!ref) {
+                return createErrorResult(
+                  `Could not parse upstream reference "${raw}". Write each as \"opId (turn N)\", exactly as the ` +
+                    `catalog prints them — e.g. ["${parameters[0]} (turn 1)"].`
+                );
+              }
+              provided.set(ref.opId, ref.turn);
+            }
+            const missing = parameters.filter(par => !provided.has(par));
+            if (missing.length > 0) {
+              return createErrorResult(
+                `Missing version reference for upstream(s): [${missing.join(", ")}]. Every reference names its ` +
+                  `version — pass upstreams as [${parameters.map(par => `"${par} (turn N)"`).join(", ")}]. ` +
+                  parameters.map(refsOf).join("; ") +
+                  "."
+              );
+            }
+            for (const par of parameters) {
+              const want = provided.get(par)!;
+              if (!validTurn(par, want)) {
+                return createErrorResult(
+                  `\`${par}\` has no version at turn ${want}. ${refsOf(par)}. Pick one of those ` +
+                    "(the latest, unless this request asks for an earlier state)."
+                );
+              }
+            }
+
+            // CHECK OUT THE REFERENCED VERSIONS. Until now the turn number was
+            // validated and then thrown away, so every reference wired to the
+            // LIVE node: `X (turn 3)` silently meant "X as it is now", and
+            // `X (turn 28)` while revising `X` meant "X consumes itself" — a
+            // cycle that took every later execution down with it. Now each
+            // reference resolves to a node that really is that version: the
+            // live one when it already matches (free), otherwise a pinned
+            // copy carrying that version's code and its own historical inputs.
+            if (versionStore.checkout) {
+              const resolved: OperatorPredicate[] = [];
+              for (const par of parameters) {
+                const outcome = versionStore.checkout(par, provided.get(par)!, operatorId);
+                if ("error" in outcome) return createErrorResult(outcome.error);
+                const resolvedOp = findOperatorByName(workflowState, outcome.operatorId);
+                if (!resolvedOp) {
+                  return createErrorResult(
+                    `Could not check out \`${par} (turn ${provided.get(par)!})\` — the version exists but its ` +
+                      "operator could not be materialized. Reference its latest version instead."
+                  );
+                }
+                resolved.push(resolvedOp);
+                if (outcome.pinned) {
+                  versionNotes.push(
+                    `note: \`${par} (turn ${provided.get(par)!})\` is an earlier version, so it was checked out as ` +
+                      `\`${outcome.operatorId}\` (that version's code and inputs) and wired in its place.`
+                  );
+                }
+              }
+              inputOperators = resolved;
+            }
+            // INPUT-VALUES CHANNEL: the first write this turn against an OLD
+            // version gets that version's sample values attached to its
+            // observation. Rationale (measured): the catalog names shapes and
+            // schemas but not values, so derivations over inherited state were
+            // made blind — the largest per-task failures all traced to one
+            // foundational quantity derived without the actual numbers in
+            // view, and the versioned arm spent +29% operator writes probing
+            // for values the session arm could simply read.
+            if (versionStore.resultOf) {
+              const turnKey = String(versionStore.currentTurn());
+              if (turnKey !== upstreamShownTurnKey) {
+                upstreamShownTurnKey = turnKey;
+                shownUpstreams.clear();
+              }
+              let attached = 0;
+              for (const [upId, upTurn] of provided) {
+                if (upTurn >= versionStore.currentTurn()) continue; // this turn's own work is already on screen
+                const tag = `${upId}@${upTurn}`;
+                if (shownUpstreams.has(tag)) continue;
+                const sample = formatUpstreamSample(versionStore.resultOf(upId, upTurn));
+                if (!sample) continue;
+                versionNotes.push(`Referenced upstream values — ${upId} (turn ${upTurn}) ${sample}`);
+                shownUpstreams.add(tag);
+                if (++attached >= 3) break; // bounded per write
+              }
+            }
+          }
+          if (existingOperator) {
+            const fromRef = args.from ? parseRef(args.from) : undefined;
+            if (!args.from) {
+              // Self-revision within the current turn is unambiguous — the only
+              // version the new code can derive from is the one this turn just
+              // wrote — so default it with a note instead of rejecting. The
+              // strict requirement stays for CROSS-turn revisions, where the
+              // version choice is the whole point. (Measured: bare rejections
+              // here fed the rename-sprawl loop — 94 operators in one turn.)
+              if (versionStore.touchedThisTurn().has(operatorId)) {
+                versionNotes.push(
+                  `note: \`from\` defaulted to "${operatorId} (turn ${versionStore.currentTurn()})" — ` +
+                    "revising your own work from this turn."
+                );
+              } else {
+                return createErrorResult(
+                  `\`${operatorId}\` already exists, so this is a revision — pass from: the version your new code ` +
+                    `derives from, as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
+                );
+              }
+            } else if (!fromRef || fromRef.opId !== operatorId) {
+              return createErrorResult(
+                `Could not parse from="${args.from}". Write it as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
+              );
+            } else if (!validTurn(operatorId, fromRef.turn)) {
+              return createErrorResult(
+                `\`${operatorId}\` has no version at turn ${fromRef.turn}. ${refsOf(operatorId)}.`
+              );
+            }
+          } else if (args.from) {
+            // Creating a new operator with a stray `from` — the intent (create)
+            // is unambiguous, so proceed and say what was ignored. Rejecting
+            // this cost a step per occurrence (65 across three runs) and taught
+            // nothing the note doesn't.
+            versionNotes.push(
+              `note: \`from\` ignored — \`${operatorId}\` did not exist, so this call CREATED it fresh ` +
+                "(nothing was derived from an earlier version)."
+            );
+          }
+        }
         const displayName = summary || operatorId;
 
         // Convergence guard (lever C / L1). Count cumulative edits per
@@ -887,6 +1187,9 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           }
         }
 
+        if (versionNotes.length > 0) {
+          resultMsg = `${resultMsg}\n${versionNotes.join("\n")}`;
+        }
         const finalMsg = contractWarning ? `[WARNING] ${contractWarning}\n${resultMsg}` : resultMsg;
         return createToolResult(finalMsg);
       } catch (error: any) {

@@ -65,7 +65,6 @@ function kitchenSinkScenario(): Scenario {
             operatorId: "probe",
             code: "def load(): ...",
             outputSummary: "minimal",
-            showOutputStatistics: false,
           },
         },
       ],
@@ -79,12 +78,20 @@ function kitchenSinkScenario(): Scenario {
       parentId: "a1",
       content: "load it; also check the probe closer",
       toolCalls: [
-        { toolName: "createOrModifyOperator", toolCallId: "t2", input: { operatorId: "loader", code: "def load(): v1" } },
+        {
+          toolName: "createOrModifyOperator",
+          toolCallId: "t2",
+          input: { operatorId: "loader", code: "def load(): v1" },
+        },
         { toolName: "inspectResult", toolCallId: "t3", input: { operatorId: "probe", maxRows: 10 } },
       ],
       toolResults: [
         { toolCallId: "t2", output: "ok", isError: false },
-        { toolCallId: "t3", output: "Inspection of `probe` — 2 rows:\nsheet_name\nB-APM-DATA\nREADME-INFO", isError: false },
+        {
+          toolCallId: "t3",
+          output: "Inspection of `probe` — 2 rows:\nsheet_name\nB-APM-DATA\nREADME-INFO",
+          isError: false,
+        },
       ],
     },
     {
@@ -115,7 +122,11 @@ function kitchenSinkScenario(): Scenario {
       parentId: "a3",
       content: "clean",
       toolCalls: [
-        { toolName: "createOrModifyOperator", toolCallId: "t5", input: { operatorId: "clean", code: "def process(loader): ..." } },
+        {
+          toolName: "createOrModifyOperator",
+          toolCallId: "t5",
+          input: { operatorId: "clean", code: "def process(loader): ..." },
+        },
       ],
       toolResults: [{ toolCallId: "t5", output: "ok", isError: false }],
     },
@@ -158,7 +169,6 @@ function kitchenSinkScenario(): Scenario {
 const BASE = {
   compilationResult: null,
   agentMode: AgentMode.CODE,
-  columnStats: true,
   schemaInResult: true,
   maxResultRows: 0,
 } as const;
@@ -193,7 +203,6 @@ describe("feature orthogonality", () => {
       for (const tc of step.toolCalls ?? []) {
         const inp = tc.input as Record<string, unknown>;
         delete inp.outputSummary;
-        delete inp.showOutputStatistics;
       }
     }
     for (const mode of [ContextMode.LATEST, ContextMode.DELTA]) {
@@ -237,8 +246,8 @@ describe("feature orthogonality", () => {
       const after = params.operators.overrides[opId];
       // Any override present must only lower: sampleRows <= base default (0 ⇒
       // uncapped) is expressed as a positive cap; stats only ever false.
-      if (after?.result?.latest?.column?.stats !== undefined) {
-        expect(after.result.latest.column.stats).toBe(false);
+      if (after?.result?.latest?.column) {
+        expect(Object.hasOwn(after.result.latest.column ?? {}, "stats")).toBe(false);
       }
       void before;
     }

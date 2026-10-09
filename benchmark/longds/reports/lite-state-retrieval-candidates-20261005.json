@@ -1,0 +1,3580 @@
+{
+  "date": "2026-10-05",
+  "version": "v1.1",
+  "split": "lite",
+  "selection_file": "task/longds_v1.1/task_list_lite.json",
+  "selection_sha256": "51f03d65ce3149ae36fb283140ee9aaffca77d9d3bb13d5487d6cf04d443931f",
+  "sessions_searched": 24,
+  "turns_searched": 777,
+  "rollback_candidates": 138,
+  "method": "Read only the task-list Lite members and their public requests plus evaluator-only dependency metadata. Earlier updates are transitive annotated dependencies, not observed variable overwrites.",
+  "limitation": "An annotated rollback does not prove an old value was overwritten. The existing Netflix Q28 traces retained task-7 entropy tables; no missing old value has been established for the shortlisted later questions. Verify retention from solver traces before claiming a versioning advantage.",
+  "shortlist": [
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 29,
+      "span": 27,
+      "dependencies": [
+        2,
+        4,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        17,
+        20,
+        21,
+        23,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under the temporary full-claim country treatment with the latest non-country adjustments, which practical-shortlist markets still rank in the screened top five?",
+      "context": "Now look at the country-assignment effect from the other side. Put the demand, delayed-supply, movie-orientation, and category pieces back under the broader full-claim treatment, but keep the latest structure-aware maturity fit and the later adjustments from the fractional run fixed. Apply the same market screen so the comparison stays on the same market set."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 31,
+      "span": 29,
+      "dependencies": [
+        2,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which practical-shortlist markets would still have appeared in the screened top five under the earliest narrow market interpretation, and what would enter or leave compared with the practical shortlist?",
+      "context": "Check whether the final candidates would have surfaced under the earliest single-country view. Use the original single-country assignment and the 2010-2019 catalogue window, but apply the same screened market set so the comparison stays fair."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 33,
+      "span": 30,
+      "dependencies": [
+        3,
+        23,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 5 current candidates would look best under the earliest protection formula, and which of those earliest-formula top 5 no longer remain in the current top-5 score leader group?",
+      "context": "Apply the earliest protection formula to the current candidate pool only. The earliest-formula leader list and the current score leader group both mean top 5 player sets under their respective scores."
+    }
+  ],
+  "candidates": [
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 42,
+      "span": 38,
+      "dependencies": [
+        4,
+        9,
+        12,
+        15,
+        26,
+        27,
+        29,
+        30,
+        32,
+        33,
+        37,
+        39,
+        40
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25,
+        28,
+        29
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which 5 earlier choices create the largest conclusion-set distances, and which names did each choice add or miss relative to the final conclusion?",
+      "context": "Quantify how earlier analytical choices affected the final player and team conclusions. For players, audit the total-pressure side calculation instead of event ledger, published-disagreement penalty removed, light warning component removed, older reliable pool with current scoring, relaxed published matching, severity-weight sensitivity, and earliest formula on current pool. For teams, audit the median team check, middle pressure and team lookback, mismatch players re-admitted, severity-weight sensitivity at team layer, and side-aware current team view. Compare each saved leader set with the final consensus set using one minus Jaccard overlap, defined as 1 - |intersection| / |union|. Report conclusion-set distances together with which names each choice adds beyond the final set and which final names it misses. When distances are tied, order choices first by scope and then by choice label, both ascending."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 32,
+      "span": 31,
+      "dependencies": [
+        1,
+        5,
+        7,
+        19,
+        31
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16,
+        18,
+        22
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "How does the low-b window compare with the early core window under those measures?",
+      "context": "Compare the low-b window with the early core window. The early core window is the most frequent 6-hour window among the earlier core events, using window start to resolve exact matches, and those core events are evaluated by the first pressure score. For the two windows, compare b-value, robust-pressure total from the sum-based window table, and absolute time separation in hours."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 34,
+      "span": 31,
+      "dependencies": [
+        3,
+        20,
+        28,
+        31
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11,
+        15,
+        17,
+        21,
+        24,
+        28
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "For the stable candidates, when did the evidence become sufficient: already visible in the earliest three-signal shortlist, first clear in the midstream warning list, or only stable after the current late-race and actionability checks?",
+      "context": "Look back to the earliest three-signal shortlist, but only for horses that survived the final stability screen."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 31,
+      "span": 30,
+      "dependencies": [
+        1,
+        20,
+        22,
+        24
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22,
+        24
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which up to five markets appear mainly under the original whole-count view, what evidence supports that reading, and which five leading shared-credit candidates provide the comparison group?",
+      "context": "For a final attribution check, return to the original whole-count country view while keeping the current resilient-market choices. This isolates markets that only look strong when every listed country receives full credit."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 33,
+      "span": 30,
+      "dependencies": [
+        3,
+        23,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 5 current candidates would look best under the earliest protection formula, and which of those earliest-formula top 5 no longer remain in the current top-5 score leader group?",
+      "context": "Apply the earliest protection formula to the current candidate pool only. The earliest-formula leader list and the current score leader group both mean top 5 player sets under their respective scores."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 30,
+      "span": 29,
+      "dependencies": [
+        1,
+        28,
+        29
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22,
+        24
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Which five markets in that stability pool have the strongest structured-catalogue support for the expansion story?",
+      "context": "Return to the later calendar treatment. The stability pool is the set of markets supported by more than one country-credit perspective in the recent comparison, not just the names that appeared in every perspective. Those candidates should also make sense in the structured catalogue itself, not only in the market-score tables. Content age is the add year used for the relevant observed-date row minus release year. Summarize the content-age, country-span, genre-span, cast-size, and director-count fields created during cleaning as shared-credit-weighted market means over the later observed-date window. The structural-support score is 25% inverse content-age percentile, 20% country-span percentile, 20% genre-span percentile, 20% cast-size percentile, and 15% director-count percentile within that pool."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 31,
+      "span": 29,
+      "dependencies": [
+        2,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which practical-shortlist markets would still have appeared in the screened top five under the earliest narrow market interpretation, and what would enter or leave compared with the practical shortlist?",
+      "context": "Check whether the final candidates would have surfaced under the earliest single-country view. Use the original single-country assignment and the 2010-2019 catalogue window, but apply the same screened market set so the comparison stays fair."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 34,
+      "span": 29,
+      "dependencies": [
+        5,
+        7,
+        12,
+        16,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under that mixed historical view, which practical-shortlist markets still rank in the top five, and which markets replace the others?",
+      "context": "For a mixed historical view, keep the tighter market screen and fractional market sharing. Start from the score just before uncertain labels were separated; that score already carries category entropy, volatility, strict freshness, post-2019 continuation, and the earlier maturity handling. Add the direct long-film contribution from before the decade adjustment and keep the later niche and director pieces out of this comparison."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "turn": 30,
+      "span": 29,
+      "dependencies": [
+        1,
+        15,
+        19,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        5,
+        12,
+        14,
+        15,
+        16,
+        21,
+        22,
+        23,
+        27
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "On the same recommendation-ready markets, which five markets lead under the early, middle, and current opportunity reads?",
+      "context": "Compare the early read, the middle planning read, and the time-corrected opportunity read on the same recommendation-ready market set. Rerank each read inside the current screen."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task1",
+      "turn": 30,
+      "span": 29,
+      "dependencies": [
+        1,
+        23,
+        25,
+        27,
+        29
+      ],
+      "earlier_updates_in_dependency_chain": [
+        25,
+        28,
+        29
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Under the first environmental-justice score and fixed good-air threshold, which ten high-burden counties have the highest joint risk? How much does that leading set overlap with the current state-relative joint-risk view?",
+      "context": "Return to the first environmental-justice score and the fixed good-air threshold. Restrict to fixed-threshold high-burden counties, then combine that social score with fixed-threshold burden by averaging their standardized values within the restricted set. For comparison, build a state-relative joint score from the current social score and current PM burden within the current high-burden set."
+    },
+    {
+      "task": "community/kaggle-survey-2019/task3",
+      "turn": 29,
+      "span": 28,
+      "dependencies": [
+        1,
+        7,
+        10,
+        17,
+        22,
+        28
+      ],
+      "earlier_updates_in_dependency_chain": [
+        10,
+        20
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Construct a 'Degree ROI Score' (0-1 scale) by averaging four indicators, each normalized to the 0-1 scale:\n(1) Salary premium: the best-country high-earner advantage from the five-bracket definition / 30 (capped at 1),\n(2) Skill breadth: degree holders' average ML technique count / 10 (capped at 1),\n(3) Research orientation: proportion of research-related features in the overlap set, using semantic feature labels rather than raw encoded feature identifiers,\n(4) Substitutability: 1 minus the proportion of non-degree high earners among all USA Data Scientist high earners, where \"high earners\" here means all salary brackets from 100,000-124,999 through > $500,000.\nWhat is the final ROI score? Treat the degree as 'worth it' only if the final score is greater than 0.5.",
+      "context": ""
+    },
+    {
+      "task": "geoscience/water-potability/task1",
+      "turn": 31,
+      "span": 28,
+      "dependencies": [
+        3,
+        29
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        8,
+        10,
+        11,
+        14,
+        15,
+        17,
+        19,
+        20,
+        24,
+        26,
+        29
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Inside the current robust high-risk area, which sources still show the strongest early strain pattern?",
+      "context": "Bring back the early pH and mineral strain idea, but apply it only inside the current robust high-risk area."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 30,
+      "span": 28,
+      "dependencies": [
+        2,
+        5,
+        18,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which five strongest available partner-country-sector matches from those removed or closely related weak-region markets should be reviewed under the current view, and what evidence supports the review?",
+      "context": "Review markets removed by the stricter regional-detail requirement, plus closely related markets that had weak regional detail early. Use the current complete-evidence recommendation view and do not rescore removed cells or the looser population. Start with countries from removed markets; if none has current complete matches, use the twenty-country fallback pool drawn from the weakest regional-detail rows in the looser pressure view. Evaluate the available current-view matches in that weak-region pool without requiring an extra top-ten floor or positive replacement threshold. Use removed-market countries first. Only if they produce no current complete matches, build the fallback from the first twenty distinct countries ordered by lowest named_region_pct, then higher pressure_score, in the looser pressure view."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 29,
+      "span": 27,
+      "dependencies": [
+        2,
+        4,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        17,
+        20,
+        21,
+        23,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under the temporary full-claim country treatment with the latest non-country adjustments, which practical-shortlist markets still rank in the screened top five?",
+      "context": "Now look at the country-assignment effect from the other side. Put the demand, delayed-supply, movie-orientation, and category pieces back under the broader full-claim treatment, but keep the latest structure-aware maturity fit and the later adjustments from the fractional run fixed. Apply the same market screen so the comparison stays on the same market set."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 30,
+      "span": 27,
+      "dependencies": [
+        3,
+        4,
+        9,
+        14,
+        16,
+        21,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        8,
+        16,
+        23
+      ],
+      "state_type": [
+        "Initial",
+        "Update",
+        "Rollback"
+      ],
+      "question": "For each job role (with at least 50 respondents), compute a composite accountability awareness score by averaging five indicators, each normalized to the 0-1 scale: (1) the proportion rating fairness/bias as \"Very important\" (out of total role group size, counting non-respondents as not rating it), \n(2) the average time spent exploring bias (using bracket midpoints, normalized to 0-1 by dividing by 95, among those who answered), \n(3) the proportion rating explainability as \"Very important\" (out of total role group size), \n(4) the proportion rating reproducibility as \"Very important\" (out of total role group size), and \n(5) the proportion NOT viewing ML models as black boxes (among those who expressed an opinion, excluding \"no opinion\" responses). \nReport the top 5 and bottom 5 roles by composite score with all five component values. For the top-scoring role, what is its position in the Cramér’s V ranking of all six demographic factors for bias importance?",
+      "context": ""
+    },
+    {
+      "task": "community/kaggle-survey-2019/task1",
+      "turn": 28,
+      "span": 27,
+      "dependencies": [
+        1,
+        13,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        13,
+        22
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Using all respondents in the final analysis table without salary filtering, compare the average number of retained skills between PhD and non-PhD respondents overall and by retained country cluster. Also compare PhD students vs PhD non-students. Who has more diverse skillsets?",
+      "context": ""
+    },
+    {
+      "task": "community/kaggle-survey-2019/task3",
+      "turn": 28,
+      "span": 27,
+      "dependencies": [
+        1,
+        7,
+        14,
+        15,
+        16,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        20
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Synthesize the degree's value across three dimensions: (1) Salary premium — the best-country degree advantage in high-earner proportion, (2) Skill differentiation — the number of overlapping important features that semantically relate to research/advanced topics, (3) Tool modernity — among the three most degree-advantaged techniques/tools, are they more advanced (DL/research) or traditional (regression/trees)? Use this decision rule for the most valuable dimension: choose skill differentiation if at least 3 overlap features are research-related; otherwise choose salary premium if the best-country premium exceeds 5 percentage points; otherwise choose tool modernity.",
+      "context": ""
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "turn": 28,
+      "span": 27,
+      "dependencies": [
+        1,
+        12,
+        17,
+        24
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        23
+      ],
+      "state_type": [
+        "Update",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Among the 5 states that improved most in engagement from the early to mid pandemic according to the state-level percentage-change ranking, compute mean engagement by locale type (City, Suburb, Town, Rural) and Black-and-Hispanic student proportion group. For the locale by Black/Hispanic breakdown, use all 2020 row-level engagement records in the top-improver states, not district-level means and not only the early/mid windows, and drop rows missing engagement index, locale, or Black/Hispanic bracket.\nRank the locale by Black/Hispanic combinations by mean engagement within these high-improving states. Which combination achieves the highest mean engagement? Report the top 5 combinations, and compare those same combinations to their national row-level means.",
+      "context": ""
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 32,
+      "span": 27,
+      "dependencies": [
+        5,
+        7,
+        16,
+        18,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11,
+        14,
+        18,
+        22
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Which current high-priority states were already visible before the environment domain was added, and which appear only under the current profile?",
+      "context": "Revisit the weighted state view from before environment was added, using the broad cleanup and screened health burden already in place. Compare those state leaders with the current five-domain weighted state leaders."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 29,
+      "span": 26,
+      "dependencies": [
+        3,
+        16,
+        21,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        16,
+        23
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "For each importance level of fairness and bias, compute: (a) the proportion of respondents in that group who also rate explainability as \"Very important\", (b) the proportion who also rate reproducibility as \"Very important\", and (c) the proportion who selected that most ML models are \"black boxes\" (out of all respondents at that bias level, counting non-response to question as not selecting). Is there a consistent pattern linking bias concern with the other two accountability dimensions and with black-box perception?",
+      "context": ""
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task2",
+      "turn": 27,
+      "span": 26,
+      "dependencies": [
+        1,
+        2,
+        3,
+        8,
+        10
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        10
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Identify the top CM sub-function by overall mean engagement. For the single top product within that CM sub-function, compute its mean weekly engagement index in each established phase. Additionally, compare these phase values to those of the top product from the Pre-Threat overall list. Report phase-by-phase values for both products.",
+      "context": ""
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 35,
+      "span": 25,
+      "dependencies": [
+        10,
+        20,
+        21,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under the final sensitivity check, which practical-shortlist markets remain in the top five, and how large is the score change for each current shortlisted market?",
+      "context": "For the final sensitivity check, keep the tighter market screen and current country sharing, cut the freshness contribution to one quarter of its current weight, and remove the rare-category reward. Leave the niche-demand mismatch and the other penalties in place."
+    },
+    {
+      "task": "community/kaggle-survey-2019/task3",
+      "turn": 26,
+      "span": 25,
+      "dependencies": [
+        1,
+        7,
+        10,
+        19,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        10,
+        20
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Among USA high-earning ($100K+) Data Scientists without a degree, identify: (a) their most common experience level, (b) which features from the reliable overlap list are most over-represented in this subgroup relative to the overall filtered respondent population, using subgroup-rate minus overall-rate and excluding tautological geography indicators from the trait summary, and (c) among all high-earning non-degree Data Scientists globally, what proportion come from the country with the strongest degree premium in the three-country high-earner comparison? Use the most over-represented non-geographic overlap features as the trait description.",
+      "context": ""
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 27,
+      "span": 25,
+      "dependencies": [
+        2,
+        3,
+        5,
+        18,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Across the full complete-data recommendation view, which five current recommendations are most sensitive to that older funding treatment, and how much does their final score change? Define most sensitive by unrounded absolute final-score change; score_change is the no-wait funding sensitivity final score minus the current final score. Exact ties follow the global label rule, even when distinct unrounded changes display as the same three-decimal value.",
+      "context": "Keep the complete-data population, expanded vulnerability, specialized partner view, and concentration penalty. Rebuild only the funding part of the pressure view with the older treatment that excluded waiting-time drag. Use the no-wait funding sensitivity from the earlier check: 62.5% completion gap and 37.5% low-completion share. Do not revert to the original completion-gap-only early pressure formula."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 34,
+      "span": 25,
+      "dependencies": [
+        9,
+        18,
+        23,
+        28
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Which five countries would be most exposed, or closest to exposed, to a broad-inclusion partner bias if the older partner view were used today? Rank countries by max_rollback_advantage descending; avg_rollback_advantage and affected_matches are supporting summaries only, and exact ties follow the global label rule.",
+      "context": "Focus on partner-definition risk. Use the complete-data population and current vulnerability and concentration treatment, then compare the current specialized partner view with the older inclusive partner view. Country exposure is based on each inclusive-view match's score minus that same match's current score; if an inclusive-view match has no current specialized counterpart, treat its current score as 0 for this advantage calculation. Summarize countries by the maximum such advantage, the average advantage, and the count of matches with an advantage above five points. If the inclusive view does not produce a positive advantage, treat the countries closest to a positive advantage as the exposure review set."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 27,
+      "span": 25,
+      "dependencies": [
+        2,
+        5,
+        15,
+        21,
+        24,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11,
+        15,
+        17,
+        21,
+        24
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "For the current actionable alerts, does a detailed-surface late-race comparison reduce or increase deviation support? Report the alerts with the largest absolute support change under the detailed-surface check and compare that change with the earlier detailed-surface attribution check.",
+      "context": "Use detailed surface definitions again for the current actionable alerts, and evaluate every start in the current actionable warning set. Build the detailed-surface late-race strong-finisher reference from expanded-clean-scope strong finishers grouped by distance and detailed surface, then score only the current actionable start IDs with the same late-race weighting. Convert detailed-surface late deviation to percentiles against the expanded clean comparison rows in the same distance and detailed surface. Compare detailed-surface support with the current collapsed-surface late percentile by subtracting the current late percentile from the detailed-surface late percentile, and carry forward the earlier detailed-surface attribution check as each horse's largest absolute earlier detailed-surface MSE change."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "turn": 25,
+      "span": 24,
+      "dependencies": [
+        1,
+        15,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        5,
+        12,
+        14,
+        15,
+        16,
+        21,
+        22,
+        23
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which five markets are most sensitive to returning to first-country attribution?",
+      "context": "Audit attribution by rerunning the current opportunity scoring ingredients and readiness thresholds after assigning each title to its first listed production country. Keep this separate from the working market view, and report movement in the audit direction, so a positive value means first-country assignment ranks the market higher than the shared-credit view."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 27,
+      "span": 24,
+      "dependencies": [
+        3,
+        20,
+        25,
+        26
+      ],
+      "earlier_updates_in_dependency_chain": [
+        16,
+        18,
+        20,
+        23
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Among respondents who cite time as their biggest barrier to reproducibility and who also rate fairness and bias as \"Very important\", what reproducibility tools do they use? Report the top 5 tools for this subgroup with their selection rates (selections / subgroup size). Compute the lift for each tool compared to the overall tool selection rate (selections / total respondents). How many such respondents exist?",
+      "context": ""
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 32,
+      "span": 24,
+      "dependencies": [
+        8,
+        13,
+        14,
+        25,
+        28,
+        30,
+        31
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        9,
+        10,
+        14,
+        17,
+        20,
+        22
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "How would the final conclusion change under each alternative specification, measured by eight-team overlap and three score-shift rows?",
+      "context": "Compare the final list with four alternative specifications: relaxed edge, seed-only upset check, raw winner-only side, and fixed halftime split. Use the final weights and conflict bonus, replacing only the affected layer and recomputing the bonus each time. Seed-only replaces the pregame matchup layer with the broad team-game seed-disadvantage material-edge set, not just the earlier five-game winner list. Relaxed-edge changes only the pressure threshold. Raw winner-only replaces the pressure layer with matched winner-side jointly-overlooked winners under the current standardized edge and year-specific comeback boundary; the separate comeback layer stays unchanged. Fixed-halftime reuses the fixed-halftime pressure side without a comeback filter. Use the eight working final-evidence teams as the overlap denominator. For score shifts, keep three rows per specification."
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 27,
+      "span": 23,
+      "dependencies": [
+        4,
+        7,
+        22,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        9,
+        10,
+        14,
+        17,
+        20,
+        22
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "How does the combined-support candidate set change under the earlier seed and market interpretation with the current pressure-weighted edge? Also report the top ten teams under that older interpretation.",
+      "context": "Revisit the first seed parsing and first market-overlooked reading while keeping the pressure-weighted halftime edge. Recompute combined support under that pregame interpretation and compare it with the current at-least-two-layer candidate set. Keep early non-strength profile and year-specific comeback layer; only seed interpretation, matchup interpretation, and pressure-side market reading change. Under the earlier interpretation, select teams with support from at least three of the five layers. Compute candidate-set changes from that complete qualifying set. For the ten-team display, rank by support count, market-pressure-state support, and dynamic-comeback support, all descending, then by team name ascending. For the pressure-side revisit, use the halftime-trailing side of the year-specific pressure sample and the market-overlooked side with pressure-weighted edge, without requiring jointly-overlooked or comeback flags."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 34,
+      "span": 23,
+      "dependencies": [
+        11,
+        25,
+        29
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25,
+        28,
+        29
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 6 current-candidate players create the largest conflict between the middle player view and the current team view?",
+      "context": "Compare the earlier severity-weighted player picture from before the short-window play adjustment and later speed refinements with the current team view. Convert that player score to percentiles within the current candidate pool and current team score to percentiles within the current team view, then measure conflict as player percentile minus team percentile."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 23,
+      "span": 22,
+      "dependencies": [
+        1,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Does the resilient-market set change when the stricter genre treatment is replaced by the raw genre split, and what are the top five markets under that raw-genre view?",
+      "context": "As a genre sensitivity, go back to the raw split genre labels. Leave the rest of the resilient-market read unchanged."
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "turn": 29,
+      "span": 22,
+      "dependencies": [
+        7,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        27
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Divide the states (excluding the two low-count outliers) into above-median and below-median groups based on mean engagement index. Use the record-weighted state means from the outlier-excluded state analysis and the top three characteristics from the external characteristic correlation analysis. Treat states with mean engagement at least equal to the median as above median. For the three state characteristics with the strongest absolute correlation to engagement, compute the average value in each group and report the signed difference: above-median average minus below-median average. Use these signed differences and the absolute correlations to assess whether stronger correlations correspond to larger between-group mean differences.",
+      "context": ""
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 33,
+      "span": 22,
+      "dependencies": [
+        11,
+        14,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11,
+        14,
+        18,
+        22,
+        26,
+        27
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "When the pre-reduction subgroup values are used to reconstruct the spread-based signal, do the leading equity-fragility counties remain the same?",
+      "context": "As a reconstruction check, rebuild the disparity spreads from the subgroup values that existed before spread columns replaced them in the working table. Apply the same fill, standardization, and combined equity-fragility calculation used in the current signal. Compare the rebuilt top-5 county set with the current spread-based leaders inside the tightened cohort. Treat the result as stable when at least 4 counties overlap."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 28,
+      "span": 21,
+      "dependencies": [
+        7,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23,
+        26
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under that earlier entropy-based score, which screened markets would have been in the top five, and how many overlap with the practical shortlist?",
+      "context": "Audit whether the screened shortlist would have looked similar just after category entropy was introduced, before the later freshness, continuation, uncertainty, long-form, niche, and director adjustments. Keep the tighter market screen so the comparison is not affected by thin-data markets."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 24,
+      "span": 21,
+      "dependencies": [
+        3,
+        8,
+        16,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        8,
+        16,
+        23
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Among respondents who answered the corresponding topic, compare the \"Very important\" rates across all three accountability topics: fairness/bias, explainability, and reproducibility. Rank them. Among respondents who provided an answer on all three questions, what proportion rated all three as \"Very important\"? Also compute the Cramér's V between each pair of topics to measure their association.",
+      "context": ""
+    },
+    {
+      "task": "social_good/passnyc/task1",
+      "turn": 26,
+      "span": 21,
+      "dependencies": [
+        5,
+        19
+      ],
+      "earlier_updates_in_dependency_chain": [
+        5,
+        7,
+        8,
+        12,
+        15,
+        19
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Using the full-dataset linear relationship from Task 5, where the Black-and-Hispanic share is encoded as a proportion in [0, 1], predict the Economic Need Index for each of the highest-priority Cluster A schools. Compute the residual (actual ENI minus predicted ENI) for each school. Which school has the largest positive residual, indicating its economic need is higher than its racial composition alone would predict?",
+      "context": ""
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 32,
+      "span": 21,
+      "dependencies": [
+        11,
+        14,
+        20,
+        23,
+        24,
+        29,
+        31
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25,
+        28,
+        29
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Under the mixed middle-pressure, middle-team view, which 5 teams are lifted most and which 5 teams are hurt most compared with the current team view?",
+      "context": "Revisit the middle pressure and team approach while keeping the current candidate pool and current speed picture. The mixed player score uses current speed, the severity-weighted pressure quality from the middle pressure approach, the 0.10 exposure contribution, and the restored short-window play adjustment. The team layer uses the earlier exposure-weighted side-aware adjustment rather than the weakest-link and balance recipe."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 28,
+      "span": 20,
+      "dependencies": [
+        8,
+        14,
+        16,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        8,
+        16,
+        23
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "For the demographic factor that had the strongest Cramér's V with bias importance, compute that same factor's Cramér's V with explainability importance and with reproducibility importance. Compare the three V values. Does the factor that best predicts bias concern also best predict concern about explainability and reproducibility? Also compute the average Cramér's V across all six demographic factors for each of the three accountability topics.",
+      "context": ""
+    },
+    {
+      "task": "community/kaggle-survey-2019/task1",
+      "turn": 21,
+      "span": 20,
+      "dependencies": [
+        1,
+        4,
+        5,
+        6,
+        13,
+        18,
+        20
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        13
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "For the retained country cluster with the most negative coreness-PhD proportion correlation, compute the mean degree centrality of its PhD holders in the original PhD network. Compare this to the overall mean degree. In that cluster, which five skills have the highest PhD adoption rate, where adoption rate means the binary skill mean among PhD holders in the final analysis table assigned to that cluster? How many of those five are classified as periphery PhD skills?",
+      "context": ""
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "turn": 27,
+      "span": 20,
+      "dependencies": [
+        7
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7
+      ],
+      "state_type": [
+        "Initial",
+        "Update",
+        "Rollback"
+      ],
+      "question": "For each of the 11 state-level policy and health characteristics, compute its correlation with the state mean engagement index. List all 11 characteristics by absolute correlation value, and identify the three characteristics with the strongest association with digital learning engagement.",
+      "context": "Three external state-level sources are merged with state-level mean engagement:\n- COVID policy indicators (binary): eviction ban, school face-mask mandate ban 2021, utility shutoff moratorium, Medicaid expansion.\n- Health measures: adult/child flu vaccination rates, adults not seeing doctor due to cost.\n- Child well-being measures: children without health insurance.\nUse the outlier-excluded state mean engagement table defined earlier as the base state set, then left-merge these external state-level datasets. Fill one missing value in the adults-not-seeing-doctor-due-to-cost measure with that measure's mean before computing correlations.\nFor binary policy characteristics use a point-biserial correlation; for continuous health characteristics use a Pearson correlation. Both p-values are reported as one-sided by halving the two-sided p-value.\nUse exactly these 11 characteristics:\n- Binary policy characteristics: school face-mask mandate ban in 2021, eviction initiation ban in 2020, utility shutoff moratorium in 2020, Medicaid expansion.\n- Continuous health characteristics: adult flu vaccination rate for high-risk adults, adults not seeing a doctor due to cost, child flu vaccination rate for all children, child flu vaccination rate for ages 6 months to 4 years, child flu vaccination rate for ages 5-12, child flu vaccination rate for ages 13-17, and percent of children without health insurance.\nUse the record-weighted state mean engagement values from the outlier-excluded state analysis."
+    },
+    {
+      "task": "social_good/passnyc/task1",
+      "turn": 27,
+      "span": 20,
+      "dependencies": [
+        7,
+        8,
+        12
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        8,
+        12
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "For all schools in the clustering table with complete K-means features, what is the distribution of Underrepresentation Scores? Report the mean, median, standard deviation, and the top 5 schools by score.",
+      "context": ""
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 30,
+      "span": 20,
+      "dependencies": [
+        10,
+        11,
+        17,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        9,
+        10,
+        14,
+        17,
+        20,
+        22
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which ten qualifying teams rank highest under the standardized market-only fixed-halftime combination, and how does the complete qualifying set differ from the current candidates?",
+      "context": "Recompute the final candidate set under the earlier combination of standardized resilience, market-only overlooked games, and fixed greater-than-five halftime sample. Require at least three supporting layers, then compare the complete qualifying set with the current at-least-two-layer pressure-boundary candidates. Display the ten highest-ranked qualifying teams by support count, fixed-halftime market-edge support, and dynamic-comeback support, all descending, then by team name ascending. This earlier combination changes only matchup and halftime-pressure layers; the fixed-halftime layer uses the standardized material edge from before pressure weighting. Keep the current year-specific comeback layer separate rather than filtering fixed-halftime pressure by comeback status or returning to the fixed six-point comeback reading."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 26,
+      "span": 20,
+      "dependencies": [
+        6,
+        23,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "If the earlier reliable pool is allowed back in while keeping current player scoring, which 5 excluded players would most affect the current player standings?",
+      "context": "Reopen the earlier reliable pool only for eligibility while keeping the current speed and pressure pictures. Use the comparable current scores already attached to the wider player table; do not change the side percentile ladders, pressure percentiles, or play adjustment."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 20,
+      "span": 19,
+      "dependencies": [
+        1,
+        10,
+        15,
+        17,
+        18,
+        19
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Update"
+      ],
+      "question": "Under the later calendar treatment, which five resilient markets lead after the seasonality penalty, which markets from the earlier lead-credit group drop out, and which markets are new under the later window?",
+      "context": "Return to the normal lead-credit view. The review now shifts to a later calendar treatment using observed add dates from 2016 through 2021, with the established footprint guard. Rebuild the resilient-market table under that later calendar. Compare membership against the complete earlier seasonality-adjusted lead-credit shortlist."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 28,
+      "span": 19,
+      "dependencies": [
+        9,
+        11,
+        14,
+        18,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9,
+        11,
+        13,
+        14,
+        16,
+        18,
+        20,
+        22,
+        25,
+        27
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 8 reviewed detailed units look materially worse now than they did under the middle management configuration?",
+      "context": "Compare the earlier brand-family management view with the current detailed path. The middle management configuration uses brand-family grouping, adjusted commission before service penalties, and credibility-adjusted quality. A family is acceptable there when its brand decision is forward or diagnostic, adjusted commission is at or above the family median, and credible quality passes. Compare only voucher-adjusted detailed review rows, carrying the family-level middle commercial value onto each reviewed detail row. If no reviewed detailed unit is fully excluded by the current path, use the middle-to-current deterioration signal instead."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 22,
+      "span": 19,
+      "dependencies": [
+        3,
+        5,
+        21
+      ],
+      "earlier_updates_in_dependency_chain": [
+        16
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Compare respondents who believe \"most ML models are black boxes\" versus those who are \"confident they can explain the outputs of most ML models\": for each group, what is their distribution of importance ratings for fairness and bias? What proportion of each group spends more than 20% of their projects exploring unfair bias? Is there a meaningful difference in bias engagement between these two groups?",
+      "context": ""
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "turn": 23,
+      "span": 19,
+      "dependencies": [
+        4,
+        7
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7
+      ],
+      "state_type": [
+        "Initial",
+        "Update",
+        "Rollback"
+      ],
+      "question": "For each state (excluding the three low-coverage states), compute the mean engagement index in the early-pandemic window and in the mid-pandemic window. Rank states within each period. Report the top 5 states by early-period engagement, showing their early mean, mid mean, early rank, and mid rank. Also report the bottom 5 states by early-period engagement.",
+      "context": "For state-level comparisons the notebook uses a different mid-pandemic window than the t-tests:\n- Early: 2020-04-06, 2020-04-20, 2020-04-27\n- Mid (state comparison): 2020-09-21, 2020-09-28, 2020-10-05\nThree states are dropped from this analysis because they appear in too few weeks to be reliable: Minnesota, Texas, and Arizona. North Dakota and District of Columbia remain here.\nAfter filtering out those states, first restrict to districts that appear in both the early and mid state-comparison windows. Then compute state means in each period over all non-null row-level engagement records from the matched districts. Do not first average by district. State ranks follow the established ranking convention."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 28,
+      "span": 19,
+      "dependencies": [
+        9,
+        14,
+        22,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11,
+        14,
+        18,
+        22,
+        26,
+        27
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "When membership returns to the earlier state-specific cohort, which equity-fragile counties reappear or disappear compared with the tightened cohort?",
+      "context": "Return membership to the earlier state-specific cohort while keeping the updated clinical treatment and spread-based disparity score. The health-clinical-disparity signal remains the ranking measure, and the five-domain score is kept only as a companion risk field."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 24,
+      "span": 19,
+      "dependencies": [
+        5,
+        18,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which up to five recommendations appear in the relaxed top-ten list but not in the complete-data top-ten list, and are they mainly tied to earlier region-quality concerns or missing later evidence? For each relaxed-only match, report whether it belongs to the stricter regional-detail population, whether all required development inputs are complete, whether it has at least ten valid MPI regions, and the resulting missing-evidence reason. Use earlier_region_quality_concern, missing_mpi, insufficient_mpi_regions, missing_development_profile, or complete, checked in that order.",
+      "context": "For a data-coverage review, relax the complete-data population back to the stricter regional-detail population used before partner and poverty evidence were fully joined. Keep the current final scoring treatment wherever the needed components exist."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 26,
+      "span": 19,
+      "dependencies": [
+        7,
+        10,
+        18,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which five complete-data matches look strongest under the earlier social-theme scoring view, and which of them fall outside the current top ten?",
+      "context": "Use the complete-data population again, but view it from the earlier social-theme stage before poverty entered."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 28,
+      "span": 19,
+      "dependencies": [
+        9,
+        18,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Do any current top-ten recommendations get replaced under that inclusive-partner review? Report up to five actual replacements if they exist; otherwise report up to five inclusive-view candidates outside the current top ten and the gap between each review score and that same match's current score.  Treat replacements as top-ten set differences under the inclusive-partner review scoring, regardless of whether the review score is higher than the current score. Define score gaps as review score minus current score.",
+      "context": "Keep the complete-data population and current final scoring components, but use the partner efficiency view that still included broad financial inclusion activity. Leave funding, social themes, vulnerability, and concentration unchanged."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task1",
+      "turn": 19,
+      "span": 18,
+      "dependencies": [
+        1,
+        3,
+        13
+      ],
+      "earlier_updates_in_dependency_chain": [
+        13
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "For the reference city families, compare raw average gas use with protected per-connection intensity. Which families change position the most between the two views?",
+      "context": "Return to the raw building table and the reference city families from the start of the building analysis, using the same case-insensitive substring matching. Compare their raw gas-use means with protected per-connection intensity on the working sample, separating raw consumption from connection-adjusted intensity."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 29,
+      "span": 18,
+      "dependencies": [
+        11,
+        20,
+        28
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11,
+        15,
+        17,
+        21,
+        24,
+        28
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which final-warning horses were already present in that midstream list, and which final-warning horses depend on later modeling choices?",
+      "context": "Rebuild the warning result as it stood after the strong-finisher profile, percentile scale, and broader welfare interpretation were in place, but before the later modeling choices. Leave out moisture grouping, the broader support screen, robust trend, late-race weighting, the actionability filter, and the final score."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 21,
+      "span": 17,
+      "dependencies": [
+        4,
+        15,
+        20
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20
+      ],
+      "state_type": [
+        "Rollback",
+        "Update"
+      ],
+      "question": "Which resilient markets are shared by the lead-credit and shared-credit views, where do the two country views disagree most, and what five leading shared-credit rows frame that comparison?",
+      "context": "Reconcile the resilient-market table with the shared-credit view used earlier. Only the attribution lens changes."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 20,
+      "span": 17,
+      "dependencies": [
+        3,
+        16,
+        19
+      ],
+      "earlier_updates_in_dependency_chain": [
+        16,
+        18
+      ],
+      "state_type": [
+        "Initial",
+        "Update",
+        "Rollback"
+      ],
+      "question": "Among respondents who rate explainability as \"Very important\", what are their top 5 preferred methods for explaining ML model decisions? For each of these 5 methods, compute the lift — the ratio of the selection rate in this subgroup (selections / subgroup size) versus the overall selection rate (selections / total respondents). Which method shows the highest lift? Additionally, what proportion of these explainability-focused respondents also rate fairness and bias as \"Very important\"?",
+      "context": ""
+    },
+    {
+      "task": "community/kaggle-survey-2022/task2",
+      "turn": 30,
+      "span": 17,
+      "dependencies": [
+        13,
+        16,
+        21,
+        29
+      ],
+      "earlier_updates_in_dependency_chain": [
+        8,
+        10,
+        11,
+        16,
+        21,
+        27,
+        28,
+        29
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Using the narrower managed-ML-plus-automated-ML adopter view, the broader small-organization boundary now in effect, and the industry percentage based on respondents who were actually shown the tools questions, compute a final composite score for each role by multiplying the role-intensity score, the expanded small-organization composite, and the top industry's asked-base adoption percentage expressed as a fraction (divided by 100). For the industry component, use the adoption percentage of the highest-adoption industry under that denominator. Report the top 5 roles under this narrower-view final score, the top 5 roles under the equivalent broader-view final score, and which roles appear in both top-5 lists.",
+      "context": "This closing comparison draws on states established at different moments in the analysis.\nFor the adopter side, go back to the narrower managed-ML-plus-automated-ML view rather than the broader one used most recently. For organization size, keep the expanded small-organization boundary now in effect. For industry, keep the percentage based on respondents who were actually shown the tools questions rather than the full-industry denominator.\nThe purpose is to combine these choices into one final scored list, then compare that list with the broader-adopter view."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 18,
+      "span": 17,
+      "dependencies": [
+        1,
+        2,
+        9,
+        11,
+        14,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16
+      ],
+      "state_type": [
+        "Update",
+        "Rollback"
+      ],
+      "question": "Using robust pressure inside the corridor, what are the corridor attention events, their overlap with the previous attention set, the identifiers replaced and added, and whether the top joint cluster or top hour changes?",
+      "context": "Inside the corridor sample, switch to a robust pressure score. Clip corridor depths and magnitudes to their 5th and 95th percentiles, then compute clipped magnitude squared times 100, divided by the product of one plus Istanbul distance over 50 and one plus clipped depth over 12. The corridor attention set is the top five near-city corridor events by robust pressure and event identifier. Compare this set with the previous attention set restricted to the corridor by overlap, replacements, top joint cluster, and top hour. The overlap percentage uses the union of the restricted previous set and the new robust set as denominator; previous and new top clusters or hours are selected by their respective attention-set pressure sums."
+    },
+    {
+      "task": "geoscience/water-potability/task1",
+      "turn": 28,
+      "span": 17,
+      "dependencies": [
+        11,
+        15,
+        24,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        8,
+        10,
+        11,
+        14,
+        15,
+        17,
+        19,
+        20,
+        24,
+        26
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Under the earlier neighbor repair and unweighted severity view, were the current potable anomalies already unusual?",
+      "context": "Look back to the repaired table before the neighbor count was tightened, keeping the conductivity grouping and unweighted severity view. Check whether the current potable anomalies were already in the upper decile of unweighted severity before the repair setting changed."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 33,
+      "span": 17,
+      "dependencies": [
+        16,
+        18,
+        26
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which five early social-theme recommendations are downgraded the most by the combination of expanded vulnerability and concentration risk?",
+      "context": "Use the social-theme view from before poverty entered, then compare those candidates with the current expanded vulnerability profile and concentration penalty."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 29,
+      "span": 16,
+      "dependencies": [
+        13,
+        24,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22,
+        24
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Does the resilient-market set look over-fitted to the later calendar window, and what five leading rows appear under the earlier-calendar view?",
+      "context": "As a timing sensitivity, replace the later calendar treatment with the earlier observed-date calendar. Hold the rest of the resilient read fixed."
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 23,
+      "span": 16,
+      "dependencies": [
+        7,
+        16,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        9,
+        10,
+        14,
+        17,
+        20,
+        22
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "How different is the lift under the raw market-only halftime reading from the current pressure-boundary reading?",
+      "context": "Recreate the earlier raw, market-only halftime reading: raw resilience gaps, market-only overlooked status, and the trailing side of all non-tied halftime states. Keep the matchup and halftime shapes aligned so the comparison isolates changes in scale, overlooked status, and halftime boundary."
+    },
+    {
+      "task": "community/kaggle-survey-2019/task1",
+      "turn": 16,
+      "span": 15,
+      "dependencies": [
+        1,
+        6,
+        13,
+        14,
+        15
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        13
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "For the retained country cluster with the highest PhD proportion, compare the distribution of the three individual skill communities against the retained country cluster with the lowest PhD proportion. For this community-distribution comparison, use PhD holders in the retained PhD-holder community table who have both an individual skill community and a retained country cluster, and compare row-normalized community proportions. What is the largest difference in any individual skill community proportion between these two country clusters? For the average number of skills per PhD holder, use all PhD holders in the final analysis table assigned to each retained country cluster; what is that average for each cluster?",
+      "context": ""
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 29,
+      "span": 15,
+      "dependencies": [
+        14,
+        22,
+        26,
+        27
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11,
+        14,
+        18,
+        22,
+        26,
+        27
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under the temporary three-domain ranking inside the tightened cohort, how stable are the priority counties?",
+      "context": "As a ranking sensitivity check, keep the tightened cohort but rank its counties by the older three-domain profile. Compare this top-5 set with the current five-domain risk leaders inside the same cohort. Treat the priority list as stable when at least 4 counties overlap."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 25,
+      "span": 15,
+      "dependencies": [
+        10,
+        13,
+        18,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Under that older poverty-stage scoring view, which five complete-data matches would have been ranked highest, and how far are they from the current score?",
+      "context": "Use the complete-data population, but view it from the stage when poverty had entered and development indicators and concentration risk had not. The sample is current; the scoring view is older."
+    },
+    {
+      "task": "social_good/passnyc/task1",
+      "turn": 20,
+      "span": 15,
+      "dependencies": [
+        5,
+        15
+      ],
+      "earlier_updates_in_dependency_chain": [
+        5,
+        12,
+        15
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Within each of the three K-means clusters, compute the Pearson correlation between the percentage of Black and Hispanic students and the Economic Need Index. How do these within-cluster correlations compare to the full-dataset value? Which cluster shows the strongest relationship, and which shows the weakest?",
+      "context": ""
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 21,
+      "span": 14,
+      "dependencies": [
+        7,
+        18,
+        20
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9,
+        11,
+        14,
+        16,
+        18,
+        20
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "How many loss priorities change under the day-type penalty, and which 8 changes should be reviewed?",
+      "context": "Check whether net-commission loss priority changes if the penalty uses day-type service instead of residual service. Apply the same 10% reduction to day-type slow orders over the detailed loss-review units, then return to the residual service penalty as the main view. Track loss-position change, residual-minus-day-type loss delta, and adjusted commission."
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "turn": 17,
+      "span": 14,
+      "dependencies": [
+        3,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        16
+      ],
+      "state_type": [
+        "Initial",
+        "Update",
+        "Rollback"
+      ],
+      "question": "Compare the importance distributions for fairness/bias and explainability of ML models. For each importance level, what is the signed difference in respondent percentage between the two topics (among those who answered)? Which topic has the higher \"Very important\" rate, and by how many percentage points?",
+      "context": ""
+    },
+    {
+      "task": "community/kaggle-survey-2019/task1",
+      "turn": 15,
+      "span": 14,
+      "dependencies": [
+        1,
+        4,
+        13
+      ],
+      "earlier_updates_in_dependency_chain": [
+        13
+      ],
+      "state_type": [
+        "Rollback",
+        "Initial"
+      ],
+      "question": "For each retained country cluster, use all respondents in the final analysis table assigned to that retained cluster. How many PhD holders and total respondents are there? What is the PhD proportion in each cluster? Which cluster has the highest PhD proportion? Do not restrict this task to members of the PhD network largest connected component.",
+      "context": ""
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 20,
+      "span": 14,
+      "dependencies": [
+        6,
+        9,
+        14,
+        19
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11,
+        14,
+        18
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Without the social/economic domain, how many intersection counties still qualify, how many drop out, and which counties illustrate each side?",
+      "context": "Set the social/economic domain aside and return to the three-domain county score, keeping the same watchlist, cohort, state filters, and top-tenth national cutoff."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 16,
+      "span": 14,
+      "dependencies": [
+        2,
+        14,
+        15
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which 5 teams are most affected in absolute signed effect, and which 5 teams have the most negative signed effect, from the early pressure-discrepancy group after the team view is restored?",
+      "context": "Restore the exposure-weighted, side-aware team view and examine the early pressure-discrepancy group. Compare each restored team score with the score after removing those mismatch players, using restored score minus the score without them as the signed effect. Negative values mean the mismatch group had been hurting the team. If removing mismatch players leaves a team with no comparable included tackle, leave that team out of the comparison."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 17,
+      "span": 13,
+      "dependencies": [
+        4,
+        8,
+        10,
+        15,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15
+      ],
+      "state_type": [
+        "Rollback",
+        "Update"
+      ],
+      "question": "Which markets are stable across shared, primary, and lead credit, which up to eight markets are most sensitive to the country-credit choice, and what five leading rows come from the lead-credit view?",
+      "context": "After the banded communication check, return to the continuous maturity frame. A lead-credit market view gives three-fifths of a multi-country title to the first listed country and shares the remaining two-fifths evenly across the other listed countries; single-country titles still receive full credit for their only country. Use that market view to rebuild the market-month-genre structure, and compare it with the earlier country-credit perspectives under the current signature-genre frame."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 24,
+      "span": 13,
+      "dependencies": [
+        11,
+        14,
+        18,
+        20,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9,
+        11,
+        13,
+        14,
+        16,
+        18,
+        20,
+        22
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Which 8 detailed units have a priority gap when service penalties are removed while customer and quality judgments remain fixed?",
+      "context": "Isolate the service penalty's effect while holding customer and quality judgments fixed. In the service-penalty review set, compare a pre-penalty priority score built from adjusted commission, credibility-adjusted rating, and quality-space customer share with a penalized score that replaces adjusted commission with service-penalized net commission. A positive score gap means a unit would regain priority without the penalty; a zero gap means the penalty does not change its percentile-priority order."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 13,
+      "span": 12,
+      "dependencies": [
+        1,
+        11,
+        12
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Update"
+      ],
+      "question": "Among the launch-quality leaders, which five markets have the most concentrated observed add months, and what is each market's dominant observed month?",
+      "context": "Return to the original launch-quality weighting. Seasonality should use observed add dates only, because month patterns are meaningful only when the add month is observed. Measure month concentration as the sum of squared observed monthly shares times 100. If two months tie as the dominant month, use the earlier month."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 26,
+      "span": 12,
+      "dependencies": [
+        14,
+        20,
+        22,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9,
+        11,
+        13,
+        14,
+        16,
+        18,
+        20,
+        22,
+        25
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 8 cases are sensitive to the stricter low-rating quality method rather than weak revenue or customer coverage?",
+      "context": "Separate downgrades driven mainly by the stricter quality method from broader business weakness. A downgrade is method-driven when the unit passed the middle quality screen, has quality-space customer share at or above the review-set median, and has service-penalized net commission at or above the review-set median. Other downgrades are mixed business weakness. If no formal downgrade occurs, use the quality-method penalty gap to identify pressure cases."
+    },
+    {
+      "task": "community/kaggle-survey-2019/task1",
+      "turn": 13,
+      "span": 12,
+      "dependencies": [
+        1,
+        4
+      ],
+      "earlier_updates_in_dependency_chain": [],
+      "state_type": [
+        "Rollback",
+        "Initial",
+        "Update"
+      ],
+      "question": "Construct the country similarity network using the procedure above, run greedy modularity community detection, retain only the first three communities returned by the algorithm, and relabel them in returned order as the first, second, and third retained country clusters. Report which countries belong to each retained cluster and how many total respondents (all education levels) are assigned to each cluster.",
+      "context": "We now shift from individual-level to country-level analysis. We first restrict the data to respondents whose countries belong to the top-country grouping defined during setup. Using all respondents in this subset, not just PhD holders, we compute an individual-level cosine similarity matrix on the retained skill indicators with the same preprocessing used in the participant-network procedure: a 95th-percentile threshold, all respondents included, and disconnected respondents retained.\nNext, for each respondent, we compute the mean cosine similarity to respondents from each top-country group. We then group by country and average these respondent-level similarity profiles to obtain a country-by-country similarity matrix. This country-level matrix is thresholded at its overall mean to form a binary country network, and greedy modularity community detection is applied.\nFinally, use the order returned by the greedy modularity procedure on that binary country network. Retain the first three detected communities and relabel them, in returned order, as the first, second, and third retained country clusters. Countries assigned to any other detected communities are excluded from subsequent cluster-based analysis. These retained cluster labels are then stored for later tasks."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 14,
+      "span": 12,
+      "dependencies": [
+        2,
+        9,
+        11
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11
+      ],
+      "state_type": [
+        "Update",
+        "Rollback"
+      ],
+      "question": "What is the tightened attention set, which identifiers were replaced from the unconstrained distance-adjusted portfolio, and which replacement events entered the tightened set?",
+      "context": "Tighten the attention set around events that are both close to Istanbul and in the Marmara main activity belt. Keep the unconstrained top five by distance-adjusted pressure as the comparison portfolio. The attention set is the top five near-city main-belt records by distance-adjusted pressure and event identifier."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 30,
+      "span": 12,
+      "dependencies": [
+        18,
+        28,
+        29
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16,
+        18,
+        22,
+        29
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "When you return to nearest assignment, which segment leads and how does it compare with the soft-contribution leader?",
+      "context": "To separate soft assignment from the pressure path, return to nearest-segment assignment while keeping robust pressure and the same selected corridor event pool. Compare this nearest-assignment leader with the soft-contribution leader."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 34,
+      "span": 12,
+      "dependencies": [
+        22,
+        24,
+        25,
+        33
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16,
+        18,
+        22,
+        29
+      ],
+      "state_type": [
+        "Update",
+        "Rollback"
+      ],
+      "question": "How does the revised ranking change the top three?",
+      "context": "Revise the combined ranking by adding rolling-window and adaptive-sequence signals. For each 6-hour window, anomalous-window density is anomalous rolling portraits divided by all rolling portraits in that window, adaptive-triplet density is adaptive triplet count divided by the maximum window triplet count, and near-city degree is the maximum mean rolling distance minus this window's mean rolling distance, divided by the spread between the maximum and minimum mean rolling distances, with value 1 if all available rolling-window means are equal. Windows without rolling portraits receive 0 for anomalous-window density and near-city degree, and windows with no adaptive triplets receive 0 for adaptive-triplet density. The revised weights are 5% window pressure, 5% segment pressure, 15% low-b signal, 5% attention coverage, 15% anomalous-window density, 45% adaptive-triplet density, and 10% near-city degree. Compare the new top three combinations with the prior combined ranking."
+    },
+    {
+      "task": "geoscience/water-potability/task1",
+      "turn": 23,
+      "span": 12,
+      "dependencies": [
+        11,
+        17,
+        20,
+        21
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        8,
+        10,
+        11,
+        14,
+        15,
+        17,
+        19,
+        20
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Before weighting and tail removal, how unusual were the persistent candidates under the source-water severity view?",
+      "context": "Look back to the source-water screen before weighting and tail removal. Although the persistent candidates were selected later, evaluate how unusual they already looked under unweighted source-water severity, defined as earlier severity score plus organic gap."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "turn": 19,
+      "span": 11,
+      "dependencies": [
+        8,
+        15,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        5,
+        12,
+        14,
+        15,
+        16
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under that earlier planning view, which five markets would have led, and how many rank positions away are they from the freshness-oriented leaders? Report the distance as a nonnegative absolute number.",
+      "context": "Return to the planning view before seasonality entered the score and before freshness received extra weight, then score it inside the readiness screen."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 29,
+      "span": 11,
+      "dependencies": [
+        18,
+        26,
+        28
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16,
+        18,
+        22
+      ],
+      "state_type": [
+        "Update",
+        "Rollback"
+      ],
+      "question": "How does the soft contribution mapping change the segment ranking?",
+      "context": "Move from nearest-segment assignment to soft segment contributions. Every event in the same selected pool contributes to every segment as robust pressure times one plus five times the short-sequence flag, divided by one plus distance to the segment over 20; the short-sequence flag marks events appearing in the top three short-sequence candidates. Use weighted pressure and segment name to identify segment leaders, and compare the leader with the nearest-segment mapping."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task1",
+      "turn": 14,
+      "span": 11,
+      "dependencies": [
+        3,
+        12
+      ],
+      "earlier_updates_in_dependency_chain": [],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Within the high-consumption city set, identify the ten leading buildings and ten leading cities under the original per-connection intensity measure.",
+      "context": "For this check, return to the original per-connection energy measure rather than the protected denominator. Restrict the analysis to the high-consumption cities from city averages and see which places the original intensity measure highlights within that fixed subset."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 29,
+      "span": 11,
+      "dependencies": [
+        18,
+        27,
+        28
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16,
+        18,
+        23
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Do any recommendations appear only under the combined older-assumption view? Report up to five of those if they exist; otherwise report up to five candidates outside the current top ten, with the raw funding-pressure and partner-efficiency input differences relative to their current values.  Treat combined-only cases as top-ten set differences under the combined older-assumption scoring, regardless of whether the combined score is higher than the current score. Define score gaps and raw input differences as review value minus current value.",
+      "context": "Combine the two older choices: use the funding treatment before waiting time was added and the inclusive partner view, while keeping the complete-data population, expanded vulnerability, and current concentration penalty."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 22,
+      "span": 11,
+      "dependencies": [
+        11,
+        20,
+        21
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 5 reliable candidates are helped most and which 5 are hurt most by that pressure-only mismatch-aware update?",
+      "context": "Use the play-adjusted severity-weighted picture as the baseline and isolate the signed score effect of changing only the pressure term to the mismatch-aware version. Keep the short-window play adjustment, refined speed signal, exposure term, and reliable pool unchanged."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "turn": 18,
+      "span": 10,
+      "dependencies": [
+        8,
+        15,
+        17
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        5,
+        12,
+        14,
+        15,
+        16
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which top-five size-outperformance findings disappear when the earlier portfolio score is used on the same market set?",
+      "context": "Use the earlier portfolio score on the same recommendation-ready markets and repeat the score-versus-log-size residual check with the same residual definition. Keep the readiness screen unchanged."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "turn": 26,
+      "span": 10,
+      "dependencies": [
+        16,
+        19,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        5,
+        12,
+        14,
+        15,
+        16,
+        21,
+        22,
+        23
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under that hybrid view, which five markets move the most relative to the current opportunity score across the full recommendation-ready ranking?",
+      "context": "Build a hybrid diagnostic from the earlier ready-market portfolio setup before seasonal widening, but apply the freshness-oriented weights from the later portfolio work. Report the rank change as hybrid rank number minus current rank number, so a positive value means the market falls lower under the hybrid read."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 17,
+      "span": 10,
+      "dependencies": [
+        7,
+        9,
+        11,
+        14,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9,
+        11,
+        14,
+        16
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 8 service-risk conclusions are sensitive to using the day-type service screen instead of the residual screen?",
+      "context": "Compare the residual service screen with the day-type screen for safe-promotion families. A residual-only risk means the residual-slow rate is above the all-order residual-slow rate while the day-type slow rate is not above its all-order rate. Hold quality and customer judgments fixed. If no residual-only risk appears, use the difference between the two slow rates as the sensitivity signal."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 19,
+      "span": 10,
+      "dependencies": [
+        9,
+        16,
+        18
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9,
+        11,
+        14,
+        16,
+        18
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Which up to 8 brand-family conclusions need a hidden detail-level exposure note before they can be reported safely?",
+      "context": "Flag brand-family conclusions that need a detail note before management sees them. A family is unsafe to report without one when at least one detailed unit has high-revenue residual service drag while the family-level residual-slow rate itself is not above the all-order rate."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 17,
+      "span": 10,
+      "dependencies": [
+        7,
+        9,
+        11,
+        14,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "What does the corridor-complement check reveal?",
+      "context": "Before focusing only on the corridor, check what it leaves behind. The corridor complement is every cleaned record not present in the corridor sample. Retention percentages for the attention set, early core selection, and distance-adjusted top ten use the size of each prior set as denominator. For the top three strongest excluded records, both pressure gaps are excluded-record pressure minus the relevant retained threshold. Summarize excluded cluster counts with cluster label as the secondary tie key."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 12,
+      "span": 10,
+      "dependencies": [
+        2,
+        6,
+        7,
+        11
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "When the earlier sample breadth is used with the current profile and percentile scale, which horses appear that were hidden by the cleaner sample? Report the strongest newly visible horses and whether their evidence comes from contexts that later failed the quality screen.",
+      "context": "As a breadth check, relax only the sample filter back to its earlier setting while keeping the current profile and percentile scale. Use current percentile deviation to identify newly visible horses. Keep the cleaner warning list for the next severe-only and moisture reviews."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 24,
+      "span": 9,
+      "dependencies": [
+        15,
+        21,
+        22,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Update"
+      ],
+      "question": "Which resilient markets survive the type-normalized maturity view, which markets enter or leave, and what five leading rows show the new maturity treatment?",
+      "context": "Return to the stricter genre treatment. Mature content is not distributed the same way across movies and TV shows, so replace each title's continuous maturity score with its percentile rank within its own format before aggregating. Compute these within-format percentile ranks over the full cleaned catalogue before applying the current later-window aggregation."
+    },
+    {
+      "task": "community/kaggle-survey-2022/task2",
+      "turn": 14,
+      "span": 9,
+      "dependencies": [
+        5,
+        6,
+        13
+      ],
+      "earlier_updates_in_dependency_chain": [
+        8,
+        10,
+        11
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Recompute the role-level intensity score with the AutoML-only role composition and AutoML-only coding-experience skew, while keeping the current ML skew anchor unchanged. Report the top 5 roles and compare them with the top 5 under the strict cross-tool view. Which roles appear in both top-5 lists?",
+      "context": "This comparison goes back to the earlier AutoML-only view.\nFor this question, roll back only the adopter side to the AutoML-only view. Keep the currently established ML skew anchor unchanged. The goal is to see how much the results change when the analysis is anchored to that earlier perspective."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 20,
+      "span": 9,
+      "dependencies": [
+        11,
+        15,
+        19
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11,
+        15,
+        17
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "How does that midstream warning list compare with the current composite alerts? Identify the horses already supported at that point and those that appear only after later modeling choices.",
+      "context": "Recreate the midstream warning list from the point after the strong-finisher profile, percentile deviation, and broader welfare interpretation were adopted. Leave out the later moisture grouping, broader support screen, robust trend, and composite score. When comparing with the current composite result, use every horse in the composite alert table rather than only the displayed subset. Compute comparison counts from the complete horse sets. Display up to five already-supported horses with the highest midstream percentile and up to five horses appearing later with the highest composite score."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 20,
+      "span": 9,
+      "dependencies": [
+        11,
+        18,
+        19
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18
+      ],
+      "state_type": [
+        "Rollback",
+        "Update"
+      ],
+      "question": "After restoring the shorter play window and adding play evidence as a weak adjustment, which 4 matched players are lifted most and which 4 are pushed down most?",
+      "context": "Restore the corrected first-five-frame play evidence. Average the corrected play score and corrected season-strong versus play-weak conflict gap by matched season player, then add the averaged play score to the season protection picture only as weak evidence for those matched players. The adjustment is play score minus 0.5, multiplied by 0.08. Unmatched season players receive no play adjustment."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 10,
+      "span": 8,
+      "dependencies": [
+        2,
+        6,
+        8,
+        9
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "Which 5 published players look most overestimated, and which 5 unlisted reliable candidates look most underestimated after the refined speed view is restored?",
+      "context": "Restore the refined speed view with the published-rank disagreement penalty. Compare published reputation with the current protection view inside the reliable candidate pool, and compute the refined-speed protection percentile within that pool. Published strength for a listed player is 1 minus best published rank minus 1 divided by 10; unlisted players have strength 0."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 10,
+      "span": 7,
+      "dependencies": [
+        3,
+        5,
+        7,
+        9
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7,
+        9
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "How many single-restaurant problems sit inside the brand-family conclusions, and which 8 carry first-commission exposure?",
+      "context": "A brand-family summary can hide restaurant-level problems, so inspect the same discussion families at the individual restaurant level. For each eligible restaurant, compute the high-value-customer share from its own orders under the first customer view. A restaurant-level problem exists when the unit has a day-type service flag, a missing-feedback pressure, or below-overall high-value-customer share. Count these problem rows even when the family aggregate is already risky, because the goal is to surface hidden commercial exposure."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 9,
+      "span": 7,
+      "dependencies": [
+        2,
+        3,
+        5
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3
+      ],
+      "state_type": [
+        "Update",
+        "Rollback"
+      ],
+      "question": "After re-ranking with distance-adjusted pressure, which five events lead, which events enter and leave the top ten from the first pressure ranking, and what is the top-ten overlap percentage?",
+      "context": "Refine the pressure score by adding distance decay toward central Istanbul while keeping the first pressure ranking for comparison. Distance-adjusted pressure is the first pressure divided by one plus Istanbul distance divided by 50. Compare the top ten under this score with the top ten under the first pressure score; each list is ranked by its own pressure score and the global tie rule. The overlap percentage uses 10 ranked positions as denominator and is reported on a 0-100 scale."
+    },
+    {
+      "task": "geoscience/water-potability/task1",
+      "turn": 13,
+      "span": 7,
+      "dependencies": [
+        6,
+        8,
+        9,
+        11
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        8,
+        10,
+        11
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Using the earlier count-based screen with the retained hardness bands, does the same band remain the main location for operational contrast sources?",
+      "context": "Revisit the earlier count-based screen while keeping the hardness bands created before hardness was removed. Use the same per-band denominator as before. When contrast shares tie, use higher mean count pressure, then band label in ascending order."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 13,
+      "span": 7,
+      "dependencies": [
+        6,
+        8,
+        11,
+        12
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Using the earlier event-ledger pressure picture with the current refined speed view, which 5 reliable candidates are helped most and which 5 are hurt most by severity weighting?",
+      "context": "Restore severity-weighted pressure. Compare it with the earlier event-ledger pressure picture while keeping the current refined speed view and reliable candidate pool. Measure helped and hurt by the signed player-score difference between those two pressure pictures."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 13,
+      "span": 6,
+      "dependencies": [
+        7,
+        9,
+        12
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "With that earlier health treatment, which leading counties would change, and how much overlap remains with the current list?",
+      "context": "For a historical comparison, keep the same state-specific cohort and disparity spreads, but use the expanded health ingredients from before the unreliable mortality screen. If one side has no exclusive counties, show a zero count and use a plain none label instead of an empty table."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 13,
+      "span": 6,
+      "dependencies": [
+        7,
+        11
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which warning horses are stable under the severe-only interpretation, and which horses depend on the broader welfare interpretation? Report the strongest severe-stable horses and the strongest broader-dependent horses.",
+      "context": "With the cleaned warning list unchanged, revisit the severe-only welfare interpretation while keeping the current profile and percentile scale. Use current percentile deviation as the evidence measure for both severe-stable and broader-dependent horses."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 23,
+      "span": 6,
+      "dependencies": [
+        17,
+        21,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11,
+        15,
+        17,
+        21
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Holding the current sample and robust trend fixed, which horses are gained or lost solely because of the late-race deviation emphasis? Report the largest net gains and losses.",
+      "context": "Isolate the net effect of the late-race emphasis while keeping the current sample and robust trend fixed. Compare the late-race result with the preceding full-race percentile result."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 31,
+      "span": 6,
+      "dependencies": [
+        25,
+        29,
+        30
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6,
+        8,
+        11,
+        18,
+        20,
+        21,
+        23,
+        24,
+        25,
+        28,
+        29
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "After resuming the current view, which 5 player score changes from the heavier severity check are not retained, and which 5 players remain in the current player leader group by score?",
+      "context": "Resume the current pressure and team view. Use the heavier severity check only as a comparison point, and identify which apparent score changes do not belong in the main player categories. The current player leader group means the top 5 current candidates by current player score."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 9,
+      "span": 5,
+      "dependencies": [
+        4,
+        6,
+        8
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which markets are recovered by shared credit, which ones remain stable across the shared and primary views, and how do the top five recovered scores compare with the primary-country view?",
+      "context": "Keep the primary-country read as a diagnostic, but bring shared production credit back into the market review. Retain the broader genre grouping and uncertain-rating maturity treatment, then reconcile the two country views around their leading mature-growth groups."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 16,
+      "span": 5,
+      "dependencies": [
+        11,
+        15
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which five markets are most maturity-sensitive when the banded and continuous maturity readings are compared for that same leading-market set?",
+      "context": "The continuous maturity view may be useful, but the earlier banded interpretation remains important for communication. Bring back the banded treatment with uncertain ratings included. Compare the banded and continuous views across the same leading-market set, ranking sensitivity first by absolute rank gap and then by absolute maturity-index gap when ranks do not move."
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "turn": 8,
+      "span": 5,
+      "dependencies": [
+        3,
+        5,
+        7
+      ],
+      "earlier_updates_in_dependency_chain": [
+        7
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 8 units have service-screen sensitivity, and did any cross the subsidy-risk boundary only because the service screen changed?",
+      "context": "Use the day-type screen as the current view, while keeping the one-hour screen as a service sensitivity check. A unit is risky when it has a service flag, a customer coverage gap, or unclear quality. Hold customer and quality judgments fixed, compare the risk state under both service flags, and use the slow-rate gap when no unit crosses the boundary."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 10,
+      "span": 5,
+      "dependencies": [
+        5,
+        6,
+        9
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "How do individual event ranks migrate after the distance adjustment?",
+      "context": "Look more closely at the rank migration caused by the distance adjustment. Assign 1-based ranks under the first-pressure ranking and under the distance-adjusted ranking, then measure rank change as first-pressure rank minus distance-adjusted rank. Report every event that enters or leaves the top ten, together with the three largest positive rank changes and the three largest negative rank changes."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 8,
+      "span": 4,
+      "dependencies": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6
+      ],
+      "state_type": [
+        "Rollback",
+        "Update"
+      ],
+      "question": "Under the primary-country view, which shared-credit launch candidates remain convincing, which ones look dependent on shared production credit, which new primary-country markets appear, and how do the top five shared candidates score?",
+      "context": "Return to counting uncertain ratings in the maturity denominator and keep the broader genre grouping. Now shift the market view to the first listed country only to test whether the shared-credit candidates depend on co-production credit rather than primary market attachment."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 8,
+      "span": 4,
+      "dependencies": [
+        4,
+        7
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "If you switch to full co-production claims only for this comparison while keeping category entropy, how much does the top five change?",
+      "context": "Compare country-credit sensitivity after the entropy change. Keep the fractional-credit version as the main line of analysis, then recompute with full co-production claims for this check while retaining category entropy."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 23,
+      "span": 4,
+      "dependencies": [
+        19,
+        21,
+        22
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        9,
+        11,
+        14,
+        16,
+        18,
+        22
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Within the highest-scoring window, how do the fixed and adaptive triplet findings compare?",
+      "context": "Return to the highest-scoring 6-hour window and compare the fixed and adaptive triplet findings within that window. Count triplets from each rule, compare their participating event sets using the union as denominator, and list the fixed triplet identifiers found there."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 6,
+      "span": 4,
+      "dependencies": [
+        2,
+        5
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Within that review window, which country-sector pairs would return under the looser population while retaining the revised funding treatment? Report up to fifteen returning pairs and the regional-quality evidence that explains why they were absent under the stricter population.",
+      "context": "Use the looser market population from before the regional-detail filter and keep the revised funding treatment. Compare its top fifteen pairs with the top fifteen under the stricter regional-detail population. Define returning pairs as country-sector pairs that are in the looser revised-pressure top 15 but not in the stricter regional-detail top 15. Rank and report returning pairs by the looser current pressure score."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 11,
+      "span": 4,
+      "dependencies": [
+        7,
+        9,
+        10
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which five inclusive-view matches outside the current specialized top ten would be the first replacement candidates, and how large is the gap between each inclusive recommendation score and its underlying social-theme demand score?  Rank replacement candidates by inclusive recommendation score after excluding current specialized top-ten partner matches. Define the gap as inclusive recommendation score minus social_priority.",
+      "context": "Use the partner view that still included broad financial inclusion activity, while keeping the current social-theme demand signal."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "turn": 17,
+      "span": 4,
+      "dependencies": [
+        13,
+        16
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        16
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which up to five pairs in the current expanded-priority country-sector set would look stronger if the poverty signal had not been expanded with development indicators? Report the largest positive gaps under the earlier poverty-only treatment.",
+      "context": "Use the earlier poverty-only signal while holding the current social-theme country-sector view fixed. Keep the current expanded-priority population fixed and compute rollback_gap as poverty_priority minus expanded_priority."
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 6,
+      "span": 4,
+      "dependencies": [
+        2,
+        4,
+        5
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Using the cleaned score before gain carrying, how do the four seed groups differ from the gain-carried projection, and does concentration strengthen or weaken after gain is carried forward?",
+      "context": "Before using the gain-carried profile further, revisit the seed pattern with the cleaned score from the lopsided-game step. Compare each established seed group's cleaned upper 15% share with its gain-carried upper 15% share using the same resilience-matched team-year denominator, and judge concentration by the spread across group shares."
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 11,
+      "span": 4,
+      "dependencies": [
+        7,
+        9,
+        10
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        9,
+        10
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Under the market-only reading, how many standardized material-edge opportunities did the stricter jointly-overlooked screen exclude, and what was their average performance?",
+      "context": "Revisit the market-only overlooked team-game rows with the standardized resilience scale. Even-spread rows remain outside this denominator."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 25,
+      "span": 3,
+      "dependencies": [
+        22,
+        24
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22,
+        24
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which markets are stable across the two maturity views, and which five markets have the largest score movements under the type-normalized maturity view?",
+      "context": "Compare the continuous maturity view and the type-normalized maturity view within the same resilient-market read. Keep the country attribution and stricter genre treatment fixed. Treat score movement as the maturity-sensitivity signal after confirming which markets survive in both views."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "turn": 27,
+      "span": 3,
+      "dependencies": [
+        24,
+        26
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        20,
+        21,
+        22,
+        24
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which up to five markets are recovered when single-country supply is allowed back in, which collaboration-only leaders remain stable, and which collaboration-only names are lost?",
+      "context": "Return to shared credit for all eligible titles and compare that all-title view with the collaboration-only result."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 19,
+      "span": 3,
+      "dependencies": [
+        16,
+        17
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which five markets in the current top eight are most sensitive to replacing the decade-adjusted long-form measure with the direct long-film cutoff? Use absolute_score_difference as the sensitivity measure.",
+      "context": "Revisit the long-form treatment from just before decade adjustment while keeping the current maturity, category, freshness, volatility, continuation, and fractional country treatment. This isolates whether current recommendations depend on the decade adjustment rather than the broader market signal. Treat the absolute score change from swapping the long-form treatment as the sensitivity measure."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 24,
+      "span": 3,
+      "dependencies": [
+        21,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21,
+        23
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Among the current top eight, which five markets would benefit the most if director concentration had not been penalized?",
+      "context": "Look back to the score just before director concentration was penalized while keeping the niche-category and mismatch treatment. This isolates the director penalty without changing country sharing, maturity, freshness, duration, or category handling. Use recovered score as the main benefit."
+    },
+    {
+      "task": "community/kaggle-survey-2022/task2",
+      "turn": 24,
+      "span": 3,
+      "dependencies": [
+        21,
+        23
+      ],
+      "earlier_updates_in_dependency_chain": [
+        8,
+        10,
+        11,
+        16,
+        21
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Recompute the resilience score with the narrow small-organization boundary (keeping the active asked-base industry definition and active role-intensity table unchanged). Report the narrow-boundary resilience score and compare it with the expanded-boundary resilience score. Compute percentage change as the narrow-boundary score minus the expanded-boundary score, divided by the expanded-boundary score, then multiplied by 100.",
+      "context": "For this comparison, roll back only the small-organization boundary to the narrow version. Keep the active industry and role-analysis results unchanged."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 4,
+      "span": 3,
+      "dependencies": [
+        1,
+        2,
+        3
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "How do the original densest hour and the cleaning-affected hour compare?",
+      "context": "Quantify how cleaning changed the early activity picture. Compare the original densest hour with the main-belt hour most affected by cleaning. Choose the affected hour by the largest gap between pre-cleaned and retained main-belt counts, then break ties by the higher pre-cleaned count and earlier hour. In each compared hour, report the three strongest retained events, ranked by magnitude, depth, and event identifier. The early core candidates are the five strongest retained main-belt events in the original densest hour under that same ranking."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task1",
+      "turn": 26,
+      "span": 3,
+      "dependencies": [
+        23,
+        25
+      ],
+      "earlier_updates_in_dependency_chain": [
+        25
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Compare the high-burden county sets from the fixed and state-relative thresholds. Which ten highest-scoring counties are newly flagged, and which ten highest-scoring counties are no longer flagged under the state-relative approach?",
+      "context": "Return to the fixed good-air threshold and compare it with the state-relative burden. Identify counties that appear only under the state-relative threshold and counties that disappear when the fixed threshold is no longer used. Use the top-tenth county sets from both calculations."
+    },
+    {
+      "task": "geoscience/water-potability/task1",
+      "turn": 18,
+      "span": 3,
+      "dependencies": [
+        15,
+        17
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        8,
+        10,
+        11,
+        14,
+        15,
+        17
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Before organic carbon was included, how severe were the sources that later deteriorated under the source-water screen?",
+      "context": "Look back to the severity view just before organic carbon entered the source-water screen, keeping the conductivity grouping in place. For the newly deteriorated sources, report whether they were already concerning and where they sat within their conductivity bands."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 5,
+      "span": 3,
+      "dependencies": [
+        2,
+        3,
+        4
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "If the reference pattern is rebuilt with detailed surface categories only for this check, which candidate starts show the largest absolute change in deviation attribution? Report whether any supported starts would lose large-deviation support under this temporary surface detail.",
+      "context": "As a diagnostic check, rebuild the profile comparison with detailed surface categories and compare it with the latest three-signal shortlist. Do not carry this detailed surface version into the next step."
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 10,
+      "span": 3,
+      "dependencies": [
+        7,
+        8,
+        9
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Under this temporary return to the winner reference, which currently supported horses remain supported and which appear to be created by the strong-finisher reference? Report the strongest strong-finisher-only horses together with their earlier surface-merge status and trend-contrast evidence.",
+      "context": "As a temporary check, return to the winner reference while keeping the cleaner sample and welfare interpretation unchanged. Use strong-finisher profile deviation as the comparison measure for horses that appear only under the strong-finisher reference."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 6,
+      "span": 2,
+      "dependencies": [
+        4,
+        5
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Among the current fractional-credit leaders, which would still have ranked in the top five under the prior full-claim treatment, and which would not?",
+      "context": "Check whether the fractional-credit leaders were already visible under the full-claim co-production treatment. Use the same score setup and compare against the full-claim market assignment rather than the original single-country view."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 14,
+      "span": 2,
+      "dependencies": [
+        12,
+        13
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which five markets in the updated top eight would benefit the most under the earlier maturity treatment? Report both rank movement and score recovery.",
+      "context": "Check whether the recent losses are really coming from maturity uncertainty rather than demand or supply. Revisit the maturity treatment from before uncertain labels were separated while keeping the current country sharing, category balance, volatility, freshness, and continuation adjustments. Use score recovery as the main signal."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 18,
+      "span": 2,
+      "dependencies": [
+        16,
+        17
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "If the direct cutoff were 100 minutes instead, which current long-form opportunity markets would still appear in the top five?",
+      "context": "Test the direct long-film cutoff by relaxing it by ten minutes and comparing it with the decade-adjusted result. Keep the current country sharing, maturity treatment, freshness, and category treatment unchanged."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "turn": 22,
+      "span": 2,
+      "dependencies": [
+        20,
+        21
+      ],
+      "earlier_updates_in_dependency_chain": [
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        20,
+        21
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "With the niche-category reward removed only for this check, which current leaders stay in the top five and which ones fall out?",
+      "context": "Remove the niche-category reward while leaving its normalization and the mismatch calculation available for comparison. Keep every other current treatment unchanged so it is clear how much the niche reward itself is moving the top list."
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "turn": 10,
+      "span": 2,
+      "dependencies": [
+        8,
+        9
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3,
+        5
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "How do the leaders' wider and December-January seasonal shares compare, and which leaders clear the wider-window median but not the narrower-window median?",
+      "context": "For the same leaders, narrow the scheduling window to December and January. Use the same per-market shared-title-credit denominator and compare each leader with the eligible-market median for this tighter window."
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "turn": 5,
+      "span": 2,
+      "dependencies": [
+        3,
+        4
+      ],
+      "earlier_updates_in_dependency_chain": [
+        3
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "What does the pressure-based cleaning comparison indicate?",
+      "context": "Use a first pressure score to put magnitude and depth on one scale: pressure is depth multiplied by squared magnitude. Label depth as shallow up to 10 km, middle above 10 and up to 20 km, and deep above 20 km; label magnitude as micro up to 2.0, minor above 2.0 and up to 3.5, and strong above 3.5. The high-pressure group contains every cleaned event at or above the empirical 90th-percentile cutoff of this pressure score, including ties at the cutoff. Evaluate the densest-hour core candidate identifiers by pressure, magnitude, and event identifier. Evaluate removed events as if they were still in the original main-belt records from the affected hour, and evaluate that hour's top three retained events within retained main-belt records only. The removed-event pressure share uses that affected hour's original main-belt pressure total as denominator; report this share as a percentage on a 0-100 scale."
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "turn": 25,
+      "span": 2,
+      "dependencies": [
+        23,
+        24
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        7,
+        9,
+        11,
+        14,
+        18,
+        22,
+        24
+      ],
+      "state_type": [
+        "Initial",
+        "Rollback"
+      ],
+      "question": "For the largest movers, what were their original health outcome values, and do those values align with the retained health burden score?",
+      "context": "Use the counties whose ranking changed most when environment was added. Their raw health inputs are no longer columns in the working table, so recover the original health outcome values and compare them with the retained standardized health burden. Judge alignment two ways: rank the movers by the average percentile of their original raw health fields, using all retained county rows as the reference, and rank the same movers by retained health score within the mover group. Before percentile ranking, treat unreliable premature-mortality values as missing. Each raw field's percentile denominator is its non-missing county values, and missing field percentiles are skipped in the county average. A gap of no more than two rank positions counts as aligned."
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "turn": 18,
+      "span": 2,
+      "dependencies": [
+        16,
+        17
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        5,
+        9,
+        10,
+        14,
+        17
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Within the broader non-tied halftime set, how does material-edge lift vary across deficit-size bands for trailing jointly-overlooked teams in year-specific comeback games, and which single deficit band is strongest?",
+      "context": "Return to the broader non-tied halftime set and split trailing deficits into 1-5, 6-10, 11-20, and 21+ point bands."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 5,
+      "span": 2,
+      "dependencies": [
+        3,
+        4
+      ],
+      "earlier_updates_in_dependency_chain": [],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "After restoring event-ledger pressure, which 5 players had the largest positive total-pressure score boosts that disappear, and does the restored top-5 leader set match the original event-ledger top 5?",
+      "context": "Work again from event-ledger pressure. Compare the total-pressure check with the restored event-ledger view rather than carrying the check forward. Focus on players who looked better only under total pressure and lost that boost once event-ledger pressure was restored."
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "turn": 7,
+      "span": 2,
+      "dependencies": [
+        5,
+        6
+      ],
+      "earlier_updates_in_dependency_chain": [
+        6
+      ],
+      "state_type": [
+        "Rollback"
+      ],
+      "question": "Which 5 removed players would still have appeared strongest under the restored event-ledger protection picture, and what is their combined score mass as a share of the original top-10 leader score mass?",
+      "context": "Look across the full cleaned player table while keeping the screened protection picture in place. For the removed-player summary, use the 5 removed players with the highest restored event-ledger protection score. Define the original leader score mass as the sum of first protection scores for the original top 10 players."
+    },
+    {
+      "task": "education/world_university_rankings/task3",
+      "turn": 2,
+      "span": 1,
+      "dependencies": [
+        1
+      ],
+      "earlier_updates_in_dependency_chain": [],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Before replacing the original total score, what is the Pearson correlation coefficient between the original total score and the recomputed total score? Only consider rows where the original total score is not missing.",
+      "context": ""
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "turn": 16,
+      "span": 1,
+      "dependencies": [
+        15
+      ],
+      "earlier_updates_in_dependency_chain": [
+        2,
+        6,
+        7,
+        9,
+        11,
+        15
+      ],
+      "state_type": [
+        "Rollback",
+        "Counterfactual"
+      ],
+      "question": "Which alerts are sensitive to temporarily excluding the previously set-aside distances, and which remain stable? Also report the largest retained-alert shifts using the sum of absolute percentile change and absolute context-stress change.",
+      "context": "For a sensitivity check, temporarily exclude the distance identifiers that were set aside earlier and compare the alert list. This is a row-level sensitivity filter on the broader-screen alert rows, not a rebuild of the contexts, references, percentiles, or stress scores after removing those distances. A horse is stable if it still has an alert row after filtering out the set-aside distance identifiers, and sensitive if it only appeared through those filtered rows. For retained-alert shifts, compare each horse's strongest broader-screen alert row with its strongest immediately preceding full-race percentile warning row, summing absolute percentile change and absolute context-stress change. After this comparison, keep the broader support screen as the working alert list."
+    }
+  ],
+  "existing_retention_audit": {
+    "run": "prefix-ordinary-corrected",
+    "checkpoint": 27,
+    "method": "Match recorded write-time table fingerprints against observer binding fingerprints at Q27; no new execution or model calls.",
+    "findings": [
+      {
+        "turn": 2,
+        "tables_written": 8,
+        "exact_versions_still_retained": 7,
+        "examples": {
+          "market_base": [
+            "market_base"
+          ],
+          "scan": [
+            "scan"
+          ]
+        }
+      },
+      {
+        "turn": 4,
+        "tables_written": 7,
+        "exact_versions_still_retained": 7,
+        "examples": {
+          "full_base": [
+            "full_base"
+          ],
+          "full_scan": [
+            "full_scan"
+          ]
+        }
+      },
+      {
+        "turn": 7,
+        "tables_written": 8,
+        "exact_versions_still_retained": 8,
+        "examples": {
+          "ent_qual": [
+            "ent_qual"
+          ],
+          "ent_scan": [
+            "ent_scan"
+          ]
+        }
+      }
+    ],
+    "conclusion": "Earlier narrow-market, full-claim and entropy working tables survive at Q27. Netflix Q29/Q31 are mixed-rule candidates, not confirmed lost-state tests. Retention still needs checking at their actual starting checkpoints."
+  }
+}

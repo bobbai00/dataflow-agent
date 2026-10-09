@@ -146,7 +146,7 @@ export function OperatorDetail({
       )}
 
       {/* Additional metadata block — anything we haven't already rendered
-          via dedicated fields. Useful for general-mode operators with
+          via dedicated fields. Useful for GUI-authored operators with
           non-`code` properties (KeywordSearch's `keyword`, Filter's
           `predicates`, etc.). */}
       {operator.operatorProperties && Object.keys(operator.operatorProperties).filter(k => k !== "code").length > 0 && (

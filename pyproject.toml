@@ -26,6 +26,12 @@ dependencies = [
     "cdflib==1.3.1",
     "pyarrow==21.0.0",
     "scikit-learn==1.5.0",
+    # LongDS tasks name model families the UDF venv must actually provide —
+    # bi__task1 t24 asks for five INCLUDING XGBoost, so that turn was
+    # unwinnable for every arm ever run (195 `No module named 'xgboost'`).
+    # macOS also needs the OpenMP runtime: `brew install libomp`.
+    "xgboost>=3.0",
+    "duckdb>=1.0",
     "scikit-image==0.25.2",
 
     # Torch: pin to CPU wheel on Linux x86_64 to avoid NVIDIA CUDA deps.
@@ -98,7 +104,15 @@ dev = [
     "black==24.3.0",
     # protoc compiler (matches bin/protoc-version.txt); pairs with the
     # betterproto plugin so sbt's genPythonProto can regenerate Python bindings.
-    "protoc-wheel-0==3.19.4",
+    # No arm64-macOS wheel exists for this pin, and `uv sync --all-extras` is a
+    # hard error (not a skip) when a listed distribution has no compatible
+    # wheel — which made the documented setup command fail on Apple Silicon.
+    # Excluded there; use `brew install protobuf` if you need to regenerate.
+    # PEP 508 marker grammar has no unary `not`, so the intended
+    # `not (darwin and arm64)` has to be written via De Morgan or setuptools
+    # rejects the whole file with `optional-dependencies.dev[9] must be pep508`
+    # — which broke `uv sync --all-extras` on every platform, not just macOS.
+    "protoc-wheel-0==3.19.4 ; sys_platform != 'darwin' or platform_machine != 'arm64'",
 ]
 kramabench = [
     # Domain-Specific Tools

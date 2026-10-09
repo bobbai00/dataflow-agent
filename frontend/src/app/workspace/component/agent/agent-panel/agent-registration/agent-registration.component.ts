@@ -60,7 +60,10 @@ export class AgentRegistrationComponent implements OnInit, OnDestroy {
 
   public modelTypes: ModelType[] = [];
   public selectedModelType: string | null = null;
-  public customAgentName: string = "Texera Agent";
+  /** Default agent name; must match the agent-service fallback in `createAgent`. */
+  public static readonly DEFAULT_AGENT_NAME = "Bob";
+
+  public customAgentName: string = AgentRegistrationComponent.DEFAULT_AGENT_NAME;
   public isLoadingModels: boolean = false;
   public hasLoadingError: boolean = false;
   public computingUnitConnected: boolean = false;
@@ -143,8 +146,26 @@ export class AgentRegistrationComponent implements OnInit, OnDestroy {
 
   private resetForm(): void {
     this.selectedModelType = null;
-    this.customAgentName = "";
+    this.customAgentName = AgentRegistrationComponent.DEFAULT_AGENT_NAME;
     this.isCreating = false;
+  }
+
+  /**
+   * Vendor mark for a model id, or `null` when we do not recognise the vendor
+   * (local / self-hosted models keep the generic glyph). Matching is on the id
+   * the gateway reports, e.g. `claude-haiku-4.5`, `gpt-5.2`.
+   */
+  private static readonly PROVIDER_ICONS: ReadonlyArray<{ test: RegExp; name: string; src: string }> = [
+    { test: /^claude|^anthropic/i, name: "Anthropic Claude", src: "assets/ai_provider/claude.png" },
+    { test: /^gpt|^o\d|^openai|^chatgpt/i, name: "OpenAI", src: "assets/ai_provider/openai.png" },
+  ];
+
+  public providerIconSrc(modelId: string): string | null {
+    return AgentRegistrationComponent.PROVIDER_ICONS.find(p => p.test.test(modelId))?.src ?? null;
+  }
+
+  public providerName(modelId: string): string {
+    return AgentRegistrationComponent.PROVIDER_ICONS.find(p => p.test.test(modelId))?.name ?? "Model";
   }
 
   public canCreate(): boolean {

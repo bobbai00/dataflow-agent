@@ -42,62 +42,23 @@
  *    the future tool `inputSchema` for a model-driven summarize() call.
  */
 
+import { observationFormat } from "../../native/observation-format";
 import { z } from "zod";
 import { AgentMode, ContextMode } from "../../../types/agent";
 import type { AssembleContextOptions } from "../../util/context-utils";
-import { levelsToFlags } from "../decorate/registry";
-import type { DecorateLevel } from "../decorate/types";
 
 /* ============================================================================
  *  Column-level (result → per-column annotations)
  * ========================================================================= */
 
-/** Metric families filterable from the worker's per-column stats string
- *  (`(<type>): null=N, mean=…, min=…, max=…, distinct=…, top_10={…}` /
- *  bool `true/false` counts / list `items_*` shape). */
-export const COLUMN_METRICS = ["null", "mean", "min", "max", "distinct", "top", "true", "false", "items"] as const;
-export type ColumnMetric = (typeof COLUMN_METRICS)[number];
-
-export const ColumnParamsSchema = z.object({
-  /** Compact `Schema:` line — full column inventory (name [+ type]). */
-  schema: z.boolean().default(false),
-  /** Include the `(type)` tag on the Schema line's columns. */
-  schemaTypes: z.boolean().default(true),
-  /** Full per-column `Column Schema and stats:` block (worker-published). */
-  stats: z.boolean().default(false),
-  /** Which stat metrics to keep; "all" ⇒ the worker string verbatim. */
-  statsMetrics: z.union([z.literal("all"), z.array(z.enum(COLUMN_METRICS))]).default("all"),
-  /** Stats-block density. "full" (default) renders the worker's metrics verbatim
-   *  on every column. "anomaly" renders only what the visible sample does not
-   *  already prove: the block is dropped when every row is on screen, `null=0`
-   *  is suppressed, `distinct` collapses to `unique`/`constant`, and the
-   *  redundant `Schema (…)` echo is dropped. */
-  statsDensity: z.union([z.literal("full"), z.literal("anomaly")]).default("full"),
-  /** `Format hints:` line — numbers wearing punctuation (currency/percent/…). */
-  valueFormatHints: z.boolean().default(false),
-  /** `Output Table profile:` exact load-quality facts (all-null rows/cols, duplicate rows, unnamed headers). */
-  structuralHints: z.boolean().default(false),
-  /**
-   * A7: `Files read: N [names]` — the file inventory a multi-file loader actually
-   * matched. INDEPENDENT flag, ON by default.
-   *
-   * An agent that writes `glob.glob(...)` otherwise never learns what it matched:
-   * the rendered result shows only the concatenated table. Measured on KramaBench
-   * (full 104 x 3 reps, paired same-era controls): worth +5.0pt at 3.30x SE with
-   * hard tasks +7.3 when the render budget is tight, and free-to-cheaper on EVERY
-   * arm (-11% cost at 5k, -6% at 1k). It costs ~120 chars and only renders when
-   * >= 2 files were read, so default-on is the honest default.
-   *
-   * Not coupled to `stats`: which files an operator read is an IO fact, not a
-   * column statistic, and the two best configs measured carry no stats at all.
-   */
-  fileIoFacts: z.boolean().default(true),
-  /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
-  coercionAlerts: z.boolean().default(false),
-  /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values
-   *  are mostly numeric, surfacing the contaminant tokens that forced the
-   *  string dtype (the "str-typed but samples look like digits" signal). */
-});
+export const ColumnParamsSchema = z
+  .object({
+    /** Compact `Schema:` line — full column inventory (name [+ type]). */
+    schema: z.boolean().default(false),
+    /** Include the `(type)` tag on the Schema line's columns. */
+    schemaTypes: z.boolean().default(true),
+  })
+  .strict();
 export type ColumnParams = z.infer<typeof ColumnParamsSchema>;
 
 /* ============================================================================
@@ -162,6 +123,26 @@ export const PropertyParamsSchema = z.object({
    *  index each was submitted at. 0 ⇒ none. Ignored when the trajectory is
    *  interleaved (events already carry submissions). */
   codeHistory: z.number().int().min(0).default(0),
+  /**
+   * Character budget for the `Code:` block. 0 ⇒ unlimited (the legacy render).
+   *
+   * The counterpart to `tuple.maxChars` for tables. It exists because code was the
+   * one large render component under no budget at all: byte accounting over ~100
+   * traces/arm puts `Code:` at 27-39% of the rendered dataflow — the LARGEST single
+   * component at a 1k row budget — while `max_operator_result_char_limit` clamps
+   * table rows only.
+   *
+   * A CAP rather than a drop, because the size distribution is extremely
+   * long-tailed: per-operator blocks run p50 286 B, p90 2,014 B, p99 6,081 B, max
+   * 16,400 B. An 800 B cap removes ~49% of all code bytes while leaving 76.5% of
+   * blocks untouched. Dropping code by operator ROLE was tried first and barely
+   * binds — on these 2-5 operator pipelines `frontier` + `near-frontier` already
+   * covers nearly every operator, and a role-keyed drop left 4 of 5 blocks intact.
+   *
+   * Clamping keeps the HEAD and the TAIL and elides the middle: the head carries the
+   * signature and the loads, the tail carries the return value.
+   */
+  codeMaxChars: z.number().int().min(0).default(0),
 });
 export type PropertyParams = z.infer<typeof PropertyParamsSchema>;
 
@@ -264,7 +245,7 @@ export const TrajectoryParamsSchema = z.object({
    *  (+ grace), prior revisions' code/result payloads render as one-line
    *  resolution facts. */
   foldResolvedRevisions: z.boolean().default(false),
-  /** Write-time render prefs (agent-declared outputSummary/showOutputStatistics
+  /** Write-time render prefs (agent-declared outputSummary
    *  on createOrModifyOperator). Enables the event-scoped DELTA application. */
   renderPrefs: z.boolean().default(false),
   /** Grace (events) after the resolution before prior revisions fold. */
@@ -277,30 +258,58 @@ export const TrajectoryParamsSchema = z.object({
    *  "index" collapses them into the `# Prior Turns` catalogue and keeps only the
    *  current turn raw (details then pulled with `recallState`). */
   priorTurns: z.enum(["full", "index"]).default("full"),
+  /** Versioned mode: the whole context is one catalog over the version DAG
+   *  (supersedes priorTurns entirely). */
+  versionedCatalog: z.boolean().default(false),
+  versionedHeads: z.boolean().default(true),
+  /** Session layout: the flat event log re-grouped by turn (# Session +
+   *  # Your Task). Superseded by versionedCatalog. */
+  sessionTurns: z.boolean().default(false),
+  /** v3: catalog header teaches operator-level recall addressing. */
+  recallOperatorLevel: z.boolean().default(false),
+  /** v3.3: the `# Your Task` directive restates the AUDIT requirement. */
+  specAudit: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
-export const FlowParamsSchema = z.object({
-  /** Remediation hint on a failed DataLoading op (exception-class keyed). */
-  loaderHints: z.boolean().default(false),
-  /** Cardinality alarms: empty output / fan-out explosion / empty load. */
-  /** On an errored process op: upstream input schema + sample rows (or a
-   *  pointer to the upstream's Result when it is already rendered). */
-  errorContext: z.boolean().default(false),
-  /** Dead/disconnected loader detection (typed-DAG reachability). */
-  graphAudit: z.boolean().default(false),
-  /** Degenerate-join telemetry (near-zero key match, m:n fan-out). */
-  /** Fold per-operator attempt/error history into errored operators' blocks +
-   *  a root-cause-ordered pointer index in the flow section. */
-  errorReflection: z.boolean().default(false),
-  /** Consecutive same-op edits before the folded history shows. */
-  errorReflectionThreshold: z.number().int().min(1).default(3),
-  /** `Attempt reflection:` block on heavily-edited operators. */
-  attemptReflection: z.boolean().default(false),
-});
+export const FlowParamsSchema = z
+  .object({
+    /** Fold per-operator attempt/error history into errored operators' blocks. */
+    errorReflection: z.boolean().default(false),
+    /** Consecutive same-op edits before the folded history shows. */
+    errorReflectionThreshold: z.number().int().min(1).default(3),
+    /** `Attempt reflection:` block on heavily-edited operators. */
+    attemptReflection: z.boolean().default(false),
+  })
+  .strict();
 export type FlowParams = z.infer<typeof FlowParamsSchema>;
 
 export const SummarizeParamsSchema = z.object({
+  /** The two evidence controls and their shared result budget. */
+  nativeEvidence: z
+    .object({
+      data: z.boolean(),
+      flow: z.boolean(),
+      maxChars: z.number().int().min(0),
+      checks: z.boolean().optional(),
+      tableFormat: z.enum(["markdown", "tsv"]).optional(),
+      ...Object.fromEntries(
+        [
+          "keyValueColumns",
+          "columnsShown",
+          "definitionChars",
+          "cellChars",
+          "topValues",
+          "catalogRecords",
+          "dataMaxChars",
+          "flowMaxChars",
+        ].map(key => [key, z.number().int().min(0).optional()])
+      ),
+      answerEcho: z.boolean().optional(),
+      catalogStatistics: z.boolean().optional(),
+    })
+    .passthrough()
+    .optional(),
   trajectory: TrajectoryParamsSchema.default({}),
   /** Render the `# Current Dataflow` snapshot section (every operator's block).
    *  The legacy DELTA shape sets this false — state lives inline in the
@@ -310,6 +319,10 @@ export const SummarizeParamsSchema = z.object({
    *  current snapshot's operator blocks (needs a compilationResult input;
    *  legacy: GENERAL mode only). */
   compiledSchemas: z.boolean().default(false),
+  /** Native-mode result selection for the current snapshot (see
+   *  AgentSettings.resultSelection): "all" renders every result block,
+   *  "rule" ships only what the data decided. */
+  resultSelection: z.enum(["all", "rule", "scoped"]).default("all"),
   flow: FlowParamsSchema.default({}),
   operators: z
     .object({
@@ -319,6 +332,8 @@ export const SummarizeParamsSchema = z.object({
     .default({}),
   /** Per-cell char cap reused for the surfaced print-output block. 0 ⇒ none. */
   maxCellChars: z.number().int().min(0).default(0),
+  /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
+  messageLayout: z.enum(["block", "blockSplit", "native", "opBlock", "opSplit", "turnSplit"]).optional(),
 });
 export type SummarizeParams = z.infer<typeof SummarizeParamsSchema>;
 
@@ -383,13 +398,9 @@ export function resolveOperatorParams(params: SummarizeParams, opId: string): Op
   return deepMerge(params.operators.defaults, override);
 }
 
-
 /* ============================================================================
  *  Legacy mapping — the two presets as points in the space
  * ========================================================================= */
-
-const clampLevel = (n: number | undefined): DecorateLevel =>
-  Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel;
 
 /**
  * Map the legacy `(ContextMode, AssembleContextOptions)` pair into the
@@ -400,18 +411,16 @@ const clampLevel = (n: number | undefined): DecorateLevel =>
  * the golden characterization tests).
  */
 export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOptions): SummarizeParams {
-  // DECORATE levels expand to rung flags exactly as assembleContext did;
-  // explicitly-set booleans are preserved (levels only OR rungs on).
-  const expanded: Record<string, boolean> = {};
-  if (options.flowLevel !== undefined || options.dataLevel !== undefined) {
-    Object.assign(expanded, levelsToFlags(clampLevel(options.flowLevel), clampLevel(options.dataLevel)));
-  }
-  const flag = (name: keyof AssembleContextOptions & string): boolean =>
-    (options[name] as boolean | undefined) || expanded[name] === true;
-
   const isLatest = mode === ContextMode.LATEST;
 
   return SummarizeParamsSchema.parse({
+    nativeEvidence: options.nativeEvidence ?? {
+      ...observationFormat(options),
+      data: options.dataEvidence === true,
+      flow: options.flowEvidence === true,
+      maxChars: options.maxOperatorResultCharLimit ?? 2000,
+      ...(options.nativeChecks === true ? { checks: true } : {}),
+    },
     trajectory: {
       events: isLatest ? "none" : "interleaved",
       observations: "delta",
@@ -429,6 +438,11 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       foldGraceEvents: options.foldGraceEvents ?? 1,
       userTaskPlacement: options.userTaskPlacement ?? "top",
       priorTurns: options.turnHistoryIndex ? "index" : "full",
+      versionedCatalog: options.versionedCatalog === true,
+      versionedHeads: options.versionedHeads !== false,
+      sessionTurns: options.sessionTurns === true,
+      recallOperatorLevel: options.recallOperatorLevel === true,
+      specAudit: options.specAudit === true,
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
     // DELTA normally has no `# Current Dataflow` section because state lives
@@ -440,11 +454,10 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     // because recallState covers old definitions). Cataloguing has to REPLACE the
     // event log with the live snapshot, not delete state.
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
-    compiledSchemas: options.agentMode === AgentMode.GENERAL,
+    compiledSchemas: false,
+    resultSelection: options.resultSelection ?? "all",
+    messageLayout: options.messageLayout,
     flow: {
-      loaderHints: flag("loaderHint"),
-      errorContext: flag("lineageErrorContext"),
-      graphAudit: flag("graphAudit"),
       errorReflection: options.errorReflection ?? false,
       errorReflectionThreshold: options.errorReflectionThreshold ?? 3,
       attemptReflection: options.attemptReflection ?? false,
@@ -467,13 +480,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
             detail: "sample",
             tuple: { sampleRows: options.maxResultRows ?? 0, duplicates: false, fdHints: false },
             column: {
-              schema: flag("schemaInResult"),
+              schema: options.schemaInResult === true,
               schemaTypes: true,
-              stats: flag("columnStats"),
-              statsMetrics: "all",
-              valueFormatHints: flag("valueFormatFlags"),
-              structuralHints: flag("tableStructureHint"),
-              coercionAlerts: flag("coercionTelemetry"),
             },
           },
           history: { lastK: 0, render: { detail: "shape" } },

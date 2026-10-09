@@ -34,12 +34,7 @@
  * trace we validate is the agent's decisions plus their executed results.
  */
 
-import {
-  createAgent,
-  deleteAgent,
-  getSnapshot,
-  runAgentTurn,
-} from "../../src/api/agent-service-api";
+import { createAgent, deleteAgent, getSnapshot, runAgentTurn } from "../../src/api/agent-service-api";
 import {
   createComputingUnit,
   createWorkflow,
@@ -63,10 +58,8 @@ const LOCAL_CU_URI =
 // harness behaves identically unless overridden — used to exercise each SELECT
 // mode (latest|delta) and the flow/data DECORATE levels end-to-end.
 const CONTEXT_MODE = (process.env.TEXERA_AGENT_CONTEXT_MODE ?? "latest") as "delta" | "latest";
-const FLOW_LEVEL =
-  process.env.TEXERA_AGENT_FLOW_LEVEL !== undefined ? Number(process.env.TEXERA_AGENT_FLOW_LEVEL) : undefined;
-const DATA_LEVEL =
-  process.env.TEXERA_AGENT_DATA_LEVEL !== undefined ? Number(process.env.TEXERA_AGENT_DATA_LEVEL) : undefined;
+const FLOW_LEVEL = process.env.TEXERA_AGENT_FLOW_EVIDENCE === "true";
+const DATA_LEVEL = process.env.TEXERA_AGENT_DATA_EVIDENCE === "true";
 
 const log = (...args: unknown[]) => console.log("[agent-e2e]", ...args);
 const logErr = (...args: unknown[]) => console.error("[agent-e2e]", ...args);
@@ -96,8 +89,8 @@ async function runSpec(
   try {
     log(
       `  creating agent (model=${MODEL_TYPE}, mode=code, contextMode=${CONTEXT_MODE}` +
-        `${FLOW_LEVEL !== undefined ? `, flowLevel=${FLOW_LEVEL}` : ""}` +
-        `${DATA_LEVEL !== undefined ? `, dataLevel=${DATA_LEVEL}` : ""})`
+        `${FLOW_LEVEL !== undefined ? `, flowEvidence=${FLOW_LEVEL}` : ""}` +
+        `${DATA_LEVEL !== undefined ? `, dataEvidence=${DATA_LEVEL}` : ""})`
     );
     const agentInfo = await createAgent({
       modelType: MODEL_TYPE,
@@ -108,8 +101,8 @@ async function runSpec(
       settings: {
         agentMode: AgentMode.CODE,
         contextMode: CONTEXT_MODE,
-        ...(FLOW_LEVEL !== undefined ? { flowLevel: FLOW_LEVEL } : {}),
-        ...(DATA_LEVEL !== undefined ? { dataLevel: DATA_LEVEL } : {}),
+        ...(FLOW_LEVEL !== undefined ? { flowEvidence: FLOW_LEVEL } : {}),
+        ...(DATA_LEVEL !== undefined ? { dataEvidence: DATA_LEVEL } : {}),
       },
     });
     agentId = agentInfo.id;
@@ -117,7 +110,9 @@ async function runSpec(
 
     const turn = await runAgentTurn(agentId, spec.prompt, { timeoutMs: TURN_TIMEOUT_MS });
     const durationMs = Date.now() - t0;
-    log(`  turn finished in ${durationMs}ms: steps=${turn.steps.length} completed=${turn.completed} state=${turn.finalState}`);
+    log(
+      `  turn finished in ${durationMs}ms: steps=${turn.steps.length} completed=${turn.completed} state=${turn.finalState}`
+    );
     for (const e of turn.errors) logErr(`  turn-error: ${e}`);
 
     log(`  fetching head snapshot`);

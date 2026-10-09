@@ -30,6 +30,8 @@
 # reasoning_tokens). Used to verify that gpt-5-mini-medium's reasoning_effort
 # actually reaches the OpenAI API. Set back to false once diagnosis is done.
 litellm_settings:
+  # Preserve strict tool inputs on the Anthropic route (LiteLLM 1.83.10).
+  callbacks: [strict_tools.hook]
   set_verbose: true
   # Drop provider-unsupported params (e.g. `stop` for gpt-5.2 reasoning models)
   # instead of 400-erroring. Needed so the smolagents CodeAgent baseline can run
@@ -37,57 +39,117 @@ litellm_settings:
   drop_params: true
 
 model_list:
+  # ── Anthropic (latest generally available) ──────────────────────────────
+  # Anthropic prompt caching is OPT-IN per request (cache_control breakpoints),
+  # unlike OpenAI's automatic caching — so every OpenAI-compatible caller got
+  # cached_tokens=0 on claude while the same path recorded ~85% cache reads on
+  # gpt. Inject breakpoints proxy-side. Anthropic reuses a prefix only if a
+  # PREVIOUS request already wrote a cache entry at that exact boundary, so a
+  # breakpoint is worth having only where the bytes are stable across steps:
+  #   system  - never changes.
+  #   index -2 - end of the append-only region. Under the native layout the
+  #     last message is a re-rendered "current state" block that differs every
+  #     step, so an entry written at -1 can never be matched; -2 lands on the
+  #     final tool result, which IS a byte-identical prefix of the next step.
+  #   index -1 - still useful for a retry of the same step.
+  # Dropping -2 is what made native cost 81% more than block on environment:
+  # 64.7% of input tokens were cache WRITES (1.25x) with only the system
+  # prompt ever read back.
   - model_name: claude-haiku-4.5
     litellm_params:
       model: claude-haiku-4-5-20251001
       api_key: "os.environ/ANTHROPIC_API_KEY"
-  - model_name: gpt-5-mini
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  - model_name: claude-sonnet-5
     litellm_params:
-      model: gpt-5-mini-2025-08-07
-      api_key: "os.environ/OPENAI_API_KEY"
-  - model_name: gpt-5-mini-medium
+      model: claude-sonnet-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      # sonnet-5 rejects `temperature` outright ("`temperature` is deprecated
+      # for this model"), and both the dataflow agent and smolagents send it by
+      # default — every request 400s and the task records 0 steps / 0 tokens.
+      # Drop it at the proxy so callers need no per-model special-casing.
+      additional_drop_params: ["temperature"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  # Sonnet 5.5 uses automatic tool choice; native mode still requires Answer.
+  # Leave adaptive thinking and effort at the provider defaults for this arm.
+  - model_name: claude-sonnet-5.5
     litellm_params:
-      model: gpt-5-mini-2025-08-07
-      api_key: "os.environ/OPENAI_API_KEY"
-      extra_body:
-        reasoning_effort: medium
+      model: anthropic/claude-sonnet-5-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      additional_drop_params: ["temperature", "top_p", "top_k"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  - model_name: claude-opus-5
+    litellm_params:
+      model: claude-opus-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+
+  # ── OpenAI ───────────────────────────────────────────────────────────────
   - model_name: gpt-5.2
     litellm_params:
-      model: gpt-5.2
+      model: openai/gpt-5.2
       api_key: "os.environ/OPENAI_API_KEY"
-  - model_name: gpt-5.4
+  - model_name: gpt-5-mini
     litellm_params:
-      model: gpt-5.4
+      model: openai/gpt-5-mini
       api_key: "os.environ/OPENAI_API_KEY"
-  # gpt-5.6-luna / -terra: these REQUIRE the Responses API to use function tools with
-  # reasoning. On /v1/chat/completions the API rejects tools whenever reasoning_effort
-  # is medium/low OR omitted (the model defaults to reasoning), with:
-  #   "Function tools with reasoning_effort are not supported for gpt-5.6-luna in
-  #    /v1/chat/completions. To use function tools, use /v1/responses or set
-  #    reasoning_effort to 'none'."
-  # Only reasoning_effort:"none" works there, which would silently benchmark the model
-  # with reasoning DISABLED — not comparable to gpt-5-mini (~4.9k reasoning tok/task).
-  # The `openai/responses/` prefix makes litellm translate the incoming
-  # chat/completions request to /v1/responses, where tools + reasoning coexist.
-  # Verified: bat-and-ball trap answered 5 (not the naive 10) with
-  # completion_tokens_details.reasoning_tokens=17, and the outgoing request carries
-  # reasoning_effort=medium.
+  # Medium-reasoning aliases. The bare gpt-5.2 / gpt-5-mini aliases send no
+  # `reasoning_effort` at all, which probes byte-identical to
+  # reasoning_effort:"none" (0 reasoning tokens) — so every arm on them is a
+  # NO-REASONING baseline. These pin medium so a reasoning-on arm is expressible
+  # without touching the baselines. Expect roughly 2x cost per task.
+  - model_name: gpt-5.2-medium
+    litellm_params:
+      model: openai/gpt-5.2
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+  - model_name: gpt-5-mini-medium
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+  - model_name: gpt-5.6
+    litellm_params:
+      model: openai/gpt-5.6
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  # Reasoning variants — pinned to medium reasoning effort by default.
   - model_name: gpt-5.6-luna
     litellm_params:
-      model: openai/responses/gpt-5.6-luna
+      model: openai/gpt-5.6-luna
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+  - model_name: gpt-5.6-tara
+    litellm_params:
+      model: openai/gpt-5.6-tara
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
   - model_name: gpt-5.6-terra
     litellm_params:
-      model: openai/responses/gpt-5.6-terra
+      model: openai/gpt-5.6-terra
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
-  - model_name: gpt-5.6-terra-high
-    litellm_params:
-      model: openai/responses/gpt-5.6-terra
-      api_key: "os.environ/OPENAI_API_KEY"
-      reasoning_effort: high
-  - model_name: gpt-4o
-    litellm_params:
-      model: gpt-4o
-      api_key: "os.environ/OPENAI_API_KEY"

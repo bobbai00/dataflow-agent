@@ -18,8 +18,9 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { buildApp, _resetAgentStoreForTests } from "./server";
+import { buildApp, buildContextAssembler, _resetAgentStoreForTests } from "./server";
 import { env } from "./config/env";
+import { TexeraAgent } from "./agent/texera-agent";
 
 const API = env.API_PREFIX;
 const app = buildApp();
@@ -39,6 +40,49 @@ function mintTestToken(): string {
 }
 
 const TOKEN = mintTestToken();
+
+test("untuned production context preview is synchronous and current after debug", async () => {
+  const agent = new TexeraAgent({
+    agentId: "preview-regression",
+    modelType: "test",
+    driver: {
+      runTurn: async () => {
+        throw new Error("No LLM allowed in preview test");
+      },
+    },
+    contextAssembler: buildContextAssembler("vercel-tool-use", {} as never),
+  });
+  await agent.handleDebugInput("PREVIEW_CURRENT_TASK");
+  expect(agent.getNextStepContext()).toContain("PREVIEW_CURRENT_TASK");
+});
+
+test("context preview includes later native tool messages, not only the first user block", () => {
+  const agent = new TexeraAgent({
+    agentId: "preview-native-transcript",
+    modelType: "test",
+    driver: {
+      runTurn: async () => {
+        throw new Error("No LLM allowed in preview test");
+      },
+    },
+    contextAssembler: () => [
+      { role: "user", content: "# Agent Events" },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c",
+            toolName: "dataflow",
+            output: { type: "text", value: "CALLBACK_RUNTIME" },
+          },
+        ],
+      },
+    ],
+  });
+  expect(agent.getNextStepContext()).toContain("# Agent Events");
+  expect(agent.getNextStepContext()).toContain("CALLBACK_RUNTIME");
+});
 
 function url(path: string): string {
   return `http://localhost${path}`;
@@ -95,6 +139,39 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("explicit message layout is echoed in create, info and settings", async () => {
+    const response = await createAgent({ settings: { messageLayout: "native" } });
+    const created = await readJson<any>(response);
+    expect(created.settings.messageLayout).toBe("native");
+    const info = await readJson<any>(await getJson(`${API}/agents/${created.id}`));
+    expect(info.settings.messageLayout).toBe("native");
+    const settings = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+    expect(settings.messageLayout).toBe("native");
+  });
+
+  test("native mode survives create and forces provider parallel calls off; code mode keeps them", async () => {
+    const created = await createAgent({ settings: { agentMode: "native", parallelToolCalls: true } });
+    expect(created.status).toBe(200);
+    const body = await readJson<{ id: string; settings: { agentMode: string; parallelToolCalls: boolean } }>(created);
+    expect(body.settings.agentMode).toBe("native");
+    expect(body.settings.parallelToolCalls).toBe(false);
+    const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
+      agentMode: "code",
+      parallelToolCalls: true,
+      resultSelection: "all",
+    });
+    expect(patched.status).toBe(200);
+    const settings = await readJson<{ agentMode: string; parallelToolCalls: boolean }>(patched);
+    expect(settings.agentMode).toBe("code");
+    expect(settings.parallelToolCalls).toBe(true);
+  });
+
+  test("rejects retired native settings and unknown modes", async () => {
+    expect((await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch" } })).status).toBe(400);
+    expect((await createAgent({ settings: { agentMode: "native", nativeCatalogVersion: "v2" } })).status).toBe(400);
+    expect((await createAgent({ settings: { agentMode: "general" } })).status).toBe(400);
+  });
+
   test("creates an agent for the delegating user", async () => {
     const res = await createAgent({ modelType: "test-model", name: "Tester" });
     expect(res.status).toBe(200);
@@ -106,7 +183,7 @@ describe(`POST ${API}/agents`, () => {
       state: string;
       delegate: unknown;
     }>(res);
-    expect(agent.id).toMatch(/^agent-\d+$/);
+    expect(agent.id).toMatch(/^agent-[a-z0-9]+-\d+$/);
     expect(agent.name).toBe("Tester");
     expect(agent.modelType).toBe("test-model");
     expect(agent.state).toBe("AVAILABLE");
@@ -284,6 +361,29 @@ describe("Agent control routes", () => {
 });
 
 describe(`PATCH ${API}/agents/:id/settings`, () => {
+  test("catalog statistics and records default off and have independent validated controls", async () => {
+    const created = await readJson<any>(await createAgent());
+    expect(created.settings).toMatchObject({ catalogStatistics: false, catalogRecords: 0 });
+    const url = `${API}/agents/${created.id}/settings`;
+    for (const patch of [
+      { catalogStatistics: true, catalogRecords: 0 },
+      { catalogStatistics: false, catalogRecords: 2 },
+      { catalogStatistics: true, catalogRecords: 2 },
+      { catalogStatistics: false, catalogRecords: 0 },
+    ]) {
+      expect(await readJson<any>(await patchJson(url, patch))).toMatchObject(patch);
+      expect(await readJson<any>(await getJson(url))).toMatchObject(patch);
+    }
+    for (const bad of [{ catalogStatistics: "true" }, { catalogRecords: -1 }, { catalogRecords: 1.5 }]) {
+      expect((await patchJson(url, bad)).status).toBeGreaterThanOrEqual(400);
+      expect(await readJson<any>(await getJson(url))).toMatchObject({ catalogStatistics: false, catalogRecords: 0 });
+    }
+    const enabled = await readJson<any>(
+      await createAgent({ settings: { catalogStatistics: true, catalogRecords: 3 } })
+    );
+    expect(enabled.settings).toMatchObject({ catalogStatistics: true, catalogRecords: 3 });
+  });
+
   test("updates settings and returns the new values", async () => {
     const created = await readJson<{ id: string }>(await createAgent());
 
@@ -323,5 +423,75 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(cleared.status).toBe(200);
     const clearedBody = await readJson<{ frontierDecayConfig?: unknown }>(cleared);
     expect(clearedBody.frontierDecayConfig).toBeUndefined();
+  });
+
+  test("retrieval capabilities and budgets survive create, GET, and PATCH", async () => {
+    const settings = {
+      retrievalViews: ["full", "sample", "sample_stats"],
+      fullResultCharLimit: 100000,
+      maxOperatorResultCharLimit: 1500,
+      maxResultRows: 5,
+      dataEvidenceCharLimit: 1000,
+      flowEvidenceCharLimit: 1200,
+      flowEvidence: true,
+    };
+    const created = await readJson<any>(await createAgent({ settings }));
+    expect(created.settings).toMatchObject(settings);
+    const patch = { retrievalViews: ["sample_stats"], fullResultCharLimit: 80000 };
+    expect((await patchJson(`${API}/agents/${created.id}/settings`, patch)).status).toBe(200);
+    expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+      ...settings,
+      ...patch,
+    });
+    for (const bad of [
+      { retrievalViews: [] },
+      { retrievalViews: ["sample", "sample"] },
+      { fullResultCharLimit: 100001 },
+    ]) {
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, bad)).status).toBeGreaterThanOrEqual(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+        ...settings,
+        ...patch,
+      });
+    }
+  });
+
+  test("the two evidence controls survive create, GET, and PATCH", async () => {
+    const created = await readJson<any>(
+      await createAgent({
+        settings: {
+          agentMode: "native",
+          nativeProfileCollection: true,
+          dataEvidence: true,
+          flowEvidence: false,
+        },
+      })
+    );
+    expect(created.settings).toMatchObject({ dataEvidence: true, flowEvidence: false });
+    for (const dataEvidence of [false, true])
+      for (const flowEvidence of [false, true]) {
+        const response = await patchJson(`${API}/agents/${created.id}/settings`, { dataEvidence, flowEvidence });
+        expect(response.status).toBe(200);
+        expect(await readJson(response)).toMatchObject({ dataEvidence, flowEvidence });
+        const reread = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+        expect(reread).toMatchObject({ dataEvidence, flowEvidence });
+        for (const key of ["columnStats", "flowLevel", "dataLevel"]) expect(reread).not.toHaveProperty(key);
+      }
+  });
+
+  for (const key of ["flowLevel", "dataLevel", "columnStats", "valueFormat", "dataHints", "statScopes"]) {
+    test(`removed ${key} is rejected by create and PATCH`, async () => {
+      expect((await createAgent({ settings: { [key]: true } })).status).toBe(400);
+      const created = await readJson<any>(await createAgent());
+      const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, { maxSteps: 7, [key]: true })).status).toBe(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+    });
+  }
+
+  test("rejects contextMode values outside delta|latest with 400", async () => {
+    const created = await readJson<{ id: string }>(await createAgent());
+    const res = await patchJson(`${API}/agents/${created.id}/settings`, { contextMode: "full" });
+    expect(res.status).toBe(400);
   });
 });
