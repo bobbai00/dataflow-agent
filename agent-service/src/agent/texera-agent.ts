@@ -136,6 +136,7 @@ import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   createRegisteredDataflowTool,
   asDataflowActionsResult,
+  EMPTY_DATAFLOW_ERROR,
   type DataflowActionsResult,
 } from "./tools/dataflow-actions";
 import type { RetrievalSettings } from "../types/agent";
@@ -2011,6 +2012,9 @@ export class TexeraAgent {
   ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
+    // Failed/stopped turns still consumed model responses. Preserve their
+    // reported usage; absent provider fields remain unknown rather than zero.
+    const recordedUsage: TokenUsage = {};
     this.nativeActionAnswer = undefined;
 
     await this.refreshWorkflowFromBackend();
@@ -2070,6 +2074,8 @@ export class TexeraAgent {
       const turnStartStepIndex = stepIndex;
       let protocolFeedbackSteps = 0;
       let budgetFeedbackSteps = 0;
+      let emptyExecutionFeedbackSteps = 0;
+      let emptyExecutionStreak = 0;
       const budgetReminders = new Set<number>();
       const runDriverOnce = (seed: ModelMessage[], maxSteps: number = this.settings.maxSteps) =>
         this.driver.runTurn({
@@ -2083,10 +2089,20 @@ export class TexeraAgent {
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
+            // Stop before another request, after the failed step is fully saved.
+            if (emptyExecutionStreak >= 4)
+              throw new Error(
+                "EMPTY_EXECUTION_LOOP: Four consecutive model calls tried only to execute an empty graph. The turn ended without an answer. None of these empty-graph requests started an engine execution. Correct the tool actions or provider configuration before retrying."
+              );
             const preparing = Date.now();
             this.log.info({ messageId, stepNumber }, "preparing step");
             const remaining =
-              this.settings.maxSteps - (stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps);
+              this.settings.maxSteps -
+              (stepIndex -
+                turnStartStepIndex -
+                protocolFeedbackSteps -
+                budgetFeedbackSteps -
+                emptyExecutionFeedbackSteps);
             if (
               this.settings.agentMode === AgentMode.NATIVE &&
               [3, 1].includes(remaining) &&
@@ -2167,6 +2183,11 @@ export class TexeraAgent {
           },
           onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
             stepIndex++;
+            for (const key of Object.keys(usage ?? {}) as (keyof TokenUsage)[]) {
+              const value = usage?.[key];
+              if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+                recordedUsage[key] = (recordedUsage[key] ?? 0) + value;
+            }
             const finishing = Date.now();
             this.log.info(
               {
@@ -2233,6 +2254,48 @@ export class TexeraAgent {
             await this.runPostStepExecution(toolCalls, toolResults);
             this.log.info({ messageId, stepIndex, postStepMs: Date.now() - finishing }, "post-step done");
 
+            // Count decisions, not actions. This narrow guard never blocks
+            // failing nonempty graphs, independent branches, edits or reads.
+            const onlyEmptyExecutions =
+              this.settings.agentMode === AgentMode.NATIVE &&
+              this.workflowState.getAllOperators().length === 0 &&
+              !!agentStep.toolCalls?.length &&
+              agentStep.toolCalls.length === agentStep.toolResults?.length &&
+              agentStep.toolCalls.every(call => {
+                const receipt = asDataflowActionsResult(
+                  agentStep.toolResults?.find(r => r.toolCallId === call.toolCallId)?.output
+                );
+                return (
+                  call.toolName === TOOL_NAME_DATAFLOW &&
+                  receipt?.protocol === "registered-python-v1" &&
+                  receipt.status === "error" &&
+                  !!receipt.actions.length &&
+                  receipt.actions.every(
+                    item =>
+                      item.action.type === "execute" && item.status === "error" && item.output === EMPTY_DATAFLOW_ERROR
+                  )
+                );
+              });
+            emptyExecutionStreak = onlyEmptyExecutions ? emptyExecutionStreak + 1 : 0;
+            if (emptyExecutionStreak === 2 && !emptyExecutionFeedbackSteps) {
+              const feedbackId = this.generateStepId();
+              this.addStep({
+                id: feedbackId,
+                parentId: this.head,
+                messageId,
+                stepId: ++stepIndex,
+                timestamp: Date.now(),
+                role: "user",
+                isBegin: false,
+                isEnd: true,
+                messageSource: "feedback",
+                content:
+                  "Two consecutive calls attempted only execute on an empty graph. Execute cannot create operators. Use an edit action with python and changes strings to add a source operator before executing; changes uses set id: operator(...). Or use Answer as the sole action to explain why the task cannot be completed. Two more consecutive empty-execution calls will end this turn with an error.",
+              });
+              this.head = feedbackId;
+              emptyExecutionFeedbackSteps++;
+            }
+
             isFirstStep = false;
           },
         });
@@ -2245,7 +2308,8 @@ export class TexeraAgent {
       const runDriverWithRetry = async (seed: ModelMessage[]) => {
         const partials: DriverRunTurnResult[] = [];
         for (let attempt = 0; ; ) {
-          const stepsDone = stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps;
+          const stepsDone =
+            stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps - emptyExecutionFeedbackSteps;
           try {
             const result = await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
             if (!partials.length) return result;
@@ -2399,7 +2463,7 @@ export class TexeraAgent {
         return {
           response: "",
           messages: [],
-          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          usage: recordedUsage,
           stopped: true,
         };
       }
@@ -2423,7 +2487,7 @@ export class TexeraAgent {
       return {
         response: "",
         messages: [],
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        usage: recordedUsage,
         stopped: false,
         error: error.message || String(error),
       };

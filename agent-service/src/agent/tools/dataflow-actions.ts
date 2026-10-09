@@ -584,6 +584,7 @@ export const REGISTERED_DATAFLOW_ACTIONS_SCHEMA = object({
 });
 
 const registeredValidator = ajv.compile(REGISTERED_DATAFLOW_ACTIONS_SCHEMA);
+export const EMPTY_DATAFLOW_ERROR = "The dataflow is empty. Add an operator before execute.";
 
 export function prepareRegisteredDataflowActions(
   input: unknown,
@@ -604,6 +605,10 @@ export function prepareRegisteredDataflowActions(
     result.error = `${message} No actions ran.`;
     return result;
   };
+  if (typeof (input as any)?.actions === "string")
+    return reject(
+      'Invalid registered dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Inspect the graph.","actions":[{"type":"inspect","target":"graph"}]}. Only edit.python and edit.changes contain source strings.'
+    );
   if (!registeredValidator(input))
     return reject(`Invalid registered dataflow arguments: ${ajv.errorsText(registeredValidator.errors?.slice(0, 1))}.`);
   const request = input as unknown as DataflowActionsInput;

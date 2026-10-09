@@ -47,6 +47,15 @@ the next call. Independent execution groups continue after a sibling fails;
 branches sharing an engine controller may need a separate requested execution.
 Stale results are never silently current.
 
+Two consecutive model calls containing only failed executions of an empty graph
+receive one correction message. Four consecutive such calls end the turn with
+`EMPTY_EXECUTION_LOOP`, without an answer. Empty-graph requests never dispatch
+an engine run. Count calls rather
+than actions within a batch; edits, inspections, other failures, or a new user
+turn reset the streak. Nonempty graph failures keep the continuation rules above.
+Failed and stopped turns retain token usage reported by recorded model steps;
+this is a partial sum when a request failed without reporting usage.
+
 ## Graph declarations
 
 ```text

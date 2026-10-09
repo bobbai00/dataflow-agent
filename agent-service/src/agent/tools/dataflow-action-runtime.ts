@@ -46,7 +46,7 @@ import {
   inspectRegisteredSource,
   registeredInspectionName,
 } from "./registered-inspection";
-import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
+import { EMPTY_DATAFLOW_ERROR, runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
 import {
@@ -702,7 +702,7 @@ export async function executeDataflowActionBatch(
       }
       const scope = action.operator_ids ? { ...workflow, ...state.getSubDAGForTargets(action.operator_ids) } : workflow;
       const operators = scope.operators;
-      if (!operators.length) throw new Error("The dataflow is empty. Add an operator before execute.");
+      if (!operators.length) throw new Error(EMPTY_DATAFLOW_ERROR);
       const missing = missingGraphInputs(scope);
       if (missing.length)
         throw new Error(
