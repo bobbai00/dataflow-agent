@@ -175,7 +175,9 @@ export class VercelToolUseDriver implements LLMDriver {
       // The answer is a reply without a tool call once a result was shown;
       // before that the reply computed nothing, and the agent corrects it.
       if (textOnly && result.text.trim() && input.resultShown?.()) return completed;
-      throw new MissingAnswerActionError(completed, textOnly && result.steps.length < input.maxSteps);
+      // A reply cut at the output limit is not an answer either; the model gets another call.
+      const cut = result.finishReason === "length" && !result.toolCalls.length;
+      throw new MissingAnswerActionError(completed, (textOnly || cut) && result.steps.length < input.maxSteps, cut);
     }
     return completed;
   }

@@ -25,7 +25,7 @@ import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { VercelToolUseDriver } from "./vercel-tool-use-driver";
 
-type Reply = { text?: string; call?: Record<string, string> };
+type Reply = { text?: string; call?: Record<string, string>; finish?: "length" };
 
 /** A native agent whose model replies with the given dataflow calls or texts in order. */
 function fixture(replies: Reply[]) {
@@ -50,7 +50,9 @@ function fixture(replies: Reply[]) {
         content,
         finishReason: reply.call
           ? { unified: "tool-calls" as const, raw: "tool_calls" }
-          : { unified: "stop" as const, raw: "stop" },
+          : reply.finish === "length"
+            ? { unified: "length" as const, raw: "length" }
+            : { unified: "stop" as const, raw: "stop" },
         usage: {
           inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
           outputTokens: { total: 5, text: 5, reasoning: 0 },
@@ -174,6 +176,20 @@ test("a reply without a tool call before any shown result is corrected, at most 
   expect(stubborn.calls()).toBe(3);
   expect(failed.response).toBe("");
   expect(failed.error).toBeDefined();
+});
+
+test("a reply cut off at the output limit is not the answer; the model gets a correction", async () => {
+  const f = fixture([
+    { call: SCAN },
+    { text: "Let me reconsider the units: the radius varies by", finish: "length" },
+    { text: "Final Answer: 42" },
+  ]);
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
+  expect(result.error).toBeUndefined();
+  expect(result.response).toBe("Final Answer: 42");
+  expect(f.calls()).toBe(3);
+  const correction = text(f.prompts[2][f.prompts[2].length - 1]);
+  expect(correction).toContain("cut off at the output limit");
 });
 
 test("an answer written as a statement is a rejected call that runs nothing", async () => {

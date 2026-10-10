@@ -164,7 +164,7 @@ export class LocalReactTextDriver implements LLMDriver {
 
     if (input.requireShownResult && !input.resultShown?.()) {
       throw new Error(
-        "The turn ended before any result was shown. The model stopped or reached the step limit; no final answer was produced."
+        "The turn ended before a final reply: the model stopped or reached the step limit; no final answer was produced."
       );
     }
     return {

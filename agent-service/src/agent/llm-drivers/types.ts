@@ -142,10 +142,14 @@ export interface DriverRunTurnResult {
 export class MissingAnswerActionError extends Error {
   constructor(
     readonly partial: DriverRunTurnResult,
-    readonly canContinue: boolean
+    readonly canContinue: boolean,
+    /** The last reply was cut off at the output limit, so it is not an answer. */
+    readonly cut = false
   ) {
     super(
-      "The turn ended before any result was shown. The model stopped or reached the step limit; no final answer was produced."
+      cut
+        ? "The turn ended before a final reply: the model's last reply was cut off at the output limit; no final answer was produced."
+        : "The turn ended before a final reply: the model stopped or reached the step limit; no final answer was produced."
     );
     this.name = "MissingAnswerActionError";
   }

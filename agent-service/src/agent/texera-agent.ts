@@ -1647,7 +1647,9 @@ export class TexeraAgent {
               !this.abortController?.signal.aborted
             ) {
               partials.push(error.partial);
-              const feedback = this.lapseFeedback();
+              const feedback = error.cut
+                ? "That reply was cut off at the output limit before it finished, so it was not taken as the answer. Reply again with the final answer only, briefly, or make one more call if a result is still missing."
+                : this.lapseFeedback();
               const feedbackId = this.generateStepId();
               this.addStep({
                 id: feedbackId,
