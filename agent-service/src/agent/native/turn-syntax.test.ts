@@ -119,9 +119,15 @@ test("leading prose stands in for a missing summary; prose after a statement doe
     expect(prose.turn.missingSummary).toBe(true);
     expect(prose.turn.summary).toBe("I will scan the file first.");
   }
-  const trailing = parse("summary: Scan.\nset raw: scan(files='data/a.csv')\nThen I will look at it.");
-  expect(trailing.ok).toBe(false);
-  if (!trailing.ok) expect(trailing.error).toBe("line 3: not a statement; a line starts with summary, set, delete, execute, show, or answer.");
+  const trailing = parse("summary: Scan.\nset raw: scan(files='data/a.csv')\nThen I will look at it.\nshow result raw");
+  expect(trailing.ok).toBe(true);
+  if (trailing.ok) {
+    expect(trailing.turn.ignoredProse).toEqual([3]);
+    expect(trailing.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+  }
+  const first = parse("summary: Scan.\nThen I will look at it.\nset raw: scan(files='data/a.csv')");
+  expect(first.ok).toBe(false);
+  if (!first.ok) expect(first.error).toBe('line 2: "Then I will look at it." is not a statement; a line starts with summary, set, delete, execute, show, or answer.');
 });
 
 test("errors name the line: unknown resource, bad ID, unavailable view, open fence, open parentheses", () => {
@@ -130,6 +136,7 @@ test("errors name the line: unknown resource, bad ID, unavailable view, open fen
     ["summary: x\nexecute 9lives", 'line 2: "9lives" is not an operator ID.'],
     ["summary: x\nshow result a sample", 'line 2: the view "sample" is unavailable; use sample_stats or full.'],
     ["summary: x\n```python\ndef f(t):\n    return t", "line 2: the ```python fence is not closed."],
+    ["```python\ndef f(t):\n    return t\n```\nset a: f(b)\nsummary: late", "line 6: the summary line comes before the statements."],
     ["summary: x\nset a: aggregate(b, by=['x'],", "line 2: the statement's parentheses are not closed."],
     ["summary: x\n```json\n{}\n```", "line 2: only ```python fences are accepted; they hold definitions."],
     ["summary: x\n```text\nset a: scan(files='x.csv')", "line 1: the fence around the turn is not closed."],
@@ -177,4 +184,30 @@ test("a text fence after a sentence of prose holds the turn; an unlabeled fence 
   const statements = parse("```\nsummary: Plain fence.\nset b: scan(files='x.csv')\n```");
   expect(statements.ok).toBe(true);
   if (statements.ok) expect(statements.turn.summary).toBe("Plain fence.");
+});
+
+test("a turn fence with a python fence inside, a stray closing fence, and an unclosed fence before statements", () => {
+  const nested = parse("I'll start by examining the files.\n\n````turn\nsummary: Inspect the layers.\n```python\ndef layers(*, path):\n    return path\n```\nset usa: layers(path='data/usa.gpkg')\nshow result usa\n````");
+  expect(nested.ok).toBe(true);
+  if (nested.ok) {
+    expect(nested.turn.summary).toBe("Inspect the layers.");
+    expect(nested.turn.definitions).toBe("def layers(*, path):\n    return path");
+    expect(nested.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+  }
+  const stray = parse("summary: Raw layout.\n\n```python\n```\nset raw: scan(files='x.csv', preview=15)\nshow result raw full\n```");
+  expect(stray.ok).toBe(true);
+  if (stray.ok) expect(stray.turn.actions).toEqual([
+    { type: "edit", python: "", changes: "\n\n\n\nset raw: scan(files='x.csv', preview=15)" },
+    { type: "execute", operator_ids: ["raw"] },
+    { type: "retrieve", operator_ids: ["raw"], view: "full" },
+  ]);
+  const unclosed = parse("summary: Define and use.\n```python\ndef f(t):\n    return t\nset b: f(a)\nshow result b");
+  expect(unclosed.ok).toBe(true);
+  if (unclosed.ok) {
+    expect(unclosed.turn.definitions).toBe("def f(t):\n    return t");
+    expect(unclosed.turn.statements.map(s => s.line)).toEqual([5, 6]);
+  }
+  const fenceFirst = parse("```python\nimport pandas as pd\n```\nsummary: Fence first.\nset a: scan(files='x.csv')");
+  expect(fenceFirst.ok).toBe(true);
+  if (fenceFirst.ok) expect(fenceFirst.turn.summary).toBe("Fence first.");
 });

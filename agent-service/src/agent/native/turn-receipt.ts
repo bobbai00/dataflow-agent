@@ -152,6 +152,8 @@ function resultLines(item: ActionItem | undefined, statement: TurnStatement): st
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTurn): string {
   const sections: string[] = [];
   if (turn?.missingSummary) sections.push("note: start each turn with a summary: line.");
+  if (turn?.ignoredProse?.length)
+    sections.push(`note: line${turn.ignoredProse.length > 1 ? "s" : ""} ${turn.ignoredProse.join(", ")} ${turn.ignoredProse.length > 1 ? "are" : "is"} not statements and were ignored; a turn holds statements only.`);
   if (!result.actions.length) {
     const message = String(result.error ?? "No actions ran.").replace(/\s*No actions ran\.$/, "");
     return [...sections, "## turn rejected", message].join("\n");

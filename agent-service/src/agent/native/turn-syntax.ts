@@ -64,6 +64,8 @@ export interface ParsedTurn {
   summary: string;
   /** The turn had no `summary:` line; leading prose, if any, stood in for it. */
   missingSummary: boolean;
+  /** Lines of prose after the statements, ignored. */
+  ignoredProse: number[];
   /** Python definitions from every fence, in order. */
   definitions: string;
   /** `set`/`delete` lines at their turn line numbers; other lines blank. */
@@ -159,6 +161,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   const actions: DataflowAction[] = [];
   let summary: string | undefined;
   let leadingProse: string[] = [];
+  const ignoredProse: number[] = [];
   let answer: string | undefined;
   let answerLine = 0;
   let fenceStart: number | undefined;
@@ -182,8 +185,18 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
         definitions.push(fenceBody.join("\n"));
         fenceBody = [];
         fenceStart = undefined;
-      } else fenceBody.push(line);
-      continue;
+        continue;
+      }
+      // A fence left open runs until the first statement line: the model
+      // forgot the closing mark, not the statements.
+      if (!/^\s/.test(line) && /^(set\s+[A-Za-z_]\w*\s*:|delete\s+[A-Za-z_]\w*\b|execute\b|show\s+\w+|answer:)/.test(line.trim()) && !lines.slice(i + 1).some(rest => /^\s*```\s*$/.test(rest))) {
+        definitions.push(fenceBody.join("\n"));
+        fenceBody = [];
+        fenceStart = undefined;
+      } else {
+        fenceBody.push(line);
+        continue;
+      }
     }
     if (pendingSet) {
       changes[i] = line;
@@ -193,25 +206,26 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
     }
     const fence = /^\s*(`{3,})(\w*)\s*$/.exec(line);
     if (fence) {
-      if (turnFence) {
-        if (fence[1] === turnFence && !fence[2]) turnFence = undefined;
-        else return fail(number, "a fence inside the turn fence is not closed.");
+      const language = fence[2].toLowerCase();
+      if (turnFence && fence[1] === turnFence && !language) {
+        turnFence = undefined;
         continue;
       }
-      const language = fence[2].toLowerCase();
       if (["python", "py"].includes(language)) {
         fenceStart = number;
         continue;
       }
+      const next = lines.slice(i + 1).find(candidate => candidate.trim());
+      // A bare fence with nothing after it is a stray closing mark.
+      if (!language && next === undefined) continue;
       // An unlabeled fence holds definitions when it reads as Python; a
       // `text`/`turn` fence (a model framing its turn as in the example) holds
       // statements, which are read in place.
-      const next = lines.slice(i + 1).find(candidate => candidate.trim());
       if (!language && next && /^\s*(def |import |from |class |[A-Z_][A-Z0-9_]* *=)/.test(next)) {
         fenceStart = number;
         continue;
       }
-      if (!language || ["text", "turn", "markdown", "md"].includes(language)) {
+      if (!turnFence && (!language || ["text", "turn", "markdown", "md"].includes(language))) {
         turnFence = fence[1];
         continue;
       }
@@ -222,7 +236,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
     const summaryMatch = /^summary:\s*(.*)$/i.exec(trimmed);
     if (summaryMatch) {
       if (summary !== undefined) return fail(number, "one summary line per turn.");
-      if (statements.length || definitions.length) return fail(number, "the summary line comes first.");
+      if (statements.length) return fail(number, "the summary line comes before the statements.");
       summary = summaryMatch[1].trim();
       continue;
     }
@@ -318,12 +332,17 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       statements.push(statement);
       continue;
     }
-    // Prose before the first statement stands in for a missing summary line.
+    // Prose before the first statement stands in for a missing summary line;
+    // prose after the statements is noted and ignored.
     if (summary === undefined && !statements.length && !definitions.length) {
       leadingProse.push(trimmed);
       continue;
     }
-    return fail(number, `not a statement; a line starts with ${KEYWORDS}.`);
+    if (statements.length) {
+      ignoredProse.push(number);
+      continue;
+    }
+    return fail(number, `${JSON.stringify(trimmed.slice(0, 60))} is not a statement; a line starts with ${KEYWORDS}.`);
   }
   if (fenceStart !== undefined) return fail(fenceStart, "the ```python fence is not closed.");
   if (turnFence !== undefined) return fail(1, "the fence around the turn is not closed.");
@@ -350,6 +369,6 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   }
   return {
     ok: true,
-    turn: { summary: summary ?? "", missingSummary, definitions: definitionsText, changes: changesText, statements, actions },
+    turn: { summary: summary ?? "", missingSummary, ignoredProse, definitions: definitionsText, changes: changesText, statements, actions },
   };
 }

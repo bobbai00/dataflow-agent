@@ -56,6 +56,7 @@ export interface TextTurnCallInput {
   turn: string;
   statements: ParsedTurn["statements"];
   missingSummary: boolean;
+  ignoredProse: number[];
 }
 
 export class TextTurnDriver implements LLMDriver {
@@ -123,6 +124,7 @@ export class TextTurnDriver implements LLMDriver {
         turn: rawText,
         statements: parsed.ok ? parsed.turn.statements : [],
         missingSummary: parsed.ok ? parsed.turn.missingSummary : false,
+        ignoredProse: parsed.ok ? parsed.turn.ignoredProse : [],
       };
       let output: unknown;
       let isError = false;
@@ -139,7 +141,7 @@ export class TextTurnDriver implements LLMDriver {
       } else if (!parsed.ok) {
         output = rejected(
           parsed.line === undefined
-            ? "this message is not a turn, so nothing was computed. Write a summary: line and statements (set, execute, show); give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
+            ? "this message is not a turn, so nothing was computed. The task's files are on the engine: `set <id>: scan(files='<path>')` reads one, and `show result <id>` displays it. Write a summary: line and statements; give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
             : parsed.error
         );
         isError = true;
