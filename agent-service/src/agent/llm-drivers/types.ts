@@ -126,6 +126,9 @@ export interface DriverRunTurnInput {
   requireToolCall?: boolean;
   /** Set by onStepFinish after the answer action has been accepted. */
   getFinalAnswer?: () => string | undefined;
+  /** Turn transport: whether a reply without a tool call may end the task as
+   *  the answer now (a result has been shown). Before that it is a lapse. */
+  acceptTextAnswer?: () => boolean;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool
@@ -169,6 +172,6 @@ export class MissingAnswerActionError extends Error {
  */
 export interface LLMDriver {
   /** Fixed protocol paired with this driver's parser and context assembler. */
-  readonly nativeTransport?: "tool" | "text";
+  readonly nativeTransport?: "tool" | "text" | "turn";
   runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult>;
 }

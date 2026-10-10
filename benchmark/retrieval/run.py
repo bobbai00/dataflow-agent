@@ -64,7 +64,7 @@ def main():
     parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
     parser.add_argument("--large-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=900)
-    parser.add_argument("--driver", choices=["vercel-tool-use", "text-turn"], default="vercel-tool-use",
+    parser.add_argument("--driver", choices=["vercel-tool-use", "text-turn", "turn-tool"], default="vercel-tool-use",
                         help="Agent transport: JSON tool calls, or text turns (native/turn-syntax.ts)")
     parser.add_argument("--full-result-char-limit", type=full_result_char_limit, default=5000,
                         help="Full retrieval display cap, 128..100000 characters (service default: 5000; the 2026-10-08 pilots used 100000)")

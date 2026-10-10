@@ -28,14 +28,37 @@ import { describeOperator, type ObservationFormatOptions } from "../native/obser
 import type { ProfileColumn, ProfileScalar } from "../native/profiles";
 import { availableRetrievalViews } from "../native/retrieval";
 import { renderTurnReceipt } from "../native/turn-receipt";
-import { parseTurn } from "../native/turn-syntax";
+import { parseTurn, parseTurnFields, type TurnParse } from "../native/turn-syntax";
 
 type Row = Record<string, string | number>;
 type Options = ObservationFormatOptions & {
-  transport?: "text" | "tool";
+  transport?: "text" | "tool" | "turn";
   retrievalViews?: RetrievalView[];
   flowEvidence?: boolean;
 };
+
+/** The turn transport's call: the text form of an example split into its three fields. */
+function turnFields(text: string): { summary: string; python: string; statements: string } {
+  const lines = text.split("\n");
+  let summary = "";
+  const python: string[] = [];
+  const statements: string[] = [];
+  let fence = false;
+  for (const line of lines) {
+    if (/^```python\s*$/.test(line)) {
+      fence = true;
+      continue;
+    }
+    if (fence && /^```\s*$/.test(line)) {
+      fence = false;
+      continue;
+    }
+    if (fence) python.push(line);
+    else if (/^summary:/.test(line)) summary = line.replace(/^summary:\s*/, "");
+    else statements.push(line);
+  }
+  return { summary, python: python.join("\n"), statements: statements.join("\n").trim() };
+}
 
 /** Small complete synthetic materializations. Receipts use the production
  * evidence and observation renderers; prose never invents a second format. */
@@ -142,13 +165,20 @@ export function registeredExamples(options: Options): string {
     `show result ${ids} ${(final ? finalView : sample) === "full" ? "full" : ""}`.trim();
   const block = (text: string) => `\`\`\`text\n${text}\n\`\`\``;
   const turn = (text: string, receipt = false): string => {
-    const parsed = parseTurn(text, { views });
+    // The turn transport answers with a reply, never with a statement.
+    if (options.transport === "turn" && /^answer:/m.test(text))
+      return `Reply, without the tool: \`${text.replace(/^answer:\s*/, "")}\``;
+    const fields = turnFields(text);
+    const parsed: TurnParse =
+      options.transport === "turn" ? parseTurnFields(fields, { views }) : parseTurn(text, { views });
     if (!parsed.ok) throw new Error(`Invalid teaching example: ${parsed.error}`);
     const { actions, summary } = parsed.turn;
     const authored =
       options.transport === "text"
         ? `\`\`\`\`turn\n${text}\n\`\`\`\``
-        : `\`\`\`json\n${JSON.stringify({ reasoning: summary || "The checked result answers the request.", actions })}\n\`\`\``;
+        : options.transport === "turn"
+          ? `\`\`\`json\n${JSON.stringify(fields, null, 2)}\n\`\`\``
+          : `\`\`\`json\n${JSON.stringify({ reasoning: summary || "The checked result answers the request.", actions })}\n\`\`\``;
     if (!receipt) return authored;
     const workflow: WorkflowContent = {
       operators: [...tables.values()].map(t => t.op),
@@ -241,7 +271,11 @@ export function registeredExamples(options: Options): string {
         return { index: i + 1, action, status: "ok" as const, output };
       }),
     };
-    return `${authored}\n\nEngine receipt:\n\n${block(options.transport === "text" ? renderTurnReceipt(result, parsed.turn) : renderActionObservations(result))}`;
+    const receiptText =
+      options.transport === "text" || options.transport === "turn"
+        ? renderTurnReceipt(result, parsed.turn)
+        : renderActionObservations(result);
+    return `${authored}\n\n${options.transport === "turn" ? "Tool result (the receipt):" : "Engine receipt:"}\n\n${block(receiptText)}`;
   };
 
   add(
@@ -331,6 +365,15 @@ export function registeredExamples(options: Options): string {
       "The new result is total=60. Check the returned result before ending the task.",
       turn("answer: 60")
     );
+  }
+
+  // The turn transport's prompt stays short: the reading example, the flow
+  // repair when flow evidence is on, and the answer rule.
+  if (options.transport === "turn") {
+    parts.push(
+      "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 1200**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
+    );
+    return parts.join("\n\n");
   }
 
   const parseDefinition = `import pandas as pd\n\ndef parse_amounts(table):\n    """Convert source amounts to numeric values."""\n    return table.assign(amount=pd.to_numeric(table['amount'], errors='raise'))`;

@@ -226,8 +226,9 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   messageLayout?: AgentSettings["messageLayout"];
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
-  /** `text`: the model writes turns of statements (native/turn-syntax.ts) instead of JSON tool calls. */
-  transport?: "tool" | "text";
+  /** `text`: the model writes turns of statements (native/turn-syntax.ts) instead of JSON
+   *  tool calls; `turn`: the same statements travel as the fields of one tool call. */
+  transport?: "tool" | "text" | "turn";
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
   dataEvidence?: boolean;
   flowEvidence?: boolean;
@@ -281,6 +282,9 @@ function nativeFlags(options: NativePromptLayoutOptions): Record<string, boolean
     ledger: !!options.stateLedger,
     checks: !!options.checks,
     text: options.transport === "text",
+    turn: options.transport === "turn",
+    /** The statement grammar is shared by the text and turn transports. */
+    statements: options.transport === "text" || options.transport === "turn",
   };
 }
 
@@ -377,7 +381,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
     full: `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`,
   };
   const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
-  if (options.transport === "text") {
+  if (options.transport === "text" || options.transport === "turn") {
     const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
     return [
       `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,

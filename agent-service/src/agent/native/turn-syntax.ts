@@ -59,19 +59,25 @@ export interface TurnStatement {
   actionIndexes: number[];
 }
 
-export interface ParsedTurn {
-  summary: string;
-  /** The turn had no `summary:` line; leading prose, if any, stood in for it. */
+/** What the receipt renderer needs to know about the turn that produced a result. */
+export interface TurnReceiptInfo {
+  statements: TurnStatement[];
+  /** The turn had no summary; leading prose, if any, stood in for it. */
   missingSummary: boolean;
   /** Lines of prose after the statements, ignored. */
   ignoredProse: number[];
   /** The turn went on to write a receipt of its own; the text was cut there. */
   wroteReceipt: boolean;
+  /** The turn arrived as tool fields (`summary`, `python`, `statements`), not as a message. */
+  fields?: boolean;
+}
+
+export interface ParsedTurn extends TurnReceiptInfo {
+  summary: string;
   /** Python definitions from every fence, in order. */
   definitions: string;
   /** `set`/`delete` lines at their turn line numbers; other lines blank. */
   changes: string;
-  statements: TurnStatement[];
   actions: DataflowAction[];
 }
 
@@ -82,11 +88,29 @@ export interface TurnParseOptions {
   views: readonly RetrievalView[];
 }
 
+/** The turn as the tool transport carries it: three strings instead of one message. */
+export interface TurnFields {
+  summary?: unknown;
+  python?: unknown;
+  statements?: unknown;
+}
+
+interface StatementParseOptions extends TurnParseOptions {
+  /** Tool-field mode: the summary and definitions arrive separately, and
+   *  the answer is a reply without a tool call, never a statement. */
+  fields?: boolean;
+  summary?: string;
+  definitions?: string;
+}
+
 const IDENTIFIER = /^[A-Za-z_]\w*$/;
 /** Receipt headers only mark engine text outside definitions and answer bodies. */
 const RECEIPT_HEADER =
   /^(?:user\s*:?\s*)?## (?:edits applied|edits rejected|turn rejected|execute(?:\s|$)|show(?:\s|$))/;
 const KEYWORDS = "summary, set, delete, execute, show, or answer";
+const FIELD_KEYWORDS = "set, delete, execute, or show";
+const ANSWER_IN_FIELDS =
+  "the answer is not a statement: to answer, reply with the answer text and no tool call, after show result has displayed what it rests on.";
 
 function fail(line: number, error: string): TurnParse {
   return { ok: false, line, error: `line ${line}: ${error}` };
@@ -238,13 +262,46 @@ export function parseTurn(
   return { ...parseStatements(replay.replayText, options, replay.wroteReceipt), ...replay };
 }
 
-function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: boolean): TurnParse {
+/** A `python` field wrapped in a fence (a model copying a Markdown example) is unwrapped. */
+function unwrapPythonFence(text: string): string {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  let first = 0;
+  while (first < lines.length && !lines[first].trim()) first++;
+  let last = lines.length - 1;
+  while (last > first && !lines[last].trim()) last--;
+  const open = /^\s*(`{3,})(python|py)?\s*$/.exec(lines[first] ?? "");
+  const close = /^\s*(`{3,})\s*$/.exec(lines[last] ?? "");
+  if (open && close && last > first && close[1] === open[1]) return lines.slice(first + 1, last).join("\n");
+  return text;
+}
+
+/** The tool transport's turn: `summary` (one line), `python` (definitions or
+ * empty) and `statements` (one per line). Line numbers in errors refer to
+ * `statements`. The answer is never a statement here: a reply without a
+ * tool call is the answer. */
+export function parseTurnFields(fields: TurnFields, options: TurnParseOptions): TurnParse {
+  const text = (value: unknown) => (typeof value === "string" ? value : value == null ? "" : String(value));
+  const statements = text(fields.statements);
+  const python = unwrapPythonFence(text(fields.python));
+  if (!statements.trim() && !python.trim())
+    return {
+      ok: false,
+      error: `no statements: a call has at least one ${FIELD_KEYWORDS} line in statements, or definitions in python.`,
+    };
+  return parseStatements(
+    statements,
+    { ...options, fields: true, summary: text(fields.summary), definitions: python },
+    false
+  );
+}
+
+function parseStatements(text: string, options: StatementParseOptions, wroteReceipt: boolean): TurnParse {
   const lines = unwrapOuterFence(text).replace(/\r\n?/g, "\n").split("\n");
   const changes: string[] = lines.map(() => "");
-  const definitions: string[] = [];
+  const definitions: string[] = options.definitions?.trim() ? [options.definitions.trim()] : [];
   const statements: TurnStatement[] = [];
   const actions: DataflowAction[] = [];
-  let summary: string | undefined;
+  let summary: string | undefined = options.summary?.trim() || undefined;
   let leadingProse: string[] = [];
   const ignoredProse: number[] = [];
   let answer: string | undefined;
@@ -330,6 +387,7 @@ function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: 
     }
     const answerMatch = /^answer:\s*(.*)$/is.exec(trimmed);
     if (answerMatch) {
+      if (options.fields) return fail(number, ANSWER_IN_FIELDS);
       let rest = lines.slice(i + 1);
       if (turnFence) {
         let close = rest.length - 1;
@@ -348,7 +406,9 @@ function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: 
     if (/^\**\s*Final Answer:/i.test(trimmed))
       return fail(
         number,
-        "Final Answer: is answer content, not a command. Use answer: followed by the requested answer format in its own turn."
+        options.fields
+          ? ANSWER_IN_FIELDS
+          : "Final Answer: is answer content, not a command. Use answer: followed by the requested answer format in its own turn."
       );
     const setMatch = /^(set\s+([A-Za-z_]\w*)\s*:|delete\s+([A-Za-z_]\w*))(.*)$/s.exec(trimmed);
     if (setMatch) {
@@ -484,7 +544,10 @@ function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: 
       ignoredProse.push(number);
       continue;
     }
-    return fail(number, `${JSON.stringify(trimmed.slice(0, 60))} is not a statement; a line starts with ${KEYWORDS}.`);
+    return fail(
+      number,
+      `${JSON.stringify(trimmed.slice(0, 60))} is not a statement; a line starts with ${options.fields ? FIELD_KEYWORDS : KEYWORDS}.`
+    );
   }
   if (fenceStart !== undefined) return fail(fenceStart, "the ```python fence is not closed.");
   if (turnFence !== undefined) return fail(1, "the fence around the turn is not closed.");
@@ -505,7 +568,12 @@ function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: 
     actions.push({ type: "answer", content: answer });
     statements.push({ line: answerLine, text: "answer:", kind: "answer", actionIndexes: [actions.length] });
   } else if (!statements.length && !definitionsText) {
-    return { ok: false, error: "no statements: a turn has at least one set, delete, execute, show, or answer line." };
+    return {
+      ok: false,
+      error: options.fields
+        ? `no statements: a call has at least one ${FIELD_KEYWORDS} line in statements, or definitions in python.`
+        : "no statements: a turn has at least one set, delete, execute, show, or answer line.",
+    };
   }
   // The edit goes first: definitions register before any request runs.
   if (changesText.trim() || definitionsText) {
@@ -520,6 +588,7 @@ function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: 
       missingSummary,
       ignoredProse,
       wroteReceipt,
+      ...(options.fields ? { fields: true } : {}),
       definitions: definitionsText,
       changes: changesText,
       statements,

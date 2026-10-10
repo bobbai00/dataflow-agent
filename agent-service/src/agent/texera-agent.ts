@@ -145,6 +145,7 @@ import {
   asDataflowActionsResult,
   type DataflowActionsResult,
 } from "./tools/dataflow-actions";
+import { createTurnTool } from "./tools/turn-tool";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
@@ -730,11 +731,14 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createRegisteredDataflowTool(
-        availableRetrievalViews(this.settings),
-        this.settings.stateHistory,
-        this.settings.multiTask || this.settings.stateHistory
-      );
+      tools[TOOL_NAME_DATAFLOW] =
+        this.settings.nativeTransport === "turn"
+          ? createTurnTool(availableRetrievalViews(this.settings))
+          : createRegisteredDataflowTool(
+              availableRetrievalViews(this.settings),
+              this.settings.stateHistory,
+              this.settings.multiTask || this.settings.stateHistory
+            );
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1525,7 +1529,7 @@ export class TexeraAgent {
       dataflowReasoning?: boolean;
       nativeChecks?: boolean;
       nativePromptDetail?: "full" | "on_demand";
-      nativeTransport?: "tool" | "text";
+      nativeTransport?: "tool" | "text" | "turn";
       taskContext?: "trajectory" | "dependencies";
       stateHistory?: boolean;
       stateLedger?: boolean;
@@ -2099,6 +2103,7 @@ export class TexeraAgent {
           parallelToolCalls: this.settings.parallelToolCalls,
           requireToolCall: this.settings.agentMode === AgentMode.NATIVE,
           getFinalAnswer: () => this.nativeActionAnswer,
+          acceptTextAnswer: () => this.settings.nativeTransport === "turn" && this.resultShownInMessage(messageId),
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
@@ -2349,19 +2354,21 @@ export class TexeraAgent {
               error instanceof MissingAnswerActionError &&
               error.canContinue &&
               this.settings.agentMode === AgentMode.NATIVE &&
-              !protocolFeedbackSteps &&
+              protocolFeedbackSteps < (this.settings.nativeTransport === "turn" ? 2 : 1) &&
               !this.abortController?.signal.aborted
             ) {
               partials.push(error.partial);
               const feedback =
-                this.settings.nativeTransport === "text"
-                  ? "No turn was found in your reply. Write a turn: a summary: line, then statements (set, execute, show); finish with answer: alone in a turn once show result has displayed what the answer rests on."
-                  : "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
-                    JSON.stringify({
-                      reasoning: "Submit the supported result.",
-                      actions: [{ type: "answer", content: "<answer in the user's required format>" }],
-                    }) +
-                    ". Put the final response in answer.content; Answer must be the sole action. Use other actions if more work is needed.";
+                this.settings.nativeTransport === "turn"
+                  ? this.turnTransportLapseFeedback()
+                  : this.settings.nativeTransport === "text"
+                    ? "No turn was found in your reply. Write a turn: a summary: line, then statements (set, execute, show); finish with answer: alone in a turn once show result has displayed what the answer rests on."
+                    : "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
+                      JSON.stringify({
+                        reasoning: "Submit the supported result.",
+                        actions: [{ type: "answer", content: "<answer in the user's required format>" }],
+                      }) +
+                      ". Put the final response in answer.content; Answer must be the sole action. Use other actions if more work is needed.";
               const feedbackId = this.generateStepId();
               this.addStep({
                 id: feedbackId,
@@ -3122,6 +3129,38 @@ export class TexeraAgent {
       "seeded source roots"
     );
     return true;
+  }
+
+  /** Turn transport: has a `show result` of this task succeeded, so that a reply
+   * without a tool call may end the task as the answer? */
+  private resultShownInMessage(messageId: string): boolean {
+    return (this.reActStepsByMessageId.get(messageId) ?? []).some(step =>
+      (step.toolResults ?? []).some(tr =>
+        (asDataflowActionsResult(tr.output)?.actions ?? []).some(
+          item => item.action.type === "retrieve" && item.status === "ok"
+        )
+      )
+    );
+  }
+
+  /** Turn transport: a reply without a tool call before any result was shown
+   * computed nothing. The correction names the first call to make, with a path
+   * from the request when it has one, so a model that hesitates has a turn to copy. */
+  private turnTransportLapseFeedback(): string {
+    const request = [...this.getVisibleReActSteps()].reverse().find(step => step.role === "user" && step.isBegin);
+    const path =
+      /[\w.-]+(?:\/[\w.-]+)+\.(?:csv|tsv|xlsx|xls|json|jsonl|parquet|txt|gpkg|html|xml)\b/i.exec(
+        String(request?.content ?? "")
+      )?.[0] ?? "data/<folder>/input/<file>";
+    const starter = JSON.stringify({
+      summary: "Read the first file.",
+      python: "",
+      statements: `set data: scan(files='${path}')\nshow result data`,
+    });
+    return (
+      "That reply was text, so nothing was computed and no result has been shown yet. The engine reads the task's files; " +
+      `call the dataflow tool, for example ${starter}. Compute in further calls, and reply without the tool only to give the final answer, after show result has displayed what it rests on.`
+    );
   }
 
   private async runPostStepExecution(

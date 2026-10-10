@@ -24,6 +24,8 @@ import type { RetrievalView } from "../../types/agent";
 import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
 import { renderActionObservations } from "../native/action-observations";
 import type { ObservationFormatSettings } from "../native/observation-format";
+import { renderTurnReceipt } from "../native/turn-receipt";
+import type { TurnReceiptInfo } from "../native/turn-syntax";
 import type { TaskReference } from "../task-history";
 import { NATIVE_OPERATOR_NAMES } from "../native/catalog";
 
@@ -92,6 +94,9 @@ export interface DataflowActionsResult {
   format?: ObservationFormatSettings;
   /** Action-time provenance; not expanded into ordinary result observations. */
   references?: TaskReference[];
+  /** Set when the call arrived as a turn (tools/turn-tool.ts): the receipt is
+   *  then rendered by statement (native/turn-receipt.ts), not by action. */
+  turn?: TurnReceiptInfo;
 }
 
 // JSON Schema patterns normally search substrings; some provider decoders use
@@ -855,5 +860,5 @@ export async function runDataflowActions(
 }
 
 export function renderDataflowActionsResult(result: DataflowActionsResult): string {
-  return renderActionObservations(result);
+  return result.turn ? renderTurnReceipt(result, result.turn) : renderActionObservations(result);
 }

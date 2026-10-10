@@ -71,7 +71,11 @@ def audit_attempt(path, settings):
     path = Path(path)
     views = settings.get("retrievalViews", [])
     config = read(path / "config.json", {})
-    text_transport = settings.get("nativeTransport") == "text" or settings.get("driver", config.get("driver")) == "text-turn"
+    driver = settings.get("driver", config.get("driver"))
+    text_transport = settings.get("nativeTransport") == "text" or driver == "text-turn"
+    # The turn tool carries statements, so its schema names no retrieval view;
+    # the receipt (a tool message) uses the text transport's headings.
+    turn_transport = settings.get("nativeTransport") == "turn" or driver == "turn-tool"
     data_enabled, flow_enabled = "sample_stats" in views, bool(settings.get("flowEvidence"))
     violations, warnings, details = set(), set(), []
     counters = {key: Counter() for key in ("observations", "retrievals", "execution", "profiles")}
@@ -116,6 +120,11 @@ def audit_attempt(path, settings):
         if text_transport:
             if request.get("tools"):
                 issue("tools_in_text_transport", location)
+        elif turn_transport:
+            if not request.get("tools"):
+                issue("missing_turn_tool", location)
+            if request.get("tool_choice") not in (None, "auto"):
+                issue("forced_tool_choice_in_turn_transport", location)
         elif not enums:
             issue("missing_retrieval_schema", location)
         elif any(enum != views for enum in enums):
@@ -135,13 +144,18 @@ def audit_attempt(path, settings):
             issue("registered_prompt_missing", location)
         if text_transport and "summary:" not in system and "Each message you send is one turn" not in system:
             issue("text_prompt_missing", location)
+        if turn_transport and "`statements`" not in system:
+            issue("turn_prompt_missing", location)
         if bool(re.search(r"Column statistics (?:are collected|in `sample_stats`)", system)) != data_enabled:
             issue("data_prompt_mismatch", location)
         if bool(re.search(r"Flow statistics (?:describe measured|report measured)", system)) != flow_enabled:
             issue("flow_prompt_mismatch", location)
         example_views = re.findall(r'"view"\s*:\s*"(full|sample_stats|sample)"', system)
-        if text_transport:
+        if text_transport or turn_transport:
             example_views.extend(TEXT_RETRIEVAL_VIEW.findall(system))
+            # Turn-tool examples carry their statements inside JSON strings.
+            unquoted = re.sub(r'["}\]]+', "", system.replace("\\n", "\n"))
+            example_views.extend(TEXT_RETRIEVAL_VIEW.findall(unquoted))
         if any(view not in views for view in example_views):
             issue("disabled_view_in_prompt_example", location)
         for index, message in enumerate(messages):
@@ -168,7 +182,7 @@ def audit_attempt(path, settings):
             counts["with_table_statistics"] += bool(DATA_TABLE.search(text))
             for action in ACTION_HEADING.findall(text):
                 counts[f"{action}_blocks"] += 1
-            if text_receipt:
+            if text_receipt or turn_transport:
                 for heading in TEXT_HEADING.findall(text):
                     action = "edit" if heading.startswith("edits ") else "retrieve" if heading.startswith("show result") else "inspect" if heading.startswith("show ") else heading.split()[0]
                     counts[f"{action}_blocks"] += 1

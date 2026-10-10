@@ -132,6 +132,36 @@ class MatrixAuditTests(unittest.TestCase):
         self.text_request("## show result data\nstatistics: full table, 3 of 3 rows, 2 of 8 columns", data=True)
         self.assertEqual(self.findings()["violations"], [])
 
+    def turn_request(self, receipt, tool_choice="auto", tools=True, prompt_extra=""):
+        self.settings.update(nativeTransport="turn", retrievalViews=["sample", "full"], flowEvidence=False)
+        prompt = ("Python functions you register. Each execution runs in isolation. Use the `dataflow` tool: "
+                  "`summary` (one line), `python`, and `statements` (one per line)." + prompt_extra)
+        request = {"messages": [{"role": "system", "content": prompt}, {"role": "user", "content": "task"},
+                                {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {
+                                    "name": "dataflow", "arguments": json.dumps({"summary": "Read.", "python": "", "statements": "show result data"})}}]},
+                                {"role": "tool", "tool_call_id": "c1", "content": receipt}],
+                   "parallel_tool_calls": False, "tool_choice": tool_choice}
+        if tools:
+            request["tools"] = [{"type": "function", "function": {"name": "dataflow", "parameters": {
+                "type": "object", "properties": {"summary": {"type": "string"}, "python": {"type": "string"}, "statements": {"type": "string"}}}}}]
+        self.write("wire/000001-request.json", request)
+        return request
+
+    def test_turn_transport_audits_tool_receipts_without_a_retrieval_enum(self):
+        receipt = "## show result data\nrecords: sample; 1 of 3 rows, 1 of 1 columns (incomplete)"
+        self.turn_request(receipt)
+        result = self.findings()
+        self.assertEqual(result["violations"], [])
+        self.assertEqual(result["observations"]["tool_messages"], 1)
+        self.assertEqual(result["observations"]["retrieve_blocks"], 1)
+        self.turn_request(receipt, tool_choice="required")
+        self.assertIn("forced_tool_choice_in_turn_transport", self.findings()["violations"])
+        self.turn_request(receipt, tools=False)
+        self.assertIn("missing_turn_tool", self.findings()["violations"])
+        # The example's statements sit inside a JSON string with literal \n escapes, as the prompt renders them.
+        self.turn_request(receipt, prompt_extra='\n```json\n{"statements": "set a: scan(files=\'x.csv\')\\nshow result data sample_stats"}\n```')
+        self.assertIn("disabled_view_in_prompt_example", self.findings()["violations"])
+
     def test_wire_text_catches_execute_flow_leak_without_retrieval_evidence(self):
         self.request()
         self.request(2, [{"role": "tool", "tool_call_id": "t1", "content":

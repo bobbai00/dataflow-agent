@@ -43,10 +43,14 @@ export interface VercelToolUseDriverOptions {
   temperature?: number;
   maxOutputTokens?: number;
   maxRetries?: number;
+  /** `turn`: the dataflow tool takes a turn of statements (tools/turn-tool.ts),
+   *  tool choice stays `auto` so extended reasoning remains available, and a
+   *  reply without a tool call is the final answer once a result was shown. */
+  transport?: "tool" | "turn";
 }
 
 export class VercelToolUseDriver implements LLMDriver {
-  readonly nativeTransport = "tool" as const;
+  readonly nativeTransport: "tool" | "turn";
   private readonly model: LanguageModel;
   private readonly temperature: number;
   private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
@@ -55,13 +59,17 @@ export class VercelToolUseDriver implements LLMDriver {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
     this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
+    this.nativeTransport = opts.transport ?? "tool";
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
     // Sonnet 5.5 rejects forced tool use. The native Answer contract is still
     // enforced below, including the bounded correction for a text-only reply.
+    // The turn transport never forces a call: its answer is a plain reply.
     const modelId = typeof this.model === "string" ? this.model : this.model.modelId;
-    const supportsForcedTools = !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
+    const supportsForcedTools =
+      this.nativeTransport !== "turn" &&
+      !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
     // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
@@ -174,10 +182,12 @@ export class VercelToolUseDriver implements LLMDriver {
       usage,
     };
     if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
-      throw new MissingAnswerActionError(
-        completed,
-        result.finishReason === "stop" && !result.toolCalls.length && result.steps.length < input.maxSteps
-      );
+      const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
+      // The turn transport answers by replying without a tool call; before a
+      // result has been shown that reply is a lapse, corrected by the agent.
+      if (this.nativeTransport === "turn" && textOnly && result.text.trim() && input.acceptTextAnswer?.())
+        return completed;
+      throw new MissingAnswerActionError(completed, textOnly && result.steps.length < input.maxSteps);
     }
     return completed;
   }

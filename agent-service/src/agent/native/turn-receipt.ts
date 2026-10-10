@@ -35,7 +35,7 @@ import type { GraphChangeReceipt } from "../tools/graph-edits";
 import { issueText } from "./action-observations";
 import { FlowReceiptMemo } from "./evidence-compaction";
 import type { OperatorBlock } from "./observation-format";
-import type { ParsedTurn, TurnStatement } from "./turn-syntax";
+import type { TurnReceiptInfo, TurnStatement } from "./turn-syntax";
 
 type ActionItem = DataflowActionsResult["actions"][number];
 
@@ -215,10 +215,15 @@ function resultLines(item: ActionItem | undefined, memo: FlowReceiptMemo, execut
 }
 
 /** Render the receipt of a text turn from the executed action list. */
-export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTurn): string {
+export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {
   const sections: string[] = [];
   const flowMemo = new FlowReceiptMemo();
-  if (turn?.missingSummary) sections.push("note: start each turn with a summary: line.");
+  if (turn?.missingSummary)
+    sections.push(
+      turn.fields
+        ? "note: the summary field was empty; state the population, definitions and formula the call assumes."
+        : "note: start each turn with a summary: line."
+    );
   if (turn?.wroteReceipt)
     sections.push(
       "note: the text after your statements read like a receipt and was dropped; the receipt is this message, from the engine."

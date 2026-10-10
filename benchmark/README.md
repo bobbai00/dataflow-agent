@@ -93,10 +93,11 @@ bin/bench.sh retrieval run \
     --repetitions 1 --workers 2 --full-result-char-limit 5000
 ```
 
-This example runs 72 model/task/arm attempts. `--driver text-turn` runs the agent on the
-text transport (the model writes turns of statements instead of JSON tool calls; see
-`docs/native-registered-python-design.md`, "Text transport"); the default `vercel-tool-use`
-is the JSON tool. `--full-result-char-limit` controls
+This example runs 72 model/task/arm attempts. `--driver turn-tool` runs the agent on the
+turn transport (one `dataflow(summary, python, statements)` tool call per step; a reply
+without a tool call is the answer); `--driver text-turn` runs the raw text transport (the
+model's message is the turn); see `docs/native-registered-python-design.md`, "Turn tool
+transport" and "Text transport". The default `vercel-tool-use` is the JSON action tool. `--full-result-char-limit` controls
 the display budget independently of retained data and records it in the campaign
 manifest. Its default remains 100,000 for existing campaign compatibility; pass
 5,000 explicitly to match the current service default. Valid values are

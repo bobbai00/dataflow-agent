@@ -113,6 +113,11 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
   return modelType === "local-llm" ? "local-react" : "vercel-tool-use";
 }
 
+/** The registered protocol's transport is a property of the driver kind. */
+function driverTransport(kind: AgentDriverKind): "tool" | "text" | "turn" {
+  return kind === "text-turn" ? "text" : kind === "turn-tool" ? "turn" : "tool";
+}
+
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
 /** Turn index (0-based) in which each operator was last touched. */
@@ -616,7 +621,11 @@ async function createAgentInstance(
       ? new LocalReactTextDriver({ model })
       : driverKind === "text-turn"
         ? new TextTurnDriver({ model, ...requestLimits })
-        : new VercelToolUseDriver({ model, ...requestLimits });
+        : new VercelToolUseDriver({
+            model,
+            ...requestLimits,
+            ...(driverKind === "turn-tool" ? { transport: "turn" as const } : {}),
+          });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -896,7 +905,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       }
 
       validateNativeSettings(settings);
-      validateNativeTransport(resolveDriverKind(modelType, driver) === "text-turn" ? "text" : "tool", settings ?? {});
+      validateNativeTransport(driverTransport(resolveDriverKind(modelType, driver)), settings ?? {});
 
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
@@ -1017,7 +1026,14 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         computingUnitId: t.Optional(t.Number()),
         // Explicit driver override. Must be in the schema or Elysia's
         // normalize pass strips it from the body before the handler reads it.
-        driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react"), t.Literal("text-turn")])),
+        driver: t.Optional(
+          t.Union([
+            t.Literal("vercel-tool-use"),
+            t.Literal("local-react"),
+            t.Literal("text-turn"),
+            t.Literal("turn-tool"),
+          ])
+        ),
         settings: t.Optional(
           t.Object({
             maxOperatorResultCharLimit: t.Optional(t.Number()),
@@ -1045,7 +1061,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
             nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
-            nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text")])),
+            nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text"), t.Literal("turn")])),
             nativeChecks: t.Optional(t.Boolean()),
             stateHistory: t.Optional(t.Boolean()),
             stateLedger: t.Optional(t.Boolean()),
@@ -1554,7 +1570,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
         nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
-        nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text")])),
+        nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text"), t.Literal("turn")])),
         nativeChecks: t.Optional(t.Boolean()),
         stateHistory: t.Optional(t.Boolean()),
         stateLedger: t.Optional(t.Boolean()),

@@ -21,7 +21,7 @@
 export class NativeCatalogSettingsError extends Error {}
 
 /** Transport is a driver capability, not a mutable prompt preference. */
-export function validateNativeTransport(transport: "tool" | "text", input: object): void {
+export function validateNativeTransport(transport: "tool" | "text" | "turn", input: object): void {
   const settings = input as Record<string, unknown>;
   if (settings.nativeTransport !== undefined && settings.nativeTransport !== transport)
     throw new NativeCatalogSettingsError(

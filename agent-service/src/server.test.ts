@@ -140,19 +140,22 @@ describe(`GET ${API}/healthcheck`, () => {
 
 describe(`POST ${API}/agents`, () => {
   test("transport follows the driver and incompatible updates are atomic", async () => {
-    for (const driver of ["text-turn", "vercel-tool-use"] as const) {
-      const transport = driver === "text-turn" ? "text" : "tool";
-      const opposite = transport === "text" ? "tool" : "text";
+    const transports = { "text-turn": "text", "vercel-tool-use": "tool", "turn-tool": "turn" } as const;
+    for (const driver of ["text-turn", "vercel-tool-use", "turn-tool"] as const) {
+      const transport = transports[driver];
       const created = await readJson<any>(await createAgent({ driver }));
       expect(created.settings.nativeTransport).toBe(transport);
+      expect(created.driver).toBe(driver);
       const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
-      const response = await patchJson(`${API}/agents/${created.id}/settings`, {
-        nativeTransport: opposite,
-        maxSteps: 7,
-      });
-      expect(response.status).toBe(400);
-      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
-      expect((await createAgent({ driver, settings: { nativeTransport: opposite } })).status).toBe(400);
+      for (const opposite of Object.values(transports).filter(value => value !== transport)) {
+        const response = await patchJson(`${API}/agents/${created.id}/settings`, {
+          nativeTransport: opposite,
+          maxSteps: 7,
+        });
+        expect(response.status).toBe(400);
+        expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+        expect((await createAgent({ driver, settings: { nativeTransport: opposite } })).status).toBe(400);
+      }
     }
   });
 
