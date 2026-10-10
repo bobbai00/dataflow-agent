@@ -155,7 +155,6 @@ test("errors name the line: unknown resource, bad ID, unavailable view, open fen
     ],
     ["summary: x\nset a: aggregate(b, by=['x'],", "line 2: the statement's parentheses are not closed."],
     ["summary: x\n```json\n{}\n```", "line 2: only ```python fences are accepted; they hold definitions."],
-    ["summary: x\n```text\nset a: scan(files='x.csv')", "line 1: the fence around the turn is not closed."],
     ['summary: x\nshow result a["Beach]', "line 2: unclosed quote in the column list."],
   ];
   for (const [text, message] of cases) {
@@ -277,6 +276,46 @@ test("a restated summary replaces the first; an answer inside a turn fence ends 
     expect(mixed.turn.actions.map(a => a.type)).toEqual(["edit"]);
     expect(mixed.turn.ignoredProse).toEqual([3]);
   }
+});
+
+test("turn shapes DeepSeek writes: separate blocks, a copied receipt label, an open turn fence, unfenced Python", () => {
+  // Summary, definitions and statements in three separate fences are one turn, read in place.
+  const blocks = parse(
+    "```text\nsummary: South-west cities.\n```\n\n```python\ndef southwest(row):\n    return row['lat'] < 0 and row['lng'] < 0\n```\n\n```text\nset sw: filter(cities, predicate='southwest')\nshow result sw\n```"
+  );
+  expect(blocks.ok).toBe(true);
+  if (blocks.ok) {
+    expect(blocks.turn.summary).toBe("South-west cities.");
+    expect(blocks.turn.definitions).toBe("def southwest(row):\n    return row['lat'] < 0 and row['lng'] < 0");
+    expect(blocks.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+  }
+  // The example's receipt label, then the start of a receipt the stop sequence cut: dropped and noted.
+  const label = parse(
+    "I'll start by examining the file.\n\n```text\nsummary: Inspect the source.\nset cities: scan(files='data/a.csv')\nshow result cities\n```\n\nEngine receipt:\n\n```text\n"
+  );
+  expect(label.ok).toBe(true);
+  expect(label.wroteReceipt).toBe(true);
+  expect(label.replayText.trimEnd().endsWith("```")).toBe(true);
+  if (label.ok) expect(label.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+  // A turn fence still open at the end of the message closes there.
+  const open = parse("summary: x\n```text\nset a: scan(files='x.csv')\nshow result a");
+  expect(open.ok).toBe(true);
+  if (open.ok) expect(open.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+  // Python written in the turn without its own fence holds definitions, up to the next statement.
+  const unfenced = parse(
+    '```text\nsummary: Filter.\nimport pandas as pd\n\ndef southwest(row):\n    """South-west."""\n    return row[\'lat\'] < 0\n\nset sw: filter(cities, predicate=\'southwest\')\nshow result sw\n```'
+  );
+  expect(unfenced.ok).toBe(true);
+  if (unfenced.ok) {
+    expect(unfenced.turn.definitions).toBe(
+      'import pandas as pd\n\ndef southwest(row):\n    """South-west."""\n    return row[\'lat\'] < 0'
+    );
+    expect(unfenced.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+    expect(unfenced.turn.statements.map(st => st.line)).toEqual([8, 9]);
+  }
+  // Prose that merely begins with "from" or "import" words is still prose.
+  const prose = parse("summary: x\nset a: scan(files='x.csv')\nfrom the receipt I will decide.");
+  expect(prose.ok && prose.turn.ignoredProse).toEqual([3]);
 });
 
 test("receipt headers are meaningful only outside Python, declarations, and answer content", () => {

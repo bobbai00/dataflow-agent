@@ -123,10 +123,16 @@ export function requestFilePath(request: string): string {
   );
 }
 
+/** The labels the prompt examples put above a receipt; a model copying the
+ * example's layout writes one, then a receipt of its own. */
+const RECEIPT_LABEL =
+  /^(?:\*\*)?(?:engine receipt|tool result(?: \(the receipt\))?|suppose the receipt is)(?:\*\*)?\s*:?(?:\*\*)?\s*$/i;
 /** Receipt headers only mark engine text outside definitions and answer bodies. */
 const RECEIPT_HEADER =
   /^(?:user\s*:?\s*)?## (?:edits applied|edits rejected|turn rejected|execute(?:\s|$)|show(?:\s|$))/;
 const KEYWORDS = "summary, set, delete, execute, show, or answer";
+/** A line that can only begin top-level Python, never a statement. */
+const PYTHON_TOP_LEVEL = /^(?:def |class |import \w|from [\w.]+ import |@\w)/;
 const FIELD_KEYWORDS = "set, delete, execute, or show";
 const ANSWER_IN_FIELDS =
   "the answer is not a statement: to answer, reply with the answer text and no tool call, after show result has displayed what it rests on.";
@@ -210,7 +216,11 @@ function unwrapOuterFence(text: string): string {
   while (last > first && !lines[last].trim()) last--;
   const open = /^\s*(`{3,})(turn|text)?\s*$/.exec(lines[first] ?? "");
   const close = /^\s*(`{3,})\s*$/.exec(lines[last] ?? "");
-  if (open && close && last > first && close[1] === open[1]) return lines.slice(first + 1, last).join("\n");
+  // A bare fence of the same width inside closes the first block early: the
+  // message is several blocks (summary, python, statements), read in place.
+  const separate = !!open && lines.slice(first + 1, last).some(line => line.trim() === open[1]);
+  if (open && close && last > first && close[1] === open[1] && !separate)
+    return lines.slice(first + 1, last).join("\n");
   return text;
 }
 
@@ -247,7 +257,7 @@ export function sanitizeTurnReplay(text: string): { replayText: string; wroteRec
         continue;
       }
     }
-    if (!declaration.quote && RECEIPT_HEADER.test(trimmed))
+    if (!declaration.quote && (RECEIPT_HEADER.test(trimmed) || RECEIPT_LABEL.test(trimmed)))
       return { replayText: text.slice(0, offset), wroteReceipt: true };
     if (declaration.depth > 0 || declaration.quote) {
       scanDeclaration(line, declaration);
@@ -556,6 +566,19 @@ function parseStatements(text: string, options: StatementParseOptions, wroteRece
       statements.push(statement);
       continue;
     }
+    // Python written in the turn without a fence (a model dropping the inner
+    // fence of the example): a top-level def/class/import block runs through
+    // its indented and blank lines until the next statement or fence.
+    if (PYTHON_TOP_LEVEL.test(line)) {
+      const block = [line];
+      while (
+        i + 1 < lines.length &&
+        (!lines[i + 1].trim() || /^\s/.test(lines[i + 1]) || PYTHON_TOP_LEVEL.test(lines[i + 1]))
+      )
+        block.push(lines[++i]);
+      definitions.push(block.join("\n").trimEnd());
+      continue;
+    }
     // Prose before the first statement stands in for a missing summary line;
     // prose after the statements is noted and ignored.
     if (summary === undefined && !statements.length && !definitions.length) {
@@ -572,7 +595,6 @@ function parseStatements(text: string, options: StatementParseOptions, wroteRece
     );
   }
   if (fenceStart !== undefined) return fail(fenceStart, "the ```python fence is not closed.");
-  if (turnFence !== undefined) return fail(1, "the fence around the turn is not closed.");
   if (pendingSet) return fail(pendingSet.line, "the statement's parentheses are not closed.");
 
   // The answer turn is the stop: it needs no summary.
