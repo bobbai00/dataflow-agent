@@ -295,6 +295,28 @@ class MatrixAuditTests(unittest.TestCase):
         self.assertEqual(result["attempts_expected"], 1)
         self.assertIsNone(result["rows"][0]["audit"])
 
+    def test_a_timed_out_attempt_is_audited_from_the_watchdog_trace(self):
+        self.write("manifest.json", {"settings": self.settings, "arms": {"data0flow0": {}}, "jobs": [
+            {"model": "test", "arm": "data0flow0", "sut": "sut", "task": "task", "rep": 1}]})
+        attempt = self.path / "system_scratch" / "sut" / "task"
+        attempt.mkdir(parents=True)
+        steps = {"steps": [{"stepId": 1, "toolResults": [{"output": {
+            "protocol": "registered-python-v1", "actions": [{"action": {"type": "execute"}, "status": "error"}]}}]}]}
+        (attempt / "watchdog-react_steps.json").write_text(json.dumps(steps))
+        # Stopped before the harness wrote a trace: the watchdog copy is the trace.
+        row = audit_matrix(self.path)["rows"][0]
+        self.assertIsNotNone(row["audit"])
+        self.assertTrue(row["audit"]["watchdog_trace"])
+        self.assertEqual(row["audit"]["action_failures"], 1)
+        self.assertNotIn("missing_trace", row["audit"]["warnings"])
+        # Stopped while writing it: the truncated dump yields to the watchdog copy.
+        (attempt / "react_steps.json").write_text(json.dumps(steps)[:40])
+        row = audit_matrix(self.path)["rows"][0]
+        self.assertTrue(row["audit"]["watchdog_trace"])
+        self.assertEqual(row["audit"]["action_failures"], 1)
+        (attempt / "react_steps.json").write_text(json.dumps(steps))
+        self.assertFalse(audit_matrix(self.path)["rows"][0]["audit"]["watchdog_trace"])
+
 
 if __name__ == "__main__":
     unittest.main()

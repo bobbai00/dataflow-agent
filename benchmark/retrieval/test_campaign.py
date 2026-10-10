@@ -139,6 +139,9 @@ class CampaignTests(unittest.TestCase):
             failed = {**final, "content": "Error: The turn ended before any result was shown."}
             (path / "react_steps.json").write_text(json.dumps([call, failed]))
             self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
+            stopped = {**final, "content": "Generation stopped by user."}
+            (path / "react_steps.json").write_text(json.dumps([call, stopped]))
+            self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
 
     def test_partial_batch_failure_still_audits_successful_result(self):
         with tempfile.TemporaryDirectory() as temp:

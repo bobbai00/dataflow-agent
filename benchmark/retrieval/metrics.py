@@ -92,12 +92,17 @@ def retrieval_results(item):
     return [{**output, "operator_id": action.get("operator_id"), "status": item.get("status")}]
 
 
+# The step the agent records when a turn is stopped, e.g. by the runner's
+# wall-clock watchdog. It ends the turn but is not a reply.
+STOPPED_STEP = "Generation stopped by user."
+
+
 def final_reply(steps):
     """The answer: the last agent step ends the task with text and no tool call."""
     agents = [step for step in steps if step.get("role") == "agent"]
     final = agents[-1] if agents else None
     return bool(final and final.get("isEnd") and not final.get("toolCalls") and final.get("content")
-                and not str(final["content"]).startswith("Error:"))
+                and not str(final["content"]).startswith("Error:") and final["content"] != STOPPED_STEP)
 
 
 def tool_error_counts(result):

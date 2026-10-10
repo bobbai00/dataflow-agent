@@ -32,6 +32,18 @@ def read(path, default=None):
     return json.loads(path.read_text()) if path.exists() else default
 
 
+def read_trace(path):
+    """The attempt's trace, and whether it is the runner's watchdog copy. A
+    harness stopped at the wall clock leaves no trace, or a truncated one; the
+    watchdog copy fetched before the stop is then the complete trace."""
+    for name in ("react_steps.json", "watchdog-react_steps.json"):
+        try:
+            return json.loads((path / name).read_text()), name != "react_steps.json"
+        except (FileNotFoundError, ValueError):
+            continue
+    return None, False
+
+
 def content_text(content):
     if isinstance(content, str):
         return content
@@ -155,7 +167,7 @@ def audit_attempt(path, settings):
 
     snapshot = read(path / "snapshot.json", {})
     saved_results = snapshot.get("results", {})
-    raw = read(path / "react_steps.json", None)
+    raw, watchdog_trace = read_trace(path)
     if raw is None:
         issue("missing_trace", "react_steps.json", warning=True)
     steps = raw if isinstance(raw, list) else (raw or {}).get("steps", [])
@@ -300,6 +312,7 @@ def audit_attempt(path, settings):
     return {"violations": sorted(violations), "warnings": sorted(warnings), "details": details,
             "wire_requests": len(requests), "wire_prefix_checks": wire_prefix_checks,
             "system_prompt_hashes": sorted(system_hashes), "answers": answers, "action_failures": action_failures,
+            "watchdog_trace": watchdog_trace,
             **{key: dict(counts) for key, counts in counters.items()}, "accounting": accounting}
 
 
@@ -310,7 +323,7 @@ def audit_matrix(directory):
     groups = defaultdict(list)
     for job in manifest.get("jobs", []):
         path = directory / "system_scratch" / job["sut"] / job["task"]
-        present = (path / "react_steps.json").exists()
+        present = any((path / name).exists() for name in ("react_steps.json", "watchdog-react_steps.json"))
         settings = {**manifest.get("settings", {}), **manifest.get("arms", {}).get(job["arm"], {})}
         row = {**job, "audit": audit_attempt(path, settings) if present else None,
                "official_evaluation": read(path / "evaluation.json")}
@@ -323,6 +336,7 @@ def audit_matrix(directory):
                         "violation_attempts": sum(bool(a["violations"]) for a in audits),
                         "warning_attempts": sum(bool(a["warnings"]) for a in audits),
                         "answers": sum(a["answers"] for a in audits),
+                        "watchdog_traces": sum(a["watchdog_trace"] for a in audits),
                         "wire_requests": sum(a["wire_requests"] for a in audits),
                         "wire_prefix_checks": sum(a["wire_prefix_checks"] for a in audits),
                         "execution_runs": sum(a["execution"].get("runs", 0) for a in audits),
