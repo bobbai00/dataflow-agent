@@ -188,7 +188,7 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTu
       sections.push([title, ...executionLines(execute, statement.ids ?? [], true), ...resultLines(retrieve, statement)].join("\n"));
       continue;
     }
-    // A lookup of a computed result (schema, sheets) runs an execute first.
+    // A lookup of a computed result (schema) runs an execute first.
     const lookup = items[items.length - 1];
     const executed = items.length > 1 ? executionLines(items[0], statement.ids ?? [], false).filter(line => line.startsWith("executed:") || line.startsWith("- ")) : [];
     const lines = lookupLines(lookup, statement);

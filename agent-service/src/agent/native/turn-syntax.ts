@@ -30,7 +30,6 @@
  *   execute <id>, ...
  *   show result <id>[<col>, ...] [full]
  *   show schema <id>
- *   show sheets <id>
  *   show operator <id>
  *   show function <name>
  *   show builtin <name>, ...
@@ -44,7 +43,7 @@
 import type { DataflowAction } from "../tools/dataflow-actions";
 import type { RetrievalView } from "../../types/agent";
 
-export type TurnResource = "result" | "schema" | "sheets" | "operator" | "function" | "builtin";
+export type TurnResource = "result" | "schema" | "operator" | "function" | "builtin";
 
 export interface TurnStatement {
   /** 1-based line of the turn where the statement starts. */
@@ -248,14 +247,22 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
 
     const summaryMatch = /^summary:\s*(.*)$/i.exec(trimmed);
     if (summaryMatch) {
-      if (summary !== undefined) return fail(number, "one summary line per turn.");
+      // A restated summary (a model redoing its turn) replaces the first.
       if (statements.length) return fail(number, "the summary line comes before the statements.");
       summary = summaryMatch[1].trim();
       continue;
     }
-    const answerMatch = /^answer:\s*(.*)$/is.exec(trimmed);
+    const answerMatch = /^answer:\s*(.*)$/is.exec(trimmed) ?? (!statements.length ? /^(\**\s*Final Answer:.*)$/is.exec(trimmed) : null);
     if (answerMatch) {
-      answer = [answerMatch[1], ...lines.slice(i + 1)].join("\n").trim();
+      let rest = lines.slice(i + 1);
+      if (turnFence) {
+        const close = rest.findIndex(candidate => new RegExp(`^\\s*${turnFence}\\s*$`).test(candidate));
+        if (close >= 0) {
+          rest = rest.slice(0, close);
+          turnFence = undefined;
+        }
+      }
+      answer = [answerMatch[1], ...rest].join("\n").trim();
       answerLine = number;
       break;
     }
@@ -315,14 +322,20 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
         statement.actionIndexes.push(actions.length);
         actions.push(columns ? { type: "retrieve", operator_ids: ids, view, columns } : { type: "retrieve", operator_ids: ids, view });
         statement.actionIndexes.push(actions.length);
-      } else if (resource === "schema" || resource === "sheets" || resource === "operator") {
+      } else if (resource === "schema" || resource === "operator") {
         const fromMatch = /^([A-Za-z_]\w*)(?:\s+from\s+(\d+))?$/.exec(rest);
-        if (!fromMatch) return fail(number, `show ${resource} takes one operator ID${resource === "operator" ? "" : ", optionally `from <index>`"}.`);
+        if (!fromMatch)
+          return fail(
+            number,
+            /[\/.(:]/.test(rest)
+              ? `show ${resource} takes the ID of an operator, not a path or a call: first \`set book: scan(files='<path>')\`, then \`show ${resource} book\`.`
+              : `show ${resource} takes one operator ID${resource === "operator" ? "" : ", optionally \`from <index>\`"}.`
+          );
         const id = fromMatch[1];
         statement.ids = [id];
-        const target = resource === "sheets" ? "source" : resource;
+        const target = resource;
         if (resource !== "operator") {
-          // Columns and sheets describe a computed result: compute it first.
+          // The schema describes a computed result: compute it first.
           actions.push({ type: "execute", operator_ids: [id] });
           statement.actionIndexes.push(actions.length);
         }
@@ -346,7 +359,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
         statement.ids = ids;
         actions.push({ type: "inspect", target: "reference", topic: "operators", operator_names: ids } as DataflowAction);
         statement.actionIndexes.push(actions.length);
-      } else return fail(number, `show takes a resource: result, schema, sheets, operator, function, or builtin.`);
+      } else return fail(number, `show takes a resource: result, schema, operator, function, or builtin.`);
       statements.push(statement);
       continue;
     }
@@ -366,7 +379,8 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   if (turnFence !== undefined) return fail(1, "the fence around the turn is not closed.");
   if (pendingSet) return fail(pendingSet.line, "the statement's parentheses are not closed.");
 
-  const missingSummary = summary === undefined;
+  // The answer turn is the stop: it needs no summary.
+  const missingSummary = summary === undefined && answer === undefined;
   if (missingSummary) summary = leadingProse.join(" ");
   const changesText = changes.join("\n").replace(/\n+$/, "");
   const definitionsText = definitions.join("\n\n").trim();

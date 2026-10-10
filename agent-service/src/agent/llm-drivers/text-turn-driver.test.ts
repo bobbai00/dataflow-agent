@@ -92,7 +92,7 @@ test("a turn runs as one dataflow call; the next request replays the turn and it
 });
 
 test("a reply that is not a turn, or an empty one, is rejected as a turn naming what to write", async () => {
-  const f = fixture([{ text: "**Final Answer: 10**" }, { text: ANSWER }]);
+  const f = fixture([{ text: "I'm sorry, but I can't access the data file in this environment." }, { text: ANSWER }]);
   const result = await f.agent.sendMessage("How many?");
   expect(result.error).toBeUndefined();
   expect(result.response).toBe("The function is registered.");
@@ -102,15 +102,26 @@ test("a reply that is not a turn, or an empty one, is rejected as a turn naming 
   expect(receipt.error).toContain("this message is not a turn, so nothing was computed");
   const text = (m: any) => (typeof m.content === "string" ? m.content : m.content.map((p: any) => p.text ?? "").join(""));
   expect(f.prompts[1].map((m: any) => m.role)).toEqual(["system", "user", "assistant", "user"]);
-  expect(text(f.prompts[1][2])).toBe("**Final Answer: 10**");
+  expect(text(f.prompts[1][2])).toBe("I'm sorry, but I can't access the data file in this environment.");
   expect(text(f.prompts[1][3])).toContain("## turn rejected");
+  // A bare Final Answer line is the answer: the task ends there.
+  const bare = fixture([{ text: "**Final Answer: 10**" }]);
+  const ended = await bare.agent.sendMessage("How many?");
+  expect(ended.error).toBeUndefined();
+  expect(ended.response).toBe("**Final Answer: 10**");
+  expect(bare.calls()).toBe(1);
 
+  // An empty reply is retried once silently; a second empty reply is a rejected turn.
   const g = fixture([{ text: "" }, { text: ANSWER }]);
   const second = await g.agent.sendMessage("Say hello.");
   expect(second.error).toBeUndefined();
-  const empty = g.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length)[0];
+  expect(g.calls()).toBe(2);
+  const h = fixture([{ text: "" }, { text: "" }, { text: ANSWER }]);
+  const third = await h.agent.sendMessage("Say hello.");
+  expect(third.error).toBeUndefined();
+  const empty = h.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length)[0];
   expect((empty.toolResults![0].output as any).error).toContain("the reply was empty");
-  expect(text(g.prompts[1][2])).toBe("(empty reply)");
+  expect(text(h.prompts[2][2])).toBe("(empty reply)");
 });
 
 test("a turn that does not parse is rejected with its line, and nothing runs", async () => {

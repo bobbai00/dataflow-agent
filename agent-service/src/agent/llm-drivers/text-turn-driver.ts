@@ -97,7 +97,26 @@ export class TextTurnDriver implements LLMDriver {
         stopSequences: [...RECEIPT_HEADERS],
         abortSignal: input.abortSignal,
       });
-      const rawText = result.text ?? "";
+      let rawText = result.text ?? "";
+      if (!rawText.trim() && result.finishReason !== "length" && !input.abortSignal?.aborted) {
+        // GPT reasoning models sometimes return no visible text. One silent
+        // retry before the empty reply enters the transcript.
+        const again = await generateText({
+          model: this.model,
+          ...this.requestLimits,
+          system: input.systemPrompt,
+          messages,
+          temperature: this.temperature,
+          stopSequences: [...RECEIPT_HEADERS],
+          abortSignal: input.abortSignal,
+        });
+        rawText = again.text ?? "";
+        if (again.usage) {
+          const u = again.usage as any;
+          for (const [key, value] of [["inputTokens", u.inputTokens], ["outputTokens", u.outputTokens], ["totalTokens", u.totalTokens], ["reasoningTokens", u.reasoningTokens], ["cachedInputTokens", u.cachedInputTokens]] as const)
+            if (value !== undefined) aggregated[key] = (aggregated[key] ?? 0) + (value ?? 0);
+        }
+      }
       lastText = rawText;
       const body = (result.response as any)?.body?.usage;
       const cacheCreation = Number(
@@ -122,7 +141,7 @@ export class TextTurnDriver implements LLMDriver {
       const parsed = parseTurn(rawText, { views });
       const cut = result.finishReason === "length";
       const toolCallId = `text-turn-${++this.callSeq}-${Date.now()}`;
-      const summary = parsed.ok ? parsed.turn.summary : "";
+      const summary = parsed.ok ? parsed.turn.summary || "(no summary)" : "";
       const callInput: TextTurnCallInput = {
         reasoning: summary,
         actions: parsed.ok ? parsed.turn.actions : [],
@@ -147,7 +166,7 @@ export class TextTurnDriver implements LLMDriver {
       } else if (!parsed.ok) {
         output = rejected(
           parsed.line === undefined
-            ? "this message is not a turn, so nothing was computed. The task's files are on the engine: `set <id>: scan(files='<path>')` reads one, and `show result <id>` displays it. Write a summary: line and statements; give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
+            ? "this message is not a turn, so nothing was computed. You do not open files yourself: the engine reads them. Begin like this, with the task's own paths:\nsummary: Read the first file.\nset data: scan(files='data/<folder>/input/<file>')\nshow result data\nThen compute in further turns, and give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
             : parsed.error
         );
         isError = true;

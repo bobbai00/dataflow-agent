@@ -133,15 +133,15 @@ test("leading prose stands in for a missing summary; prose after a statement doe
 
 test("errors name the line: unknown resource, bad ID, unavailable view, open fence, open parentheses", () => {
   const cases: Array<[string, string]> = [
-    ["summary: x\nshow table a", "line 2: show takes a resource: result, schema, sheets, operator, function, or builtin."],
+    ["summary: x\nshow table a", "line 2: show takes a resource: result, schema, operator, function, or builtin."],
     ["summary: x\nexecute 9lives", 'line 2: "9lives" is not an operator ID.'],
     ["summary: x\nshow result a sample", 'line 2: the view "sample" is unavailable; use sample_stats or full.'],
+    ["summary: x\nshow schema data/biomedical/input/book.xlsx", "line 2: show schema takes the ID of an operator, not a path or a call: first `set book: scan(files='<path>')`, then `show schema book`."],
     ["summary: x\n```python\ndef f(t):\n    return t", "line 2: the ```python fence is not closed."],
     ["```python\ndef f(t):\n    return t\n```\nset a: f(b)\nsummary: late", "line 6: the summary line comes before the statements."],
     ["summary: x\nset a: aggregate(b, by=['x'],", "line 2: the statement's parentheses are not closed."],
     ["summary: x\n```json\n{}\n```", "line 2: only ```python fences are accepted; they hold definitions."],
     ["summary: x\n```text\nset a: scan(files='x.csv')", "line 1: the fence around the turn is not closed."],
-    ["summary: x\nsummary: y", "line 2: one summary line per turn."],
     ["summary: x\nshow result a[\"Beach]", "line 2: unclosed quote in the column list."],
   ];
   for (const [text, message] of cases) {
@@ -163,9 +163,10 @@ show result b`);
   if (parsed.ok) expect(parsed.turn.statements.map(s => s.line)).toEqual([2, 3, 4]);
 });
 
-test("show sheets reads a scanned workbook's retained sheet names; a fenced whole turn is unwrapped", () => {
-  const sheets = parse("summary: Sheets.\nshow sheets book");
-  expect(sheets.ok && sheets.turn.actions).toEqual([{ type: "execute", operator_ids: ["book"] }, { type: "inspect", target: "source", operator_id: "book" }]);
+test("an answer-only turn needs no summary; a fenced whole turn is unwrapped", () => {
+  const only = parse("answer: **Final Answer: 27**");
+  expect(only.ok && only.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 27**" }]);
+  expect(only.ok && only.turn.missingSummary).toBe(false);
   const fenced = parse("````turn\nsummary: Wrapped.\nset a: scan(files='x.csv')\nshow result a\n````");
   expect(fenced.ok).toBe(true);
   if (fenced.ok) expect(fenced.turn.statements.map(s => s.line)).toEqual([2, 3]);
@@ -221,4 +222,23 @@ test("text from a receipt header on is dropped: the model wrote the engine's rep
     expect(parsed.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
     expect(parsed.turn.ignoredProse).toEqual([5]);
   }
+});
+
+test("a restated summary replaces the first; an answer inside a turn fence ends at the fence; a bare Final Answer line is an answer", () => {
+  const restated = parse("summary: First try.\n\n````turn\nsummary: Second try.\nset a: scan(files='x.csv')\nshow result a\n````");
+  expect(restated.ok).toBe(true);
+  if (restated.ok) expect(restated.turn.summary).toBe("Second try.");
+  const fencedAnswer = parse("EACC leads.\n\n````turn\nsummary: EACC has the highest count.\nanswer: EACC\n````");
+  expect(fencedAnswer.ok).toBe(true);
+  if (fencedAnswer.ok) expect(fencedAnswer.turn.actions).toEqual([{ type: "answer", content: "EACC" }]);
+  const bare = parse("summary: The mean is 68.1.\n\n**Final Answer: 68.1**");
+  expect(bare.ok).toBe(true);
+  if (bare.ok) expect(bare.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.1**" }]);
+  const bareOnly = parse("The analyzed samples give 68.5.\n\n**Final Answer: 68.5**");
+  expect(bareOnly.ok).toBe(true);
+  if (bareOnly.ok) expect(bareOnly.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.5**" }]);
+  // With statements present, a Final Answer line is prose, not an answer.
+  const mixed = parse("summary: x\nset a: scan(files='x.csv')\n**Final Answer: 3**");
+  expect(mixed.ok).toBe(true);
+  if (mixed.ok) expect(mixed.turn.actions.map(a => a.type)).toEqual(["edit"]);
 });

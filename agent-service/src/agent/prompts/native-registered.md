@@ -54,15 +54,16 @@ The statements, one per line:
     show result <id> [full]                        compute what is stale, then display the result
     show result <id>[<col>, <col>] [full]          the same, selected columns only
     show schema <id>                               every column name and type of a result
-    show sheets <id>                               the worksheet names and first raw rows of a scanned workbook
     show operator <id>                             an operator's statement, inputs, and status
     show function <name>                           a registered function's source
     show builtin <name>                            a built-in's full contract
-    answer: <text to the end of the turn>          the final response; alone in its turn
+    answer: <text to the end of the turn>          the final response: the only line of its turn, and the end of the task
 
-The summary line comes first. Definitions register before any statement runs, wherever the fence sits. A turn's edits apply together or not at all: if one line is rejected, nothing changes and the receipt names the line. Requests run after the edits applied. Put the definitions, statements, and `show result` of a known computation in one turn; decide on what a receipt shows in the next turn. `show result` recomputes what changed, so a separate `execute` is for computing without displaying.
+The summary line comes first. Definitions register before any statement runs, wherever the fence sits. A turn's edits apply together or not at all: if one line is rejected, nothing changes and the receipt names the line. Requests run after the edits applied. Put the definitions, statements, and `show result` of a known computation in one turn; decide on what a receipt shows in the next turn. `show result` recomputes what changed, so a separate `execute` is for computing without displaying. A scanned workbook's receipt lists its sheet names; `scan(..., sheet='name')` reads one.
 
-The receipt of a turn has one section per statement: `## edits applied` (or `## edits rejected`, with the line), `## execute ...` and `## show result ...` with the operators that ran and their measured effects under `upstream:`, then the result's shape, records, and statistics; `## show schema|sheets|operator|function|builtin ...` with what was asked. An error names the statement and the cause.
+The receipt of a turn has one section per statement: `## edits applied` (or `## edits rejected`, with the line), `## execute ...` and `## show result ...` with the operators that ran and their measured effects under `upstream:`, then the result's shape, records, and statistics; `## show schema|operator|function|builtin ...` with what was asked. An error names the statement and the cause.
+
+You stop by answering: once a `show result` has displayed what the answer rests on, the next turn is `answer:` and the text of the answer, nothing else. No receipt follows it.
 {{/text}}
 
 ### Built-in operators
@@ -100,7 +101,7 @@ Definitions are shared and persist; each execution runs in isolation, so tables 
 Scan each source in full, execute, and retrieve a {{#data}}`sample_stats`{{/data}}{{^data}}`sample`{{/data}} view of it before computing: actual values settle headers, units, codes, and missing values. Everything you defined and observed is already in your context; inspect only for what it lacks: `schema` for column names a receipt cut, `source` for a scanned workbook's sheet names, `reference` for a built-in's full contract. Use `scan(..., preview=...)` only when a scan fails or its columns look wrong.
 {{/text}}
 {{#text}}
-Scan each source in full and `show result` it before computing: actual values settle headers, units, codes, and missing values. Everything you defined and observed is already in your context; ask only for what it lacks: `show schema` when a receipt cut a wide table's column list, `show sheets` for a workbook's worksheet names, `show builtin` for a built-in's full contract. Use `scan(..., preview=...)` only when a scan fails or its columns look wrong.
+Scan each source in full and `show result` it before computing: actual values settle headers, units, codes, and missing values. Everything you defined and observed is already in your context; ask only for what it lacks: `show schema` when a receipt cut a wide table's column list, `show builtin` for a built-in's full contract. Use `scan(..., preview=...)` only when a scan fails or its columns look wrong.
 {{/text}}
 
 Check completeness: full can be capped, retained samples are not necessarily random, and a complete preview is not a complete source. Compute requested searches, rankings, and summaries over the intended tables in the graph. Do not infer a population from displayed samples. Preserve literal categories such as 'None' when they are not missing data. Normalize numeric text before conversion; unexpected parsing failures should not silently become nulls.
@@ -158,10 +159,9 @@ records: full; 1 of 1 row, 1 of 1 column (complete)
 | 100 |
 ```
 
-Answer in the next turn:
+Both results are displayed, so the next turn is the answer, which ends the task:
 
 ````turn
-summary: Both requested results are current and complete.
 answer: Group A: 30; group B: 70. Overall total: 100.
 ````
 

@@ -148,7 +148,8 @@ for (const data of [false, true])
         expect(parsed.ok).toBe(true);
         if (!parsed.ok) continue;
         expect(parsed.turn.missingSummary).toBe(false);
-        expect(prepareRegisteredDataflowActions({ reasoning: parsed.turn.summary, actions: parsed.turn.actions }, retrievalViews).status).toBe("pending");
+        // The answer turn carries no summary; the driver sends a placeholder as the reasoning.
+        expect(prepareRegisteredDataflowActions({ reasoning: parsed.turn.summary || "(no summary)", actions: parsed.turn.actions }, retrievalViews).status).toBe("pending");
       }
       // The example receipt is real renderer output; statistics lines appear only with data on.
       const receipts = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");

@@ -83,6 +83,19 @@ export function resultScope(
         line = `${view.type.toLowerCase()} ${name(id)}: ${parameters}input ${inputs[0] ? inputShape(item, inputs[0]) : "unconnected"}; output ${rows(completed(id))}.`;
       } else if (view.type === "Scan" && view.properties.preview !== undefined) {
         line = `preview ${name(id)}: ${view.properties.preview}-row budget per file/sheet/table; headers or metadata may add rows; not a full scan.`;
+      } else if (view.type === "Scan") {
+        // A workbook's sheet names are part of its scan receipt, so no
+        // separate lookup is needed to pick one.
+        const sources = (completed(id)?.tableProfile?.native?.operations as any)?.scan?.sources;
+        const sheets = [
+          ...new Set(
+            (Array.isArray(sources) ? sources : []).flatMap((source: any) =>
+              Array.isArray(source?.sheets) ? source.sheets.filter((sheet: unknown): sheet is string => typeof sheet === "string") : []
+            )
+          ),
+        ];
+        if (sheets.length > 1 || (sheets.length === 1 && view.properties.sheet === undefined))
+          line = `workbook sheets of ${name(id)}: ${sheets.slice(0, 20).map(sheet => JSON.stringify(sheet)).join(", ")}${sheets.length > 20 ? ` … +${sheets.length - 20}` : ""}; scan(..., sheet='name') reads one${view.properties.sheet === undefined ? " (the first is read now)" : ""}.`;
       }
       if (includeUpstream) pending.push(...inputs);
     }
