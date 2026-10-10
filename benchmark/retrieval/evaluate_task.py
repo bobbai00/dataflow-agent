@@ -49,6 +49,8 @@ class RetrievalSystem(_NativeExpressionBase):
     def __init__(self, *args, **kwargs):
         kwargs["agent_service_endpoint"] = manifest["endpoint"]
         kwargs["computing_unit_id"] = int(os.environ["RETRIEVAL_CUID"])
+        if manifest.get("driver"):
+            kwargs["driver"] = manifest["driver"]
         super().__init__(*args, **kwargs)
 
     def _setup_agent(self, **kwargs):

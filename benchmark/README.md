@@ -89,10 +89,14 @@ bin/bench.sh retrieval run \
     --tasks archeology-easy-6 legal-easy-3 biomedical-hard-3 \
     --models Luna Terra Sol Opus48 Qwen38_27B DeepSeek41Flash \
     --arms evidence_data0_flow0 evidence_data0_flow1 evidence_data1_flow0 evidence_data1_flow1 \
+    --driver text-turn \
     --repetitions 1 --workers 2 --full-result-char-limit 5000
 ```
 
-This example runs 72 model/task/arm attempts. `--full-result-char-limit` controls
+This example runs 72 model/task/arm attempts. `--driver text-turn` runs the agent on the
+text transport (the model writes turns of statements instead of JSON tool calls; see
+`docs/native-registered-python-design.md`, "Text transport"); the default `vercel-tool-use`
+is the JSON tool. `--full-result-char-limit` controls
 the display budget independently of retained data and records it in the campaign
 manifest. Its default remains 100,000 for existing campaign compatibility; pass
 5,000 explicitly to match the current service default. Valid values are

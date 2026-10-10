@@ -304,6 +304,10 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   nativeChecks: boolean;
   /** Initial native reference material; omitted/full retains the complete prompt. */
   nativePromptDetail?: "full" | "on_demand";
+  /** How the registered protocol travels: `tool` (one JSON tool call per model
+   *  step) or `text` (the model's message is a turn of statements; see
+   *  native/turn-syntax.ts). Set from the driver kind at creation. */
+  nativeTransport?: "tool" | "text";
   /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
   stateHistory: boolean;
   /** System-verified reuse of earlier state in native mode: a ledger of each
@@ -568,6 +572,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataflowReasoning: true,
   nativeChecks: false,
   nativePromptDetail: "full",
+  nativeTransport: "tool",
   stateHistory: false,
   stateLedger: false,
   resultSelection: "all",
@@ -633,7 +638,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
  * together) and not mutable via UpdateAgentSettings. (The `toolDialect`
  * sub-mode, by contrast, IS mutable.)
  */
-export type AgentDriverKind = "vercel-tool-use" | "local-react";
+export type AgentDriverKind = "vercel-tool-use" | "local-react" | "text-turn";
 
 /**
  * Tool-call dialect for the `local-react` text-mode driver — the wire syntax
@@ -691,6 +696,10 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
   nativePromptDetail?: "full" | "on_demand";
+  /** How the registered protocol travels: `tool` (one JSON tool call per model
+   *  step) or `text` (the model's message is a turn of statements; see
+   *  native/turn-syntax.ts). Set from the driver kind at creation. */
+  nativeTransport?: "tool" | "text";
   stateHistory?: boolean;
   stateLedger?: boolean;
   parallelToolCalls?: boolean;
@@ -798,6 +807,10 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
   nativePromptDetail?: "full" | "on_demand";
+  /** How the registered protocol travels: `tool` (one JSON tool call per model
+   *  step) or `text` (the model's message is a turn of statements; see
+   *  native/turn-syntax.ts). Set from the driver kind at creation. */
+  nativeTransport?: "tool" | "text";
   stateHistory?: boolean;
   stateLedger?: boolean;
   parallelToolCalls?: boolean;

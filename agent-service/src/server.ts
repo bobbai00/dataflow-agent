@@ -41,6 +41,8 @@ import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
+import { TextTurnDriver } from "./agent/llm-drivers/text-turn-driver";
+import { assembleTextTurnContext } from "./agent/util/context-utils-text-turn";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
 import { assembleContext, type AssembleContextOptions } from "./agent/util/context-utils";
@@ -516,6 +518,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
   };
 
+  if (kind === "text-turn") return input => assembleTextTurnContext(input.visibleSteps);
   if (kind === "local-react") {
     // The local text-mode driver picks the assembler by tool-call dialect so
     // each dialect's context matches the format its system prompt describes:
@@ -599,16 +602,16 @@ async function createAgentInstance(
   // with extra_body to inject reasoning_effort, bypassing LiteLLM's param validation.
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
+  const requestLimits = {
+    maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS) : undefined,
+    maxRetries: process.env.MODEL_SDK_RETRIES ? Number(process.env.MODEL_SDK_RETRIES) : undefined,
+  };
   const driver: LLMDriver =
     driverKind === "local-react"
       ? new LocalReactTextDriver({ model })
-      : new VercelToolUseDriver({
-          model,
-          maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS
-            ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS)
-            : undefined,
-          maxRetries: process.env.MODEL_SDK_RETRIES ? Number(process.env.MODEL_SDK_RETRIES) : undefined,
-        });
+      : driverKind === "text-turn"
+        ? new TextTurnDriver({ model, ...requestLimits })
+        : new VercelToolUseDriver({ model, ...requestLimits });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -626,6 +629,8 @@ async function createAgentInstance(
   // synthetic `initialize` step that anchors both the workflow snapshot and
   // every per-operator baseline result. `initialize` itself loads the workflow
   // (retrieveWorkflow) from the delegate config, so no inline load is needed.
+  // The text transport's prompt describes turns, not tool calls.
+  if (driverKind === "text-turn") agent.updateSettings({ nativeTransport: "text" });
   await agent.initialize(delegateConfig);
 
   agentStore.set(agentId, agent);
@@ -676,6 +681,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     flowEvidence: agentSettings.flowEvidence,
     dataflowReasoning: agentSettings.dataflowReasoning,
     nativePromptDetail: agentSettings.nativePromptDetail,
+    nativeTransport: agentSettings.nativeTransport,
     nativeChecks: agentSettings.nativeChecks,
     stateHistory: agentSettings.stateHistory,
     stateLedger: agentSettings.stateLedger,
@@ -931,6 +937,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
             nativePromptDetail: settings.nativePromptDetail,
+        nativeTransport: settings.nativeTransport,
             nativeChecks: settings.nativeChecks,
             stateHistory: settings.stateHistory,
             stateLedger: settings.stateLedger,
@@ -1004,7 +1011,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         computingUnitId: t.Optional(t.Number()),
         // Explicit driver override. Must be in the schema or Elysia's
         // normalize pass strips it from the body before the handler reads it.
-        driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
+        driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react"), t.Literal("text-turn")])),
         settings: t.Optional(
           t.Object({
             maxOperatorResultCharLimit: t.Optional(t.Number()),
@@ -1032,6 +1039,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
             nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
+            nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text")])),
             nativeChecks: t.Optional(t.Boolean()),
             stateHistory: t.Optional(t.Boolean()),
             stateLedger: t.Optional(t.Boolean()),
@@ -1467,6 +1475,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: settings.flowEvidence,
         dataflowReasoning: settings.dataflowReasoning,
         nativePromptDetail: settings.nativePromptDetail,
+        nativeTransport: settings.nativeTransport,
         nativeChecks: settings.nativeChecks,
         stateHistory: settings.stateHistory,
         stateLedger: settings.stateLedger,
@@ -1539,6 +1548,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
         nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
+            nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text")])),
         nativeChecks: t.Optional(t.Boolean()),
         stateHistory: t.Optional(t.Boolean()),
         stateLedger: t.Optional(t.Boolean()),

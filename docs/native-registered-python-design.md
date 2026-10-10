@@ -157,6 +157,41 @@ handles native tool calling while our context assembler reconstructs history and
 formats observations before each request. Other layouts, such as LATEST's state
 summary, may place environment summaries in user-role messages.
 
+## Text transport
+
+The protocol can travel without tool calls (`--driver text-turn`, agent
+setting `nativeTransport: "text"`). The model's message is one turn:
+
+```text
+summary: <one line: the population, definitions, and formula this turn assumes>
+<python definitions in a ```python fence, when needed>
+set <id>: <op>(<inputs>, <key>=<value>, ...)
+delete <id>
+execute <id>, ...
+show result <id>[<col>, ...] [full]
+show schema | sheets | operator | function | builtin <name>
+answer: <text to the end of the turn>
+```
+
+`agent/native/turn-syntax.ts` parses a turn into the JSON tool's action list
+(one edit holding every fence and `set`/`delete` line at its turn line number,
+then the requests in order; `show result` is an execute of the target followed
+by a retrieve), so execution, receipts, traces and the audit are shared with the
+tool transport. `agent/llm-drivers/text-turn-driver.ts` runs the loop, records
+each turn as one synthesized `dataflow` call whose input carries the turn text,
+and treats a prose-only reply as the missing-action case (one correction). A
+reply cut off at the output limit is a rejected turn naming the cause.
+`agent/util/context-utils-text-turn.ts` replays the transcript as plain chat
+messages: the turn verbatim as the assistant message, its receipt
+(`agent/native/turn-receipt.ts`) as the next user message. The receipt has one
+section per statement: `## edits applied` or `## edits rejected` with the line,
+`## execute …`/`## show result …` with the operators that ran and their measured
+effects under `upstream:`, then the result's shape, records and statistics.
+
+The prompt's syntax and example sections switch on the transport
+(`{{#text}}`/`{{^text}}` in `prompts/native-registered.md`); the built-in
+contracts, Python rules and analysis principles are shared.
+
 ## Built-ins and source reading
 
 Thirteen built-ins are available: scan, filter, project, cast, aggregate, join,

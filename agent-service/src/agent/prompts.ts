@@ -225,6 +225,8 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   messageLayout?: AgentSettings["messageLayout"];
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
+  /** `text`: the model writes turns of statements (native/turn-syntax.ts) instead of JSON tool calls. */
+  transport?: "tool" | "text";
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
   dataEvidence?: boolean;
   flowEvidence?: boolean;
@@ -277,6 +279,7 @@ function nativeFlags(options: NativePromptLayoutOptions): Record<string, boolean
     history: !!options.stateHistory,
     ledger: !!options.stateLedger,
     checks: !!options.checks,
+    text: options.transport === "text",
   };
 }
 
@@ -373,6 +376,17 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
     full: `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`,
   };
   const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
+  if (options.transport === "text") {
+    const sampleText = `${sample}${views.includes("sample_stats") ? `, plus statistics on every column within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget` : ""}`;
+    return [
+      first && views.includes("full")
+        ? `\`show result <id>\` gives ${sampleText.charAt(0).toLowerCase() + sampleText.slice(1)}. \`show result <id> full\` gives ${descriptions.full.charAt(0).toLowerCase() + descriptions.full.slice(1)} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+        : first
+          ? `\`show result <id>\` gives ${sampleText.charAt(0).toLowerCase() + sampleText.slice(1)}.`
+          : `\`show result <id> full\` gives ${descriptions.full.charAt(0).toLowerCase() + descriptions.full.slice(1)} Check the completeness of every result.`,
+      "Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.",
+    ].join(" ");
+  }
   return [
     "Choose a `view` on every retrieve:",
     "",

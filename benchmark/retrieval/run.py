@@ -64,6 +64,8 @@ def main():
     parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
     parser.add_argument("--large-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--driver", choices=["vercel-tool-use", "text-turn"], default="vercel-tool-use",
+                        help="Agent transport: JSON tool calls, or text turns (native/turn-syntax.ts)")
     parser.add_argument("--full-result-char-limit", type=full_result_char_limit, default=5000,
                         help="Full retrieval display cap, 128..100000 characters (service default: 5000; the 2026-10-08 pilots used 100000)")
     parser.add_argument("--sample-char-limit", type=int, default=1000,
@@ -140,7 +142,7 @@ def main():
         "working_tree_diff_sha256": hashlib.sha256(subprocess.check_output(
             ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "benchmark/retrieval", "bin"])).hexdigest(),
         "working_tree_sources_sha256": source_hash.hexdigest(),
-        "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
+        "driver": args.driver, "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
         "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": args.sample_char_limit, "maxResultRows": 5,
                      "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,

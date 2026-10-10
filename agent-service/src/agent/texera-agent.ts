@@ -617,6 +617,7 @@ export class TexeraAgent {
         flowEvidence: this.settings.flowEvidence === true,
         checks: this.settings.nativeChecks === true,
         nativePromptDetail: this.settings.nativePromptDetail,
+        transport: this.settings.nativeTransport,
         retrievalViews: availableRetrievalViews(this.settings),
         fullResultCharLimit: this.settings.fullResultCharLimit,
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
@@ -1518,6 +1519,7 @@ export class TexeraAgent {
       dataflowReasoning?: boolean;
       nativeChecks?: boolean;
       nativePromptDetail?: "full" | "on_demand";
+      nativeTransport?: "tool" | "text";
       taskContext?: "trajectory" | "dependencies";
       stateHistory?: boolean;
       stateLedger?: boolean;
@@ -1589,6 +1591,10 @@ export class TexeraAgent {
     let promptNeedsRebuild = false;
     if (updates.nativePromptDetail !== undefined && updates.nativePromptDetail !== this.settings.nativePromptDetail) {
       this.settings.nativePromptDetail = updates.nativePromptDetail;
+      promptNeedsRebuild = true;
+    }
+    if (updates.nativeTransport !== undefined && updates.nativeTransport !== this.settings.nativeTransport) {
+      this.settings.nativeTransport = updates.nativeTransport;
       promptNeedsRebuild = true;
     }
     if (updates.taskContext !== undefined) this.settings.taskContext = updates.taskContext;

@@ -98,6 +98,12 @@ export function renderAll(): Record<string, string> {
       retrievalViews: ["full", "sample", "sample_stats"],
       flowEvidence: true,
     }),
+    "SYSTEM_PROMPT_TEXT_TURN.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+      transport: "text",
+      retrievalViews: ["sample_stats", "full"],
+      dataEvidence: true,
+      flowEvidence: true,
+    }),
     "SYSTEM_PROMPT_WITH_STATE.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
       stateHistory: true,
       stateLedger: true,

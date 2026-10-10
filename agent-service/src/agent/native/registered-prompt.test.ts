@@ -19,6 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { buildRegisteredNativeSystemPrompt, registeredReferenceText } from "../prompts";
+import { parseTurn } from "./turn-syntax";
 import { asSchema } from "ai";
 import { ContextMode, type RetrievalView } from "../../types/agent";
 import { createRegisteredDataflowTool, prepareRegisteredDataflowActions } from "../tools/dataflow-actions";
@@ -116,4 +117,42 @@ for (const data of [false, true])
       for (const read of reads) expect(read.properties.view.enum).toEqual(retrievalViews);
       expect(info.tools).toHaveLength(1);
       expect(info.tools[0].inputSchema).toEqual(schema);
+    });
+
+for (const data of [false, true])
+  for (const flow of [false, true])
+    test(`text transport prompt: turns parse and prepare, sections follow the settings: data=${data}, flow=${flow}`, () => {
+      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+      const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+        transport: "text",
+        retrievalViews,
+        dataEvidence: data,
+        flowEvidence: flow,
+        fullResultCharLimit: 5000,
+        maxOperatorResultCharLimit: 1000,
+        maxResultRows: 5,
+      });
+      expect(prompt).not.toContain("{{");
+      expect(prompt).toContain("Each message you send is one turn");
+      expect(prompt).toContain("show result <id> [full]");
+      expect(prompt).toContain("Everything you defined and observed is already in your context");
+      expect(prompt).not.toContain("```json");
+      expect(prompt).not.toContain("Actions run in order.");
+      expect(prompt.includes("plus statistics on every column")).toBe(data);
+      expect(prompt.includes("Flow statistics report measured effects")).toBe(flow);
+      // Every example turn parses and passes the registered validator.
+      const turns = [...prompt.matchAll(/````turn\n([\s\S]*?)\n````/g)].map(match => match[1]);
+      expect(turns.length).toBeGreaterThanOrEqual(3);
+      for (const text of turns) {
+        const parsed = parseTurn(text, { views: retrievalViews });
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) continue;
+        expect(parsed.turn.missingSummary).toBe(false);
+        expect(prepareRegisteredDataflowActions({ reasoning: parsed.turn.summary, actions: parsed.turn.actions }, retrievalViews).status).toBe("pending");
+      }
+      // The example receipt is real renderer output; statistics lines appear only with data on.
+      const receipts = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
+      expect(receipts).toContain("## edits applied");
+      expect(receipts).toContain("## show result report full");
+      expect(receipts.includes("statistics:")).toBe(data);
     });
