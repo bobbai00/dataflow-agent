@@ -1422,8 +1422,8 @@ export class TexeraAgent {
               budgetReminders.add(remaining);
               const content =
                 remaining === 1
-                  ? "1 model call remains in this turn. Use Answer as the sole action now, based on the results already received. State any unresolved limitation in the answer."
-                  : "3 model calls remain in this turn. Reserve one for Answer. Batch any necessary edit, execute and retrieve; verify only unresolved questions. Answer now if the requested result is supported.";
+                  ? "1 model call remains in this turn. Reply with the final answer now, without the tool, based on the results already shown. State any unresolved limitation in the reply."
+                  : "3 model calls remain in this turn. Reserve one for the final reply. Put any necessary definitions, statements and show result lines in one call; verify only unresolved questions. Reply with the answer now if the requested result is supported.";
               const feedbackId = this.generateStepId();
               // Append an immutable event rather than rewriting a prompt or
               // earlier frame: the preceding context remains a cacheable prefix.

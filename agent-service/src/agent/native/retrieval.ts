@@ -41,7 +41,7 @@ export function nativeResultTransportLimit(_settings: RetrievalSettings): number
 export function retrievalOptions(settings: Partial<AgentSettings>, view: RetrievalView): NativeObservationOptions {
   if (!availableRetrievalViews(settings).includes(view))
     throw new Error(
-      `Retrieve view ${JSON.stringify(view)} is unavailable. Use ${availableRetrievalViews(settings).join(", ")}.`
+      `The view ${JSON.stringify(view)} is unavailable. Use ${availableRetrievalViews(settings).join(" or ")}.`
     );
   return {
     ...observationFormat(settings),
