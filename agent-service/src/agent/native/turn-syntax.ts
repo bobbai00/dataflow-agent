@@ -116,23 +116,38 @@ function identifiers(text: string, line: number, what: string): string[] | TurnP
   return ids;
 }
 
-/** Column names inside `[...]`: bare, or quoted when they contain spaces or commas. */
+/** Column names inside `[...]`: bare, or quoted when they contain spaces or
+ * commas. Quoted text is kept exactly, so a name with a leading or trailing
+ * space survives; only whitespace outside quotes is trimmed. */
 function columnList(text: string, line: number): string[] | TurnParse {
   const columns: string[] = [];
-  let current = "";
+  let parts: Array<{ text: string; quoted: boolean }> = [];
   let quote: string | undefined;
+  const add = (char: string, quoted: boolean) => {
+    const last = parts[parts.length - 1];
+    if (last && last.quoted === quoted) last.text += char;
+    else parts.push({ text: char, quoted });
+  };
+  const push = () => {
+    if (parts.length && !parts[0].quoted) parts[0].text = parts[0].text.trimStart();
+    const last = parts[parts.length - 1];
+    if (last && !last.quoted) last.text = last.text.trimEnd();
+    const name = parts.map(part => part.text).join("");
+    if (name) columns.push(name);
+    parts = [];
+  };
   for (const char of text) {
     if (quote) {
       if (char === quote) quote = undefined;
-      else current += char;
-    } else if (char === '"' || char === "'") quote = char;
-    else if (char === ",") {
-      if (current.trim()) columns.push(current.trim());
-      current = "";
-    } else current += char;
+      else add(char, true);
+    } else if (char === '"' || char === "'") {
+      quote = char;
+      parts.push({ text: "", quoted: true });
+    } else if (char === ",") push();
+    else add(char, false);
   }
   if (quote) return fail(line, "unclosed quote in the column list.");
-  if (current.trim()) columns.push(current.trim());
+  push();
   if (!columns.length) return fail(line, "the column list is empty.");
   return columns;
 }

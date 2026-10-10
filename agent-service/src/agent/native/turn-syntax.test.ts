@@ -118,6 +118,18 @@ show builtin join, scan`);
   ]);
 });
 
+test("quoted column names keep their spaces; only whitespace outside quotes is trimmed", () => {
+  const parsed = parse(`show result desc["Variable Name ", ' padded ', "a,b", plain , x"y z"] full`);
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) return;
+  expect(parsed.turn.actions[1]).toEqual({
+    type: "retrieve",
+    operator_ids: ["desc"],
+    view: "full",
+    columns: ["Variable Name ", " padded ", "a,b", "plain", "xy z"],
+  });
+});
+
 test("execute with and without IDs; delete; definitions alone, in python or in a fence", () => {
   const parsed = parse("execute\nexecute a, b\ndelete old");
   expect(parsed.ok && parsed.turn.actions).toEqual([
