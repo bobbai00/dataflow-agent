@@ -163,6 +163,8 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   let answerLine = 0;
   let fenceStart: number | undefined;
   let fenceBody: string[] = [];
+  /** The backticks of a `text`/`turn` fence whose lines are read as the turn. */
+  let turnFence: string | undefined;
   let pendingSet: { line: number; depth: number } | undefined;
   const defaultView: RetrievalView = options.views.includes("sample_stats")
     ? "sample_stats"
@@ -189,12 +191,31 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       if (pendingSet.depth === 0) pendingSet = undefined;
       continue;
     }
-    const fence = /^\s*```(\w*)\s*$/.exec(line);
+    const fence = /^\s*(`{3,})(\w*)\s*$/.exec(line);
     if (fence) {
-      if (fence[1] && !["python", "py"].includes(fence[1].toLowerCase()))
-        return fail(number, "only ```python fences are accepted; they hold definitions.");
-      fenceStart = number;
-      continue;
+      if (turnFence) {
+        if (fence[1] === turnFence && !fence[2]) turnFence = undefined;
+        else return fail(number, "a fence inside the turn fence is not closed.");
+        continue;
+      }
+      const language = fence[2].toLowerCase();
+      if (["python", "py"].includes(language)) {
+        fenceStart = number;
+        continue;
+      }
+      // An unlabeled fence holds definitions when it reads as Python; a
+      // `text`/`turn` fence (a model framing its turn as in the example) holds
+      // statements, which are read in place.
+      const next = lines.slice(i + 1).find(candidate => candidate.trim());
+      if (!language && next && /^\s*(def |import |from |class |[A-Z_][A-Z0-9_]* *=)/.test(next)) {
+        fenceStart = number;
+        continue;
+      }
+      if (!language || ["text", "turn", "markdown", "md"].includes(language)) {
+        turnFence = fence[1];
+        continue;
+      }
+      return fail(number, "only ```python fences are accepted; they hold definitions.");
     }
     if (!trimmed) continue;
 
@@ -305,6 +326,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
     return fail(number, `not a statement; a line starts with ${KEYWORDS}.`);
   }
   if (fenceStart !== undefined) return fail(fenceStart, "the ```python fence is not closed.");
+  if (turnFence !== undefined) return fail(1, "the fence around the turn is not closed.");
   if (pendingSet) return fail(pendingSet.line, "the statement's parentheses are not closed.");
 
   const missingSummary = summary === undefined;

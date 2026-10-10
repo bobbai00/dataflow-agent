@@ -132,6 +132,7 @@ test("errors name the line: unknown resource, bad ID, unavailable view, open fen
     ["summary: x\n```python\ndef f(t):\n    return t", "line 2: the ```python fence is not closed."],
     ["summary: x\nset a: aggregate(b, by=['x'],", "line 2: the statement's parentheses are not closed."],
     ["summary: x\n```json\n{}\n```", "line 2: only ```python fences are accepted; they hold definitions."],
+    ["summary: x\n```text\nset a: scan(files='x.csv')", "line 1: the fence around the turn is not closed."],
     ["summary: x\nsummary: y", "line 2: one summary line per turn."],
     ["summary: x\nshow result a[\"Beach]", "line 2: unclosed quote in the column list."],
   ];
@@ -160,4 +161,20 @@ test("show sheets reads a scanned workbook's retained sheet names; a fenced whol
   const fenced = parse("````turn\nsummary: Wrapped.\nset a: scan(files='x.csv')\nshow result a\n````");
   expect(fenced.ok).toBe(true);
   if (fenced.ok) expect(fenced.turn.statements.map(s => s.line)).toEqual([2, 3]);
+});
+
+test("a text fence after a sentence of prose holds the turn; an unlabeled fence of Python holds definitions", () => {
+  const fenced = parse("I'll start by scanning the file.\n\n```text\nsummary: Inspect the file.\nset records: scan(files='data/a.csv')\nshow result records\n```");
+  expect(fenced.ok).toBe(true);
+  if (fenced.ok) {
+    expect(fenced.turn.summary).toBe("Inspect the file.");
+    expect(fenced.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+    expect(fenced.turn.statements.map(s => s.line)).toEqual([5, 6]);
+  }
+  const unlabeled = parse("summary: Define.\n```\ndef f(t):\n    return t\n```\nset b: f(a)\nshow result b");
+  expect(unlabeled.ok).toBe(true);
+  if (unlabeled.ok) expect((unlabeled.turn.actions[0] as any).python).toBe("def f(t):\n    return t");
+  const statements = parse("```\nsummary: Plain fence.\nset b: scan(files='x.csv')\n```");
+  expect(statements.ok).toBe(true);
+  if (statements.ok) expect(statements.turn.summary).toBe("Plain fence.");
 });
