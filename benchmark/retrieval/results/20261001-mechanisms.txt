@@ -1,0 +1,302 @@
+KramaBench retrieval and flow evidence: failure audit — 2026-10-01
+
+Conclusion
+----------
+The mixed accuracy results involve both model variability and systematic issues.
+The evidence reached the model, and the independently checked statistics were
+correct. However, the profile budget discarded useful categorical frequencies,
+the flow selector hid some measured conversion losses, and Luna sometimes
+stopped before making any tool call. Other failures persisted despite correct,
+visible evidence: wrong populations, grouping keys, formulas, and final-answer
+selection. These mechanisms should not be collapsed into a claim that flow
+evidence either helps or hurts accuracy.
+
+The original 1,248-attempt campaign is unchanged. The two subsequent pilots are
+diagnostics on five selected tasks, not new full-benchmark accuracy estimates.
+No failed attempt was replaced. No task-specific answer rule was added.
+
+Scope and provenance
+--------------------
+Original campaign: 104 original top-level KramaBench tasks, Luna and Terra,
+three fixed retrieval views crossed with flow on/off, one repetition per arm.
+Agent/runner 21fb91a77; JVM engine 04e85b581; KramaBench
+4658eb92db753805e0df3edc207ca46379eda43b. See 20261001-full.txt for the complete
+score/cost table, timeout accounting, and original audit.
+
+Original artifacts: /tmp/texera-retrieval-full-fixed-20261001
+Investigation artifacts: /tmp/texera-retrieval-mechanism-audit-20261001
+First pilot: /tmp/texera-retrieval-mechanism-pilot-20261001
+Second pilot: /tmp/texera-retrieval-mechanism-protocol-20261001
+
+All scores below use the original KramaBench evaluator; full pass means score
+>= 1.0. Costs use recorded model usage and the harness's cached-input discounts;
+they exclude evaluator and engine costs. Diagnostics use sample_stats + flow,
+2,000-character samples, at most five rows, and separate 2,000-character data
+and flow budgets. The 25-model-step limit is unchanged.
+
+1. Did the model receive the statistics?
+---------------------------------------
+Yes, when the renderer selected them. Across the original campaign there were
+6,770 successful retrieves. Of these, 6,765 had a subsequent recorded model
+request, and all 6,765 observation bodies appeared verbatim in that request's
+tool results. Five final observations had no subsequent request. No missing
+delivery was found. This establishes availability, not correct use.
+
+The enabled prompts already described data and flow evidence, partial coverage,
+unknown statistics, non-random retained samples, narrow projections, native
+operators, eligibility, and rounding. The problem was not simply absent guidance.
+
+Tasks receiving at least one data-statistics block, out of 104 per arm:
+
+                     sample_stats, no flow     sample_stats, with flow
+Luna                           81                         90
+Terra                          85                         83
+
+Thus 339/416 statistics-arm attempts received data facts. Others inspected only
+raw previews or complete small tables, or stopped early. Raw lines have no parsed
+column statistics; complete small tables intentionally omit redundant data facts.
+Enabling sample_stats is not equivalent to receiving statistics on every call.
+
+The original 4,922 context-prefix checks had zero failures. Original final
+snapshots also had zero count/version invariant violations over 11,547 profiles
+and 104,356 columns. There is no evidence here of a prompt-prefix or stale-profile
+bug explaining the score differences. These checks do not prove every cache
+path correct or identify undocumented provider-side behavior.
+
+2. Are the statistics reasonable?
+---------------------------------
+Independent pandas recomputation checked counts, numeric ranges, and every
+published value frequency for three source scans: 480 comparisons, zero
+mismatches. Scope:
+
+Source/task                Source rows  Profile rows  Profile columns  Checks
+worldcities / archeology-easy-11 44,691       16,384           11           61
+report categories / legal-easy-26   524          524            4           35
+clinical metadata / biomedical-easy-2
+                                  153          153          128          384
+
+The city profile is explicitly a prefix, not the full 44,691-row distribution.
+The workbook has 179 columns; the profiler records up to 128. These limits are
+reported. Literal strings such as "NA" are not nulls under the parser's policy;
+nullCount=0 therefore does not imply every value is analytically usable.
+The source checks are deliberately limited to known simple parse settings.
+
+A systematic problem was loss of useful frequencies under the payload cap.
+In final snapshots, 677 profiles across 350 attempts dropped all frequencies
+after exceeding the profile budget. This removed 38,901 column summaries,
+including 17,018 columns with only 1–8 distinct values. Many such columns are
+useful category/eligibility flags, although low cardinality alone does not
+establish relevance.
+
+Reprofiling the same 153-row clinical workbook illustrates the repair:
+
+                        Before          After
+Serialized profile      45,377 bytes    64,960 bytes (cap: 65,536)
+Columns with frequencies     0              60
+Case_excluded values    absent          No:144, Yes:9, other:0
+
+The profiler now removes the largest value dictionaries first and preserves
+compact categories where possible. The renderer reserves space for frequencies
+and ranges instead of allowing count lines to consume the entire display budget.
+Limits still apply; neither all columns nor all frequencies are guaranteed.
+
+3. Systematic flow and protocol issues
+-------------------------------------
+Conversion loss was measured but often hidden by selection. In Luna's
+legal-easy-26 failure, casting comma-formatted report counts with errors="null"
+lost 317/520 values. The final result retained only four states. The flow selector
+previously omitted Cast ancestors and stopped after three ordinary ancestors,
+so intervening projections/filters obscured this measurement.
+
+There were nonzero cast-loss counters in 106 attempts' final snapshots. Some
+losses are intentional; this count is not a count of wrong answers. Manual
+audits confirmed harmful losses in legal-easy-26, legal-hard-14 (150/660), and
+legal-hard-24 (14/26 in the selected Florida table).
+
+The selector now considers ancestors within its existing depth/node bounds and
+prioritizes measured conversion losses. Replaying the new renderer on those
+three frozen failed results exposes all three warnings without re-executing the
+graphs. It still respects version bindings and opaque Process boundaries.
+Model-authored operator descriptions are no longer labeled as engine guarantees.
+
+Luna also had 23 original attempts without Answer: 18 stopped on the first
+plain-text response, three stopped later, and two exhausted the step limit.
+Terra had none. The 18 first-response failures received no tool evidence, so
+their outcomes cannot be attributed to the content of delivered statistics.
+The driver requested toolChoice="required"; retained traces cannot identify
+which upstream model/proxy component produced the contrary response.
+
+Six of the 15 sample-only -> sample_stats Luna pass gains coincided with a
+no-answer failure in the sample-only run. Eight of the 15 sample-only ->
+sample+flow gains did too. This materially confounds an interpretation that
+those gains all came from better data analysis. In contrast, all 19 pass flips
+between Luna stats without/with flow (six gains, 13 losses) had actual answers.
+
+A normal plain-text stop now gets one recorded correction asking for a Dataflow
+action. It uses the remaining original model-step budget and retains all usage.
+It does not restart the task, clear state, extend the step limit, or retry an
+answer judged wrong. Refusals, aborts and exhausted step budgets do not trigger
+this correction. Feedback remains chronological so it cannot replace the user
+task or rewrite the cacheable prefix. The latter was a problem discovered while
+testing the new correction, not a cause of the original campaign's regressions.
+
+4. Manual paired audit: all 13 Luna regressions when adding flow to stats
+----------------------------------------------------------------------
+Each pair below uses sample_stats_flow0 versus sample_stats_flow1 from the
+original campaign. The no-flow run passed and the with-flow run did not fully
+pass. This is observed association; an extra stochastic run may choose a
+different graph even with identical settings.
+
+Task                    With-flow failure and paired contrast
+archeology-easy-11       Included admin/minor capitals using nonempty capital;
+                        no-flow selected primary national capitals. Wrong cohort.
+biomedical-easy-2        Averaged serous samples without honoring Case_excluded;
+                        no-flow used the eligible cohort (68.5 versus 68.1).
+biomedical-hard-5        Computed from all serous metadata rather than the eligible
+                        B-APM-linked cohort (2.4241 versus 2.6563).
+environment-easy-2      Rounded rates before comparison and used an unweighted
+                        mean of annual rates. No-flow happened to return the
+                        reference list despite also using an unweighted mean;
+                        an official pass does not certify that method.
+environment-easy-3      Grouped by beach name alone, merging locations; no-flow
+                        included community in the grouping (267 versus 268).
+environment-hard-11    Used one Pleasure Bay station where the reference combines
+                        either station; failure-gap mean 0.40 instead of 0.37.
+environment-hard-12    Left rain fields as strings on several multi-station
+                        sources, then compared them with numeric zero. Repairs
+                        addressed union/schema issues without fixing that filter.
+environment-hard-18    Matched case-sensitive "Yes", losing lowercase "yes" in
+                        2021; no-flow normalized the values. Reference summer
+                        conventions also limit claims about question clarity.
+legal-easy-26           Cast 317/520 report counts to null; no-flow removed commas
+                        before computing each state's top category.
+legal-hard-1            Relaxed a failed uniqueness check to many_to_many and
+                        retained duplicated metropolitan areas; no-flow normalized
+                        and deduplicated the keys before the mean.
+legal-hard-14           Cast loss of 150/660 counts, plus state-name mismatches
+                        and duplication risks; no-flow normalized numeric text.
+legal-hard-24           Retrieved California=646392 and Florida=590154, then still
+                        selected Florida; also lost 14/26 Florida metro counts.
+wildfire-easy-1         Used lag(offset=1) twice, yielding current + 2*previous,
+                        instead of including offset=2 in a three-month total.
+
+These are not corrupt summary statistics. Some omissions hid useful warnings;
+others involved correct evidence being ignored or a wrong analytical definition.
+The numerical-loss mechanism also appears in Terra legal-hard-14; eligibility
+and case handling recur in Terra biomedical-hard-5 and environment-hard-18.
+
+Checks of gains give the same caution. On environment-easy-1, both Luna runs
+had 738 violations / 15,388 samples. No-flow miscomputed/rounded the ratio to
+4.795; flow returned 4.796. On legal-hard-18, the with-flow run repaired parsing
+and its denominator to return 91,000; the no-flow run algebraically cancelled
+its own denominator and returned 473,000. Neither contrast alone establishes
+that flow caused the successful reasoning.
+
+5. Repairs and diagnostic results
+---------------------------------
+41a3a4516: preserve compact frequencies; prioritize measured upstream cast loss;
+reserve display space for useful values/ranges; separate authored descriptions
+from guarantees; clarify eligibility, missing markers and numeric normalization.
+
+484c6f3d9: one bounded missing-action correction with preserved usage and prefix.
+
+b6a3c7234 (after the pilots): accept explicitly supplied Scan defaults such as
+file_column=None, which the signature advertised but validation rejected;
+clarify that Answer must use the retrieved result matching the final
+interpretation. These final small changes are unit-tested but their accuracy
+effect has not been measured by another live pilot.
+
+Tasks were predeclared: archeology-easy-11, biomedical-easy-2, legal-easy-21,
+legal-easy-26, legal-hard-14. Four were selected from audited Luna failures;
+legal-easy-21 was a previously passing numeric-parsing control. Both pilots
+ran all five for both models, one attempt each, with no outcome-selected retries.
+The JVM remained at 04e85b581; fresh Python workers used the 41a3a4516 profiler.
+Both pilots used the private agent at port 3076 and cleaned up their own CUs.
+
+                         Luna                         Terra
+Phase                    Passes/5  Model USD           Passes/5  Model USD
+Original selected tasks     1      0.012485                3      0.116667
+Statistics repair           1      0.006718                4      0.123898
++ bounded correction        4      0.012363                4      0.130835
+
+New diagnostic model cost: $0.273814 total. The first phase's low Luna cost
+reflects three first-response failures, not efficient successful analysis.
+The second phase recovered two actual plain-text stops; all ten attempts ended
+with Answer. Those two traces preserve prefix continuity and bill all calls.
+
+Most informative live traces:
+
+- Terra legal-hard-14, second pilot: step 4 shows conversion failures=150/660
+  in the final result's upstream evidence. Step 5 removes commas before casting;
+  the final answer passes. This is direct evidence that the new warning reaches
+  a decision where the model repairs the specific problem. The earlier result
+  also showed missing values, so this is not an isolated causal ablation.
+- Biomedical eligibility: both first-pilot models saw No:144/Yes:9 and returned
+  68.5. In the second pilot, Terra again inspected the 12 eligible versus two
+  excluded serous samples and returned 68.5. Luna saw the same categories plus
+  an explicit flow fact that Case_excluded had not been used, yet returned 68.1.
+- Terra archeology-easy-11, second pilot: after receiving primary:207/admin:30/
+  minor:1, it built a primary-only branch and retrieved 17.42741603375528. It then
+  answered the previous 17.1667 value. This is answer selection from an earlier
+  interpretation, not an engine returning an old cached result.
+- Luna legal-hard-14 passes in the second pilot but uses a custom source parser
+  with broad exception suppression and joins filenames without normalizing the
+  spaces in all state names. This pass should not be treated as proof of a
+  completely correct analytical pipeline.
+
+Across the two pilots: 58 prefix checks, 120 profiles and 1,308 profiled columns,
+zero recorded invariant violations. Successful observation delivery checks found
+zero omissions. Read all ten second-pilot traces; the results above deliberately
+retain both remaining failures and qualifications on passing solutions.
+
+Validation: 1,145 agent tests pass, 20 Python profile tests pass, and TypeScript
+typechecking passes. Regression tests cover category retention, cast-warning
+selection, bounded correction, cost accounting, prefix continuity, and optional
+Scan defaults. All 100 token-usage field comparisons across the 20 diagnostic
+attempts match their stats.json totals, including the initial failed responses.
+
+6. What can be claimed, and the next experiment
+----------------------------------------------
+We can claim that evidence is delivered, tested statistics match their source
+within documented coverage, and the fixes retain useful information under a
+fixed display budget. We have a live trace where an exposed cast warning is
+followed by the corresponding repair. We cannot claim that these diagnostics
+establish an accuracy gain across KramaBench or that stats+flow dominates other
+views. The original full-run results remain the paper's current full-run data.
+
+A clean follow-up should freeze the corrected engine/protocol for every arm,
+cross prompt guidance with evidence on/off, and use several matched independent
+repetitions. Keep all attempts and cost, including protocol corrections. Report
+official scores, pass rates, paired task differences, protocol failures, and
+observed warning-to-repair behavior separately. Bootstrap over tasks and estimate
+run-to-run variance rather than treating one repeat as conclusive. Keep a task
+set untouched by this diagnostic tuning before making a general accuracy claim.
+
+Source and replay instructions
+------------------------------
+mechanisms.py checks observation delivery against actual next model requests,
+no-answer categories, profile-budget omissions, and conversion counters.
+verify_source_profiles.py independently checks selected simple scans with pandas.
+Neither script judges the model's analytical reasoning.
+
+python3 benchmark/retrieval/mechanisms.py \
+  /tmp/texera-retrieval-full-fixed-20261001 --output /tmp/new-mechanisms.json
+
+.venv/bin/python benchmark/retrieval/verify_source_profiles.py \
+  /tmp/texera-retrieval-full-fixed-20261001 \
+  --sut DataflowSystemLuna_texera_retrieval_full_fixed_20261001_sample_stats_flow1_Rep1 \
+  --case archeology-easy-11:cities --case legal-easy-26:source \
+  --case biomedical-easy-2:metadata --output /tmp/new-source-validation.json
+
+For any paired case, open the campaign's system_scratch/<SUT>/<task>/ files:
+react_steps.json (exact calls, observations and model inputMessages), snapshot.json
+(final profiles/graph), ground_truth.json, answer.json, evaluation.json and
+stats.json. Original SUT names are
+DataflowSystem<Model>_texera_retrieval_full_fixed_20261001_<arm>_Rep1.
+Pilot SUT names replace the campaign portion with
+texera_retrieval_mechanism_pilot_20261001 or
+texera_retrieval_mechanism_protocol_20261001, always sample_stats_flow1_Rep1.
+
+The accompanying JSON stores the original mechanical audit, independent source
+checks, exact pilot rows, and validation summaries. Raw traces stay at the paths
+above; the original score files and full-run report have not been rewritten.

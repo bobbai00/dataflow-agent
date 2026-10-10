@@ -1,0 +1,3989 @@
+{
+  "summary": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 2,
+      "scored": 3,
+      "mean_score": 0.6666666666666666,
+      "cost_usd": 0.030697919999999997,
+      "costs_known": 3,
+      "model_calls": 36,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 4
+      },
+      "retrieval_chars": 64270,
+      "reads_with_data": 2,
+      "reads_with_flow": 6,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 1,
+      "successful_reads": 6,
+      "no_answer": 0,
+      "prefix_checks": 33,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 36,
+      "provider_reported_cost_usd": 0.031345221,
+      "provider_costs_known": 3,
+      "response_providers": [
+        "InferenceNet",
+        "Makora",
+        "Together",
+        "Wafer"
+      ],
+      "tool_errors": 24,
+      "envelope_errors": 0,
+      "action_errors": 25,
+      "answered_after_tool_errors": 2,
+      "input_tokens": 313160,
+      "output_tokens": 4210,
+      "cached_tokens": 232320,
+      "reasoning_tokens": 1237,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 24.72,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 19.872333333333334,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 27.067969541686278,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.7418571975986716,
+      "actions": {
+        "edit": 6,
+        "execute": 28,
+        "retrieve": 6,
+        "answer": 3,
+        "inspect": 4
+      },
+      "statuses": {
+        "ok": 22,
+        "error": 25
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 3,
+        "operator.updated": 3
+      },
+      "operators_created": {
+        "scan": 4,
+        "sw_cities": 1,
+        "parse_reports": 1,
+        "ratio_2001_2024": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 3,
+      "scored": 3,
+      "mean_score": 1.0,
+      "cost_usd": 0.007349120000000001,
+      "costs_known": 3,
+      "model_calls": 11,
+      "retrieval_views": {
+        "sample_stats": 3,
+        "full": 3,
+        "sample": 1
+      },
+      "retrieval_chars": 15632,
+      "reads_with_data": 4,
+      "reads_with_flow": 9,
+      "reads_with_upstream": 2,
+      "partial_full_reads": 1,
+      "successful_reads": 9,
+      "no_answer": 0,
+      "prefix_checks": 8,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 11,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 81535,
+      "output_tokens": 2127,
+      "cached_tokens": 63946,
+      "reasoning_tokens": 576,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 21.486666666666665,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 12.783333333333333,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 23.95914698562895,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.7842766909915987,
+      "actions": {
+        "edit": 7,
+        "execute": 7,
+        "retrieve": 7,
+        "answer": 3
+      },
+      "statuses": {
+        "ok": 24
+      },
+      "edit_operations": {
+        "operator.created": 14,
+        "edge.created": 8
+      },
+      "operators_created": {
+        "scan": 6,
+        "load_csn_reports": 1,
+        "identity_ratio": 1,
+        "southern_western_by_population": 1,
+        "limit": 2,
+        "sort": 1,
+        "project": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 3,
+      "scored": 3,
+      "mean_score": 1.0,
+      "cost_usd": 0.768885,
+      "costs_known": 3,
+      "model_calls": 12,
+      "retrieval_views": {
+        "sample": 2,
+        "full": 5,
+        "sample_stats": 1
+      },
+      "retrieval_chars": 106351,
+      "reads_with_data": 1,
+      "reads_with_flow": 7,
+      "reads_with_upstream": 2,
+      "partial_full_reads": 0,
+      "successful_reads": 7,
+      "no_answer": 0,
+      "prefix_checks": 9,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 12,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 2,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 395832,
+      "output_tokens": 3215,
+      "cached_tokens": 310480,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 85208,
+      "mean_elapsed_seconds": 23.19,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 14.647666666666666,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 25.80252540235718,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.784373168414883,
+      "actions": {
+        "edit": 8,
+        "execute": 8,
+        "retrieve": 8,
+        "answer": 3,
+        "inspect": 1
+      },
+      "statuses": {
+        "ok": 22,
+        "error": 2,
+        "skipped": 4
+      },
+      "edit_operations": {
+        "operator.created": 17,
+        "edge.created": 11
+      },
+      "operators_created": {
+        "scan": 7,
+        "filter_hemisphere": 1,
+        "sort": 2,
+        "limit": 2,
+        "ratio_it": 1,
+        "cast": 1,
+        "project": 2,
+        "join": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 0,
+      "scored": 3,
+      "mean_score": 0.0,
+      "cost_usd": 0.084787075,
+      "costs_known": 3,
+      "model_calls": 75,
+      "retrieval_views": {
+        "sample": 21,
+        "full": 1
+      },
+      "retrieval_chars": 0,
+      "reads_with_data": 0,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 0,
+      "no_answer": 0,
+      "prefix_checks": 72,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 75,
+      "provider_reported_cost_usd": 0.0392397038,
+      "provider_costs_known": 3,
+      "response_providers": [
+        "Wafer"
+      ],
+      "tool_errors": 64,
+      "envelope_errors": 22,
+      "action_errors": 43,
+      "answered_after_tool_errors": 3,
+      "input_tokens": 592901,
+      "output_tokens": 9441,
+      "cached_tokens": 562560,
+      "reasoning_tokens": 4983,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 88.73,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 87.41233333333334,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 90.86576666667436,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.9488261952670007,
+      "actions": {
+        "inspect": 3,
+        "edit": 4,
+        "execute": 22,
+        "answer": 3,
+        "retrieve": 22
+      },
+      "statuses": {
+        "ok": 11,
+        "error": 43
+      },
+      "edit_operations": {
+        "operator.created": 6,
+        "edge.created": 2
+      },
+      "operators_created": {
+        "scan": 4,
+        "sw_hemisphere": 1,
+        "top_city": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 3,
+      "scored": 3,
+      "mean_score": 1.0,
+      "cost_usd": 0.2523712,
+      "costs_known": 3,
+      "model_calls": 9,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 4
+      },
+      "retrieval_chars": 72889,
+      "reads_with_data": 2,
+      "reads_with_flow": 7,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 0,
+      "successful_reads": 7,
+      "no_answer": 0,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 9,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "answered_after_tool_errors": 0,
+      "input_tokens": 126693,
+      "output_tokens": 1667,
+      "cached_tokens": 79928,
+      "reasoning_tokens": 266,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 17.863333333333333,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 10.297666666666666,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 20.482149861054495,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.6308793698152226,
+      "actions": {
+        "edit": 6,
+        "execute": 6,
+        "retrieve": 6,
+        "answer": 3
+      },
+      "statuses": {
+        "ok": 21
+      },
+      "edit_operations": {
+        "operator.created": 13,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 7,
+        "identity_theft_ratio": 1,
+        "top_southwest_city": 1,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 3,
+      "scored": 3,
+      "mean_score": 1.0,
+      "cost_usd": 0.1022384,
+      "costs_known": 3,
+      "model_calls": 10,
+      "retrieval_views": {
+        "sample_stats": 2,
+        "full": 5
+      },
+      "retrieval_chars": 39880,
+      "reads_with_data": 2,
+      "reads_with_flow": 7,
+      "reads_with_upstream": 2,
+      "partial_full_reads": 0,
+      "successful_reads": 7,
+      "no_answer": 0,
+      "prefix_checks": 7,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 10,
+      "provider_reported_cost_usd": null,
+      "provider_costs_known": 0,
+      "response_providers": [],
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 116515,
+      "output_tokens": 2037,
+      "cached_tokens": 86242,
+      "reasoning_tokens": 365,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 21.183333333333334,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 13.341333333333333,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 24.094520444671314,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.7401793760460027,
+      "actions": {
+        "edit": 7,
+        "execute": 7,
+        "retrieve": 7,
+        "answer": 3
+      },
+      "statuses": {
+        "ok": 21,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 14,
+        "edge.created": 8
+      },
+      "operators_created": {
+        "scan": 6,
+        "southern_western": 1,
+        "sort": 2,
+        "limit": 2,
+        "join": 1,
+        "project": 1,
+        "identity_theft_ratio": 1
+      }
+    }
+  ],
+  "contrasts": [],
+  "rows": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.011333567999999999,
+      "input_tokens": 56640,
+      "provider_reported_cost_usd": 0.011333568,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Together"
+      ],
+      "output_tokens": 804,
+      "cached_tokens": 22528,
+      "reasoning_tokens": 208,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 8.51,
+      "model_latency_seconds": 2.947,
+      "attempt_seconds": 10.840516166063026,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 2,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 8
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "sw_cities": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0230208,
+      "input_tokens": 19575,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 431,
+      "cached_tokens": 11834,
+      "reasoning_tokens": 78,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 19.28,
+      "model_latency_seconds": 12.228,
+      "attempt_seconds": 22.645364625146613,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 4,
+        "edge.created": 3
+      },
+      "operators_created": {
+        "scan": 1,
+        "southern_western": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "official_scores": {
+        "success": 0
+      },
+      "cost_usd": 0.02778701,
+      "input_tokens": 198820,
+      "provider_reported_cost_usd": 0.012459472,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 2925,
+      "cached_tokens": 188736,
+      "reasoning_tokens": 1437,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 95.18,
+      "model_latency_seconds": 92.229,
+      "attempt_seconds": 97.2260848749429,
+      "usage_complete": true,
+      "model_requests": 25,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 20,
+      "envelope_errors": 0,
+      "action_errors": 20,
+      "model_calls": 25,
+      "prefix_checks": 24,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {},
+      "actions": {
+        "inspect": 1,
+        "edit": 2,
+        "execute": 21,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 5,
+        "error": 20
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 2
+      },
+      "operators_created": {
+        "scan": 1,
+        "sw_hemisphere": 1,
+        "top_city": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.00293376,
+      "input_tokens": 26283,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 833,
+      "cached_tokens": 18458,
+      "reasoning_tokens": 171,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 19.9,
+      "model_latency_seconds": 14.429,
+      "attempt_seconds": 22.278206374961883,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "load_csn_reports": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0014317800000000001,
+      "input_tokens": 19494,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 509,
+      "cached_tokens": 17099,
+      "reasoning_tokens": 169,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 16.16,
+      "model_latency_seconds": 10.094,
+      "attempt_seconds": 18.458707666024566,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 2
+      },
+      "operators_created": {
+        "scan": 1,
+        "southern_western_by_population": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0478872,
+      "input_tokens": 19196,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 659,
+      "cached_tokens": 11688,
+      "reasoning_tokens": 80,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 16.93,
+      "model_latency_seconds": 11.815,
+      "attempt_seconds": 19.467349250102416,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "official_scores": {
+        "success": 0
+      },
+      "cost_usd": 0.027380625,
+      "input_tokens": 197481,
+      "provider_reported_cost_usd": 0.0120248478,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 2784,
+      "cached_tokens": 187200,
+      "reasoning_tokens": 1310,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 68.26,
+      "model_latency_seconds": 67.729,
+      "attempt_seconds": 70.4563487500418,
+      "usage_complete": true,
+      "model_requests": 25,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 22,
+      "envelope_errors": 22,
+      "action_errors": 0,
+      "model_calls": 25,
+      "prefix_checks": 24,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": true,
+      "views": {},
+      "actions": {
+        "inspect": 1,
+        "edit": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 3
+      },
+      "edit_operations": {
+        "operator.created": 2
+      },
+      "operators_created": {
+        "scan": 2
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "official_scores": {
+        "rae_score": 0.0
+      },
+      "cost_usd": 0.02961944,
+      "input_tokens": 196600,
+      "provider_reported_cost_usd": 0.014755384,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 3732,
+      "cached_tokens": 186624,
+      "reasoning_tokens": 2236,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 102.75,
+      "model_latency_seconds": 102.279,
+      "attempt_seconds": 104.9148663750384,
+      "usage_complete": true,
+      "model_requests": 25,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 22,
+      "envelope_errors": 0,
+      "action_errors": 23,
+      "model_calls": 25,
+      "prefix_checks": 24,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "sample": 21,
+        "full": 1
+      },
+      "actions": {
+        "inspect": 1,
+        "edit": 1,
+        "retrieve": 22,
+        "execute": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 3,
+        "error": 23
+      },
+      "edit_operations": {
+        "operator.created": 1
+      },
+      "operators_created": {
+        "scan": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 0.0,
+      "pass": false,
+      "official_scores": {
+        "success": 0
+      },
+      "cost_usd": 0.007081632,
+      "input_tokens": 201616,
+      "provider_reported_cost_usd": 0.009917248,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 1722,
+      "cached_tokens": 188672,
+      "reasoning_tokens": 693,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 47.82,
+      "model_latency_seconds": 47.29,
+      "attempt_seconds": 50.00594116700813,
+      "usage_complete": true,
+      "model_requests": 25,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 22,
+      "envelope_errors": 0,
+      "action_errors": 22,
+      "model_calls": 25,
+      "prefix_checks": 24,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {},
+      "actions": {
+        "inspect": 2,
+        "edit": 1,
+        "execute": 22,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 4,
+        "error": 22
+      },
+      "edit_operations": {
+        "operator.created": 2
+      },
+      "operators_created": {
+        "scan": 2
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.0240552,
+      "input_tokens": 19222,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 436,
+      "cached_tokens": 17098,
+      "reasoning_tokens": 86,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 14.29,
+      "model_latency_seconds": 9.103,
+      "attempt_seconds": 16.645158833125606,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "top_southwest_city": 1
+      }
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.00298358,
+      "input_tokens": 35758,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 785,
+      "cached_tokens": 28389,
+      "reasoning_tokens": 236,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 28.4,
+      "model_latency_seconds": 13.827,
+      "attempt_seconds": 31.14052691590041,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample": 1,
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10
+      },
+      "edit_operations": {
+        "operator.created": 8,
+        "edge.created": 5
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "project": 1,
+        "join": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.10272,
+      "input_tokens": 33154,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 590,
+      "cached_tokens": 20730,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 12388,
+      "elapsed_seconds": 16.07,
+      "model_latency_seconds": 9.375,
+      "attempt_seconds": 18.442392291035503,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 4,
+        "edge.created": 3
+      },
+      "operators_created": {
+        "scan": 1,
+        "filter_hemisphere": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.054368,
+      "input_tokens": 33342,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 862,
+      "cached_tokens": 30526,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 2780,
+      "elapsed_seconds": 16.4,
+      "model_latency_seconds": 11.106,
+      "attempt_seconds": 18.730760041158646,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 2,
+        "ratio_it": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.012282719999999999,
+      "input_tokens": 54904,
+      "provider_reported_cost_usd": 0.010094405,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "InferenceNet",
+        "Makora"
+      ],
+      "output_tokens": 1684,
+      "cached_tokens": 21120,
+      "reasoning_tokens": 336,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 17.83,
+      "model_latency_seconds": 9.38,
+      "attempt_seconds": 20.357451291987672,
+      "usage_complete": true,
+      "model_requests": 7,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 3,
+      "model_calls": 7,
+      "prefix_checks": 6,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 3
+      },
+      "actions": {
+        "inspect": 2,
+        "edit": 3,
+        "execute": 4,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10,
+        "error": 3
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "operator.updated": 3,
+        "edge.created": 2
+      },
+      "operators_created": {
+        "scan": 1,
+        "parse_reports": 1,
+        "ratio_2001_2024": 1
+      }
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.1804288,
+      "input_tokens": 88275,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 572,
+      "cached_tokens": 51142,
+      "reasoning_tokens": 100,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 22.37,
+      "model_latency_seconds": 9.975,
+      "attempt_seconds": 25.333941499935463,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 2
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 8,
+        "edge.created": 5
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.06299959999999999,
+      "input_tokens": 77824,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 898,
+      "cached_tokens": 57458,
+      "reasoning_tokens": 145,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 29.78,
+      "model_latency_seconds": 17.667,
+      "attempt_seconds": 32.67977887485176,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 3
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7,
+        "error": 1,
+        "skipped": 2
+      },
+      "edit_operations": {
+        "operator.created": 8,
+        "edge.created": 5
+      },
+      "operators_created": {
+        "scan": 4,
+        "sort": 1,
+        "limit": 1,
+        "join": 1,
+        "project": 1
+      }
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.611797,
+      "input_tokens": 329336,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 1763,
+      "cached_tokens": 259224,
+      "reasoning_tokens": 0,
+      "cache_creation_tokens": 70040,
+      "elapsed_seconds": 37.1,
+      "model_latency_seconds": 23.462,
+      "attempt_seconds": 40.23442387487739,
+      "usage_complete": true,
+      "model_requests": 6,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 2,
+      "model_calls": 6,
+      "prefix_checks": 5,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "sample": 1,
+        "full": 3
+      },
+      "actions": {
+        "edit": 4,
+        "execute": 4,
+        "retrieve": 4,
+        "inspect": 1,
+        "answer": 1
+      },
+      "statuses": {
+        "error": 2,
+        "skipped": 4,
+        "ok": 8
+      },
+      "edit_operations": {
+        "operator.created": 10,
+        "edge.created": 7
+      },
+      "operators_created": {
+        "scan": 4,
+        "cast": 1,
+        "project": 2,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.016218,
+      "input_tokens": 19116,
+      "provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "response_providers": [],
+      "output_tokens": 708,
+      "cached_tokens": 16950,
+      "reasoning_tokens": 142,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 14.49,
+      "model_latency_seconds": 10.129,
+      "attempt_seconds": 16.958417834015563,
+      "usage_complete": true,
+      "model_requests": 3,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 3,
+      "prefix_checks": 2,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample_stats": 1,
+        "full": 1
+      },
+      "actions": {
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 7
+      },
+      "edit_operations": {
+        "operator.created": 2
+      },
+      "operators_created": {
+        "scan": 1,
+        "identity_theft_ratio": 1
+      }
+    }
+  ],
+  "retrievals": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "cities",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "8ad111b256d9267b4565b8bad5a84d6ffda4489d31081d651aec740d9198864f",
+      "totalRows": 44691,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": false,
+      "chars": 1880,
+      "data_facts": 19,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "sw",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "7ec16ebd8fc254582c0ca9a5cd23de6adf1717d212bab459f3e3f2b872643841",
+      "totalRows": 4095,
+      "returnedRows": 5,
+      "totalColumns": 5,
+      "columnsShown": 5,
+      "complete": false,
+      "chars": 1149,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "sw",
+      "view": "full",
+      "status": "ok",
+      "result_version": "7ec16ebd8fc254582c0ca9a5cd23de6adf1717d212bab459f3e3f2b872643841",
+      "totalRows": 4095,
+      "returnedRows": 1088,
+      "totalColumns": 5,
+      "columnsShown": 5,
+      "complete": false,
+      "chars": 58994,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "cities",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "e32fd897c9fa4b90db9c8f1a143564ba23cf270cedd95896ea75d46812dea754",
+      "totalRows": 44691,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": false,
+      "chars": 1880,
+      "data_facts": 19,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "top_southwest",
+      "view": "full",
+      "status": "ok",
+      "result_version": "97a743bcd74ee649933f76c412b587265f2761641515c1fedb94063d4e55d561",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": true,
+      "chars": 610,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "01a33c16f70aacaa81d422f777920b7e68d7c6513ada577120de506e9da6dd7f",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1399,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "ratio_result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "57ea8b8947cb833a9413c6d826aa9c465c3396611781fefc4a171a98b46aadaa",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 5,
+      "columnsShown": 5,
+      "complete": true,
+      "chars": 476,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "cities",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "e172e6076a8288d7756bae66413f29d0c75bd3fc703972dad492968a12eae465",
+      "totalRows": 44691,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": false,
+      "chars": 1880,
+      "data_facts": 19,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "highest",
+      "view": "full",
+      "status": "ok",
+      "result_version": "1c0f623be28ccf748d7c2b4fd5aff9be599b0842bb73071998da395fdc9fd40b",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": true,
+      "chars": 602,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "ec12b2f53547f9122712890661c2e44165692f1598a3b16e51d9b184021cec84",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1399,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "ratio_result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "8b705baecae4a1071cdf35bae0c8e69556f79758ae0bfc68543320e97e76e850",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 368,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 8,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 10,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 11,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 12,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 13,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 14,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 15,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 16,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 17,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 18,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 19,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 20,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 21,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 22,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 24,
+      "operator_id": "r",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 25,
+      "operator_id": "r",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "cities",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "883aba5016afe596e146123a1911757b64a181a09cf97eaf424b5f62d3f27d0b",
+      "totalRows": 44691,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": false,
+      "chars": 1880,
+      "data_facts": 19,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "southwest_top",
+      "view": "full",
+      "status": "ok",
+      "result_version": "aa628b07a7f53c72fa1605252be958760def533c6c803e7ff2119d422fcec518",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 376,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "workbook1",
+      "view": "sample",
+      "status": "ok",
+      "result_version": "d8986f9ec87ff1667cff25aaf293a969842732360bf78af06b148110d2b884ae",
+      "totalRows": 10,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 1384,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "workbook7",
+      "view": "sample",
+      "status": "ok",
+      "result_version": "e3fca4804d7623a3c86d1c1b1fdbec9c9d9768c97b25380ed21b9f42d0121a4e",
+      "totalRows": 23,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 930,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "apm",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "ad6380a3e871f48d3e23dcb697e5e72e0390e947643163e9dd85631b4f7d1b69",
+      "totalRows": 95,
+      "returnedRows": 1,
+      "totalColumns": 34,
+      "columnsShown": 34,
+      "complete": false,
+      "chars": 3942,
+      "data_facts": 47,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "meta",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "cf00d12efb6f84ff5e58ead0d640928ee04cc1aea4e88afb70722431efd7a167",
+      "totalRows": 153,
+      "returnedRows": 1,
+      "totalColumns": 179,
+      "columnsShown": 50,
+      "complete": false,
+      "chars": 4056,
+      "data_facts": 45,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemLuna_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "lowest_with_age",
+      "view": "full",
+      "status": "ok",
+      "result_version": "579bea07f5de888722d58fcf20758ca9167dba1fca44a81b8d4a07aa38f4c75a",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 35,
+      "columnsShown": 3,
+      "complete": false,
+      "chars": 963,
+      "data_facts": 0,
+      "flow_facts": 7,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "cities",
+      "view": "sample",
+      "status": "ok",
+      "result_version": "40bfcaf639380405de9102fa6f8239cb5e6f01a993ecc0ba8ca93594502eef1e",
+      "totalRows": 44691,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": false,
+      "chars": 1057,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "top",
+      "view": "full",
+      "status": "ok",
+      "result_version": "25ff84836b7bf2518e0f89cf32f0e2a9d1b04a82e8a10d48cee2f516b8061e64",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": true,
+      "chars": 1092,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "raw",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "a592a3386d19df85c829c66184ee882374ea7383bdb819fc4245248dfc200482",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1399,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "result",
+      "view": "full",
+      "status": "ok",
+      "result_version": "ebbd1c0ce8685842161e8a8d2e10df1be3476232fc7eeae9db0edf371c56b701",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 335,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "raw",
+      "view": "full",
+      "status": "ok",
+      "result_version": "d835daf9cc12a80d3b722daeb5e6ff71bd191d9b357cdfc2bc8a72e591a765d7",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 632,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "parsed",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "operator_id": "parsed",
+      "view": "full",
+      "status": "ok",
+      "result_version": "bff1a26edfa020d67902febd502532f98da9a83f48e0de9618ec1648131817d7",
+      "totalRows": 24,
+      "returnedRows": 24,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1235,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "bb4a8284355cc582b2cb29ac2094e471d6fcdae45181114ccca6a0e44bc4664f",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 380,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "wb1_preview",
+      "view": "full",
+      "status": "ok",
+      "result_version": "7af90da15812c822ff9eb5898496b1b6edbd8d080000ad4d5f237890c6fc79c6",
+      "totalRows": 20,
+      "returnedRows": 20,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 48309,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "wb7_preview",
+      "view": "full",
+      "status": "ok",
+      "result_version": "dcfc99fdf5f6be5fd29ade8128384efc91acf08681bf533b43178cea54757d92",
+      "totalRows": 43,
+      "returnedRows": 43,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 19804,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Sol",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemSol_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "answer_row",
+      "view": "full",
+      "status": "ok",
+      "result_version": "6a5f385d8197b259ec373e532c5720083cb0cdf8bac724acb07113c24c3222d7",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 753,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "book1_preview",
+      "view": "full",
+      "status": "ok",
+      "result_version": "c6a483cefe0cd57584d5808ab72fc6855bb3e7046ab91dbd5e6ceca30723d7bf",
+      "totalRows": 10,
+      "returnedRows": 10,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 24598,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "book7_preview",
+      "view": "full",
+      "status": "ok",
+      "result_version": "c52ae30e2497ba322981a2cee5dfe097f840e7aa962234be4b87aece0d81f883",
+      "totalRows": 23,
+      "returnedRows": 23,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 10211,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "answer_age",
+      "view": "full",
+      "status": "ok",
+      "result_version": "51b6e610aef4d43d2ab1dbc46d175aaccf1d2204f819855acfcc2e8bccd25635",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 762,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 2
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "mmc1",
+      "view": "full",
+      "status": "ok",
+      "result_version": "40ea73ef0d9afe67f67b9f3dcaea5f01fc03fd30e5a91f853c5a26b8fc3b9246",
+      "totalRows": 30,
+      "returnedRows": 30,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 72064,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "mmc7",
+      "view": "full",
+      "status": "ok",
+      "result_version": "c1ce8538d3913a75b02748f86482fdb6e5c69c87a50631e5baa2ea92484bb14e",
+      "totalRows": 63,
+      "returnedRows": 63,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 29369,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "lowest",
+      "view": "full",
+      "status": "ok",
+      "result_version": "a4ce6aa597e2bda68803a780c5df59ff0a0f24691fbf2cb5a8be63f3004dbb6e",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 1035,
+      "data_facts": 0,
+      "flow_facts": 4,
+      "upstream_facts": 3
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "reports",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "e1b69ae9ee9ed142914f14f9fc3688271a86949de756f9c4f3c9134cb9f44c69",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 1399,
+      "data_facts": 9,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "23f03c486f31778b06cd4b71cdc577f2f9073468cc0cf195de5df0b047569ee5",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 420,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    }
+  ],
+  "errors": [
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 10,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 11,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 12,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 13,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 14,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 15,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 16,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 17,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 18,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 19,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 20,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 21,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 22,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 24,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 25,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "*"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: *. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 8,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 10,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 11,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 12,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 13,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 14,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 15,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 16,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 17,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 18,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 19,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 20,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 21,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 22,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 24,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 25,
+      "action": {
+        "type": "tool_envelope"
+      },
+      "error": "{'kind': 'dataflow-actions', 'protocol': 'registered-python-v1', 'status': 'error', 'actions': [], 'operators': [], 'observe': [], 'observationErrors': [], 'error': 'Selected names must be unique. No actions ran.', 'format': {'tableFormat': 'markdown', 'keyValueColumns': 12, 'columnsShown': 16, 'definitionChars': 200, 'cellChars': 160, 'topValues': 4, 'catalogRecords': 0, 'answerEcho': False}}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 8,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 10,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 11,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 12,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 13,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 14,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 15,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 16,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 17,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 18,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 19,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 20,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 21,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 22,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 24,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 25,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "r"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: r. No execution was started."
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 25,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "r"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'r', 'status': 'error', 'error': 'UNKNOWN_OPERATOR: no operator `r`.'}]}"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 6,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 8,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 10,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 11,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 13,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 14,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 15,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 16,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 17,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 18,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 19,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 20,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 21,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 22,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 24,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 25,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "1"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: 1. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "r"
+        ]
+      },
+      "error": "Unknown or disabled execution targets: r. No execution was started."
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "parsed",
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'parsed', 'status': 'error', 'state': 'failed', 'message': '- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: parse_reports line 9: `result[col] = pd.to_numeric(result[col].astype(\\'string\\').str.strip(), errors=\\'raise\\').astype(\\'int64\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}, {'id': 'raw', 'status': 'ok', 'state': 'executed', 'rows': 26}, {'id': 'ratio', 'status': 'error', 'state': 'not run', 'cause': 'upstream `parsed` failed'}], 'operator_blocks': [{'id': 'raw', 'kind': 'scan', 'state': 'executed', 'inputs': [], 'result': '26 rows × 4 columns', 'columns': ['Year str', '\"Fraud \" str', '\"Identity Theft \" str', '\"Other \" str'], 'issues': ['- flow: Scan parsed selected sources; files selected=1/1, omitted=0; output=26 rows.']}, {'id': 'parsed', 'kind': 'parse_reports', 'state': 'failed', 'inputs': [{'id': 'raw'}], 'result': 'failed', 'columns': [], 'scope': ['parse_reports \"parsed\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: parse_reports line 9: `result[col] = pd.to_numeric(result[col].astype(\\'string\\').str.strip(), errors=\\'raise\\').astype(\\'int64\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.']}], 'error': 'Execution failed due to the following error:\\n"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "parsed",
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'parsed', 'status': 'error', 'error': 'RESULT_FAILED: the last execution of `parsed` failed.\\n- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: parse_reports line 9: `result[col] = pd.to_numeric(result[col].astype(\\'string\\').str.strip(), errors=\\'raise\\').astype(\\'int64\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}, {'operator_id': 'ratio', 'status': 'error', 'error': 'RESULT_NOT_RUN: `ratio` did not run because upstream `parsed` failed. Repair it, execute, then retrieve.'}]}"
+    },
+    {
+      "model": "Terra",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemTerra_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set patients: scan(files='data/biomedical/input/1-s2.0-S0092867420301070-mmc1.xlsx', format='excel', sheet='UCEC_CPTAC3_meta_table_V2.1')\nset app_scores: scan(files='data/biomedical/input/1-s2.0-S0092867420301070-mmc7.xlsx', format='excel', sheet='B-APM subtypes')\nset lowest_app: limit(sort(app_scores, by=['APP_Z_score']), n=1, doc='Patient with the lowest APP-Z score across the complete APP subtype sheet.')\nset lowest_patient: join(lowest_app, patients, on=[('idx','idx')], how='inner', validate='one_to_one')\nset answer_age: project(lowest_patient, keep=['idx','APP_Z_score','Age'])"
+      },
+      "error": "ValueError: Line 3: positional arguments must be input operator IDs; settings use keywords."
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set mmc1: scan(files='data/biomedical/input/1-s2.0-S0092867420301070-mmc1.xlsx', preview=True)\nset mmc7: scan(files='data/biomedical/input/1-s2.0-S0092867420301070-mmc7.xlsx', preview=True)"
+      },
+      "error": "Invalid scan arguments: preview must be an integer >= 1, got true. Signature: scan(files, format=\"auto\", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)"
+    },
+    {
+      "model": "Opus48",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemOpus48_20261008_registered_python_pilot_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "action": {
+        "type": "edit",
+        "python": "",
+        "changes": "set apm: scan(files='data/biomedical/input/1-s2.0-S0092867420301070-mmc7.xlsx', sheet='B-APM subtypes', all_text=True)\nset meta: scan(files='data/biomedical/input/1-s2.0-S0092867420301070-mmc1.xlsx', sheet='UCEC_CPTAC3_meta_table_V2.1', all_text=True)\nset apm_c: cast(apm, columns={'APP_Z_score':'float64'}, errors='null')\nset apm_sel: project(apm_c, keep=['idx','APP_Z_score'])\nset meta_sel: project(meta, keep=['idx','Age'])\nset joined: join(apm_sel, meta_sel, on='idx', how='inner')\nset sorted: sort(joined, by=['APP_Z_score'])\nset lowest: limit(sorted, n=5)"
+      },
+      "error": "Invalid cast arguments: _registered_output_0 must be a dtype (str, int64, float64, bool, datetime), got \"float64\". Signature: cast(T, column=dtype, ..., errors=\"raise\")"
+    }
+  ]
+}

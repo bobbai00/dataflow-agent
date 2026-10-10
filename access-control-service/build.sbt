@@ -70,6 +70,7 @@ libraryDependencies ++= Seq(
   "org.scalamock" %% "scalamock" % "5.2.0" % Test,                   // ScalaMock
   "org.scalatest" %% "scalatest" % "3.2.20" % Test,                  // ScalaTest
   "io.dropwizard" % "dropwizard-testing" % dropwizardVersion % Test, // Dropwizard Testing
+  "org.glassfish.jersey.test-framework.providers" % "jersey-test-framework-provider-jetty" % "3.0.12" % Test, // Async proxy resources
   "org.mockito" % "mockito-core" % mockitoVersion % Test,            // Mockito for mocking
   "org.assertj" % "assertj-core" % assertjVersion % Test,            // AssertJ for assertions
   "com.novocode" % "junit-interface" % "0.11" % Test                // SBT interface for JUnit

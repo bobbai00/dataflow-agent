@@ -217,6 +217,7 @@ def test_state_written_by_output_manager_is_replayed_by_reader():
         queue=consumer_queue,
         worker_actor_id=consumer_worker,
         partitioning=partitioning,
+        port_id=PortIdentity(id=0, internal=False),
     )
 
     # Run the reader on a worker thread so we can time out cleanly if

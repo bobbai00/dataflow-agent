@@ -1,0 +1,23 @@
+KramaBench campaign: official scores and model costs
+
+Agent revision: e031c69dface58591da15d910e51c5aadfae5150
+Completed: 6/6; 1 independent repetitions
+Pass threshold: official score >= 1.0. Mean score below includes only scored attempts.
+Costs: token estimates with separate cache reads/writes; reasoning is already included in output. Missing costs stay unknown. Evaluator and engine costs excluded.
+Provider-reported USD is shown separately when every response includes usage.cost; it can differ from public-rate estimates. Exact billed prompt/tool token splits are not provided by these APIs.
+Agent seconds include model and tool execution, excluding scoring. Model seconds sum gateway requests. Attempt seconds also include setup, artifact collection and scoring.
+Post-fix compatibility validation: all three original tasks rerun once for both OpenRouter-routed models after anchored nonblank regex fix and namespace metadata hardening. Original 18 attempts preserved separately; no outcome-selected task exclusions.
+
+Model | Arm | Passes/attempts | Scored | Mean score | Total USD | Mean agent seconds | Calls | Retrieve views
+DeepSeek41Flash | adaptive_flow1_fullstats | 3/3 | 3 | 100.0% | $0.015069 (3 known) | 21.2 | 15 | {'full': 8, 'sample_stats': 1, 'sample': 2}
+Qwen38_27B | adaptive_flow1_fullstats | 3/3 | 3 | 100.0% | $0.060476 (3 known) | 52.6 | 28 | {'sample': 2, 'full': 8}
+
+Token totals (cache reads/writes are subsets of input; reasoning is a subset of output)
+Model | Arm | Input | Cached input | Cache writes | Output | Reasoning | Complete usage attempts
+DeepSeek41Flash | adaptive_flow1_fullstats | 151254 | 117760 | 0 | 3595 | 936 | 3/3
+Qwen38_27B | adaptive_flow1_fullstats | 323854 | 270784 | 0 | 5845 | 2521 | 3/3
+
+Failures and provider-reported cost
+Model | Failed calls | Before-action rejections | Failed actions | Provider USD | Providers
+DeepSeek41Flash | 2 | 0 | 4 | $0.010152 | Makora, Together, Wafer
+Qwen38_27B | 2 | 0 | 4 | $0.023575 | Wafer

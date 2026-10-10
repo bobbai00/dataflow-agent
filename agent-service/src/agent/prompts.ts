@@ -20,7 +20,7 @@
 /**
  * System prompts for the Texera agent. Two modes:
  *
- * - `buildNativeModeSystemPrompt` — native mode: the model writes a program of
+ * - `buildNativeModeSystemPrompt` — native mode: the model writes a set of
  *   `name = operator(...)` expressions over the catalog in `native/catalog.ts`
  *   (template `prompts/native-mode.md`; the operator reference is generated
  *   from the catalog, so prompt and parser cannot disagree).
@@ -29,8 +29,18 @@
  */
 
 import { readFileSync } from "node:fs";
-import { ContextMode, type AgentSettings, type LocalToolDialect } from "../types/agent";
-import { nativeCatalogText } from "./native/catalog";
+import {
+  ContextMode,
+  type AgentSettings,
+  type LocalToolDialect,
+  type RetrievalSettings,
+  type RetrievalView,
+} from "../types/agent";
+import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
+import { catalogText, catalogIndexText } from "./native/catalog";
+import { registeredCatalogText } from "./native/registered";
+import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
+import { registeredExamples } from "./prompts/registered-examples";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -197,102 +207,378 @@ export function buildCodeModeSystemPrompt(
 }
 
 // ============================================================================
-// NATIVE mode: a program of operator expressions over the catalog in
+// NATIVE mode: named operator expressions over the catalog in
 // native/catalog.ts. Template in prompts/native-mode.md; the operator
 // reference is generated from the same definitions the parser validates
 // against, so prompt and validator cannot drift.
 // ============================================================================
 const NATIVE_MODE_TEMPLATE: string = rd("native-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
-export interface NativePromptLayoutOptions {
+export interface NativePromptLayoutOptions extends RetrievalSettings, ObservationFormatOptions {
+  maxOperatorResultCharLimit?: number;
+  maxResultRows?: number;
   versioned?: boolean;
   session?: boolean;
   recall?: boolean;
+  resume?: boolean;
+  compact?: boolean;
+  multiTask?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
+  /** `text`: the model writes turns of statements (native/turn-syntax.ts) instead of JSON
+   *  tool calls; `turn`: the same statements travel as the fields of one tool call. */
+  transport?: "tool" | "text" | "turn";
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  /** `nativeChecks`: operators carry `check:` lines; the prompt says what they are. */
+  checks?: boolean;
+  stateHistory?: boolean;
+  /** `stateLedger`: task ledgers in Answer receipts, provenance cards in Edit receipts, execution notes. */
+  stateLedger?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
 }
 
-/** What evidence lines are and how to use them, for the kinds that are enabled.
- * Nothing is added when both are off: the prompt never describes lines the
- * agent will not see. */
-export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEvidence?: boolean }): string {
-  const data = options.dataEvidence === true;
-  const flow = options.flowEvidence === true;
-  if (!data && !flow) return "";
-  const parts = [
-    "Evidence lines follow the rows. They are meta-level information: measurements the engine took about the table and about the operator that produced it, not rows of the data and not an answer. Each kind has a character budget of its own and never replaces rows. Use them to decide your next step: whether the table is the one you meant to build, whether a parse, filter, join or grouping did what you intended, and what to check or fix before building on it.",
-  ];
-  if (data)
-    parts.push(
-      "`Data measurement` lines describe the observed table itself: per column the null, non-null and distinct counts, the value range and the most frequent values; per table, duplicate rows and all-null rows or columns. `full=N rows` covers the whole output; `partial prefix=n/N rows` covers only the processed prefix. A value list marked non-exhaustive is not the complete set, and unknown is not zero. They are left out when the complete table is shown, because the rows already say it. Typical uses: a key with fewer distinct values than rows is not unique, so check it before a lookup join; nulls in a column you will aggregate change the denominator; a range or value list that does not fit what the column should hold (years outside the task's span, numbers stored as text, spelling variants of one category) means the scan or an earlier step needs fixing."
-    );
-  if (flow)
-    parts.push(
-      "`Flow measurement` lines describe what the operator did to its inputs, from counters the engine recorded: `Filter kept=135/1388` means 135 of 1,388 input rows survived; an aggregate reports its groups and each reducer's non-null count, which is its denominator; a join reports matched output rows, matched input rows and matched keys separately; a scan reports the files it read and the rows it parsed. `Flow guarantee` states the operator's contract, and for filter, map and process it starts with your `doc`. `Flow upstream` summarizes how an ancestor table was computed. Typical uses: a filter that kept almost nothing or almost everything, or a join that matched few keys, usually means a wrong predicate, key or value spelling; a reducer whose denominator is below the row count skipped nulls."
-    );
-  if (data && flow)
-    parts.push(
-      "With both kinds, flow lines say how many rows each step kept, matched or grouped, and data lines say what the rows now contain. Read them together: a table can have the right row count with wrong values, or the right values in the wrong number of rows."
-    );
-  parts.push(
-    "No evidence line proves that your population, key or formula is the one the task intends" +
-      (flow ? "; a process reports only its row counts and its `doc`." : ".")
+const nativeFragment = (name: string) =>
+  rd(name)
+    .replace(/^<!--[\s\S]*?-->\s*/, "")
+    .trim();
+const NATIVE_FRAGMENTS = {
+  data: nativeFragment("native-data-statistics.md"),
+  flow: nativeFragment("native-flow-statistics.md"),
+  multiTask: nativeFragment("native-multi-task.md"),
+  history: nativeFragment("native-state-history.md"),
+  catalog: nativeFragment("native-task-catalog.md"),
+  recall: nativeFragment("native-recall.md"),
+  resume: nativeFragment("native-resume.md"),
+  compact: nativeFragment("native-compact.md"),
+  singleExample: nativeFragment("native-example-single.md"),
+  dataExamples: nativeFragment("native-example-data.md"),
+  flowExamples: nativeFragment("native-example-flow.md"),
+  taskExamples: nativeFragment("native-example-tasks.md"),
+  reviseExample: nativeFragment("native-example-revise.md"),
+  historyExamples: nativeFragment("native-example-history.md"),
+  leanExamples: nativeFragment("native-example-lean.md"),
+};
+
+/** What a session offers, as the prompt fragments name it. */
+function nativeFlags(options: NativePromptLayoutOptions): Record<string, boolean> {
+  const multi = !!(
+    options.multiTask ||
+    options.stateHistory ||
+    options.stateLedger ||
+    options.session ||
+    options.versioned ||
+    options.recall ||
+    options.resume ||
+    options.compact
   );
-  return "\n\n" + parts.join("\n\n");
+  return {
+    data: availableRetrievalViews(options).includes("sample_stats"),
+    flow: !!options.flowEvidence,
+    multi,
+    history: !!options.stateHistory,
+    ledger: !!options.stateLedger,
+    checks: !!options.checks,
+    text: options.transport === "text",
+    turn: options.transport === "turn",
+    /** The statement grammar is shared by the text and turn transports. */
+    statements: options.transport === "text" || options.transport === "turn",
+  };
 }
 
-/** The paragraph that introduces the `reasoning` argument when it is enabled. */
-const REASONING_PARAGRAPH =
-  "\n\nWrite `reasoning` first: one or two sentences on why this call and what you expect the observed tables to show, such as a row count, the columns, or a value you can check. It stays in your history with the call. When the observation arrives, compare it with your expectation. A mismatch (a column name that looks like a value, a missing year, an unexpected row count) means an earlier step is wrong: fix that step instead of adapting later steps to it.";
+/** Keep `{{#flag}}…{{/flag}}` when the flag is on and `{{^flag}}…{{/flag}}`
+ * when it is off. A section whose markers stand on their own lines takes
+ * those lines with it. */
+function applySections(text: string, flags: Record<string, boolean>): string {
+  const keep = (sigil: string, name: string) => {
+    if (!(name in flags)) throw new Error(`unknown prompt section {{${sigil}${name}}}`);
+    return (sigil === "#") === flags[name];
+  };
+  return text
+    .replace(/^\{\{([#^])(\w+)\}\}\n([\s\S]*?)^\{\{\/\2\}\}\n?/gm, (_, sigil, name, body) =>
+      keep(sigil, name) ? body : ""
+    )
+    .replace(/\{\{([#^])(\w+)\}\}([\s\S]*?)\{\{\/\2\}\}/g, (_, sigil, name, body) => (keep(sigil, name) ? body : ""));
+}
 
-/** The native-mode system prompt for a context mode and message layout. */
+/**
+ * The example receipts are real renderer output with data and flow
+ * statistics on and Markdown tables. Remove what this session's receipts
+ * would not contain and use its table syntax, so every example shows exactly
+ * what the model will see.
+ */
+function adaptReceipts(text: string, options: NativePromptLayoutOptions, flags: Record<string, boolean>): string {
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  return text.replace(/```text\n([\s\S]*?)\n```/g, (_, body: string) => {
+    let lines: string[] = [];
+    let statistics = false;
+    for (const line of body.split("\n")) {
+      if (statistics && line.startsWith("|")) continue;
+      statistics = !flags.data && line.startsWith("statistics:");
+      if (statistics) continue;
+      if (!flags.flow && /^\s*- flow\b/.test(line)) continue;
+      lines.push(
+        line
+          .replace(/^records: sample_stats;/, `records: ${view};`)
+          .replace(/^records: full;/, `records: ${views.includes("full") ? "full" : view};`)
+      );
+    }
+    // An execute receipt gives a block only to an operator with something to
+    // report; without its flow lines, a block may have nothing left.
+    let execute = false;
+    lines = lines
+      .filter((line, i) => {
+        if (line.startsWith("### ")) execute = /^### \d+\. execute\b/.test(line);
+        if (!execute || !line.startsWith("- **")) return true;
+        const end = lines.findIndex((next, j) => j > i && !next.startsWith("  "));
+        const fields = lines.slice(i + 1, end < 0 ? lines.length : end);
+        if (fields.some(field => /^  - (error|note|check|flow)\b/.test(field))) return true;
+        fields.forEach((_, k) => (lines[i + 1 + k] = "\u0000"));
+        return false;
+      })
+      .filter(line => line !== "\u0000");
+    const tsv = (line: string) => {
+      if (/^\|(?:---\|)+$/.test(line)) return undefined;
+      if (!line.startsWith("| ")) return line;
+      const cells = line.slice(2, -2).split(" | ");
+      return cells.every(cell => cell === "…") ? "…" : cells.join("\t");
+    };
+    const shown = options.tableFormat === "tsv" ? lines.map(tsv).filter(line => line !== undefined) : lines;
+    return "```text\n" + shown.join("\n") + "\n```";
+  });
+}
+
+/** Explain exactly the evidence sources available to this session. */
+export function nativeEvidenceText(options: NativePromptLayoutOptions = {}): string {
+  const data = options.retrievalViews
+    ? availableRetrievalViews(options).includes("sample_stats")
+    : options.dataEvidence;
+  return [
+    data ? NATIVE_FRAGMENTS.data : "",
+    options.flowEvidence
+      ? NATIVE_FRAGMENTS.flow.replaceAll(
+          "{{FLOW_BUDGET}}",
+          String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT)
+        )
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): string {
+  const views = availableRetrievalViews(options);
+  const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
+  const rowLimit = options.maxResultRows ?? 50;
+  const rows = rowLimit > 0 ? `at most ${rowLimit} example records` : "example records";
+  const sample = `The schema and ${rows}, within ${sampleLimit} characters`;
+  const descriptions = {
+    sample: `${sample}.`,
+    sample_stats: `${views.includes("sample") ? "The sample" : sample}, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget. Collection and display are bounded; check the reported row and column coverage.`,
+    full: `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`,
+  };
+  const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
+  if (options.transport === "text" || options.transport === "turn") {
+    const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
+    return [
+      `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
+      first && views.includes("full")
+        ? `\`show result <id>\` gives ${sampleText.charAt(0).toLowerCase() + sampleText.slice(1)}. \`show result <id> full\` gives ${descriptions.full.charAt(0).toLowerCase() + descriptions.full.slice(1)} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+        : first
+          ? `\`show result <id>\` gives ${sampleText.charAt(0).toLowerCase() + sampleText.slice(1)}.`
+          : `\`show result <id> full\` gives ${descriptions.full.charAt(0).toLowerCase() + descriptions.full.slice(1)} Check the completeness of every result.`,
+      "Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.",
+    ].join(" ");
+  }
+  return [
+    "Choose a `view` on every retrieve:",
+    "",
+    "| View | Shows |",
+    "|---|---|",
+    ...(["sample", "sample_stats", "full"] as const)
+      .filter(view => views.includes(view))
+      .map(view => `| \`${view}\` | ${descriptions[view]} |`),
+    "",
+    [
+      first && views.includes("full")
+        ? `Look at a result with \`${first}\` first, and retrieve \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+        : first
+          ? ""
+          : "Check the completeness of every `full` view.",
+      "Use `columns` when a wide result hides the fields you need.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  ].join("\n");
+}
+
+/** The examples this session's features call for: a single task always, then
+ * reading statistics, several tasks and earlier versions when available. */
+export function nativeRetrievalExamples(options: NativePromptLayoutOptions = {}): string {
+  const flags = nativeFlags(options);
+  return [
+    NATIVE_FRAGMENTS.singleExample,
+    flags.data ? NATIVE_FRAGMENTS.dataExamples : "",
+    flags.flow ? NATIVE_FRAGMENTS.flowExamples : "",
+    flags.multi ? NATIVE_FRAGMENTS.taskExamples : "",
+    flags.multi ? NATIVE_FRAGMENTS.reviseExample : "",
+    flags.history ? NATIVE_FRAGMENTS.historyExamples : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Working across tasks, with the history, catalog and legacy tools the session enables. */
+export function nativeStateText(options: NativePromptLayoutOptions = {}): string {
+  return [
+    NATIVE_FRAGMENTS.multiTask,
+    options.stateHistory ? NATIVE_FRAGMENTS.history : "",
+    options.stateLedger ? NATIVE_FRAGMENTS.catalog : "",
+    options.recall ? NATIVE_FRAGMENTS.recall : "",
+    options.resume ? NATIVE_FRAGMENTS.resume : "",
+    options.compact ? NATIVE_FRAGMENTS.compact : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+export const NATIVE_STATE_HISTORY = NATIVE_FRAGMENTS.history;
+
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.DELTA,
   options: NativePromptLayoutOptions = {}
 ): string {
-  const delta = contextMode === ContextMode.DELTA;
-  const messageLayout =
-    options.messageLayout ?? (options.versioned || options.session ? "turnSplit" : delta ? "native" : "opSplit");
-  const inlineInspection = delta && messageLayout === "native";
-  const contextLayout = options.versioned
-    ? "Your multi-turn context is a `# Catalog` of `## Turn N` entries: prior tasks, their dataflow changes, and answers, followed by the current task and step observations. LATEST collapses current execution results into `### Dataflow`; DELTA keeps event observations. A table name refers to its current version. Answer only the current turn's task."
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  const flags = nativeFlags(options);
+  const format = observationFormat(options);
+  const context = options.versioned
+    ? "Your context lists earlier tasks in a catalog, followed by the current task and its calls. Table names refer to their current versions."
     : options.session
-      ? "Your multi-turn context groups requests and work under `# Session` / `## Turn N`, with a `# Your Task` directive for the current turn. Earlier tables remain live by name. DELTA retains step observations; LATEST shows the current dataflow. Answer only the current turn's task."
-      : delta
-        ? messageLayout === "native"
-          ? "After `# User Task`, your history is the tool-call transcript. Each dataflow tool result contains its receipt and an `Observation`: what changed, the tables you asked to see, and failures. A cached observation may mention an unchanged operator. The most recent event that changed an operator determines its current definition."
-          : "After `# User Task`, `# Agent Events` contains each action and its `Observation`: what changed, the tables you asked to see, and failures. The most recent event that changed an operator determines its current definition."
-        : "After `# User Task`, `# Current Dataflow` shows every operator's definition as you wrote it, its input row counts, and the results you asked to see. Earlier execution events are collapsed into this snapshot. Current compilation and execution failures remain visible.";
-  const snapshotProgress = delta
-    ? ""
-    : " These are already executed outcomes of your earlier actions, not a proposed workflow. The compact `Last completed action in this task` receipt confirms which call just completed; it does not assert that every operator succeeded. Do not repeat a completed call merely because its tool-call history is collapsed. A visible result body has already been observed; if it already answers the task, answer directly without another tool call." +
-      (messageLayout === "opBlock"
-        ? " A block showing only `Result: executed, N rows` has never been observed; observe it when its contents are necessary. Do not re-observe an operator whose body is already in its block."
-        : " Only a `result not requested` receipt needs a cached observe when its contents are necessary.") +
-      " A saved inspection likewise completes that diagnostic pull; read it and proceed instead of repeating the failed edit.";
-  const scope = delta
-    ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the definition echoed by an earlier failure."
-    : messageLayout === "opBlock"
-      ? "Each operator block carries its definition and the result that definition produced. An observed result stays in its block when you go on to observe something else; it is replaced only when that operator is redefined or re-executed, and an operator you have never observed shows its row count alone. Errors bypass result hiding."
-      : "Detailed successful tables follow the most recent call's `observe` list. Other operators keep their definitions and compact result receipts. Errors bypass result hiding.";
-  const recall = options.recall
-    ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
-    : "";
-  return NATIVE_MODE_TEMPLATE.replace(
-    "{{DATAFLOW_SIGNATURE}}",
-    options.reasoning ? "`dataflow(reasoning, edits, delete, observe)`" : "`dataflow(edits, delete, observe)`"
-  )
-    .replace("{{REASONING_FIELD}}", options.reasoning ? REASONING_PARAGRAPH : "")
-    .replace("{{EVIDENCE_TITLE}}", options.dataEvidence || options.flowEvidence ? ", evidence" : "")
-    .replace("{{EVIDENCE}}", nativeEvidenceText(options))
-    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
-    .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
-    .replace("{{OBSERVATION_SCOPE}}", scope)
-    .replace("{{RECALL_TOOL}}", recall);
+      ? "Your context groups earlier calls and observations by task. Earlier tables remain available by name."
+      : contextMode === ContextMode.LATEST
+        ? "Your context shows the current dataflow and its available results. The latest receipt records what just completed, and earlier execution events may be collapsed; inspect only when you are unsure of an operator's details."
+        : "Your context holds earlier calls and their observations. Each observation describes the graph when its actions ran, and later edits may have changed it. Execute when you need a current result; inspect only when you are unsure of an operator's current definition.";
+  const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
+  const fields: Record<string, string> = {
+    OPERATOR_CATALOG:
+      options.nativePromptDetail === "on_demand"
+        ? "Signatures are listed below. Read a needed contract with inspect target=reference, topic=operators, operator_names=[...]. This is documentation, not graph state; it never executes or changes an operator. Reuse reference material already in context.\n\n" +
+          catalogIndexText()
+        : catalogText(),
+    CONTEXT_LAYOUT: context,
+    RETRIEVAL: nativeRetrievalText(options),
+    RECORD_LAYOUT:
+      format.keyValueColumns > 0
+        ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
+        : `Records use ${table} at any width.`,
+    DATA_STATISTICS: flags.data ? NATIVE_FRAGMENTS.data : "",
+    FLOW_STATISTICS: flags.flow
+      ? NATIVE_FRAGMENTS.flow.replaceAll(
+          "{{FLOW_BUDGET}}",
+          String(options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT)
+        )
+      : "",
+    EARLIER_TASKS: flags.multi ? nativeStateText(options) : "",
+    EXAMPLES:
+      options.nativePromptDetail === "on_demand" ? NATIVE_FRAGMENTS.leanExamples : nativeRetrievalExamples(options),
+  };
+  let prompt = NATIVE_MODE_TEMPLATE.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
+    if (!(key in fields)) throw new Error(`unknown prompt field {{${key}}}`);
+    return fields[key];
+  });
+  prompt = adaptReceipts(applySections(prompt, flags), options, flags);
+  // Example calls use only the views this session's tool schema offers.
+  prompt = prompt.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) prompt = prompt.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
+  return prompt.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** The same contracts and feature-matched examples used by the full prompt. */
+export function nativeReferenceText(
+  request:
+    | { topic: "operators"; operator_names: string[] }
+    | { topic: "example"; example: "single" | "statistics" | "history" },
+  options: NativePromptLayoutOptions
+): string {
+  if (request.topic === "operators") return catalogText(request.operator_names);
+  const flags = nativeFlags(options);
+  if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");
+  const text =
+    request.example === "single"
+      ? NATIVE_FRAGMENTS.singleExample
+      : request.example === "history"
+        ? NATIVE_FRAGMENTS.historyExamples
+        : [flags.data ? NATIVE_FRAGMENTS.dataExamples : "", flags.flow ? NATIVE_FRAGMENTS.flowExamples : ""]
+            .filter(Boolean)
+            .join("\n\n");
+  if (!text) throw new Error("Data and flow statistics are disabled for this session.");
+  let rendered = adaptReceipts(applySections(text, flags), options, flags);
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  rendered = rendered.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) rendered = rendered.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
+  return rendered;
+}
+
+/** Current native protocol. The expression-mode builder above is retained for
+ * historical fixtures and trace replay, never paired with the registered tool. */
+export function buildRegisteredNativeSystemPrompt(
+  contextMode: ContextMode = ContextMode.DELTA,
+  options: NativePromptLayoutOptions = {}
+): string {
+  const flags = nativeFlags(options);
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  const format = observationFormat(options);
+  const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
+  const context =
+    contextMode === ContextMode.LATEST
+      ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
+      : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.";
+  const fields: Record<string, string> = {
+    CONTEXT_LAYOUT:
+      context +
+      (flags.multi
+        ? " Earlier tasks share the current graph and registered definitions. Reuse relevant operators; earlier observations remain historical evidence, not current results."
+        : ""),
+    OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
+    EXAMPLES: registeredExamples(options),
+    RETRIEVAL: nativeRetrievalText(options),
+    RECORD_LAYOUT:
+      format.keyValueColumns > 0
+        ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
+        : `Records use ${table} at any width.`,
+    DATA_STATISTICS: flags.data
+      ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Use them to check missing values, codes, and populations; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics." +
+        (views.includes("full") ? " The `full` view does not request table statistics." : "")
+      : "",
+    FLOW_STATISTICS: flags.flow
+      ? "Flow statistics report measured effects of built-in operators, also for results you did not request: filter kept and rejected rows, join unmatched keys, cast failures, and aggregate denominators. Compare them with the requested population. Python functions are not measured; return diagnostic columns when you need their counts."
+      : "",
+  };
+  let prompt = nativeFragment("native-registered.md").replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
+    if (!(key in fields)) throw new Error(`Unknown registered prompt field ${key}`);
+    return fields[key];
+  });
+  // Registered examples already use the actual renderers with enabled views.
+  // Rewriting their receipts would disconnect the illustration from execution.
+  prompt = applySections(prompt, flags);
+  prompt = prompt.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
+  if (!views.includes("full")) prompt = prompt.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
+  return prompt.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Built-in contracts for the registered protocol; Python definitions are
+ * inspected through the namespace instead of duplicated as documentation. */
+export function registeredReferenceText(
+  request: { topic: "operators"; operator_names: string[] },
+  _options: NativePromptLayoutOptions = {}
+): string {
+  if (request.topic !== "operators") throw new Error("Registered reference inspection supports operator contracts.");
+  return registeredCatalogText(request.operator_names, "full");
 }
 
 // ---------------------------------------------------------------------------

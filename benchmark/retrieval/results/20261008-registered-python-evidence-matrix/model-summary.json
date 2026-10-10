@@ -1,0 +1,586 @@
+{
+  "scope": {
+    "completed": 25,
+    "cancelled": 2,
+    "not_started": 45,
+    "unique_questions": 3
+  },
+  "models": [
+    {
+      "model": "Luna",
+      "completed": 6,
+      "passes": 6,
+      "unique_tasks": [
+        "archeology-easy-6",
+        "biomedical-hard-3",
+        "legal-easy-3"
+      ],
+      "model_requests": 22,
+      "call_range": [
+        3,
+        5
+      ],
+      "mean_calls": 3.6666666666666665,
+      "cost_range_complete": [
+        0.0012883,
+        0.00338964
+      ],
+      "cost_complete_attempts": 6,
+      "cost_total_complete": 0.01383354,
+      "cost_mean_complete": 0.00230559,
+      "agent_seconds_range": [
+        13.2,
+        33.41
+      ],
+      "cached_fraction_complete": 0.7772154745838956,
+      "mean_input_complete": 25194,
+      "mean_output_complete": 659.5,
+      "strict_final_line_passes": 4,
+      "tool_errors": 0,
+      "action_errors": 0,
+      "attempts": [
+        {
+          "task": "archeology-easy-6",
+          "arm": "evidence_data0_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/archeology-easy-6"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data0_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/legal-easy-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/legal-easy-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data0_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "archeology-easy-6",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/archeology-easy-6"
+        }
+      ]
+    },
+    {
+      "model": "Terra",
+      "completed": 4,
+      "passes": 4,
+      "unique_tasks": [
+        "biomedical-hard-3",
+        "legal-easy-3"
+      ],
+      "model_requests": 19,
+      "call_range": [
+        3,
+        7
+      ],
+      "mean_calls": 4.75,
+      "cost_range_complete": [
+        0.0144734,
+        0.069231
+      ],
+      "cost_complete_attempts": 4,
+      "cost_total_complete": 0.15592040000000001,
+      "cost_mean_complete": 0.038980100000000004,
+      "agent_seconds_range": [
+        11.7,
+        42.71
+      ],
+      "cached_fraction_complete": 0.7873805540915236,
+      "mean_input_complete": 43639,
+      "mean_output_complete": 1129.25,
+      "strict_final_line_passes": 4,
+      "tool_errors": 2,
+      "action_errors": 4,
+      "attempts": [
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data0_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data0_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemTerra_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/legal-easy-3"
+        }
+      ]
+    },
+    {
+      "model": "Sol",
+      "completed": 4,
+      "passes": 4,
+      "unique_tasks": [
+        "biomedical-hard-3",
+        "legal-easy-3"
+      ],
+      "model_requests": 20,
+      "call_range": [
+        3,
+        7
+      ],
+      "mean_calls": 5,
+      "cost_range_complete": [
+        0.043218400000000004,
+        0.095458
+      ],
+      "cost_complete_attempts": 4,
+      "cost_total_complete": 0.2761852,
+      "cost_mean_complete": 0.0690463,
+      "agent_seconds_range": [
+        15.46,
+        44.0
+      ],
+      "cached_fraction_complete": 0.7799664563345922,
+      "mean_input_complete": 42631,
+      "mean_output_complete": 911.25,
+      "strict_final_line_passes": 4,
+      "tool_errors": 1,
+      "action_errors": 1,
+      "attempts": [
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data0_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data0_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/legal-easy-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data1_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemSol_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/biomedical-hard-3"
+        }
+      ]
+    },
+    {
+      "model": "Opus48",
+      "completed": 4,
+      "passes": 4,
+      "unique_tasks": [
+        "archeology-easy-6",
+        "biomedical-hard-3",
+        "legal-easy-3"
+      ],
+      "model_requests": 19,
+      "call_range": [
+        3,
+        10
+      ],
+      "mean_calls": 4.75,
+      "cost_range_complete": [
+        0.047580000000000004,
+        0.314371
+      ],
+      "cost_complete_attempts": 4,
+      "cost_total_complete": 0.58507425,
+      "cost_mean_complete": 0.1462685625,
+      "agent_seconds_range": [
+        14.97,
+        51.86
+      ],
+      "cached_fraction_complete": 0.8135582025870752,
+      "mean_input_complete": 75703.25,
+      "mean_output_complete": 1093.25,
+      "strict_final_line_passes": 4,
+      "tool_errors": 0,
+      "action_errors": 0,
+      "attempts": [
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/legal-easy-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data0_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/legal-easy-3"
+        },
+        {
+          "task": "archeology-easy-6",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemOpus48_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/archeology-easy-6"
+        }
+      ]
+    },
+    {
+      "model": "Qwen38_27B",
+      "completed": 3,
+      "passes": 3,
+      "unique_tasks": [
+        "archeology-easy-6",
+        "biomedical-hard-3"
+      ],
+      "model_requests": 28,
+      "call_range": [
+        5,
+        12
+      ],
+      "mean_calls": 9.333333333333334,
+      "cost_range_complete": [
+        0.00768672,
+        0.025045844999999997
+      ],
+      "cost_complete_attempts": 3,
+      "cost_total_complete": 0.054882715,
+      "cost_mean_complete": 0.018294238333333334,
+      "agent_seconds_range": [
+        62.26,
+        69.28
+      ],
+      "cached_fraction_complete": 0.8400006763726137,
+      "mean_input_complete": 98565,
+      "mean_output_complete": 1786,
+      "strict_final_line_passes": 2,
+      "tool_errors": 1,
+      "action_errors": 2,
+      "attempts": [
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data0_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "archeology-easy-6",
+          "arm": "evidence_data0_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/archeology-easy-6"
+        }
+      ]
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "completed": 4,
+      "passes": 4,
+      "unique_tasks": [
+        "archeology-easy-6",
+        "biomedical-hard-3",
+        "legal-easy-3"
+      ],
+      "model_requests": 20,
+      "call_range": [
+        3,
+        7
+      ],
+      "mean_calls": 5,
+      "cost_range_complete": [
+        0.003708048,
+        0.007292483999999999
+      ],
+      "cost_complete_attempts": 3,
+      "cost_total_complete": 0.01626378,
+      "cost_mean_complete": 0.00542126,
+      "agent_seconds_range": [
+        12.42,
+        228.95
+      ],
+      "cached_fraction_complete": 0.700224622245062,
+      "mean_input_complete": 40215.666666666664,
+      "mean_output_complete": 1363,
+      "strict_final_line_passes": 4,
+      "tool_errors": 2,
+      "action_errors": 3,
+      "attempts": [
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data0_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/legal-easy-3"
+        },
+        {
+          "task": "legal-easy-3",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/legal-easy-3"
+        },
+        {
+          "task": "biomedical-hard-3",
+          "arm": "evidence_data1_flow1",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow1_Rep1/biomedical-hard-3"
+        },
+        {
+          "task": "archeology-easy-6",
+          "arm": "evidence_data1_flow0",
+          "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/archeology-easy-6"
+        }
+      ]
+    }
+  ],
+  "strict_format_failures": [
+    {
+      "model": "Luna",
+      "arm": "evidence_data0_flow0",
+      "task": "archeology-easy-6",
+      "last_line": "Final Answer: São Paulo",
+      "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/archeology-easy-6"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "evidence_data0_flow1",
+      "task": "biomedical-hard-3",
+      "last_line": "60",
+      "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemQwen38_27B_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3"
+    },
+    {
+      "model": "Luna",
+      "arm": "evidence_data1_flow0",
+      "task": "archeology-easy-6",
+      "last_line": "Final Answer: São Paulo",
+      "path": "benchmark/retrieval/runs/20261008-registered-python-evidence-matrix/system_scratch/DataflowSystemLuna_20261008_registered_python_evidence_matrix_evidence_data1_flow0_Rep1/archeology-easy-6"
+    }
+  ],
+  "known_usage_estimate_all_started": 1.1171081409999999,
+  "known_usage_estimate_is_total": false,
+  "all_complete_costs_estimate": 1.102159885,
+  "matrix_contrasts": [
+    {
+      "model": "Luna",
+      "treatment": "evidence_data1_flow0",
+      "control": "evidence_data0_flow0",
+      "factor": "data",
+      "tasks": 2,
+      "matched_attempts": 2,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2
+      },
+      "metric_tasks": {
+        "score": 2,
+        "cost_usd": 2,
+        "model_calls": 2,
+        "input_tokens": 2,
+        "output_tokens": 2,
+        "cached_tokens": 2,
+        "elapsed_seconds": 2
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": -0.00011213,
+      "model_calls_delta": -1,
+      "input_tokens_delta": -4655.5,
+      "output_tokens_delta": -22,
+      "cached_tokens_delta": -4696.5,
+      "elapsed_seconds_delta": -2.6900000000000004
+    },
+    {
+      "model": "Luna",
+      "treatment": "evidence_data1_flow1",
+      "control": "evidence_data1_flow0",
+      "factor": "flow",
+      "tasks": 1,
+      "matched_attempts": 1,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "metric_tasks": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": -2.5199999999993457e-06,
+      "model_calls_delta": 0,
+      "input_tokens_delta": 654,
+      "output_tokens_delta": -49,
+      "cached_tokens_delta": 414,
+      "elapsed_seconds_delta": 0.16999999999999993
+    },
+    {
+      "model": "Terra",
+      "treatment": "evidence_data1_flow1",
+      "control": "evidence_data0_flow1",
+      "factor": "data",
+      "tasks": 1,
+      "matched_attempts": 1,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "metric_tasks": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": 0.009080399999999999,
+      "model_calls_delta": 0,
+      "input_tokens_delta": 1446,
+      "output_tokens_delta": -114,
+      "cached_tokens_delta": -4198,
+      "elapsed_seconds_delta": -3.0600000000000005
+    },
+    {
+      "model": "Sol",
+      "treatment": "evidence_data1_flow1",
+      "control": "evidence_data0_flow1",
+      "factor": "data",
+      "tasks": 1,
+      "matched_attempts": 1,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "metric_tasks": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": -0.01277840000000001,
+      "model_calls_delta": -1,
+      "input_tokens_delta": 4605,
+      "output_tokens_delta": -76,
+      "cached_tokens_delta": 8244,
+      "elapsed_seconds_delta": -6.740000000000002
+    },
+    {
+      "model": "Opus48",
+      "treatment": "evidence_data1_flow1",
+      "control": "evidence_data1_flow0",
+      "factor": "flow",
+      "tasks": 1,
+      "matched_attempts": 1,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "metric_tasks": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": -0.0015057500000000001,
+      "model_calls_delta": 0,
+      "input_tokens_delta": -105,
+      "output_tokens_delta": -5,
+      "cached_tokens_delta": 126,
+      "elapsed_seconds_delta": -1.1500000000000004
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "treatment": "evidence_data1_flow0",
+      "control": "evidence_data0_flow0",
+      "factor": "data",
+      "tasks": 1,
+      "matched_attempts": 1,
+      "descriptive_only": true,
+      "score_delta_ci95": null,
+      "cost_delta_ci95": null,
+      "metric_pairs": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "metric_tasks": {
+        "score": 1,
+        "cost_usd": 1,
+        "model_calls": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cached_tokens": 1,
+        "elapsed_seconds": 1
+      },
+      "score_delta": 0.0,
+      "cost_delta_usd": -0.0020292359999999994,
+      "model_calls_delta": -2,
+      "input_tokens_delta": -11491,
+      "output_tokens_delta": 335,
+      "cached_tokens_delta": -3456,
+      "elapsed_seconds_delta": 3.2699999999999996
+    }
+  ]
+}

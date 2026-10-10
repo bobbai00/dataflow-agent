@@ -33,6 +33,7 @@
 
 import { generateText, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
+import { MissingAnswerActionError } from "./types";
 import type { TokenUsage } from "../../types/agent";
 
 export interface VercelToolUseDriverOptions {
@@ -40,28 +41,48 @@ export interface VercelToolUseDriverOptions {
   /** Sampling temperature. Defaults to 0.2, matching the pre-refactor
    *  hardcoded value in TexeraAgent.sendMessage. */
   temperature?: number;
+  maxOutputTokens?: number;
+  maxRetries?: number;
+  /** `turn`: the dataflow tool takes a turn of statements (tools/turn-tool.ts),
+   *  tool choice stays `auto` so extended reasoning remains available, and a
+   *  reply without a tool call is the final answer once a result was shown. */
+  transport?: "tool" | "turn";
 }
 
 export class VercelToolUseDriver implements LLMDriver {
+  readonly nativeTransport: "tool" | "turn";
   private readonly model: LanguageModel;
   private readonly temperature: number;
+  private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
+    this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
+    this.nativeTransport = opts.transport ?? "tool";
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
+    // Sonnet 5.5 rejects forced tool use. The native Answer contract is still
+    // enforced below, including the bounded correction for a text-only reply.
+    // The turn transport never forces a call: its answer is a plain reply.
+    const modelId = typeof this.model === "string" ? this.model : this.model.modelId;
+    const supportsForcedTools =
+      this.nativeTransport !== "turn" &&
+      !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
     // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
+    const updatedToolOutputs = new Map<string, unknown>();
     const result = await generateText({
       model: this.model,
+      ...this.requestLimits,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
+      toolChoice: input.requireToolCall && supportsForcedTools ? "required" : "auto",
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -77,16 +98,17 @@ export class VercelToolUseDriver implements LLMDriver {
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
       onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
-        // Anthropic cache WRITES (billed 1.25x input). LiteLLM reports them as
-        // prompt_tokens_details.cache_creation_tokens, a non-standard extension
-        // the SDK's typed usage object drops — but the raw parsed HTTP body is
-        // kept on each step's response metadata, so read it from there.
+        // Preserve cache writes from raw provider usage. Gateways expose both
+        // OpenAI's cache_write_tokens and Anthropic's cache_creation_tokens;
+        // the SDK's flattened usage does not retain either field reliably.
         const stepCacheCreation = Number(
-          (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
+          (response as any)?.body?.usage?.prompt_tokens_details?.cache_write_tokens ??
+            (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
             (response as any)?.body?.usage?.cache_creation_input_tokens ??
             0
         );
         cacheCreationTotal += stepCacheCreation;
+        const before = new Map(toolResults?.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
         await input.onStepFinish({
           text: text || "",
           reasoningText: reasoningText || undefined,
@@ -117,6 +139,14 @@ export class VercelToolUseDriver implements LLMDriver {
               }
             : undefined,
         });
+        // The SDK cloned response.messages before calling this hook. Preserve
+        // outputs completed by the agent here so the returned archive reflects
+        // the same completed actions used by the next prepareStep.
+        for (const tr of toolResults ?? []) {
+          if (JSON.stringify(tr.output) !== before.get(tr.toolCallId)) {
+            updatedToolOutputs.set(tr.toolCallId, structuredClone(tr.output));
+          }
+        }
       },
     });
 
@@ -129,10 +159,35 @@ export class VercelToolUseDriver implements LLMDriver {
       cachedInputTokens: finalUsage?.cachedInputTokens ?? 0,
       cacheCreationInputTokens: cacheCreationTotal,
     };
-    return {
-      text: result.text,
-      messages: result.response.messages,
+    const completed: DriverRunTurnResult = {
+      text: input.getFinalAnswer?.() ?? result.text,
+      messages: result.response.messages.map(message =>
+        message.role !== "tool"
+          ? message
+          : {
+              ...message,
+              content: message.content.map(part =>
+                part.type === "tool-result" && part.output.type === "json" && updatedToolOutputs.has(part.toolCallId)
+                  ? {
+                      ...part,
+                      output: {
+                        type: "json" as const,
+                        value: JSON.parse(JSON.stringify(updatedToolOutputs.get(part.toolCallId))),
+                      },
+                    }
+                  : part
+              ),
+            }
+      ),
       usage,
     };
+    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
+      const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
+      // The turn transport answers by replying without a tool call; before a
+      // result has been shown that reply is a lapse, corrected by the agent.
+      if (this.nativeTransport === "turn" && textOnly && result.text.trim() && input.resultShown?.()) return completed;
+      throw new MissingAnswerActionError(completed, textOnly && result.steps.length < input.maxSteps);
+    }
+    return completed;
   }
 }

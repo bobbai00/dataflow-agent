@@ -111,8 +111,9 @@ function workflowProof(workflow: WorkflowContent) {
 }
 
 function sourceFingerprints(profile: TableProfile | undefined): ResultVersion["sourceFingerprints"] {
-  const scan = profile?.native?.operations?.scan as { sources?: unknown } | undefined;
-  if (!scan || !Array.isArray(scan.sources) || scan.sources.length > 256) return null;
+  const scan = profile?.native?.operations?.scan as { sources?: unknown; sourcesOmitted?: unknown } | undefined;
+  // A list trimmed to fit the profile envelope does not identify every source.
+  if (!scan || !Array.isArray(scan.sources) || scan.sources.length > 256 || scan.sourcesOmitted) return null;
   const sources: NonNullable<ResultVersion["sourceFingerprints"]> = [];
   for (const source of scan.sources) {
     if (

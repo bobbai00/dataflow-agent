@@ -1,0 +1,1399 @@
+{
+  "created_at_utc": "2026-10-04T04:58:53.787644+00:00",
+  "scope": "108 completed jobs, 12 full sessions, 3 repetitions; original pre-compatibility-fix comparison. Analysis only; no solver or judge calls.",
+  "frozen_artifacts": {
+    "/var/tmp/dataflow-state-comparison-20261003/holdout/manifest.json": "3bf571a3cc5bb6f77df6cb76ce3ac0aae2b4c58cc397167248d4600250c48caa",
+    "/var/tmp/dataflow-state-comparison-20261003/holdout/report-final.json": "771be15cd094c96283ba233f0424f124f51b10ebba8fdf5d6d3c8c7ab5c40d59",
+    "/var/tmp/dataflow-state-comparison-20261003/holdout/native-history-use-audit.json": "4a806803ee8e7e5b76c898d773873fbab25494b581545163b805372118cb283c",
+    "/var/tmp/dataflow-state-comparison-20261003/holdout/existing-results-audit-20261004/signals.json": "f7e512db14fefc76729b41aab457d499234422bf7acbcce9dd9f7fdeb4d92d32",
+    "/var/tmp/dataflow-state-comparison-20261003/holdout/existing-results-audit-20261004/error-details.json": "d3b49ca55ac1c2b57f77552d201b4f6b16113a9b1fb5d164b5031d3af8d91660",
+    "/var/tmp/dataflow-state-comparison-20261003/holdout/existing-results-audit-20261004/trace-span-timing.json": "260695f6fc4f2285d4375490de420287791aa981ee61372dd839c0d581585e96"
+  },
+  "protocol": {
+    "model": "gpt-5.6-luna",
+    "reasoning_effort": "medium",
+    "judge": "deepseek/deepseek-v4-pro",
+    "judge_prompt_sha256": "c45fff7b230ebfc7500a19f98c47104ec203b38eb7fcb8a78b15001467b76e4a",
+    "max_model_calls_per_turn": 40,
+    "max_output_tokens_per_call": 8192,
+    "context_budget": 0,
+    "source_revision": null,
+    "solver_attempt_policy": "All independent repetitions retained; no best-of or score-selected retries",
+    "rates_usd_per_million": {
+      "input": 0.2,
+      "cached": 0.02,
+      "write": 0.25,
+      "output": 1.2
+    }
+  },
+  "summary": {
+    "baseline": {
+      "expected_turns": 1194,
+      "observed_turns": 1194,
+      "judged_turns": 1194,
+      "missing_turns": 0,
+      "unjudged_turns": 0,
+      "complete": true,
+      "correct": 268,
+      "accuracy": 0.22445561139028475,
+      "cost_usd": 10.94316904,
+      "unknown_cost_turns": 0,
+      "judge_recovered_turns": 0,
+      "reused_control_turns": 0,
+      "new_solver_cost_usd": 10.94316904,
+      "new_solver_unknown_cost_turns": 0,
+      "uniform_cost_usd": 10.94316904,
+      "unknown_uniform_cost_turns": 0,
+      "llm_calls": 3734,
+      "input_tokens": 330505559,
+      "cached_tokens": 325130682,
+      "output_tokens": 2804650,
+      "cache_write_tokens": 0,
+      "elapsed_seconds": 42820.63,
+      "cache_hit_rate": 0.9837374081807804,
+      "macro_accuracy": 0.23945471172799604
+    },
+    "dsgym": {
+      "expected_turns": 1194,
+      "observed_turns": 1194,
+      "judged_turns": 1194,
+      "missing_turns": 0,
+      "unjudged_turns": 0,
+      "complete": true,
+      "correct": 250,
+      "accuracy": 0.20938023450586266,
+      "cost_usd": 6.33435949,
+      "unknown_cost_turns": 0,
+      "judge_recovered_turns": 0,
+      "reused_control_turns": 0,
+      "new_solver_cost_usd": 6.33435949,
+      "new_solver_unknown_cost_turns": 0,
+      "uniform_cost_usd": 6.18542994,
+      "unknown_uniform_cost_turns": 0,
+      "llm_calls": 2756,
+      "input_tokens": 159577086,
+      "cached_tokens": 156590227,
+      "output_tokens": 2046878,
+      "cache_write_tokens": 2978591,
+      "elapsed_seconds": 20488.826,
+      "cache_hit_rate": 0.9812826573359035,
+      "macro_accuracy": 0.2267221454108709
+    },
+    "history": {
+      "expected_turns": 1194,
+      "observed_turns": 1194,
+      "judged_turns": 1194,
+      "missing_turns": 0,
+      "unjudged_turns": 0,
+      "complete": true,
+      "correct": 254,
+      "accuracy": 0.21273031825795644,
+      "cost_usd": 10.9546261,
+      "unknown_cost_turns": 0,
+      "judge_recovered_turns": 1,
+      "reused_control_turns": 0,
+      "new_solver_cost_usd": 10.9546261,
+      "new_solver_unknown_cost_turns": 0,
+      "uniform_cost_usd": 10.9546261,
+      "unknown_uniform_cost_turns": 0,
+      "llm_calls": 3637,
+      "input_tokens": 330623999,
+      "cached_tokens": 325159065,
+      "output_tokens": 2798715,
+      "cache_write_tokens": 0,
+      "elapsed_seconds": 46615.147,
+      "cache_hit_rate": 0.9834708490111754,
+      "macro_accuracy": 0.2197212396354553
+    }
+  },
+  "paired_uncertainty": {
+    "baseline__dsgym": {
+      "paired_judged_turns": 1194,
+      "a_only": 123,
+      "b_only": 105,
+      "both_correct": 145,
+      "both_correct_cost_usd": {
+        "baseline": 0.77514262,
+        "dsgym": 0.6378743
+      },
+      "both_correct_uniform_cost_usd": {
+        "baseline": 0.77514262,
+        "dsgym": 0.6202557
+      },
+      "both_correct_unknown_cost_turns": {
+        "baseline": 0,
+        "dsgym": 0
+      },
+      "macro_accuracy_delta": {
+        "estimate": 0.01273256631712514,
+        "interval": [
+          -0.07692436126872401,
+          0.10617008377425044
+        ],
+        "unit": "accuracy difference, macro over sessions and repetitions",
+        "sessions": 12
+      }
+    },
+    "baseline__history": {
+      "paired_judged_turns": 1194,
+      "a_only": 90,
+      "b_only": 76,
+      "both_correct": 178,
+      "both_correct_cost_usd": {
+        "baseline": 0.9893777,
+        "history": 0.9664797
+      },
+      "both_correct_uniform_cost_usd": {
+        "baseline": 0.9893777,
+        "history": 0.9664797
+      },
+      "both_correct_unknown_cost_turns": {
+        "baseline": 0,
+        "history": 0
+      },
+      "macro_accuracy_delta": {
+        "estimate": 0.019733472092540717,
+        "interval": [
+          -0.05065586419753086,
+          0.11280864197530864
+        ],
+        "unit": "accuracy difference, macro over sessions and repetitions",
+        "sessions": 12
+      }
+    },
+    "dsgym__history": {
+      "paired_judged_turns": 1194,
+      "a_only": 128,
+      "b_only": 132,
+      "both_correct": 122,
+      "both_correct_cost_usd": {
+        "dsgym": 0.52492961,
+        "history": 0.62617126
+      },
+      "both_correct_uniform_cost_usd": {
+        "dsgym": 0.51009176,
+        "history": 0.62617126
+      },
+      "both_correct_unknown_cost_turns": {
+        "dsgym": 0,
+        "history": 0
+      },
+      "macro_accuracy_delta": {
+        "estimate": 0.0070009057754155755,
+        "interval": [
+          -0.10863349613349614,
+          0.1325007780890134
+        ],
+        "unit": "accuracy difference, macro over sessions and repetitions",
+        "sessions": 12
+      }
+    }
+  },
+  "time_and_mechanical_signals": {
+    "baseline": {
+      "solver_latency": {
+        "mean": 35.86317420435511,
+        "median": 23.2635,
+        "sum_seconds": 42820.63
+      },
+      "mechanical_counts": {
+        "trace_turns": 1194,
+        "model_steps": 3734,
+        "operator_executed": 3242,
+        "operator_cached": 18882,
+        "error_edit": 88,
+        "error_execute": 363,
+        "operator_not_run": 224,
+        "operator_failed": 351,
+        "error_retrieve": 449,
+        "execute_receipts_missing_outcomes": 29,
+        "error_inspect": 1
+      },
+      "root_code_failed_operator_visits": {
+        "CALLBACK_RUNTIME": 275,
+        "OUTPUT_VALUE_TYPE": 17,
+        "SCAN_NOT_FOUND": 6,
+        "WORKER_EXITED": 10,
+        "EXECUTION_ERROR": 12,
+        "SCAN_PARSE": 9,
+        "PROCESS_RETURN_TYPE": 2,
+        "SCAN_HEADER": 2,
+        "INPUT_VALUE_TYPE": 1,
+        "MISSING_COLUMN": 14,
+        "OUTPUT_SCHEMA": 2,
+        "SCAN_FORMAT": 1
+      },
+      "turns_with_error_signal": 267,
+      "provider_timing": {
+        "method": "response-file mtime minus request-file mtime; approximation",
+        "seconds": 25014.836248286,
+        "mean_seconds_per_known_call": 6.699206279669523,
+        "recorded_requests": 3734,
+        "known_call_seconds": 3734
+      }
+    },
+    "history": {
+      "solver_latency": {
+        "mean": 39.04116164154104,
+        "median": 25.932000000000002,
+        "sum_seconds": 46615.147
+      },
+      "mechanical_counts": {
+        "trace_turns": 1194,
+        "model_steps": 3637,
+        "operator_executed": 3062,
+        "error_edit": 89,
+        "operator_cached": 16646,
+        "error_execute": 334,
+        "operator_failed": 336,
+        "error_retrieve": 394,
+        "execute_receipts_missing_outcomes": 23,
+        "operator_not_run": 182,
+        "error_inspect": 4
+      },
+      "root_code_failed_operator_visits": {
+        "CALLBACK_RUNTIME": 258,
+        "SCAN_NOT_FOUND": 13,
+        "WORKER_EXITED": 13,
+        "OUTPUT_VALUE_TYPE": 16,
+        "INPUT_VALUE_TYPE": 2,
+        "EXECUTION_ERROR": 20,
+        "MISSING_COLUMN": 3,
+        "OUTPUT_SCHEMA": 4,
+        "SCAN_PARSE": 6,
+        "PROCESS_RETURN_TYPE": 1
+      },
+      "turns_with_error_signal": 267,
+      "provider_timing": {
+        "method": "response-file mtime minus request-file mtime; approximation",
+        "seconds": 27569.845231527,
+        "mean_seconds_per_known_call": 7.580380872017322,
+        "recorded_requests": 3637,
+        "known_call_seconds": 3637
+      }
+    },
+    "dsgym": {
+      "solver_latency": {
+        "mean": 17.159820770519264,
+        "median": 13.637,
+        "sum_seconds": 20488.826
+      },
+      "mechanical_counts": {
+        "no_python_protocol_observations": 197,
+        "runtime_error_observations": 131
+      },
+      "root_code_failed_operator_visits": {},
+      "turns_with_error_signal": 105,
+      "provider_timing": {
+        "method": "captured direct client-call duration",
+        "seconds": 17893.779,
+        "mean_seconds_per_known_call": 6.492662917271407,
+        "recorded_calls": 2756,
+        "known_call_seconds": 2756
+      }
+    }
+  },
+  "mechanical_error_details": {
+    "baseline": {
+      "counts": {
+        "EXECUTION_FAILURE": 334,
+        "RESULT_FAILED": 272,
+        "EDIT_REJECTED": 88,
+        "RESULT_NOT_RUN": 160,
+        "MISSING_INPUT_EDGE": 29,
+        "RESULT_STALE": 7,
+        "UNKNOWN_COLUMN": 10,
+        "UNCLASSIFIED_INSPECT": 1
+      },
+      "examples": {
+        "EXECUTION_FAILURE": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/sports__big_data_derby_2022__task1/t24/react_steps.json.gz",
+          "message": "Structured execution result; inspect failed operator root codes in signals.json"
+        },
+        "RESULT_FAILED": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/sports__big_data_derby_2022__task1/t24/react_steps.json.gz",
+          "message": "RESULT_FAILED: the last execution of `task24_result` failed.\n- error CALLBACK_RUNTIME: KeyError: 'actionable_recent'\n  - at: recent_late_warning_check line 13: `return out[[\"horse_id\",\"start_id\",\"late_percentile\",\"full_percentile\",\"classification\",\"recent_start_count\",\"earliest_recent_lead_days\",\"re"
+        },
+        "EDIT_REJECTED": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/sports__big_data_derby_2022__task1/t08/react_steps.json.gz",
+          "message": "Change 2 (line 28): Input task8_result.in[0] is occupied. Delete its existing edge before creating a new one. No changes were applied."
+        },
+        "RESULT_NOT_RUN": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/sports__big_data_derby_2022__task1/t01/react_steps.json.gz",
+          "message": "RESULT_NOT_RUN: `result_summary` has not been executed. Execute it, then retrieve."
+        },
+        "MISSING_INPUT_EDGE": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/sports__big_data_derby_2022__task1/t21/react_steps.json.gz",
+          "message": "Unconnected required inputs: velocities_late.in. Create edges or delete unused operators before execute."
+        },
+        "RESULT_STALE": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/education__LearnPlatform_COVID-19_Impact_on_Digital_Learning__task3/t01/react_steps.json.gz",
+          "message": "RESULT_STALE: `total_observations` changed after its last execution. Execute it, then retrieve."
+        },
+        "UNKNOWN_COLUMN": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/geoscience__cdp-unlocking-climate-solutions__task1/t19/react_steps.json.gz",
+          "message": "UNKNOWN_COLUMN: `corp_water_data` has no column \"Question Number\", \"Question Name\", \"Column Name\", \"Row Number\", \"Row Name\", \"Response Answer\". Its columns: account_number, organization, survey_year, country, region, invitation_status, public, samples, response_received_date, minimum_tier, selected_"
+        },
+        "UNCLASSIFIED_INSPECT": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/baseline-r1/community__kaggle-survey-2021__task2/t04/react_steps.json.gz",
+          "message": "Operator window does not exist."
+        }
+      }
+    },
+    "history": {
+      "counts": {
+        "EXECUTION_FAILURE": 311,
+        "RESULT_FAILED": 257,
+        "EDIT_REJECTED": 89,
+        "MISSING_INPUT_EDGE": 23,
+        "RESULT_NOT_RUN": 125,
+        "UNCLASSIFIED_INSPECT": 4,
+        "RESULT_STALE": 8,
+        "UNKNOWN_COLUMN": 4
+      },
+      "examples": {
+        "EXECUTION_FAILURE": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r2/sports__big_data_derby_2022__task1/t32/react_steps.json.gz",
+          "message": "Structured execution result; inspect failed operator root codes in signals.json"
+        },
+        "RESULT_FAILED": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r2/sports__big_data_derby_2022__task1/t32/react_steps.json.gz",
+          "message": "RESULT_FAILED: the last execution of `fragility_summary` failed.\n- error CALLBACK_RUNTIME: KeyError: 'horse_id'\n  - at: fragility_fn line 12: `diag_sets.append(set(detail[\"horse_id\"].dropna()))`\n  - fix: Repair the submitted function and relevant input handling before retrying."
+        },
+        "EDIT_REJECTED": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r2/sports__big_data_derby_2022__task1/t09/react_steps.json.gz",
+          "message": "('unexpected EOF in multi-line statement', (36, 0)) No changes were applied."
+        },
+        "MISSING_INPUT_EDGE": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r2/sports__big_data_derby_2022__task1/t12/react_steps.json.gz",
+          "message": "Unconnected required inputs: breadth_check.in[0], breadth_check.in[1]. Create edges or delete unused operators before execute."
+        },
+        "RESULT_NOT_RUN": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r2/sports__big_data_derby_2022__task1/t12/react_steps.json.gz",
+          "message": "RESULT_NOT_RUN: `breadth_check` has not been executed. Execute it, then retrieve."
+        },
+        "UNCLASSIFIED_INSPECT": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r2/business__goodbooks_10k__task1/t22/react_steps.json.gz",
+          "message": "Operator collaborative_risk_attribution does not exist."
+        },
+        "RESULT_STALE": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r3/sports__big_data_derby_2022__task1/t35/react_steps.json.gz",
+          "message": "RESULT_STALE: `reliability_call` changed after its last execution. Execute it, then retrieve."
+        },
+        "UNKNOWN_COLUMN": {
+          "trace": "/var/tmp/dataflow-state-comparison-20261003/holdout/runs/history-r3/geoscience__cdp-unlocking-climate-solutions__task1/t19/react_steps.json.gz",
+          "message": "UNKNOWN_COLUMN: `corporate_water_source` has no column \"row_number\", \"column_name\", \"row_name\", \"response_answer\". Its columns: account_number, organization, survey_year, country, region, invitation_status, public, samples, response_received_date, minimum_tier, selected_tier, questionnaire, theme, a"
+        }
+      }
+    }
+  },
+  "both_correct_time": {
+    "baseline": {
+      "turns": 145,
+      "native_mean_seconds": 27.03722068965517,
+      "script_mean_seconds": 16.097737931034484
+    },
+    "history": {
+      "turns": 122,
+      "native_mean_seconds": 28.3510737704918,
+      "script_mean_seconds": 16.842131147540982
+    }
+  },
+  "conditional_accuracy_by_script_behavior": {
+    "code_attempted": {
+      "matched_turns": 952,
+      "correct": {
+        "baseline": 226,
+        "history": 202,
+        "dsgym": 246
+      }
+    },
+    "correct_without_code": {
+      "matched_turns": 4,
+      "correct": {
+        "baseline": 1,
+        "history": 1,
+        "dsgym": 4
+      }
+    },
+    "no_code_nonanswer": {
+      "matched_turns": 144,
+      "correct": {
+        "baseline": 30,
+        "history": 34,
+        "dsgym": 0
+      }
+    },
+    "wrong_without_code": {
+      "matched_turns": 94,
+      "correct": {
+        "baseline": 11,
+        "history": 17,
+        "dsgym": 0
+      }
+    }
+  },
+  "dataset_correct_counts": [
+    {
+      "task": "business/goodbooks_10k/task1",
+      "matched_turns": 105,
+      "correct": {
+        "baseline": 3,
+        "history": 7,
+        "dsgym": 2
+      }
+    },
+    {
+      "task": "business/my_uber_drivers/task2",
+      "matched_turns": 105,
+      "correct": {
+        "baseline": 26,
+        "history": 23,
+        "dsgym": 13
+      }
+    },
+    {
+      "task": "community/kaggle-survey-2019/task2",
+      "matched_turns": 90,
+      "correct": {
+        "baseline": 36,
+        "history": 42,
+        "dsgym": 44
+      }
+    },
+    {
+      "task": "community/kaggle-survey-2021/task2",
+      "matched_turns": 105,
+      "correct": {
+        "baseline": 77,
+        "history": 65,
+        "dsgym": 58
+      }
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "matched_turns": 90,
+      "correct": {
+        "baseline": 44,
+        "history": 60,
+        "dsgym": 25
+      }
+    },
+    {
+      "task": "education/world_university_rankings/task2",
+      "matched_turns": 63,
+      "correct": {
+        "baseline": 30,
+        "history": 9,
+        "dsgym": 33
+      }
+    },
+    {
+      "task": "geoscience/cdp-unlocking-climate-solutions/task1",
+      "matched_turns": 117,
+      "correct": {
+        "baseline": 3,
+        "history": 3,
+        "dsgym": 1
+      }
+    },
+    {
+      "task": "geoscience/global-data-on-sustainable-energy/task2",
+      "matched_turns": 108,
+      "correct": {
+        "baseline": 4,
+        "history": 3,
+        "dsgym": 0
+      }
+    },
+    {
+      "task": "social_good/center_for_policing_equity/task2",
+      "matched_turns": 108,
+      "correct": {
+        "baseline": 15,
+        "history": 14,
+        "dsgym": 7
+      }
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+      "matched_turns": 102,
+      "correct": {
+        "baseline": 19,
+        "history": 15,
+        "dsgym": 52
+      }
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "matched_turns": 105,
+      "correct": {
+        "baseline": 4,
+        "history": 11,
+        "dsgym": 5
+      }
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "matched_turns": 96,
+      "correct": {
+        "baseline": 7,
+        "history": 2,
+        "dsgym": 10
+      }
+    }
+  ],
+  "breakdowns": {
+    "state_type": {
+      "Initial": {
+        "baseline": {
+          "n": 660,
+          "judged": 660,
+          "correct": 186
+        },
+        "dsgym": {
+          "n": 660,
+          "judged": 660,
+          "correct": 189
+        },
+        "history": {
+          "n": 660,
+          "judged": 660,
+          "correct": 195
+        }
+      },
+      "Update": {
+        "baseline": {
+          "n": 366,
+          "judged": 366,
+          "correct": 65
+        },
+        "dsgym": {
+          "n": 366,
+          "judged": 366,
+          "correct": 69
+        },
+        "history": {
+          "n": 366,
+          "judged": 366,
+          "correct": 60
+        }
+      },
+      "Rollback": {
+        "baseline": {
+          "n": 255,
+          "judged": 255,
+          "correct": 17
+        },
+        "dsgym": {
+          "n": 255,
+          "judged": 255,
+          "correct": 21
+        },
+        "history": {
+          "n": 255,
+          "judged": 255,
+          "correct": 14
+        }
+      },
+      "Counterfactual": {
+        "baseline": {
+          "n": 333,
+          "judged": 333,
+          "correct": 64
+        },
+        "dsgym": {
+          "n": 333,
+          "judged": 333,
+          "correct": 53
+        },
+        "history": {
+          "n": 333,
+          "judged": 333,
+          "correct": 41
+        }
+      },
+      "none": {
+        "baseline": {
+          "n": 54,
+          "judged": 54,
+          "correct": 20
+        },
+        "history": {
+          "n": 54,
+          "judged": 54,
+          "correct": 18
+        },
+        "dsgym": {
+          "n": 54,
+          "judged": 54,
+          "correct": 17
+        }
+      }
+    },
+    "dependency_answers": {
+      "none": {
+        "baseline": {
+          "n": 36,
+          "judged": 36,
+          "correct": 20
+        },
+        "dsgym": {
+          "n": 36,
+          "judged": 36,
+          "correct": 8
+        },
+        "history": {
+          "n": 36,
+          "judged": 36,
+          "correct": 22
+        }
+      },
+      "some_wrong": {
+        "baseline": {
+          "n": 953,
+          "judged": 953,
+          "correct": 109
+        },
+        "dsgym": {
+          "n": 1003,
+          "judged": 1003,
+          "correct": 128
+        },
+        "history": {
+          "n": 967,
+          "judged": 967,
+          "correct": 107
+        }
+      },
+      "all_correct": {
+        "dsgym": {
+          "n": 155,
+          "judged": 155,
+          "correct": 114
+        },
+        "history": {
+          "n": 191,
+          "judged": 191,
+          "correct": 125
+        },
+        "baseline": {
+          "n": 205,
+          "judged": 205,
+          "correct": 139
+        }
+      }
+    },
+    "dependency_distance": {
+      "none": {
+        "baseline": {
+          "n": 36,
+          "judged": 36,
+          "correct": 20
+        },
+        "dsgym": {
+          "n": 36,
+          "judged": 36,
+          "correct": 8
+        },
+        "history": {
+          "n": 36,
+          "judged": 36,
+          "correct": 22
+        }
+      },
+      "1": {
+        "baseline": {
+          "n": 75,
+          "judged": 75,
+          "correct": 27
+        },
+        "dsgym": {
+          "n": 75,
+          "judged": 75,
+          "correct": 20
+        },
+        "history": {
+          "n": 75,
+          "judged": 75,
+          "correct": 24
+        }
+      },
+      "2-5": {
+        "baseline": {
+          "n": 321,
+          "judged": 321,
+          "correct": 72
+        },
+        "dsgym": {
+          "n": 321,
+          "judged": 321,
+          "correct": 78
+        },
+        "history": {
+          "n": 321,
+          "judged": 321,
+          "correct": 74
+        }
+      },
+      "6+": {
+        "baseline": {
+          "n": 762,
+          "judged": 762,
+          "correct": 149
+        },
+        "dsgym": {
+          "n": 762,
+          "judged": 762,
+          "correct": 144
+        },
+        "history": {
+          "n": 762,
+          "judged": 762,
+          "correct": 134
+        }
+      }
+    }
+  },
+  "categorical_annotation_coverage": {
+    "latest_full_cohort": "Not completely annotated with causal root-error categories. Mechanical counters and benchmark labels cover it.",
+    "taxonomy": [
+      "Statistical / Domain Reasoning Error",
+      "Planning Error",
+      "Instruction Following Error",
+      "Coding / Implementation Error",
+      "Context Memory Error",
+      "State Management Error",
+      "Cascade Error"
+    ],
+    "older_diagnostic_report": "benchmark/longds/reports/history-verification-results-20261002.json",
+    "older_scope": "24 matched questions across four native sessions, 14 incorrect answers annotated by gpt-5.5 xhigh; different cases/models and recorded prompt/runtime revisions. Do not pool with latest cohort.",
+    "partial_scores": "Entity overlap, required-field counts and other diagnostic parts exist in that older report; no complete official field-level partial score for this cohort."
+  },
+  "limitations": [
+    "Native provider timing uses filesystem timestamps; it is approximate and comparable in scope rather than identical instrumentation to script client timers.",
+    "Outside-provider time includes graph runtime, context work and harness snapshot/trace export; it is not a CPU/engine profile.",
+    "Script execution-error detection has a different surface from native graph/action validation.",
+    "Incorrect dependency answers are an association signal, not proof of causal state contamination.",
+    "Script-behavior subsets are descriptive, not randomized interventions.",
+    "Saved operator observations are bounded; historical definitions do not freeze external source files."
+  ],
+  "native_recorded_step_span_timing": {
+    "baseline": {
+      "questions": 1194,
+      "mean_recorded_step_span_seconds": 35.548985762144056,
+      "mean_outside_recorded_step_span_seconds": 0.3141884422110552,
+      "sum_step_span_seconds": 42445.489,
+      "sum_outside_span_seconds": 375.1409999999999,
+      "negative_outside_intervals": 0,
+      "method": "latest step timestamp minus earliest step timestamp in each saved turn; excludes benchmark exports but may also exclude API work before/after recorded steps"
+    },
+    "history": {
+      "questions": 1194,
+      "mean_recorded_step_span_seconds": 38.74747654941373,
+      "mean_outside_recorded_step_span_seconds": 0.2936850921273029,
+      "sum_step_span_seconds": 46264.487,
+      "sum_outside_span_seconds": 350.6599999999997,
+      "negative_outside_intervals": 0,
+      "method": "latest step timestamp minus earliest step timestamp in each saved turn; excludes benchmark exports but may also exclude API work before/after recorded steps"
+    }
+  },
+  "ds_agent_followup": {
+    "baseline_name": "DSGym script baseline; called DS-Agent in the discussion",
+    "unit": "question-turns; 12 unique sessions repeated 3 times per arm (36 session runs, 398 unique questions)",
+    "source_report_sha256": "771be15cd094c96283ba233f0424f124f51b10ebba8fdf5d6d3c8c7ab5c40d59",
+    "source_behavior_sha256": "e3a6b843548144200eddc06952d4281bcc50c99b16255376be93a723c7fa0efb",
+    "incorrect": {
+      "turns": 944,
+      "percent": 79.06197654941373
+    },
+    "failure_breakdown": {
+      "code_attempted_and_incorrect": {
+        "turns": 706,
+        "percent": 59.12897822445561
+      },
+      "explicit_no_code_nonanswer": {
+        "turns": 144,
+        "percent": 12.06030150753769
+      },
+      "incorrect_answer_without_code": {
+        "turns": 94,
+        "percent": 7.872696817420436
+      }
+    },
+    "no_code_attempted": {
+      "turns": 242,
+      "percent": 20.268006700167504,
+      "includes_correct_reuse_turns": 4
+    },
+    "matched_cost_cohorts": {
+      "all": {
+        "turns": 1194,
+        "arms": {
+          "baseline": {
+            "correct": 268,
+            "solver_model_cost_usd": 10.94316904
+          },
+          "history": {
+            "correct": 254,
+            "solver_model_cost_usd": 10.9546261
+          },
+          "dsgym": {
+            "correct": 250,
+            "solver_model_cost_usd": 6.18542994
+          }
+        }
+      },
+      "exclude_explicit_no_code_nonanswers": {
+        "turns": 1050,
+        "arms": {
+          "baseline": {
+            "correct": 238,
+            "solver_model_cost_usd": 9.3659887
+          },
+          "history": {
+            "correct": 220,
+            "solver_model_cost_usd": 9.09540076
+          },
+          "dsgym": {
+            "correct": 250,
+            "solver_model_cost_usd": 5.8380206
+          }
+        }
+      },
+      "script_code_attempted": {
+        "turns": 952,
+        "arms": {
+          "baseline": {
+            "correct": 226,
+            "solver_model_cost_usd": 8.39744588
+          },
+          "history": {
+            "correct": 202,
+            "solver_model_cost_usd": 8.12071544
+          },
+          "dsgym": {
+            "correct": 246,
+            "solver_model_cost_usd": 5.6201026
+          }
+        }
+      },
+      "all_three_correct": {
+        "turns": 98,
+        "arms": {
+          "baseline": {
+            "correct": 98,
+            "solver_model_cost_usd": 0.5028376
+          },
+          "history": {
+            "correct": 98,
+            "solver_model_cost_usd": 0.49414208
+          },
+          "dsgym": {
+            "correct": 98,
+            "solver_model_cost_usd": 0.41098964
+          }
+        }
+      }
+    },
+    "all_three_correct_keys": [
+      {
+        "task": "business/goodbooks_10k/task1",
+        "rep": 3,
+        "turn_id": 4
+      },
+      {
+        "task": "business/my_uber_drivers/task2",
+        "rep": 1,
+        "turn_id": 9
+      },
+      {
+        "task": "business/my_uber_drivers/task2",
+        "rep": 3,
+        "turn_id": 2
+      },
+      {
+        "task": "business/my_uber_drivers/task2",
+        "rep": 3,
+        "turn_id": 3
+      },
+      {
+        "task": "business/my_uber_drivers/task2",
+        "rep": 3,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 1
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 3
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 7
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 8
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 12
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 13
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 14
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 15
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 16
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 19
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 20
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 1,
+        "turn_id": 28
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 3
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 7
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 8
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 12
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 13
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 14
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 15
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 2,
+        "turn_id": 28
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 3,
+        "turn_id": 3
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 3,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 3,
+        "turn_id": 7
+      },
+      {
+        "task": "community/kaggle-survey-2019/task2",
+        "rep": 3,
+        "turn_id": 8
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 1
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 2
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 6
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 10
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 12
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 18
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 20
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 21
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 1,
+        "turn_id": 32
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 2
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 3
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 6
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 10
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 12
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 16
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 19
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 2,
+        "turn_id": 20
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 1
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 2
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 3
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 5
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 6
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 10
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 12
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 16
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 18
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 19
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 20
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 21
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 27
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 31
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 32
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 33
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 34
+      },
+      {
+        "task": "community/kaggle-survey-2021/task2",
+        "rep": 3,
+        "turn_id": 35
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 1,
+        "turn_id": 12
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 1,
+        "turn_id": 17
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 1,
+        "turn_id": 18
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 1,
+        "turn_id": 29
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 2
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 3
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 12
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 17
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 18
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 19
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 20
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 21
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 2,
+        "turn_id": 29
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 3,
+        "turn_id": 2
+      },
+      {
+        "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+        "rep": 3,
+        "turn_id": 3
+      },
+      {
+        "task": "education/world_university_rankings/task2",
+        "rep": 2,
+        "turn_id": 1
+      },
+      {
+        "task": "education/world_university_rankings/task2",
+        "rep": 3,
+        "turn_id": 1
+      },
+      {
+        "task": "education/world_university_rankings/task2",
+        "rep": 3,
+        "turn_id": 8
+      },
+      {
+        "task": "social_good/center_for_policing_equity/task2",
+        "rep": 1,
+        "turn_id": 8
+      },
+      {
+        "task": "social_good/center_for_policing_equity/task2",
+        "rep": 1,
+        "turn_id": 14
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 2,
+        "turn_id": 2
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 2,
+        "turn_id": 3
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 2,
+        "turn_id": 5
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 2,
+        "turn_id": 7
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 2,
+        "turn_id": 17
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 3,
+        "turn_id": 3
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 3,
+        "turn_id": 4
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 3,
+        "turn_id": 5
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 3,
+        "turn_id": 6
+      },
+      {
+        "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+        "rep": 3,
+        "turn_id": 7
+      }
+    ],
+    "interpretation": [
+      "All attempts remain in the primary result; supplemental exclusions remove the same questions from every arm.",
+      "Costs use the frozen common token prices, treating fresh input uniformly because cache-write reporting differs; exclude judge and engine costs.",
+      "No code is observed behavior, not proof of intent or lack of prior evidence; correct reuse is possible.",
+      "Conditional cost cuts do not equalize earlier work or latent session state; they do not fully isolate causal cost effects.",
+      "The original history prompt already instructed separate working and answer tables and warned about earlier mistakes; generic extra prompting is not a demonstrated remedy."
+    ]
+  }
+}

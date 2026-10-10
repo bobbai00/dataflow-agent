@@ -29,6 +29,7 @@ import keyword
 import linecache
 import math
 import numbers
+import time
 import traceback
 from collections.abc import Mapping
 from collections import Counter
@@ -54,14 +55,15 @@ class _Row(Mapping):
     a distinguishable KeyError so the diagnostic can list the real columns.
     """
 
-    __slots__ = ("_index", "_order", "_values", "_reads", "_copy")
+    __slots__ = ("_index", "_order", "_values", "_reads", "_copy", "_suppress_copy_reads")
 
-    def __init__(self, index, values, reads, order=None):
+    def __init__(self, index, values, reads, order=None, suppress_copy_reads=True):
         self._index = index
         self._order = order if order is not None else tuple(index)
         self._values = values
         self._reads = reads
         self._copy = None
+        self._suppress_copy_reads = suppress_copy_reads
 
     def __getitem__(self, key):
         position = self._index.get(key)
@@ -79,23 +81,23 @@ class _Row(Mapping):
         return self._values[position]
 
     def keys(self):
-        self._copy = 0
+        self._copy = 0 if self._suppress_copy_reads else None
         return list(self._order)
 
     def __iter__(self):
-        self._copy = 0
+        self._copy = 0 if self._suppress_copy_reads else None
         return iter(self._order)
 
     def __len__(self):
         return len(self._index)
 
 
-def _rows(frame, reads):
+def _rows(frame, reads, *, suppress_copy_reads=True):
     """Yield one `_Row` per input row over every column, cheaply."""
     index = {name: position for position, name in enumerate(frame.columns)}
     order = tuple(frame.columns)
     for values in frame.itertuples(index=False, name=None):
-        yield _Row(index, tuple(map(_scalar, values)), reads, order)
+        yield _Row(index, tuple(map(_scalar, values)), reads, order, suppress_copy_reads)
 
 
 def _error(spec, code, message, *, stage="execute", field=None, source=None):
@@ -197,7 +199,7 @@ def validate_native(spec):
     for name in [spec.get("id", "operator"), *inputs]:
         if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
-    if len(set(inputs)) != len(inputs) and kind != "Join":
+    if len(set(inputs)) != len(inputs) and kind != "Join" and not spec.get("graph"):
         raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
     expected = 0 if kind == "Scan" else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
@@ -283,10 +285,11 @@ def validate_native(spec):
                 )
         if len(set(names)) != len(names):
             raise _error(spec, "COLUMN_COLLISION", "Submit each output column once.", stage="validate", field="columns")
-    if kind in ("Filter", "Map"):
+    if kind in ("Filter", "Map") and "registered" not in props:
         _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
     elif kind == "Process":
-        _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
+        if "registered" not in props:
+            _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -389,7 +392,8 @@ def _caught(spec, error, source, field, entry):
 def _function(spec, source, field, entry):
     filename = _filename(spec, field)
     linecache.cache[filename] = (len(source), None, source.splitlines(keepends=True), filename)
-    namespace = {"__name__": "__native_user_code__"}
+    # pandas and numpy are bound for every function; other packages are imported inside it.
+    namespace = {"__name__": "__native_user_code__", "pd": pd, "np": np}
     try:
         exec(compile(source, filename, "exec"), namespace)
         function = namespace[entry]
@@ -597,6 +601,54 @@ def _key_rows(frame, columns):
     return [tuple(map(_scalar, row)) for row in frame[columns].itertuples(index=False, name=None)]
 
 
+_WITNESS_LIMIT = 3
+_WITNESS_WIDTH = 8
+_WITNESS_VALUE_CHARS = 96
+
+
+def _witness(values, count):
+    """Bound the display, preserving types and counts of the original values.
+
+    These are first-encountered examples, not top values or random samples.
+    Clipping never becomes the identity used for counting or joining.
+    """
+    encoded, truncated = [], len(values) > _WITNESS_WIDTH
+    for raw in values[:_WITNESS_WIDTH]:
+        value = _scalar(raw)
+        if value is None:
+            encoded.append(None)
+            continue
+        if isinstance(value, bool):
+            kind = "bool"
+        elif isinstance(value, numbers.Integral):
+            if not -(1 << 63) <= value < (1 << 63):
+                return None
+            kind, value = "int64", str(value)
+        elif isinstance(value, numbers.Real):
+            kind, value = "float64", float(value)
+            if not math.isfinite(value):
+                return None
+        elif isinstance(value, (datetime.datetime, pd.Timestamp, np.datetime64)):
+            stamp = pd.Timestamp(value)
+            if stamp.tzinfo is None:
+                return None
+            stamp = stamp.tz_convert("UTC")
+            kind = "datetime"
+            value = (
+                f"{stamp.year:04d}-{stamp.month:02d}-{stamp.day:02d}T"
+                f"{stamp.hour:02d}:{stamp.minute:02d}:{stamp.second:02d}."
+                f"{stamp.microsecond * 1000 + stamp.nanosecond:09d}+00:00"
+            )
+        elif isinstance(value, str):
+            kind = "str"
+            truncated |= len(value) > _WITNESS_VALUE_CHARS
+            value = value[:_WITNESS_VALUE_CHARS]
+        else:
+            return None
+        encoded.append({"type": kind, "value": value})
+    return {"values": encoded, "count": count, "truncated": truncated}
+
+
 def _groups(frame, columns):
     if not columns:
         return [((), list(range(len(frame))))]
@@ -610,16 +662,28 @@ def _aggregate(spec, frame, operations):
     props = spec["properties"]
     keys, aggregates = props.get("groupBy", []), props["aggregations"]
     _columns(spec, frame, keys, "groupBy")
+    bool_as_int = []
     for item in aggregates:
         if "col" in item:
             _columns(spec, frame, [item["col"]], "aggregations")
-        if item["fn"] in ("sum", "mean", "median", "stddev") and _dtype(frame[item["col"]]) not in ("int64", "float64"):
-            raise _error(
-                spec,
-                "AGGREGATE_TYPE",
-                f"{item['fn']} requires numeric {item['col']!r}; cast it explicitly.",
-                field="aggregations",
-            )
+        if item["fn"] in ("sum", "mean", "median", "stddev"):
+            kind = _dtype(frame[item["col"]])
+            if kind == "bool":
+                # True counts 1 and False 0, as pandas sums and averages booleans.
+                if item["col"] not in bool_as_int:
+                    bool_as_int.append(item["col"])
+            elif kind not in ("int64", "float64"):
+                raise _error(
+                    spec,
+                    "AGGREGATE_TYPE",
+                    f"{item['fn']} requires numeric {item['col']!r}; cast it explicitly.",
+                    field="aggregations",
+                )
+    if bool_as_int:
+        frame = frame.copy()
+        for name in bool_as_int:
+            frame[name] = pd.Series([None if _scalar(v) is None else int(_scalar(v)) for v in frame[name]], dtype="Int64")
+        operations["boolAsInt"] = bool_as_int
     grouped = _groups(frame, keys)
     values = {name: [] for name in [*keys, *(item["as"] for item in aggregates)]}
     denominators = {item["as"]: {"total": 0, "min": None, "max": None} for item in aggregates}
@@ -683,7 +747,7 @@ def _aggregate(spec, frame, operations):
     return output
 
 
-JOIN_TYPES = ("inner", "left", "right", "full", "cross")
+JOIN_TYPES = ("inner", "left", "right", "full", "cross", "semi", "anti")
 JOIN_VALIDATIONS = ("many_to_many", "many_to_one", "one_to_many", "one_to_one")
 
 
@@ -770,17 +834,23 @@ def _join(spec, left, right, operations):
             )
     shared_keys = {a for a, b in zip(left_on, right_on) if a == b}
     suffix = props.get("rightSuffix", "_right")
-    right_names = {
-        name: name + suffix if name in left.columns else name for name in right.columns if name not in shared_keys
-    }
-    output_names = [*left.columns, *right_names.values()]
-    if len(set(output_names)) != len(output_names):
-        raise _error(
-            spec,
-            "COLUMN_COLLISION",
-            "Join suffix produces duplicate output columns; choose a different rightSuffix or project/rename first.",
-            field="rightSuffix",
-        )
+    # A right column that collides with a left column takes the suffix; if that
+    # name is taken too, the suffix is repeated until the name is free, so a
+    # join never fails on names. The renames are recorded for the receipt.
+    taken = set(left.columns)
+    right_names, renamed = {}, {}
+    for name in right.columns:
+        if name in shared_keys:
+            continue
+        target = name
+        while target in taken:
+            target += suffix
+        if target != name + (suffix if name in left.columns else ""):
+            renamed[name] = target
+        right_names[name] = target
+        taken.add(target)
+    if kind in ("semi", "anti"):
+        right_names = {}
     if kind == "cross":
         mapping = pd.DataFrame({"left": range(len(left))}).merge(
             pd.DataFrame({"right": range(len(right))}), how="cross"
@@ -822,18 +892,29 @@ def _join(spec, left, right, operations):
                     code = codes[key]
                 encoded.append(code)
             labels.append(encoded)
-        mapping = pd.DataFrame({"key": pd.Series(labels[0], dtype="int64"), "left": range(len(left))}).merge(
-            pd.DataFrame({"key": pd.Series(labels[1], dtype="int64"), "right": range(len(right))}),
-            how="outer" if kind == "full" else kind,
-            on="key",
-            sort=False,
-        )
+        if kind in ("semi", "anti"):
+            # Membership: left rows that have (semi) or lack (anti) a match on
+            # the right, each once, in left order, with the left columns only.
+            matched_codes = set(labels[1])
+            positions = [
+                i for i, code in enumerate(labels[0]) if (code in matched_codes and keys[0][i] is not None) == (kind == "semi")
+            ]
+            mapping = pd.DataFrame({"left": positions, "right": [None] * len(positions)})
+        else:
+            mapping = pd.DataFrame({"key": pd.Series(labels[0], dtype="int64"), "left": range(len(left))}).merge(
+                pd.DataFrame({"key": pd.Series(labels[1], dtype="int64"), "right": range(len(right))}),
+                how="outer" if kind == "full" else kind,
+                on="key",
+                sort=False,
+            )
         common = counts[0].keys() & counts[1].keys()
         facts = {
             "type": kind,
             "nullsEqual": equal,
             "validate": validation,
-            "matchedOutputRows": sum(counts[0][key] * counts[1][key] for key in common),
+            "matchedOutputRows": sum(counts[0][key] for key in common)
+            if kind in ("semi", "anti")
+            else sum(counts[0][key] * counts[1][key] for key in common),
         }
         for i, port in enumerate(("left", "right")):
             matched = sum(counts[i][key] for key in common)
@@ -848,6 +929,24 @@ def _join(spec, left, right, operations):
                 "unmatchedKeys": len(counts[i]) - len(common),
                 "maxMultiplicity": max(counts[i].values(), default=0),
             }
+            if spec.get("profileCollection") is True:
+                unmatched, duplicates = [], []
+                for key, occurrences in counts[i].items():
+                    wants_unmatched = key not in common and len(unmatched) < _WITNESS_LIMIT
+                    wants_duplicate = occurrences > 1 and len(duplicates) < _WITNESS_LIMIT
+                    if wants_unmatched or wants_duplicate:
+                        example = _witness(key, occurrences)
+                        if example is not None:
+                            if wants_unmatched:
+                                unmatched.append(example)
+                            if wants_duplicate:
+                                duplicates.append(example)
+                    if len(unmatched) == len(duplicates) == _WITNESS_LIMIT:
+                        break
+                facts[port]["unmatchedExamples"] = unmatched
+                facts[port]["duplicateExamples"] = duplicates
+        if renamed:
+            facts["renamedRight"] = renamed
         operations["join"] = facts
 
     def take(frame, column, port):
@@ -906,11 +1005,17 @@ def _union(spec, frames, operations):
     for name in names:
         kinds = {_logical_dtype(frame[name]) for frame in frames if name in frame.columns} - {None}
         if len(kinds) > 1:
+            scanning = spec["type"] == "Scan"
             raise _error(
                 spec,
                 "UNION_TYPE",
-                f"Union column {name!r} has incompatible types {sorted(kinds)}; cast before union.",
-                field="schema",
+                (
+                    f"Files infer incompatible types {sorted(kinds)} for column {name!r}. "
+                    "Load with all_text=True and cast downstream, or scan and cast each file before union."
+                    if scanning
+                    else f"Union column {name!r} has incompatible types {sorted(kinds)}; cast before union."
+                ),
+                field="files" if scanning else "schema",
             )
         types[name] = next(iter(kinds), "str")
     aligned = []
@@ -976,7 +1081,7 @@ def _validate_scan_options(spec, fmt):
         reject("sheet selects an Excel sheet or a numeric HTML table index.")
     if fmt in ("binary", "parquet") and props.get("preview") and props.get("skipLines", 0):
         reject(
-            "Binary pointer previews cannot use skipLines; inspect metadata without an offset or load the file with a process function."
+            "Binary pointer previews cannot use skipLines; inspect metadata without an offset or load the file with a custom Python loader."
         )
     common = {"files", "format", "preview", "fileColumn", "allText"}
     allowed = {
@@ -1002,7 +1107,7 @@ def _validate_scan_options(spec, fmt):
         raise _error(
             spec,
             "SCAN_FORMAT",
-            "This binary format needs a process loader (a Python function); Scan preview can show its file metadata.",
+            "This binary format needs a custom Python loader; Scan preview can show its file metadata.",
             stage="validate",
         )
 
@@ -1094,6 +1199,9 @@ def _scan_header(spec, raw, source_meta):
                 unresolved.append(value)
             names.append(str(value))
         source_meta["unresolvedHeaders"] = unresolved
+        check = _header_check(raw, source_meta.pop("_before", None), props.get("skipLines", 0))
+        if check:
+            source_meta["headerCheck"] = check
         # A view: _scan_infer relabels the rows and shares the text columns.
         output = raw.iloc[1:]
     else:
@@ -1113,7 +1221,8 @@ def _scan_header(spec, raw, source_meta):
         raise _error(
             spec,
             "SCAN_HEADER",
-            "Duplicate header names are not renamed automatically; preview and use header=False with names=[...], or a process parser.",
+            f"Duplicate header names across {len(names)} columns. Preview the raw rows, then skip all header rows "
+            f"with skip_lines and use header=False with {len(names)} unique names.",
             field="header",
         )
     output.columns = names
@@ -1175,7 +1284,7 @@ def _scan_read(spec, path, fmt, source_meta):
                 "file": [path.name],
                 "size_bytes": [path.stat().st_size],
                 "note": [
-                    "Binary file metadata only; not parsed data rows. Use full Scan for parquet or a process loader for other binary formats."
+                    "Binary file metadata only; not parsed data rows. Use full Scan for parquet or a custom Python loader for other binary formats."
                 ],
             }
         )
@@ -1210,6 +1319,10 @@ def _scan_read(spec, path, fmt, source_meta):
             raw = workbook.parse(
                 sheets[0], header=None, skiprows=skip, dtype=object, keep_default_na=False, na_values=[""]
             )
+            if skip and props.get("header", True):
+                source_meta["_before"] = workbook.parse(
+                    sheets[0], header=None, nrows=skip, dtype=object, keep_default_na=False, na_values=[""]
+                ).tail(_HEADER_WINDOW)
             return _scan_header(spec, raw, source_meta)
     if fmt == "html":
         tables = _html_tables(path, encoding)
@@ -1290,7 +1403,7 @@ def _scan_read(spec, path, fmt, source_meta):
                             else:
                                 if name in flat:
                                     raise ValueError(
-                                        f"Flattened JSON field collision at {name!r}; use a process parser with explicit names"
+                                        f"Flattened JSON field collision at {name!r}; use a custom Python parser with explicit names"
                                     )
                                 flat[name] = value
 
@@ -1299,7 +1412,7 @@ def _scan_read(spec, path, fmt, source_meta):
                 output = pd.DataFrame(flattened, dtype=object)
             else:
                 raise ValueError(
-                    "JSON Scan expects records, one object, or a dictionary of column arrays; use a process loader for other layouts"
+                    "JSON Scan expects records, one object, or a dictionary of column arrays; use a custom Python loader for other layouts"
                 )
             _frame(spec, output)
             return _scan_infer(output, props.get("allText", False), infer_text=False)
@@ -1337,6 +1450,10 @@ def _scan_read(spec, path, fmt, source_meta):
                     except csv.Error:
                         delimiter = ","
                 source_meta["delim"] = delimiter
+                if skip and props.get("header", True) and delimiter != "whitespace":
+                    with path.open(encoding=encoding, newline="") as head:
+                        above = list(csv.reader(islice(head, skip), delimiter=delimiter))[-_HEADER_WINDOW:]
+                    source_meta["_before"] = pd.DataFrame(above, dtype=object)
                 raw = pd.read_csv(
                     stream,
                     header=None,
@@ -1402,7 +1519,7 @@ def _scan(spec, operations):
             raise _error(
                 spec,
                 "PYTHON_IMPORT",
-                f"Reader for {fmt} is unavailable: {error}. Install its worker dependency or load the file with a process function.",
+                f"Reader for {fmt} is unavailable: {error}. Install its worker dependency or load the file with a custom Python loader.",
                 field="files",
             ) from error
         except Exception as error:
@@ -1594,11 +1711,12 @@ def _map(spec, source, operations):
 def _cast(spec, source, operations):
     props = spec["properties"]
     output = source.copy().reset_index(drop=True)
-    failures = {}
+    failures, examples = {}, {}
     for i, item in enumerate(props["columns"]):
         name = item["column"]
         _columns(spec, source, [name], f"columns[{i}]")
-        values, failed = [], 0
+        values, failed, witnessed = [], 0, {}
+        collect = spec.get("profileCollection") is True and i < _WITNESS_WIDTH
         for value in source[name]:
             try:
                 values.append(_convert(value, item["dtype"], cast=True, options=item))
@@ -1612,20 +1730,83 @@ def _cast(spec, source, operations):
                     ) from error
                 failed += 1
                 values.append(None)
+                if collect:
+                    raw = _scalar(value)
+                    key = (type(raw), raw)
+                    if key in witnessed:
+                        witnessed[key]["count"] += 1
+                    elif len(witnessed) < _WITNESS_LIMIT:
+                        example = _witness([raw], 1)
+                        if example is not None:
+                            witnessed[key] = example
         output[name] = _series(values, item["dtype"])
         failures[name] = failed
+        if witnessed:
+            examples[name] = {
+                "examples": list(witnessed.values()),
+                "otherCount": failed - sum(w["count"] for w in witnessed.values()),
+            }
     operations["conversionFailures"] = failures
+    if examples:
+        operations["conversionFailureExamples"] = examples
     return output
+
+
+def _registered_failure(spec, error):
+    """Point runtime failures at the shared authored definition, not the adapter."""
+    frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+              if frame.filename.startswith("<definitions:")]
+    location = None
+    if frames:
+        frame = frames[-1]
+        cell = int(frame.filename.removeprefix("<definitions:").removesuffix(">"))
+        location = _location(spec["properties"]["registered"]["cells"][cell - 1], frame.name, frame.lineno)
+        location["cell"] = cell
+    hint = getattr(error, "_native_column_hint", "")
+    return _error(spec, "CALLBACK_RUNTIME", f"{type(error).__name__}: {error}{hint}", field="python", source=location)
+
+
+def _filter_rejected_values(source, positions, reads):
+    """Bound first-seen examples while counting their original scalar identities.
+
+    Values come from every rejected row, including null verdicts. A column need
+    only have been read on one row; these are distributions, not explanations.
+    """
+    columns = {}
+    for name in sorted(reads)[:_WITNESS_WIDTH]:
+        witnessed = {}
+        for raw in source[name].iloc[positions]:
+            value = _scalar(raw)
+            key = (type(value), value)
+            if key in witnessed:
+                witnessed[key]["count"] += 1
+            elif len(witnessed) < _WITNESS_LIMIT:
+                example = _witness([value], 1)
+                if example is not None:
+                    witnessed[key] = example
+        columns[name] = {"examples": list(witnessed.values()),
+                         "otherCount": len(positions) - sum(item["count"] for item in witnessed.values())}
+    return {"rejectedRows": len(positions), "columnsObserved": len(reads), "columns": columns}
 
 
 def _filter(spec, source, operations):
     props = spec["properties"]
     entry = props.get("entry", "apply")
-    function = _function(spec, props["func"], "func", entry)
+    registered = "registered" in props
+    function = registered_callable(spec) if registered else _function(spec, props["func"], "func", entry)
     mask, missing = [], 0
     reads = set()
-    for row in _rows(source, reads):
-        value = _scalar(function(row))
+    # Mapping copies/iteration can feed a predicate. Unlike Map's pass-through
+    # row-copy heuristic, every value fetched here is an observed read.
+    for row in _rows(source, reads, suppress_copy_reads=False):
+        try:
+            value = _scalar(function(row))
+        except NativeError:
+            raise
+        except Exception as error:
+            if registered:
+                raise _registered_failure(spec, error) from error
+            raise
         if value is None:
             # None means "no verdict": the row is dropped, and the count is reported.
             missing += 1
@@ -1636,8 +1817,8 @@ def _filter(spec, source, operations):
                 "CALLBACK_RETURN_TYPE",
                 f"Filter requires bool or None, got {type(value).__name__}.",
                 stage="contract",
-                field="func",
-                source=_location(props["func"], entry, 1),
+                field="python" if registered else "func",
+                source=None if registered else _location(props["func"], entry, 1),
             )
         mask.append(value)
     operations.update(
@@ -1648,6 +1829,11 @@ def _filter(spec, source, operations):
             "predicateColumns": sorted(reads),
         }
     )
+    if spec.get("profileCollection") is True:
+        started = time.perf_counter()
+        operations["filterRejectedValues"] = _filter_rejected_values(
+            source, [i for i, keep in enumerate(mask) if not keep], reads)
+        operations["timing"] = {"filterRejectedValuesMs": (time.perf_counter() - started) * 1000}
     return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
 
 
@@ -1668,13 +1854,12 @@ def _project(spec, source):
 
 
 def _new_columns(spec, frame, names, field):
-    if len(names) != len(set(names)) or any(name in frame.columns for name in names):
-        raise _error(
-            spec,
-            "COLUMN_COLLISION",
-            f"New output names must be unique and not overwrite existing columns: {names!r}.",
-            field=field,
-        )
+    """Output names must be distinct among themselves. A name that already
+    exists in the input replaces that column, as an assignment does in pandas;
+    the caller records the replacement."""
+    if len(names) != len(set(names)):
+        raise _error(spec, "COLUMN_COLLISION", f"Output names must be unique: {names!r}.", field=field)
+    return [name for name in names if name in frame.columns]
 
 
 def _window(spec, source, operations):
@@ -1682,14 +1867,16 @@ def _window(spec, source, operations):
     partitions, ordering, columns = props.get("partitionBy", []), props["orderBy"], props["columns"]
     _columns(spec, source, partitions, "partitionBy")
     _columns(spec, source, [item["col"] for item in ordering], "orderBy")
-    _new_columns(spec, source, [item["as"] for item in columns], "columns")
+    replaced = _new_columns(spec, source, [item["as"] for item in columns], "columns")
     for i, item in enumerate(columns):
         if "col" in item:
             _columns(spec, source, [item["col"]], f"columns[{i}].col")
     # Private positional identity, independent of arbitrary/duplicate user indexes.
     # Restore this order after calculating within each stably sorted partition.
     frame = source.reset_index(drop=True)
-    output = frame.copy()
+    output = frame.drop(columns=replaced)
+    if replaced:
+        operations["replacedColumns"] = replaced
     values = {item["as"]: [None] * len(frame) for item in columns}
     counters = {item["as"]: {"boundaryNulls": 0, "nullOutputs": 0} for item in columns if item["fn"] in ("lag", "lead")}
     groups = _groups(frame, partitions) if len(frame) else []
@@ -1741,7 +1928,10 @@ def _unpivot(spec, source, operations):
     _columns(spec, source, columns, "columns")
     keys = [name for name in source.columns if name not in columns]
     name, value = props.get("nameColumn", "variable"), props.get("valueColumn", "value")
-    _new_columns(spec, source[keys], [name, value], "nameColumn/valueColumn")
+    replaced = _new_columns(spec, source[keys], [name, value], "nameColumn/valueColumn")
+    if replaced:
+        keys = [key for key in keys if key not in replaced]
+        operations["replacedColumns"] = replaced
     kinds = {_logical_dtype(source[column]) for column in columns} - {None}
     if len(kinds) > 1:
         raise _error(
@@ -1823,6 +2013,429 @@ def _pivot(spec, source, operations):
     return output
 
 
+# ---------------------------------------------------------------------------
+# Checks: an operator's own assumptions, verified on the full tables it read.
+# Each records facts only; the agent service decides what the model sees.
+
+_HEADER_WINDOW = 5
+_CHECK_ROW_LIMIT = 2_000_000
+
+
+def _data_like(name):
+    """A header cell that reads as a data value: a number, amount or percent.
+
+    Four-digit years stay header-like: wide tables are commonly keyed by year.
+    """
+    import re
+
+    text = str(name).strip().replace(" ", "")
+    if not re.fullmatch(r"[(+\-$€£]*\d[\d,]*(\.\d+)?%?\)?", text):
+        return False
+    return not re.fullmatch(r"(1[89]|20)\d\d", text.replace(",", ""))
+
+
+def _header_cells(values, width, *, strip=True):
+    cells = ["" if _missing(value) else str(value) for value in values]
+    if strip:
+        cells = [cell.strip() for cell in cells]
+    return (cells + [""] * width)[:width]
+
+
+def _header_score(cells):
+    named = [cell for cell in cells if cell]
+    return sum(map(_data_like, named)), len(cells) - len(named), len(set(named)) == len(named)
+
+
+def _header_check(raw, before, skip):
+    """Is the first parsed row a header? Also: the best header row nearby."""
+    if raw.empty:
+        return None
+    width = len(raw.columns)
+    current = _header_cells(raw.iloc[0], width)
+    data_like, blanks, _ = _header_score(current)
+    issues = {}
+    if data_like:
+        issues["dataLike"] = [cell for cell in current if cell and _data_like(cell)][:6]
+    if width > 1 and blanks * 2 > width:
+        issues["blank"] = blanks
+    named = [i for i, cell in enumerate(current) if cell]
+    if len(named) >= 2 and len(raw) <= _CHECK_ROW_LIMIT:
+        import numpy as np
+
+        # numpy, not the `.str` accessor: it is cached on its Series in a
+        # reference cycle that holds each column copy until a full collection.
+        def cells(i, rows):
+            values = raw.iloc[1:, i].to_numpy(dtype=object)[rows]
+            return np.char.strip(np.where(pd.isna(values), "", values).astype(str))
+
+        rows = np.flatnonzero(cells(named[0], slice(None)) == current[named[0]])
+        for i in named[1:]:
+            if not len(rows):
+                break
+            rows = rows[cells(i, rows) == current[i]]
+        if len(rows):
+            issues["repeats"] = int(len(rows))
+    if not issues:
+        return None
+    result = {"header": _header_cells(raw.iloc[0], width, strip=False)[:8], **issues}
+    if "dataLike" in issues or "blank" in issues:
+        above = [] if before is None else list(before.itertuples(index=False, name=None))
+        candidates = [(i - len(above), row) for i, row in enumerate(above)]
+        candidates += [(i, tuple(raw.iloc[i])) for i in range(1, min(_HEADER_WINDOW, len(raw) - 1) + 1)]
+        best = None
+        for offset, row in candidates:
+            cells = _header_cells(row, width)
+            like, empty, unique = _header_score(cells)
+            better = empty < blanks if "blank" in issues and not data_like else empty <= blanks
+            if like == 0 and unique and better and empty * 2 <= width:
+                if best is None or abs(offset) < abs(best[0]):
+                    # Score normalized labels, but report names exactly as
+                    # the repaired scan will expose them to graph operators.
+                    best = (offset, _header_cells(row, width, strip=False))
+        if best:
+            result["suggest"] = {"skipLines": skip + best[0], "header": best[1][:8]}
+    return result
+
+
+def _overlapping_sources(records, origin):
+    """Records present, once each, in two or more sources.
+
+    A record is a row of at least two columns, not mostly empty, that occurs
+    exactly once in its own source. Rows that repeat inside one source are
+    that source's observations (a year and a category, say), not copies, so
+    they never count. A record found in several sources this way is the same
+    entity listed by each of them, and a union of the sources holds one copy
+    per source: a later sum, mean or count counts each copy.
+    """
+    import numpy as np
+
+    if records.shape[1] < 2 or len(records) < 2 or len(records) > _CHECK_ROW_LIMIT:
+        return None
+    text = records.astype("string").fillna("")
+    cells = text.to_numpy(dtype=object)
+    filled = (cells != "").sum(axis=1) * 2 > records.shape[1]
+    keys = pd.util.hash_pandas_object(text, index=False).to_numpy()
+    pairs = pd.DataFrame({"key": keys, "origin": origin})
+    per_source = pairs.groupby(["key", "origin"]).size()
+    once = per_source.groupby(level="key").max() == 1
+    sources = per_source.groupby(level="key").size()
+    shared = sources.index[(sources >= 2) & once.reindex(sources.index).to_numpy()]
+    hit = np.isin(keys, shared) & filled
+    if not hit.any():
+        return None
+    first = cells[int(np.argmax(hit))]
+    return {
+        "rows": int(hit.sum()),
+        "of": len(records),
+        "records": int(len(np.unique(keys[hit]))),
+        "sources": int(len(np.unique(np.asarray(origin)[hit]))),
+        "example": ", ".join(str(v) for v in first)[:160],
+    }
+
+
+def _cross_source_duplicates(parts, synthetic):
+    """Records shared by several of the tables a function concatenates."""
+    import numpy as np
+
+    if len(parts) < 2 or sum(map(len, parts)) > _CHECK_ROW_LIMIT:
+        return None
+    columns = [c for c in parts[0].columns if c not in synthetic]
+    if not columns or any([c for c in part.columns if c not in synthetic] != columns for part in parts):
+        return None
+    records = pd.concat([part[columns] for part in parts], ignore_index=True)
+    origin = np.concatenate([np.full(len(part), i) for i, part in enumerate(parts)])
+    result = _overlapping_sources(records, origin)
+    return {**result, "files": len(parts)} if result else None
+
+
+def _repeated_records(frame, provenance):
+    """The rows an aggregate or process reads that are one record from several sources.
+
+    Only with a provenance column (the scan's file-name column carried
+    downstream): without one, a copy cannot be told from a repeated value.
+    """
+    present = [c for c in provenance if c in frame.columns]
+    columns = [c for c in frame.columns if c not in present]
+    if not present or not columns:
+        return None
+    origin = pd.util.hash_pandas_object(frame[present].astype("string").fillna(""), index=False).to_numpy()
+    result = _overlapping_sources(frame[columns], origin)
+    return {**result, "ignoring": present} if result else None
+
+def _key_dependencies(frame, keys, reduced):
+    """Columns an aggregate's group key almost, but not always, determines.
+
+    A column with one value in most groups is an attribute of the key (a
+    beach's community, a station's elevation). Where some groups hold several
+    values, the key merges entities that the column tells apart, or the data
+    disagrees with itself; either way each such group's rows are pooled.
+    Reduced columns vary within groups by design and are not considered.
+    """
+    import numpy as np
+
+    if not keys or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
+        return None
+    candidates = [c for c in frame.columns if c not in keys and c not in reduced][:40]
+    if not candidates:
+        return None
+    grouped = frame.groupby(keys, dropna=False, sort=False)
+    # Only groups of two or more rows can show whether a column varies.
+    sizes = grouped.size()
+    multi = sizes.index[sizes.to_numpy() > 1]
+    found = []
+    for column in candidates:
+        per_group = grouped[column].nunique(dropna=True).reindex(multi)
+        groups = len(sizes)
+        split = per_group[per_group > 1]
+        single = int((per_group == 1).sum())
+        # Mostly determined (at least 4 in 5 multi-row groups single-valued), not always.
+        if not len(split) or single < 4 * len(split) or single + len(split) < 5:
+            continue
+        key = split.index[0]
+        key = key if isinstance(key, tuple) else (key,)
+        mask = np.ones(len(frame), dtype=bool)
+        for name, value in zip(keys, key):
+            column_values = frame[name]
+            mask &= (column_values.isna() if _missing(value) else column_values == value).to_numpy(dtype=bool)
+        values = [str(v) for v in pd.unique(frame.loc[mask, column].dropna())[:3]]
+        found.append(
+            {
+                "column": column,
+                "groups": groups,
+                "split": int(len(split)),
+                "example": {"key": [None if _missing(v) else str(v) for v in key], "values": values},
+            }
+        )
+    found.sort(key=lambda item: -item["split"])
+    return found[:3] or None
+
+
+class _ProcessTrace:
+    """Observe the table operations a process function performs.
+
+    The engine sees a process as one opaque step. While its function runs,
+    pandas' readers, merges, row selections and concatenations called from the
+    function's own lines are recorded, so the row effects inside it can be
+    checked like those of relational operators. Calls made by pandas itself
+    are not recorded twice.
+    """
+
+    def __init__(self, filename):
+        self.filenames = filename if isinstance(filename, dict) else {filename: None}
+        self.reads, self.events, self._saved, self._depth = [], [], [], 0
+        self.reads_omitted, self.events_omitted = 0, 0
+
+    def _line(self):
+        import sys
+
+        # Only calls written in the function itself; pandas calling its own
+        # API (a groupby selecting columns) is not the function's intent.
+        frame = sys._getframe(2)
+        if frame.f_code.co_filename not in self.filenames:
+            return None
+        cell = self.filenames[frame.f_code.co_filename]
+        return {"line": frame.f_lineno, **({"cell": cell} if cell is not None else {})}
+
+    def _append(self, collection, event):
+        target, limit = (self.reads, 16) if collection == "reads" else (self.events, 8)
+        if len(target) < limit:
+            target.append(event)
+        elif collection == "reads":
+            self.reads_omitted += 1
+        else:
+            self.events_omitted += 1
+
+    def snapshot(self):
+        return {
+            "reads": self.reads,
+            "events": self.events,
+            "lineage": "unknown",
+            **({"readsOmitted": self.reads_omitted} if self.reads_omitted else {}),
+            **({"eventsOmitted": self.events_omitted} if self.events_omitted else {}),
+        }
+
+    def _column_hint(self, error, owner, name, args):
+        # Only a witnessed pandas column lookup, never an arbitrary dictionary
+        # KeyError or a row-label lookup. No names or user data are rewritten.
+        if name != "__getitem__" or len(args) < 2:
+            return
+        if owner is pd.DataFrame:
+            frame, key = args[0], args[1]
+        elif hasattr(args[0], "obj") and isinstance(args[1], tuple) and len(args[1]) == 2:
+            frame, key = args[0].obj, args[1][1]
+        else:
+            return
+        if not isinstance(frame, pd.DataFrame) or not isinstance(key, str) or error.args != (key,):
+            return
+        matches = [name for name in frame.columns if isinstance(name, str) and name.strip() == key.strip()]
+        if len(matches) == 1 and matches[0] != key:
+            error._native_column_hint = (
+                f" Exact column name: {json.dumps(matches[0], ensure_ascii=True)} (whitespace differs)."
+            )
+
+    def _wrap(self, owner, name, record):
+        import functools
+
+        original = getattr(owner, name)
+        trace = self
+
+        @functools.wraps(original)
+        def wrapper(*args, **kwargs):
+            if trace._depth:
+                return original(*args, **kwargs)
+            trace._depth += 1
+            try:
+                result = original(*args, **kwargs)
+            except KeyError as error:
+                if trace._line() is not None:
+                    try:
+                        trace._column_hint(error, owner, name, args)
+                    except Exception:
+                        pass  # Optional diagnostics cannot replace the original failure.
+                raise
+            finally:
+                trace._depth -= 1
+            line = trace._line()
+            if line is not None:
+                trace._depth += 1
+                try:
+                    record(line, args, kwargs, result)
+                except Exception:
+                    pass
+                finally:
+                    trace._depth -= 1
+            return result
+
+        setattr(owner, name, wrapper)
+        self._saved.append((owner, name, original))
+
+    def _read(self, line, args, kwargs, result):
+        import os
+
+        source = args[0] if args else kwargs.get("filepath_or_buffer", kwargs.get("io", kwargs.get("path")))
+        frames = result.values() if isinstance(result, dict) else [result]
+        rows = sum(len(f) for f in frames if isinstance(f, pd.DataFrame))
+        name = os.path.basename(str(source)) if isinstance(source, (str, os.PathLike)) else type(source).__name__
+        self._append(
+            "reads",
+            {**line, "file": name[:1024], "rows": rows, **({"fileTruncated": True} if len(name) > 1024 else {})},
+        )
+
+    def _merge(self, line, args, kwargs, result):
+        left = args[0]
+        right = args[1] if len(args) > 1 else kwargs.get("right")
+        if not all(isinstance(x, pd.DataFrame) for x in (left, right, result)):
+            return
+        how = kwargs.get("how", "inner")
+        event = {**line, "op": "merge", "how": how, "in": [len(left), len(right)], "out": len(result)}
+        if len(result) == 0 and len(left) and len(right):
+            self._append("events", {**event, "issue": "empty"})
+
+    def _select(self, line, frame, key, result):
+        import numpy as np
+
+        mask = getattr(key, "dtype", None)
+        if not isinstance(result, pd.DataFrame) or not isinstance(frame, pd.DataFrame):
+            return
+        if not (mask is not None and np.dtype(mask) == np.bool_) and not isinstance(key, str):
+            return
+        if isinstance(key, str) or not len(frame) or len(result):
+            return
+        self._append("events", {**line, "op": "filter", "in": [len(frame)], "out": 0, "issue": "empty"})
+
+    def _getitem(self, line, args, kwargs, result):
+        self._select(line, args[0], args[1] if len(args) > 1 else None, result)
+
+    def _loc(self, line, args, kwargs, result):
+        key = args[1] if len(args) > 1 else None
+        self._select(line, args[0].obj, key[0] if isinstance(key, tuple) else key, result)
+
+    def _query(self, line, args, kwargs, result):
+        if isinstance(result, pd.DataFrame) and len(args[0]) and not len(result):
+            self._append("events", {**line, "op": "query", "in": [len(args[0])], "out": 0, "issue": "empty"})
+
+    def _concat(self, line, args, kwargs, result):
+        objs = args[0] if args else kwargs.get("objs")
+        parts = list(objs.values() if isinstance(objs, dict) else objs or [])
+        axis = kwargs.get("axis", 0)
+        if axis not in (0, "index") or len(parts) < 2 or not all(isinstance(p, pd.DataFrame) for p in parts):
+            return
+        duplicates = _cross_source_duplicates(parts, [])
+        if duplicates:
+            self._append(
+                "events",
+                {
+                    **line,
+                    "op": "concat",
+                    "in": [len(p) for p in parts],
+                    "out": len(result),
+                    "issue": "duplicates",
+                    **duplicates,
+                },
+            )
+
+    def __enter__(self):
+        import pandas.core.indexing as indexing
+
+        for name in ("read_csv", "read_excel", "read_table", "read_json", "read_parquet", "read_fwf"):
+            self._wrap(pd, name, self._read)
+        self._wrap(pd, "merge", lambda line, args, kwargs, result: self._merge(line, args, kwargs, result))
+        self._wrap(pd.DataFrame, "merge", self._merge)
+        self._wrap(pd.DataFrame, "__getitem__", self._getitem)
+        self._wrap(pd.DataFrame, "query", self._query)
+        self._wrap(indexing._LocIndexer, "__getitem__", self._loc)
+        self._wrap(pd, "concat", self._concat)
+        return self
+
+    def __exit__(self, *exc):
+        for owner, name, original in reversed(self._saved):
+            setattr(owner, name, original)
+        self._saved.clear()
+        return False
+
+
+def _process_input(frame):
+    """Give custom pandas code conventional numeric arrays where lossless.
+
+    Pandas 2.2 can rank masked nullable floats as ordinary values after
+    to_numeric, even while notna() still excludes them. NumPy floats preserve
+    the mask as NaN through these operations. Complete nullable integers can
+    become NumPy int64 directly, avoiding masked-array pivot/fill failures.
+    Keep nullable integers when missing values need their masks, and never
+    pass integer identifiers through float conversion.
+    """
+    output = frame.copy(deep=True)
+    for name in output.columns:
+        if isinstance(output[name].dtype, (pd.Float32Dtype, pd.Float64Dtype)):
+            output[name] = output[name].astype("float64")
+        elif isinstance(output[name].dtype, pd.Int64Dtype) and output[name].notna().all():
+            output[name] = output[name].astype("int64")
+    return output
+
+
+def execute_native_from_engine(spec, inputs):
+    """Restore UTC metadata stripped by Texera's timezone-free TIMESTAMP wire type.
+
+    Native producers validate timezone-aware datetimes before transport; Arrow
+    serializes their instants in UTC. Restore that known zone only at this
+    engine boundary, leaving direct runtime and callback validation strict.
+    """
+    import pandas as pd
+
+    restored = []
+    for frame in inputs:
+        if isinstance(frame, pd.DataFrame) and frame.columns.is_unique:
+            naive = [name for name in frame.columns
+                     if pd.api.types.is_datetime64_any_dtype(frame[name].dtype)
+                     and getattr(frame[name].dt, "tz", None) is None]
+            if naive:
+                frame = frame.copy(deep=False)
+                for name in naive:
+                    frame[name] = frame[name].dt.tz_localize("UTC")
+        restored.append(frame)
+    return execute_native(spec, restored)
+
+
 def execute_native(spec, inputs):
     global pd, np
     import pandas as pd
@@ -1849,6 +2462,12 @@ def execute_native(spec, inputs):
     kind, props = spec["type"], spec["properties"]
     source = inputs[0] if inputs else None
     operations = {}
+    body_started = time.perf_counter()
+    lineage = spec.get("lineage") or {}
+    if kind in ("Aggregate", "Process") and lineage.get("multiSource") and inputs:
+        repeated = _repeated_records(inputs[0], lineage.get("provenanceColumns", []))
+        if repeated:
+            operations["repeatedRecords"] = repeated
     if kind == "Scan":
         output = _scan(spec, operations)
     elif kind == "Map":
@@ -1861,6 +2480,11 @@ def execute_native(spec, inputs):
         output = _project(spec, source)
     elif kind == "Aggregate":
         output = _aggregate(spec, source, operations)
+        dependencies = _key_dependencies(
+            source, props.get("groupBy", []), [a.get("col") for a in props["aggregations"]]
+        )
+        if dependencies:
+            operations["keyDependencies"] = dependencies
     elif kind == "Join":
         output = _join(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
@@ -1896,11 +2520,36 @@ def execute_native(spec, inputs):
         output = source.iloc[start : start + props["n"]].copy().reset_index(drop=True)
         operations["removedRows"] = len(source) - len(output)
     elif kind == "Process":
-        entry = props.get("entry", "process" if inputs else "load")
-        function = _function(spec, props["code"], "code", entry)
-        output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
+        if "registered" in props:
+            try:
+                with _ProcessTrace(
+                    {f"<definitions:{i + 1}>": i + 1 for i in range(len(props["registered"]["cells"]))}
+                ) as trace:
+                    output = _frame(spec, execute_registered(spec, [_process_input(frame) for frame in inputs]))
+                if trace.reads or trace.events:
+                    operations["process"] = trace.snapshot()
+            except NativeError:
+                raise
+            except Exception as error:
+                raise _registered_failure(spec, error) from error
+        else:
+            entry = props.get("entry", "process" if inputs else "load")
+            function = _function(spec, props["code"], "code", entry)
+            with _ProcessTrace(_filename(spec, "code")) as trace:
+                output = _frame(spec, function(*[_process_input(frame) for frame in inputs]))
+            if trace.reads or trace.events:
+                operations["process"] = trace.snapshot()
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
+    if spec.get("profileCollection") is True:
+        # Operator body includes namespace initialization, source I/O and native
+        # counters. Exclude the separately timed filter witness pass. Neither
+        # value includes input/output validation, table profiling or transport.
+        timing = operations.setdefault("timing", {})
+        timing["operatorBodyMs"] = max(0.0, (time.perf_counter() - body_started) * 1000
+                                       - timing.get("filterRejectedValuesMs", 0.0))
+        for key, value in timing.items():
+            timing[key] = round(value, 3)
     _frame(spec, output)
     if ROW_EFFECTS[kind] == "none" and len(output) != len(source):
         raise _error(spec, "ROW_CONTRACT", "A row-preserving operator changed the row count.", stage="contract")
@@ -1909,6 +2558,7 @@ def execute_native(spec, inputs):
         "operatorId": spec.get("id", "operator"),
         "operatorRevision": spec.get("revision", "unversioned"),
         **({"profileCollection": True} if spec.get("profileCollection") is True else {}),
+        **({"profileScope": "full"} if spec.get("profileScope") == "full" else {}),
         "operatorType": kind,
         "inputOperators": spec.get("inputs", []),
         "rowEffect": ROW_EFFECTS[kind],
@@ -1923,7 +2573,16 @@ if __name__ == "__main__":
     import sys
 
     request = json.load(sys.stdin)
-    if isinstance(request, dict) and "program" in request:
+    if isinstance(request, dict) and request.get("registered"):
+        from registered import registered_request
+
+        print(json.dumps(registered_request(request), ensure_ascii=True))
+    elif isinstance(request, dict) and "changes" in request:
+        # Parse a graph edit (see graph_parser.py); no operator semantics.
+        from graph_parser import parse_graph_edit
+
+        print(json.dumps(parse_graph_edit(request["changes"]), ensure_ascii=True))
+    elif isinstance(request, dict) and "program" in request:
         # Parse a native program (see program_parser.py); no operator semantics.
         from program_parser import parse_program
 

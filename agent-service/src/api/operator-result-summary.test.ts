@@ -23,6 +23,22 @@ import type { OperatorInfo } from "../types/execution";
 import { mergeTableProfiles } from "../agent/native/profiles";
 
 const info: OperatorInfo = { state: "Completed", inputTuples: 0, outputTuples: 0, resultMode: "table", result: [] };
+test("snapshot API preserves transport truncation even when every row is retained", () => {
+  for (const truncated of [true, false]) {
+    const summary = JSON.parse(
+      JSON.stringify(
+        operatorInfoToSummary({
+          ...info,
+          result: [{ text: "long cell" }],
+          totalRowCount: 1,
+          truncated,
+        })
+      )
+    );
+    expect(summary.truncated).toBe(truncated);
+    expect(summary.sampleRecords).toHaveLength(1);
+  }
+});
 test("snapshot API preserves structured schema, profile and producing/retrieval identities without raw envelopes", () => {
   const structured: OperatorInfo = {
     ...info,

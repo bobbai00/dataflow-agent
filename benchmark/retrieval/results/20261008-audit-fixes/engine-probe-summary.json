@@ -1,0 +1,609 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "cell": "data0-flow0",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6691.524875,
+      "cachedActionDurationMs": 1216.596375,
+      "retrieveOnlyActionDurationMs": 14.55212500000016,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "209",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 3.100291,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 1190.635124999997,
+            "responseBodyDecodeMs": 0.33041700000103447,
+            "resultPreparationMs": 3.0511249999981374,
+            "snapshotStoreMs": 4.4534159999966505
+          }
+        }
+      ],
+      "initialExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "208",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.72575,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 6489.513041999999,
+            "responseBodyDecodeMs": 0.31579100000089966,
+            "resultPreparationMs": 2.3782089999986056,
+            "snapshotStoreMs": 6.869250000003376
+          }
+        }
+      ],
+      "profiles": {
+        "lookup": {
+          "cost": {
+            "collectionMs": 1.908,
+            "snapshotMs": 0.117,
+            "cellsProcessed": 44,
+            "payloadBytes": 3399
+          },
+          "timing": {
+            "operatorBodyMs": 3.197
+          }
+        },
+        "source": {
+          "cost": {
+            "collectionMs": 2.023,
+            "snapshotMs": 0.155,
+            "cellsProcessed": 72,
+            "payloadBytes": 5223
+          },
+          "timing": {
+            "operatorBodyMs": 3.282
+          }
+        },
+        "converted": {
+          "cost": {
+            "collectionMs": 2.104,
+            "snapshotMs": 0.161,
+            "cellsProcessed": 72,
+            "payloadBytes": 5171
+          },
+          "timing": {
+            "operatorBodyMs": 0.296
+          }
+        },
+        "selected": {
+          "cost": {
+            "collectionMs": 2.252,
+            "snapshotMs": 0.175,
+            "cellsProcessed": 69,
+            "payloadBytes": 5146
+          },
+          "timing": {
+            "filterRejectedValuesMs": 0.106,
+            "operatorBodyMs": 0.52
+          }
+        },
+        "joined": {
+          "cost": {
+            "collectionMs": 3.561,
+            "snapshotMs": 0.173,
+            "cellsProcessed": 84,
+            "payloadBytes": 5951
+          },
+          "timing": {
+            "operatorBodyMs": 4.16
+          }
+        },
+        "summary": {
+          "cost": {
+            "collectionMs": 1.265,
+            "snapshotMs": 0.078,
+            "cellsProcessed": 3,
+            "payloadBytes": 2384
+          },
+          "timing": {
+            "operatorBodyMs": 1.251
+          }
+        }
+      },
+      "discovery": {
+        "sheets": [
+          "Measurements",
+          "Lookup",
+          "Empty"
+        ],
+        "columns": 179,
+        "executions": 2,
+        "actionDurationMs": 4252.2903750000005
+      },
+      "promptCharacters": 20458,
+      "executionCharacters": 284,
+      "retrievalCharacters": 460,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    },
+    {
+      "cell": "data0-flow1",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6424.492374999998,
+      "cachedActionDurationMs": 1165.2977919999976,
+      "retrieveOnlyActionDurationMs": 13.550875000000815,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "213",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.84475,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 1145.5861250000016,
+            "responseBodyDecodeMs": 0.2380410000041593,
+            "resultPreparationMs": 1.6760409999988042,
+            "snapshotStoreMs": 2.7142499999972642
+          }
+        }
+      ],
+      "initialExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "212",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 3.061709,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 6265.328458,
+            "responseBodyDecodeMs": 0.2102500000037253,
+            "resultPreparationMs": 1.7867499999993015,
+            "snapshotStoreMs": 3.096292000001995
+          }
+        }
+      ],
+      "profiles": {
+        "lookup": {
+          "cost": {
+            "collectionMs": 1.881,
+            "snapshotMs": 0.103,
+            "cellsProcessed": 44,
+            "payloadBytes": 3399
+          },
+          "timing": {
+            "operatorBodyMs": 2.942
+          }
+        },
+        "source": {
+          "cost": {
+            "collectionMs": 2.166,
+            "snapshotMs": 0.158,
+            "cellsProcessed": 72,
+            "payloadBytes": 5223
+          },
+          "timing": {
+            "operatorBodyMs": 2.865
+          }
+        },
+        "converted": {
+          "cost": {
+            "collectionMs": 2.464,
+            "snapshotMs": 0.163,
+            "cellsProcessed": 72,
+            "payloadBytes": 5171
+          },
+          "timing": {
+            "operatorBodyMs": 0.357
+          }
+        },
+        "selected": {
+          "cost": {
+            "collectionMs": 1.917,
+            "snapshotMs": 0.156,
+            "cellsProcessed": 69,
+            "payloadBytes": 5147
+          },
+          "timing": {
+            "filterRejectedValuesMs": 0.105,
+            "operatorBodyMs": 0.504
+          }
+        },
+        "joined": {
+          "cost": {
+            "collectionMs": 3.086,
+            "snapshotMs": 0.176,
+            "cellsProcessed": 84,
+            "payloadBytes": 5952
+          },
+          "timing": {
+            "operatorBodyMs": 3.833
+          }
+        },
+        "summary": {
+          "cost": {
+            "collectionMs": 1.335,
+            "snapshotMs": 0.081,
+            "cellsProcessed": 3,
+            "payloadBytes": 2384
+          },
+          "timing": {
+            "operatorBodyMs": 1.383
+          }
+        }
+      },
+      "discovery": {
+        "sheets": [
+          "Measurements",
+          "Lookup",
+          "Empty"
+        ],
+        "columns": 179,
+        "executions": 2,
+        "actionDurationMs": 4229.412958000001
+      },
+      "promptCharacters": 21207,
+      "executionCharacters": 2851,
+      "retrievalCharacters": 1177,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    },
+    {
+      "cell": "data1-flow0",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6548.756834000003,
+      "cachedActionDurationMs": 1225.8186669999996,
+      "retrieveOnlyActionDurationMs": 12.030790999997407,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "217",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 3.065875,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 1204.5903749999998,
+            "responseBodyDecodeMs": 0.3776670000006561,
+            "resultPreparationMs": 1.8659580000021379,
+            "snapshotStoreMs": 2.6695420000032755
+          }
+        }
+      ],
+      "initialExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "216",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.878875,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 6378.337375000003,
+            "responseBodyDecodeMs": 0.43058300000120653,
+            "resultPreparationMs": 3.3070840000000317,
+            "snapshotStoreMs": 6.435375000000931
+          }
+        }
+      ],
+      "profiles": {
+        "lookup": {
+          "cost": {
+            "collectionMs": 1.854,
+            "snapshotMs": 0.107,
+            "cellsProcessed": 44,
+            "payloadBytes": 3399
+          },
+          "timing": {
+            "operatorBodyMs": 3.054
+          }
+        },
+        "source": {
+          "cost": {
+            "collectionMs": 2.018,
+            "snapshotMs": 0.161,
+            "cellsProcessed": 72,
+            "payloadBytes": 5223
+          },
+          "timing": {
+            "operatorBodyMs": 2.845
+          }
+        },
+        "converted": {
+          "cost": {
+            "collectionMs": 1.948,
+            "snapshotMs": 0.165,
+            "cellsProcessed": 72,
+            "payloadBytes": 5171
+          },
+          "timing": {
+            "operatorBodyMs": 0.272
+          }
+        },
+        "selected": {
+          "cost": {
+            "collectionMs": 1.842,
+            "snapshotMs": 0.161,
+            "cellsProcessed": 69,
+            "payloadBytes": 5146
+          },
+          "timing": {
+            "filterRejectedValuesMs": 0.099,
+            "operatorBodyMs": 0.51
+          }
+        },
+        "joined": {
+          "cost": {
+            "collectionMs": 3.271,
+            "snapshotMs": 0.181,
+            "cellsProcessed": 84,
+            "payloadBytes": 5952
+          },
+          "timing": {
+            "operatorBodyMs": 3.984
+          }
+        },
+        "summary": {
+          "cost": {
+            "collectionMs": 1.491,
+            "snapshotMs": 0.083,
+            "cellsProcessed": 3,
+            "payloadBytes": 2384
+          },
+          "timing": {
+            "operatorBodyMs": 1.225
+          }
+        }
+      },
+      "discovery": {
+        "sheets": [
+          "Measurements",
+          "Lookup",
+          "Empty"
+        ],
+        "columns": 179,
+        "executions": 2,
+        "actionDurationMs": 4191.374667000004
+      },
+      "promptCharacters": 21899,
+      "executionCharacters": 284,
+      "retrievalCharacters": 1016,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    },
+    {
+      "cell": "data1-flow1",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6535.164333000001,
+      "cachedActionDurationMs": 1220.3948330000057,
+      "retrieveOnlyActionDurationMs": 12.586624999996275,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "221",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 3.636584,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 1202.3143750000017,
+            "responseBodyDecodeMs": 0.22137500000098953,
+            "resultPreparationMs": 1.7120839999988675,
+            "snapshotStoreMs": 2.3242909999971744
+          }
+        }
+      ],
+      "initialExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "220",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.856041,
+            "runtimeStartAttempted": true
+          },
+          "clientTiming": {
+            "requestToHeadersMs": 6376.049999999996,
+            "responseBodyDecodeMs": 0.4237090000024182,
+            "resultPreparationMs": 2.671541999996407,
+            "snapshotStoreMs": 4.718833999999333
+          }
+        }
+      ],
+      "profiles": {
+        "lookup": {
+          "cost": {
+            "collectionMs": 2.085,
+            "snapshotMs": 0.121,
+            "cellsProcessed": 44,
+            "payloadBytes": 3399
+          },
+          "timing": {
+            "operatorBodyMs": 3.269
+          }
+        },
+        "source": {
+          "cost": {
+            "collectionMs": 2.313,
+            "snapshotMs": 0.164,
+            "cellsProcessed": 72,
+            "payloadBytes": 5222
+          },
+          "timing": {
+            "operatorBodyMs": 3.73
+          }
+        },
+        "converted": {
+          "cost": {
+            "collectionMs": 3.526,
+            "snapshotMs": 0.169,
+            "cellsProcessed": 72,
+            "payloadBytes": 5171
+          },
+          "timing": {
+            "operatorBodyMs": 0.341
+          }
+        },
+        "selected": {
+          "cost": {
+            "collectionMs": 2.353,
+            "snapshotMs": 0.161,
+            "cellsProcessed": 69,
+            "payloadBytes": 5146
+          },
+          "timing": {
+            "filterRejectedValuesMs": 0.11,
+            "operatorBodyMs": 0.473
+          }
+        },
+        "joined": {
+          "cost": {
+            "collectionMs": 3.088,
+            "snapshotMs": 0.173,
+            "cellsProcessed": 84,
+            "payloadBytes": 5952
+          },
+          "timing": {
+            "operatorBodyMs": 3.897
+          }
+        },
+        "summary": {
+          "cost": {
+            "collectionMs": 1.302,
+            "snapshotMs": 0.081,
+            "cellsProcessed": 3,
+            "payloadBytes": 2384
+          },
+          "timing": {
+            "operatorBodyMs": 1.155
+          }
+        }
+      },
+      "discovery": {
+        "sheets": [
+          "Measurements",
+          "Lookup",
+          "Empty"
+        ],
+        "columns": 179,
+        "executions": 2,
+        "actionDurationMs": 4169.4287079999995
+      },
+      "promptCharacters": 22648,
+      "executionCharacters": 2851,
+      "retrievalCharacters": 1733,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    }
+  ]
+}

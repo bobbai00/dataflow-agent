@@ -199,8 +199,9 @@ export interface AgentTurnResult {
   finalAnswer: string;
   /** Per-step workflow snapshots emitted via the `snapshot` event stream. */
   snapshots: AgentTurnSnapshotEvent[];
-  /** True when the WS sent a `complete` frame; false on timeout / WS error. */
+  /** True after a complete frame or REST confirmation of this request's terminal step. */
   completed: boolean;
+  completionSource?: "websocket" | "rest";
   errors: string[];
 }
 
@@ -247,8 +248,11 @@ export function runAgentTurn(
     const errors: string[] = [];
     let finalState = "UNKNOWN";
     let completed = false;
+    let completionSource: AgentTurnResult["completionSource"];
     let resolved = false;
     let initSeen = false;
+    let currentMessageId: string | undefined;
+    let completionCheck: ReturnType<typeof setTimeout> | undefined;
 
     const ws = new WebSocket(url);
 
@@ -261,18 +265,24 @@ export function runAgentTurn(
         // ignore — already closed
       }
       clearTimeout(timer);
+      clearTimeout(completionCheck);
 
       const steps = orderedStepIds.map(id => stepsByMessageId.get(id)).filter((s): s is ReActStep => Boolean(s));
+      // Init includes old answers. Retain that trace, but never return a prior
+      // task's answer when the current request times out or is unacknowledged.
+      const currentSteps = steps.filter(s => s.messageId === currentMessageId);
 
       // Prefer the step the server explicitly flagged as terminal (`isEnd`).
       // Fall back to the last agent step that has free-text content even if
       // it carried tool calls — the agent often emits its final summary in a
       // step that also fired one last tool call.
-      const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
-      const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      const endStep = [...currentSteps].reverse().find(s => s.role === "agent" && s.isEnd);
+      const lastWithContent = [...currentSteps]
+        .reverse()
+        .find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
       const finalAnswer = (endStep?.content ?? lastWithContent?.content ?? "").trim();
 
-      resolve({ steps, finalState, finalAnswer, snapshots, completed, errors });
+      resolve({ steps, finalState, finalAnswer, snapshots, completed, completionSource, errors });
     };
 
     const timer = setTimeout(() => {
@@ -284,6 +294,42 @@ export function runAgentTurn(
       if (!stepsByMessageId.has(step.id)) orderedStepIds.push(step.id);
       stepsByMessageId.set(step.id, step);
       options.onStep?.(step);
+    };
+
+    // A large snapshot burst can leave a client without its complete frame.
+    // Confirm the acknowledged request even if its terminal step was dropped;
+    // never resend it or accept an old answer from the init frame.
+    const confirmCompletion = async () => {
+      completionCheck = undefined;
+      if (resolved || !currentMessageId) return;
+      try {
+        const response = await fetch(`${agentBase(options.baseUrl)}/${encodeURIComponent(agentId)}/react-steps`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (resolved) return;
+        if (response.ok) {
+          const saved = (await response.json()) as { state: string; steps: ReActStep[] };
+          if (resolved) return;
+          const last = saved.steps.at(-1);
+          if (
+            saved.state === "AVAILABLE" &&
+            last?.messageId === currentMessageId &&
+            last.role === "agent" &&
+            last.isEnd
+          ) {
+            for (const step of saved.steps) if (step.messageId === currentMessageId) recordStep(step);
+            completed = true;
+            completionSource = "rest";
+            finalState = saved.state;
+            finish();
+            return;
+          }
+        }
+      } catch {
+        // The normal websocket and hard timeout remain authoritative when
+        // the read cannot confirm completion.
+      }
+      if (!resolved && !completionCheck) completionCheck = setTimeout(confirmCompletion, 5000);
     };
 
     ws.onopen = () => {
@@ -316,7 +362,18 @@ export function runAgentTurn(
           }
           break;
         case "step":
-          if (frame.step) recordStep(frame.step);
+          if (frame.step) {
+            if (!currentMessageId && frame.step.role === "user" && frame.step.content === message)
+              currentMessageId = frame.step.messageId;
+            recordStep(frame.step);
+            if (currentMessageId && frame.step.messageId === currentMessageId && !resolved) {
+              clearTimeout(completionCheck);
+              completionCheck = setTimeout(
+                confirmCompletion,
+                frame.step.role === "agent" && frame.step.isEnd ? 1000 : 5000
+              );
+            }
+          }
           break;
         case "state":
           if (frame.state) finalState = frame.state;
@@ -330,6 +387,7 @@ export function runAgentTurn(
           break;
         case "complete":
           completed = true;
+          completionSource = "websocket";
           if (frame.state) finalState = frame.state;
           finish();
           break;

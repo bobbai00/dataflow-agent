@@ -1,0 +1,1130 @@
+{
+  "campaign": "/tmp/texera-retrieval-full-fixed-20261001",
+  "agent_revision": "21fb91a77",
+  "engine_revision": "04e85b581",
+  "harness_revision": "4658eb92db753805e0df3edc207ca46379eda43b",
+  "tasks_per_cell": 104,
+  "attempts": 1248,
+  "repetitions": 1,
+  "started_at": "2026-10-01T10:45:09.963684+00:00",
+  "finished_at": "2026-10-01T14:06:32.461181+00:00",
+  "pass_threshold": 1.0,
+  "score_policy": "Original evaluator results retained. The six unscored timeouts are nonpasses; mean_score_timeouts_zero assigns them zero only for campaign aggregation.",
+  "cost_policy": "stats.json costs for 1242 completed evaluations, plus recorded completed-model-call usage from watchdog traces for six timeouts. Same harness rates and cache discounts. Excludes evaluator, engine, and diagnostic run costs.",
+  "summary": [
+    {
+      "model": "Luna",
+      "arm": "full_flow0",
+      "attempts": 104,
+      "passes": 60,
+      "scored": 103,
+      "mean_score": 0.6173769234548927,
+      "cost_usd": 0.5385369999999998,
+      "costs_known": 103,
+      "model_calls": 461,
+      "retrieval_views": {
+        "full": 596
+      },
+      "retrieval_chars": 2325419,
+      "reads_with_data": 0,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 29,
+      "successful_reads": 483,
+      "no_answer": 6,
+      "prefix_checks": 358,
+      "prefix_failures": 0,
+      "input_tokens": 5134078,
+      "output_tokens": 162751,
+      "cached_tokens": 3797658,
+      "reasoning_tokens": 55245,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.7396962025119214,
+      "actions": {
+        "edit": 340,
+        "execute": 334,
+        "retrieve": 596,
+        "answer": 97,
+        "inspect": 15
+      },
+      "statuses": {
+        "ok": 1178,
+        "error": 146,
+        "skipped": 58
+      },
+      "edit_operations": {
+        "create_operator": 865,
+        "update_operator": 177,
+        "create_edge": 664,
+        "delete_edge": 19,
+        "delete_operator": 40
+      },
+      "operators_created": {
+        "scan": 295,
+        "cast": 51,
+        "filter": 117,
+        "aggregate": 90,
+        "map": 90,
+        "sort": 31,
+        "limit": 19,
+        "process": 81,
+        "join": 33,
+        "distinct": 11,
+        "window": 11,
+        "union": 8,
+        "project": 24,
+        "unpivot": 3,
+        "pivot": 1
+      },
+      "recorded_model_cost_usd": 0.543665,
+      "timeout_usage_usd": 0.005128,
+      "full_pass_rate": 0.5769230769230769,
+      "mean_score_timeouts_zero": 0.611440606883211,
+      "unscored_timeouts": 1
+    },
+    {
+      "model": "Luna",
+      "arm": "full_flow1",
+      "attempts": 104,
+      "passes": 63,
+      "scored": 103,
+      "mean_score": 0.6607319503050652,
+      "cost_usd": 0.5051460000000002,
+      "costs_known": 103,
+      "model_calls": 445,
+      "retrieval_views": {
+        "full": 555
+      },
+      "retrieval_chars": 2087404,
+      "reads_with_data": 0,
+      "reads_with_flow": 473,
+      "reads_with_upstream": 139,
+      "partial_full_reads": 27,
+      "successful_reads": 478,
+      "no_answer": 4,
+      "prefix_checks": 342,
+      "prefix_failures": 0,
+      "input_tokens": 4696508,
+      "output_tokens": 159185,
+      "cached_tokens": 3473231,
+      "reasoning_tokens": 52865,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.7395347777540249,
+      "actions": {
+        "edit": 330,
+        "execute": 328,
+        "retrieve": 555,
+        "answer": 99,
+        "inspect": 7
+      },
+      "statuses": {
+        "ok": 1173,
+        "error": 120,
+        "skipped": 26
+      },
+      "edit_operations": {
+        "create_operator": 919,
+        "create_edge": 716,
+        "update_operator": 177,
+        "delete_operator": 33,
+        "delete_edge": 12
+      },
+      "operators_created": {
+        "scan": 284,
+        "filter": 136,
+        "map": 93,
+        "aggregate": 108,
+        "cast": 51,
+        "distinct": 9,
+        "process": 96,
+        "project": 21,
+        "sort": 35,
+        "window": 12,
+        "join": 34,
+        "limit": 25,
+        "union": 8,
+        "unpivot": 6,
+        "pivot": 1
+      },
+      "recorded_model_cost_usd": 0.508459,
+      "timeout_usage_usd": 0.003313,
+      "full_pass_rate": 0.6057692307692307,
+      "mean_score_timeouts_zero": 0.6543787584752088,
+      "unscored_timeouts": 1
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_flow0",
+      "attempts": 104,
+      "passes": 58,
+      "scored": 104,
+      "mean_score": 0.5953333498608346,
+      "cost_usd": 0.3965100000000001,
+      "costs_known": 104,
+      "model_calls": 538,
+      "retrieval_views": {
+        "sample": 778
+      },
+      "retrieval_chars": 367948,
+      "reads_with_data": 0,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 643,
+      "no_answer": 10,
+      "prefix_checks": 434,
+      "prefix_failures": 0,
+      "input_tokens": 3684832,
+      "output_tokens": 196662,
+      "cached_tokens": 3202508,
+      "reasoning_tokens": 63526,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8691055657354256,
+      "actions": {
+        "edit": 418,
+        "execute": 414,
+        "retrieve": 778,
+        "answer": 94,
+        "inspect": 17
+      },
+      "statuses": {
+        "ok": 1481,
+        "error": 182,
+        "skipped": 58
+      },
+      "edit_operations": {
+        "create_operator": 966,
+        "create_edge": 744,
+        "update_operator": 221,
+        "delete_edge": 24,
+        "delete_operator": 77
+      },
+      "operators_created": {
+        "scan": 303,
+        "aggregate": 112,
+        "process": 126,
+        "map": 100,
+        "filter": 139,
+        "unpivot": 8,
+        "cast": 50,
+        "join": 25,
+        "project": 12,
+        "distinct": 11,
+        "sort": 35,
+        "limit": 27,
+        "window": 7,
+        "union": 10,
+        "pivot": 1
+      },
+      "recorded_model_cost_usd": 0.39651,
+      "timeout_usage_usd": 0,
+      "full_pass_rate": 0.5576923076923077,
+      "mean_score_timeouts_zero": 0.5953333498608346,
+      "unscored_timeouts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_flow1",
+      "attempts": 104,
+      "passes": 67,
+      "scored": 104,
+      "mean_score": 0.6975599621215408,
+      "cost_usd": 0.4463889999999998,
+      "costs_known": 104,
+      "model_calls": 585,
+      "retrieval_views": {
+        "sample": 854
+      },
+      "retrieval_chars": 613827,
+      "reads_with_data": 0,
+      "reads_with_flow": 697,
+      "reads_with_upstream": 179,
+      "partial_full_reads": 0,
+      "successful_reads": 698,
+      "no_answer": 1,
+      "prefix_checks": 481,
+      "prefix_failures": 0,
+      "input_tokens": 4377144,
+      "output_tokens": 211949,
+      "cached_tokens": 3796554,
+      "reasoning_tokens": 69724,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.86735871609433,
+      "actions": {
+        "edit": 471,
+        "execute": 469,
+        "retrieve": 854,
+        "answer": 103,
+        "inspect": 9
+      },
+      "statuses": {
+        "ok": 1638,
+        "error": 214,
+        "skipped": 54
+      },
+      "edit_operations": {
+        "create_operator": 1012,
+        "update_operator": 261,
+        "create_edge": 812,
+        "delete_operator": 53,
+        "delete_edge": 15
+      },
+      "operators_created": {
+        "scan": 277,
+        "map": 113,
+        "cast": 54,
+        "filter": 149,
+        "sort": 40,
+        "process": 136,
+        "aggregate": 105,
+        "join": 33,
+        "project": 28,
+        "distinct": 22,
+        "limit": 32,
+        "union": 10,
+        "window": 8,
+        "pivot": 1,
+        "unpivot": 4
+      },
+      "recorded_model_cost_usd": 0.446389,
+      "timeout_usage_usd": 0,
+      "full_pass_rate": 0.6442307692307693,
+      "mean_score_timeouts_zero": 0.6975599621215408,
+      "unscored_timeouts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_stats_flow0",
+      "attempts": 104,
+      "passes": 66,
+      "scored": 104,
+      "mean_score": 0.6702670368634872,
+      "cost_usd": 0.418583,
+      "costs_known": 104,
+      "model_calls": 554,
+      "retrieval_views": {
+        "sample_stats": 710
+      },
+      "retrieval_chars": 601359,
+      "reads_with_data": 187,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 597,
+      "no_answer": 2,
+      "prefix_checks": 450,
+      "prefix_failures": 0,
+      "input_tokens": 3979688,
+      "output_tokens": 197418,
+      "cached_tokens": 3412529,
+      "reasoning_tokens": 68159,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.85748656678614,
+      "actions": {
+        "edit": 441,
+        "execute": 432,
+        "retrieve": 710,
+        "answer": 101,
+        "inspect": 20
+      },
+      "statuses": {
+        "ok": 1484,
+        "error": 164,
+        "skipped": 56
+      },
+      "edit_operations": {
+        "create_operator": 929,
+        "update_operator": 222,
+        "create_edge": 719,
+        "delete_edge": 40,
+        "delete_operator": 39
+      },
+      "operators_created": {
+        "scan": 296,
+        "cast": 57,
+        "window": 11,
+        "map": 104,
+        "sort": 30,
+        "limit": 22,
+        "join": 28,
+        "aggregate": 96,
+        "process": 111,
+        "filter": 120,
+        "project": 32,
+        "distinct": 5,
+        "union": 11,
+        "unpivot": 6
+      },
+      "recorded_model_cost_usd": 0.418583,
+      "timeout_usage_usd": 0,
+      "full_pass_rate": 0.6346153846153846,
+      "mean_score_timeouts_zero": 0.6702670368634872,
+      "unscored_timeouts": 0
+    },
+    {
+      "model": "Luna",
+      "arm": "sample_stats_flow1",
+      "attempts": 104,
+      "passes": 59,
+      "scored": 104,
+      "mean_score": 0.608087549684,
+      "cost_usd": 0.460755,
+      "costs_known": 104,
+      "model_calls": 568,
+      "retrieval_views": {
+        "sample_stats": 790
+      },
+      "retrieval_chars": 914386,
+      "reads_with_data": 245,
+      "reads_with_flow": 664,
+      "reads_with_upstream": 182,
+      "partial_full_reads": 0,
+      "successful_reads": 671,
+      "no_answer": 0,
+      "prefix_checks": 464,
+      "prefix_failures": 0,
+      "input_tokens": 4514099,
+      "output_tokens": 206864,
+      "cached_tokens": 3834997,
+      "reasoning_tokens": 73246,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8495597903368978,
+      "actions": {
+        "edit": 440,
+        "execute": 436,
+        "retrieve": 790,
+        "answer": 104,
+        "inspect": 12
+      },
+      "statuses": {
+        "ok": 1570,
+        "error": 167,
+        "skipped": 45
+      },
+      "edit_operations": {
+        "create_operator": 993,
+        "update_operator": 240,
+        "create_edge": 780,
+        "delete_operator": 40,
+        "delete_edge": 29
+      },
+      "operators_created": {
+        "scan": 301,
+        "cast": 65,
+        "filter": 147,
+        "aggregate": 103,
+        "map": 114,
+        "join": 33,
+        "project": 34,
+        "sort": 31,
+        "limit": 25,
+        "process": 105,
+        "distinct": 8,
+        "window": 10,
+        "union": 8,
+        "pivot": 1,
+        "unpivot": 8
+      },
+      "recorded_model_cost_usd": 0.460755,
+      "timeout_usage_usd": 0,
+      "full_pass_rate": 0.5673076923076923,
+      "mean_score_timeouts_zero": 0.608087549684,
+      "unscored_timeouts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "full_flow0",
+      "attempts": 104,
+      "passes": 71,
+      "scored": 104,
+      "mean_score": 0.717061908658359,
+      "cost_usd": 4.75296,
+      "costs_known": 104,
+      "model_calls": 464,
+      "retrieval_views": {
+        "full": 562
+      },
+      "retrieval_chars": 1580127,
+      "reads_with_data": 0,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 15,
+      "successful_reads": 456,
+      "no_answer": 0,
+      "prefix_checks": 360,
+      "prefix_failures": 0,
+      "input_tokens": 4613878,
+      "output_tokens": 164617,
+      "cached_tokens": 3583443,
+      "reasoning_tokens": 54996,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.7766661797299365,
+      "actions": {
+        "edit": 348,
+        "execute": 348,
+        "retrieve": 562,
+        "answer": 104,
+        "inspect": 2
+      },
+      "statuses": {
+        "ok": 1165,
+        "error": 177,
+        "skipped": 22
+      },
+      "edit_operations": {
+        "create_operator": 1084,
+        "create_edge": 836,
+        "update_operator": 116,
+        "delete_edge": 40,
+        "delete_operator": 16
+      },
+      "operators_created": {
+        "scan": 383,
+        "map": 155,
+        "join": 38,
+        "sort": 34,
+        "limit": 23,
+        "filter": 157,
+        "process": 62,
+        "cast": 32,
+        "aggregate": 109,
+        "unpivot": 27,
+        "union": 10,
+        "window": 16,
+        "project": 25,
+        "distinct": 13
+      },
+      "recorded_model_cost_usd": 4.75296,
+      "timeout_usage_usd": 0,
+      "full_pass_rate": 0.6826923076923077,
+      "mean_score_timeouts_zero": 0.717061908658359,
+      "unscored_timeouts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "full_flow1",
+      "attempts": 104,
+      "passes": 73,
+      "scored": 103,
+      "mean_score": 0.7482955194220323,
+      "cost_usd": 4.285100999999999,
+      "costs_known": 103,
+      "model_calls": 447,
+      "retrieval_views": {
+        "full": 493
+      },
+      "retrieval_chars": 1422024,
+      "reads_with_data": 0,
+      "reads_with_flow": 410,
+      "reads_with_upstream": 140,
+      "partial_full_reads": 8,
+      "successful_reads": 414,
+      "no_answer": 0,
+      "prefix_checks": 344,
+      "prefix_failures": 0,
+      "input_tokens": 4248746,
+      "output_tokens": 153962,
+      "cached_tokens": 3366631,
+      "reasoning_tokens": 51855,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.7923822699685978,
+      "actions": {
+        "edit": 335,
+        "execute": 335,
+        "retrieve": 493,
+        "answer": 103,
+        "inspect": 1
+      },
+      "statuses": {
+        "ok": 1106,
+        "error": 136,
+        "skipped": 25
+      },
+      "edit_operations": {
+        "create_operator": 1018,
+        "create_edge": 764,
+        "update_operator": 86,
+        "delete_edge": 18,
+        "delete_operator": 20
+      },
+      "operators_created": {
+        "scan": 336,
+        "map": 143,
+        "filter": 137,
+        "join": 38,
+        "unpivot": 25,
+        "project": 34,
+        "union": 6,
+        "cast": 18,
+        "aggregate": 110,
+        "process": 66,
+        "sort": 43,
+        "limit": 34,
+        "window": 13,
+        "distinct": 14,
+        "pivot": 1
+      },
+      "recorded_model_cost_usd": 4.375485,
+      "timeout_usage_usd": 0.090384,
+      "full_pass_rate": 0.7019230769230769,
+      "mean_score_timeouts_zero": 0.7411003701968204,
+      "unscored_timeouts": 1
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_flow0",
+      "attempts": 104,
+      "passes": 69,
+      "scored": 103,
+      "mean_score": 0.7083047658390458,
+      "cost_usd": 3.4272950000000004,
+      "costs_known": 103,
+      "model_calls": 517,
+      "retrieval_views": {
+        "sample": 647
+      },
+      "retrieval_chars": 337087,
+      "reads_with_data": 0,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 561,
+      "no_answer": 0,
+      "prefix_checks": 414,
+      "prefix_failures": 0,
+      "input_tokens": 3210116,
+      "output_tokens": 168176,
+      "cached_tokens": 2783916,
+      "reasoning_tokens": 61627,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8672322121692798,
+      "actions": {
+        "edit": 398,
+        "execute": 397,
+        "retrieve": 647,
+        "answer": 103,
+        "inspect": 2
+      },
+      "statuses": {
+        "ok": 1384,
+        "error": 141,
+        "skipped": 22
+      },
+      "edit_operations": {
+        "create_operator": 1001,
+        "create_edge": 727,
+        "update_operator": 107,
+        "delete_operator": 12,
+        "delete_edge": 21
+      },
+      "operators_created": {
+        "scan": 332,
+        "filter": 153,
+        "map": 127,
+        "aggregate": 101,
+        "join": 36,
+        "sort": 43,
+        "limit": 34,
+        "process": 84,
+        "window": 11,
+        "distinct": 12,
+        "project": 26,
+        "unpivot": 8,
+        "union": 4,
+        "cast": 29,
+        "pivot": 1
+      },
+      "recorded_model_cost_usd": 3.479595,
+      "timeout_usage_usd": 0.0523,
+      "full_pass_rate": 0.6634615384615384,
+      "mean_score_timeouts_zero": 0.7014941430905934,
+      "unscored_timeouts": 1
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_flow1",
+      "attempts": 104,
+      "passes": 69,
+      "scored": 103,
+      "mean_score": 0.7121882609846768,
+      "cost_usd": 3.560285999999998,
+      "costs_known": 103,
+      "model_calls": 521,
+      "retrieval_views": {
+        "sample": 656
+      },
+      "retrieval_chars": 479202,
+      "reads_with_data": 0,
+      "reads_with_flow": 547,
+      "reads_with_upstream": 163,
+      "partial_full_reads": 0,
+      "successful_reads": 549,
+      "no_answer": 0,
+      "prefix_checks": 418,
+      "prefix_failures": 0,
+      "input_tokens": 3377873,
+      "output_tokens": 169342,
+      "cached_tokens": 2904200,
+      "reasoning_tokens": 59140,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8597718149853473,
+      "actions": {
+        "edit": 409,
+        "execute": 407,
+        "retrieve": 656,
+        "answer": 102
+      },
+      "statuses": {
+        "ok": 1378,
+        "error": 159,
+        "skipped": 37
+      },
+      "edit_operations": {
+        "create_operator": 1050,
+        "create_edge": 764,
+        "update_operator": 120,
+        "delete_edge": 14,
+        "delete_operator": 30
+      },
+      "operators_created": {
+        "scan": 367,
+        "filter": 162,
+        "aggregate": 108,
+        "map": 133,
+        "join": 39,
+        "process": 72,
+        "distinct": 13,
+        "sort": 46,
+        "limit": 37,
+        "project": 23,
+        "unpivot": 9,
+        "union": 7,
+        "cast": 24,
+        "window": 10
+      },
+      "recorded_model_cost_usd": 3.626214,
+      "timeout_usage_usd": 0.065928,
+      "full_pass_rate": 0.6634615384615384,
+      "mean_score_timeouts_zero": 0.7053402969367473,
+      "unscored_timeouts": 1
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow0",
+      "attempts": 104,
+      "passes": 67,
+      "scored": 104,
+      "mean_score": 0.7011736302700806,
+      "cost_usd": 3.890879999999999,
+      "costs_known": 104,
+      "model_calls": 537,
+      "retrieval_views": {
+        "sample_stats": 705
+      },
+      "retrieval_chars": 570241,
+      "reads_with_data": 192,
+      "reads_with_flow": 0,
+      "reads_with_upstream": 0,
+      "partial_full_reads": 0,
+      "successful_reads": 600,
+      "no_answer": 0,
+      "prefix_checks": 433,
+      "prefix_failures": 0,
+      "input_tokens": 3762382,
+      "output_tokens": 180201,
+      "cached_tokens": 3220167,
+      "reasoning_tokens": 64760,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8558851812495382,
+      "actions": {
+        "edit": 412,
+        "execute": 411,
+        "retrieve": 705,
+        "answer": 104,
+        "inspect": 4
+      },
+      "statuses": {
+        "ok": 1450,
+        "error": 170,
+        "skipped": 16
+      },
+      "edit_operations": {
+        "create_operator": 1061,
+        "create_edge": 769,
+        "update_operator": 120,
+        "delete_operator": 39,
+        "delete_edge": 23
+      },
+      "operators_created": {
+        "scan": 367,
+        "process": 72,
+        "map": 127,
+        "aggregate": 102,
+        "join": 32,
+        "filter": 176,
+        "cast": 32,
+        "project": 31,
+        "sort": 42,
+        "limit": 30,
+        "union": 10,
+        "distinct": 13,
+        "window": 10,
+        "unpivot": 16,
+        "pivot": 1
+      },
+      "recorded_model_cost_usd": 3.89088,
+      "timeout_usage_usd": 0,
+      "full_pass_rate": 0.6442307692307693,
+      "mean_score_timeouts_zero": 0.7011736302700806,
+      "unscored_timeouts": 0
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow1",
+      "attempts": 104,
+      "passes": 68,
+      "scored": 103,
+      "mean_score": 0.703450396907007,
+      "cost_usd": 4.017101999999999,
+      "costs_known": 103,
+      "model_calls": 527,
+      "retrieval_views": {
+        "sample_stats": 689
+      },
+      "retrieval_chars": 757127,
+      "reads_with_data": 190,
+      "reads_with_flow": 564,
+      "reads_with_upstream": 179,
+      "partial_full_reads": 0,
+      "successful_reads": 579,
+      "no_answer": 0,
+      "prefix_checks": 424,
+      "prefix_failures": 0,
+      "input_tokens": 3830055,
+      "output_tokens": 181666,
+      "cached_tokens": 3235000,
+      "reasoning_tokens": 62434,
+      "cache_creation_tokens": 0,
+      "cache_fraction": 0.8446353903534022,
+      "actions": {
+        "edit": 412,
+        "execute": 412,
+        "retrieve": 689,
+        "answer": 103,
+        "inspect": 2
+      },
+      "statuses": {
+        "ok": 1409,
+        "error": 168,
+        "skipped": 41
+      },
+      "edit_operations": {
+        "create_operator": 1081,
+        "create_edge": 820,
+        "update_operator": 127,
+        "delete_edge": 21,
+        "delete_operator": 30
+      },
+      "operators_created": {
+        "scan": 358,
+        "process": 75,
+        "map": 142,
+        "join": 46,
+        "filter": 182,
+        "project": 45,
+        "distinct": 9,
+        "sort": 39,
+        "aggregate": 106,
+        "limit": 29,
+        "cast": 29,
+        "window": 11,
+        "union": 5,
+        "unpivot": 5
+      },
+      "recorded_model_cost_usd": 4.184075,
+      "timeout_usage_usd": 0.166973,
+      "full_pass_rate": 0.6538461538461539,
+      "mean_score_timeouts_zero": 0.6966864507829011,
+      "unscored_timeouts": 1
+    }
+  ],
+  "paired_contrasts": [
+    {
+      "model": "Luna",
+      "treatment": "sample_stats_flow0",
+      "control": "full_flow0",
+      "tasks": 103,
+      "score_delta": 0.05454319143639532,
+      "score_delta_ci95": [
+        -0.03129200896191187,
+        0.1410505352252925
+      ],
+      "cost_delta_usd": -0.0012344174757281552,
+      "cost_delta_ci95": [
+        -0.002184776699029126,
+        -0.0003837087378640777
+      ]
+    },
+    {
+      "model": "Luna",
+      "treatment": "sample_stats_flow0",
+      "control": "sample_flow0",
+      "tasks": 104,
+      "score_delta": 0.07493368700265252,
+      "score_delta_ci95": [
+        -0.009615384615384616,
+        0.15948275862068967
+      ],
+      "cost_delta_usd": 0.00021224038461538459,
+      "cost_delta_ci95": [
+        -0.0003321538461538461,
+        0.0007226730769230769
+      ]
+    },
+    {
+      "model": "Luna",
+      "treatment": "full_flow1",
+      "control": "full_flow0",
+      "tasks": 103,
+      "score_delta": 0.043355026850172486,
+      "score_delta_ci95": [
+        -0.03251893737330631,
+        0.12113873181834348
+      ],
+      "cost_delta_usd": -0.00032418446601941743,
+      "cost_delta_ci95": [
+        -0.0012717087378640776,
+        0.0006628834951456312
+      ]
+    },
+    {
+      "model": "Luna",
+      "treatment": "sample_flow1",
+      "control": "sample_flow0",
+      "tasks": 104,
+      "score_delta": 0.10222661226070615,
+      "score_delta_ci95": [
+        0.020109017212076613,
+        0.18209086731201876
+      ],
+      "cost_delta_usd": 0.00047960576923076917,
+      "cost_delta_ci95": [
+        -0.0002366442307692308,
+        0.0012804711538461537
+      ]
+    },
+    {
+      "model": "Luna",
+      "treatment": "sample_stats_flow1",
+      "control": "sample_stats_flow0",
+      "tasks": 104,
+      "score_delta": -0.06217948717948718,
+      "score_delta_ci95": [
+        -0.1391025641025641,
+        0.015384615384615384
+      ],
+      "cost_delta_usd": 0.0004055,
+      "cost_delta_ci95": [
+        -1.371153846153848e-05,
+        0.0008664038461538462
+      ]
+    },
+    {
+      "model": "Terra",
+      "treatment": "sample_stats_flow0",
+      "control": "full_flow0",
+      "tasks": 104,
+      "score_delta": -0.015888278388278387,
+      "score_delta_ci95": [
+        -0.08182234432234432,
+        0.05141941391941392
+      ],
+      "cost_delta_usd": -0.00828923076923077,
+      "cost_delta_ci95": [
+        -0.013421846153846154,
+        -0.003418394230769231
+      ]
+    },
+    {
+      "model": "Terra",
+      "treatment": "sample_stats_flow0",
+      "control": "sample_flow0",
+      "tasks": 103,
+      "score_delta": -0.0003236245954692556,
+      "score_delta_ci95": [
+        -0.07055016181229773,
+        0.06763754045307444
+      ],
+      "cost_delta_usd": 0.002942456310679612,
+      "cost_delta_ci95": [
+        0.000622980582524272,
+        0.005380077669902913
+      ]
+    },
+    {
+      "model": "Terra",
+      "treatment": "full_flow1",
+      "control": "full_flow0",
+      "tasks": 103,
+      "score_delta": 0.024271844660194174,
+      "score_delta_ci95": [
+        -0.03398058252427184,
+        0.0825242718446602
+      ],
+      "cost_delta_usd": -0.003611611650485436,
+      "cost_delta_ci95": [
+        -0.00825009708737864,
+        0.0010278834951456324
+      ]
+    },
+    {
+      "model": "Terra",
+      "treatment": "sample_flow1",
+      "control": "sample_flow0",
+      "tasks": 102,
+      "score_delta": 0.00392156862745098,
+      "score_delta_ci95": [
+        -0.06274509803921569,
+        0.06862745098039216
+      ],
+      "cost_delta_usd": 0.002178176470588236,
+      "cost_delta_ci95": [
+        0.00035399019607843164,
+        0.003931049019607844
+      ]
+    },
+    {
+      "model": "Terra",
+      "treatment": "sample_stats_flow1",
+      "control": "sample_stats_flow0",
+      "tasks": 103,
+      "score_delta": -0.004530744336569579,
+      "score_delta_ci95": [
+        -0.08349514563106797,
+        0.07313915857605179
+      ],
+      "cost_delta_usd": 0.00323168932038835,
+      "cost_delta_ci95": [
+        -4.984466019417418e-05,
+        0.006530446601941748
+      ]
+    }
+  ],
+  "timeout_usage": [
+    {
+      "model": "Luna",
+      "arm": "full_flow0",
+      "task": "wildfire-hard-19",
+      "sut": "DataflowSystemLuna_texera_retrieval_full_fixed_20261001_full_flow0_Rep1",
+      "usage": {
+        "inputTokens": 41781,
+        "outputTokens": 2709,
+        "totalTokens": 44490,
+        "reasoningTokens": 875,
+        "cachedInputTokens": 35993,
+        "cacheCreationInputTokens": 0
+      },
+      "recorded_partial_cost_usd": 0.005128,
+      "source": "watchdog-react_steps.json",
+      "scope": "Completed LLM calls recorded at timeout; not a provider invoice or a completed stats.json."
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_flow1",
+      "task": "astronomy-hard-11",
+      "sut": "DataflowSystemTerra_texera_retrieval_full_fixed_20261001_sample_flow1_Rep1",
+      "usage": {
+        "inputTokens": 50525,
+        "outputTokens": 3702,
+        "totalTokens": 54227,
+        "reasoningTokens": 1224,
+        "cachedInputTokens": 44192,
+        "cacheCreationInputTokens": 0
+      },
+      "recorded_partial_cost_usd": 0.065928,
+      "source": "watchdog-react_steps.json",
+      "scope": "Completed LLM calls recorded at timeout; not a provider invoice or a completed stats.json."
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_flow0",
+      "task": "astronomy-hard-7",
+      "sut": "DataflowSystemTerra_texera_retrieval_full_fixed_20261001_sample_flow0_Rep1",
+      "usage": {
+        "inputTokens": 44248,
+        "outputTokens": 2454,
+        "totalTokens": 46702,
+        "reasoningTokens": 553,
+        "cachedInputTokens": 36469,
+        "cacheCreationInputTokens": 0
+      },
+      "recorded_partial_cost_usd": 0.0523,
+      "source": "watchdog-react_steps.json",
+      "scope": "Completed LLM calls recorded at timeout; not a provider invoice or a completed stats.json."
+    },
+    {
+      "model": "Terra",
+      "arm": "full_flow1",
+      "task": "astronomy-hard-7",
+      "sut": "DataflowSystemTerra_texera_retrieval_full_fixed_20261001_full_flow1_Rep1",
+      "usage": {
+        "inputTokens": 107326,
+        "outputTokens": 4113,
+        "totalTokens": 111439,
+        "reasoningTokens": 1334,
+        "cachedInputTokens": 96458,
+        "cacheCreationInputTokens": 0
+      },
+      "recorded_partial_cost_usd": 0.090384,
+      "source": "watchdog-react_steps.json",
+      "scope": "Completed LLM calls recorded at timeout; not a provider invoice or a completed stats.json."
+    },
+    {
+      "model": "Terra",
+      "arm": "sample_stats_flow1",
+      "task": "astronomy-hard-11",
+      "sut": "DataflowSystemTerra_texera_retrieval_full_fixed_20261001_sample_stats_flow1_Rep1",
+      "usage": {
+        "inputTokens": 154347,
+        "outputTokens": 8696,
+        "totalTokens": 163043,
+        "reasoningTokens": 3894,
+        "cachedInputTokens": 136707,
+        "cacheCreationInputTokens": 0
+      },
+      "recorded_partial_cost_usd": 0.166973,
+      "source": "watchdog-react_steps.json",
+      "scope": "Completed LLM calls recorded at timeout; not a provider invoice or a completed stats.json."
+    },
+    {
+      "model": "Luna",
+      "arm": "full_flow1",
+      "task": "wildfire-hard-19",
+      "sut": "DataflowSystemLuna_texera_retrieval_full_fixed_20261001_full_flow1_Rep1",
+      "usage": {
+        "inputTokens": 25188,
+        "outputTokens": 1763,
+        "totalTokens": 26951,
+        "reasoningTokens": 878,
+        "cachedInputTokens": 21337,
+        "cacheCreationInputTokens": 0
+      },
+      "recorded_partial_cost_usd": 0.003313,
+      "source": "watchdog-react_steps.json",
+      "scope": "Completed LLM calls recorded at timeout; not a provider invoice or a completed stats.json."
+    }
+  ],
+  "audit": {
+    "prefix_checks": 4922,
+    "prefix_failures": 0,
+    "profiles": 11547,
+    "columns": 104356,
+    "profile_violations": 0,
+    "renderer_replay_failures": 0,
+    "stack_health_samples": 805,
+    "stack_unhealthy_samples": 0,
+    "stack_identity_changes": 0
+  },
+  "total_recorded_model_cost_usd": 27.08357,
+  "excluded_diagnostic_cost_usd": 0.392015
+}

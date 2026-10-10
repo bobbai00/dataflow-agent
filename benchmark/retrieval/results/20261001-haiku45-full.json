@@ -1,0 +1,97 @@
+{
+  "source": "/tmp/texera-haiku45-full-20261001-results",
+  "status": "complete",
+  "tasks": 104,
+  "repetitions": 1,
+  "arm": "sample_stats_flow0",
+  "official_full_passes": 53,
+  "full_pass_rate": 0.5096153846153846,
+  "scored_attempts": 103,
+  "mean_score_scored_only": 0.5444120242764012,
+  "mean_score_timeouts_zero": 0.5391772932737435,
+  "stats_cost_usd": 5.563889,
+  "timeout_usage": [
+    {
+      "task": "wildfire-hard-19",
+      "original_score": null,
+      "original_stats_cost": null,
+      "completed_model_calls": 10,
+      "recorded_usage": {
+        "inputTokens": 145255,
+        "outputTokens": 2980,
+        "cachedInputTokens": 127719,
+        "cacheCreationInputTokens": 17334,
+        "reasoningTokens": 0
+      },
+      "derived_cost_usd": 0.049541,
+      "prefix_checks": 9,
+      "prefix_failures": 0,
+      "scope": "Only successfully recorded model responses in watchdog trace; original artifacts remain unchanged. A billed response absent from the trace is not included."
+    }
+  ],
+  "recorded_model_cost_usd": 5.61343,
+  "pricing": {
+    "version": 1,
+    "kind": "token_estimate",
+    "model": "claude-haiku-4.5",
+    "source": {
+      "table": "systems.cost_utils._FALLBACK",
+      "model_key": "claude-haiku-4.5"
+    },
+    "currency": "USD",
+    "unit": "per_token",
+    "rates": {
+      "input": 1e-06,
+      "output": 5e-06,
+      "cache_read": 1e-07,
+      "cache_creation": 1.25e-06
+    },
+    "input_includes_cached": true,
+    "output_includes_reasoning": true
+  },
+  "started_at": "2026-10-01T19:40:03.316559+00:00",
+  "finished_at": "2026-10-01T20:22:44.645818+00:00",
+  "elapsed_seconds": 2561.329259,
+  "completed_model_calls": 1433,
+  "input_tokens": 20616837,
+  "cache_read_tokens": 19155741,
+  "cache_read_fraction": 0.9291309331300431,
+  "prefix_checks": 1329,
+  "prefix_failures": 0,
+  "step_limit_no_answers": 15,
+  "worker_errors": [],
+  "attempt_integrity_violations": [],
+  "health": {
+    "samples": 509,
+    "outages": [],
+    "pid_changes": {}
+  },
+  "computing_units": [
+    {
+      "cuid": 356,
+      "status": "terminated"
+    },
+    {
+      "cuid": 357,
+      "status": "terminated"
+    },
+    {
+      "cuid": 358,
+      "status": "terminated"
+    },
+    {
+      "cuid": 355,
+      "status": "terminated"
+    }
+  ],
+  "automatic_post_checks": {
+    "started_at": "2026-10-01T19:40:03.196822+00:00",
+    "runner_exit": 0,
+    "analyze.py": 0,
+    "audit.py": 0,
+    "replay.ts": 0,
+    "mechanisms.py": 0,
+    "finished_at": "2026-10-01T20:22:49.403111+00:00"
+  },
+  "scope": "One stochastic full run. Original evaluator labels; no selected retries. Costs include cached input and writes, exclude evaluator/engine and diagnostic runs. Manual launch review covers only the first two completed traces and a timeout summary, not every analytical answer."
+}

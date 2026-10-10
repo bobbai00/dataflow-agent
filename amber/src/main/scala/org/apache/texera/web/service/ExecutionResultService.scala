@@ -237,7 +237,17 @@ object ExecutionResultService {
                       number.toString
                     else value
                   case AttributeType.TIMESTAMP if structuredResults =>
-                    value.asInstanceOf[java.sql.Timestamp].toInstant.toString
+                    // Native results store UTC clock values in timezone-free
+                    // Arrow/Iceberg TIMESTAMP columns. The Iceberg reader uses
+                    // Timestamp.valueOf, which assigns the server's timezone;
+                    // toInstant would then shift the displayed value a second
+                    // time. Preserve the stored clock and attach its known UTC
+                    // zone, matching the Python result and its profile.
+                    value
+                      .asInstanceOf[java.sql.Timestamp]
+                      .toLocalDateTime
+                      .toInstant(java.time.ZoneOffset.UTC)
+                      .toString
                   case _ => value
                 }
             }

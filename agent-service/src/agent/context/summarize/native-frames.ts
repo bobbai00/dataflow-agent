@@ -135,7 +135,13 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
 
     const obsAt = chunk.search(/^Observation:\s*$/m);
     const head = (obsAt >= 0 ? chunk.slice(0, obsAt) : chunk).trimEnd();
-    const observation = obsAt >= 0 ? chunk.slice(obsAt).trimEnd() : "";
+    const observation =
+      obsAt >= 0
+        ? chunk
+            .slice(obsAt)
+            .replace(/^Observation:\s*\n?/, "")
+            .trim()
+        : "";
 
     const step = stepByEvent.get(marks[i].index);
     const calls = step?.toolCalls ?? [];
@@ -143,7 +149,11 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     // `Thought:` is the model's own reasoning; keep it as the assistant's text.
     // The `Action:` render is dropped here — the tool-call parts below ARE the
     // action, and repeating it as prose is what caused the narration failure.
-    const thought = extractThought(head);
+    let thought = extractThought(head);
+    // An Answer step's content is the answer itself. Once the receipt is the
+    // task ledger (`stateLedger`), the answer already sits in the tool-call
+    // arguments, so the same bytes are not repeated as assistant text.
+    if (thought && calls.some(tc => answerContent(tc.input) === thought) && ledgerReceipt(step)) thought = "";
 
     if (calls.length === 0) {
       const body = thought || head;
@@ -173,8 +183,8 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     messages.push({
       role: "tool",
       content: calls.map((tc, k) => {
-        const own = ownOutcome(step, tc.toolCallId);
         const isLast = k === calls.length - 1;
+        const own = ownOutcome(step, tc.toolCallId, isLast && !!observation);
         const value = isLast && observation ? (own ? `${own}\n\n${observation}` : observation) : own || "ok";
         return {
           type: "tool-result" as const,
@@ -203,16 +213,34 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
   return { messages, events: converted };
 }
 
+/** The content of a sole Answer action in a dataflow call, if that is what it is. */
+function answerContent(input: unknown): string | undefined {
+  const actions = (input as { actions?: Array<{ type?: string; content?: unknown }> } | undefined)?.actions;
+  if (!Array.isArray(actions) || actions.length !== 1 || actions[0]?.type !== "answer") return undefined;
+  return typeof actions[0].content === "string" ? actions[0].content : undefined;
+}
+
+/** True when the step's Answer receipt is a ledger (`{recorded: true}`). */
+function ledgerReceipt(step: ReActStep | undefined): boolean {
+  return (step?.toolResults ?? []).some(r =>
+    (r.output?.actions ?? []).some((item: any) => item?.action?.type === "answer" && item?.output?.recorded === true)
+  );
+}
+
 /** The `Thought: …` body of a rendered event, up to the `Action:` block. */
 function extractThought(head: string): string {
-  const m = head.match(/^Thought:\s*([\s\S]*?)(?=\n(?:Action:)\s*$|\n*$)/m);
+  // Under /m, $ matches every line end. Use a true end-of-input assertion
+  // so a text-only response survives intact for the bounded Answer repair.
+  const m = head.match(/^Thought:[ \t]*([\s\S]*?)(?=\nAction:[ \t]*(?:\n|$)|(?![\s\S]))/m);
   return m ? m[1].trim() : "";
 }
 
 /** That one call's own outcome, first line only — errors keep their message. */
-function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
+function ownOutcome(step: ReActStep | undefined, toolCallId: string, hasObservation: boolean): string {
   const r = step?.toolResults?.find(x => x.toolCallId === toolCallId);
   if (!r) return "";
+  // Per-action Markdown already reports completion or failure for this call.
+  if (r.output?.kind === "dataflow-actions") return hasObservation ? "" : `dataflow-actions: ${r.output.status}`;
   const out = typeof r.output === "string" ? r.output : JSON.stringify(r.output ?? "");
   const first = out.trim().split("\n")[0]?.trim() ?? "";
   return first.slice(0, 300);
@@ -264,7 +292,7 @@ export function splitTurns(text: string): string[] {
 export function splitOperators(text: string): string[] {
   const marks: number[] = [];
   // Code-mode blocks read `### Operator \`id\` (Type)`, native ones `### filter operator \`id\``.
-  const RE = /^### (?:Operator |\w+ operator )/gm;
+  const RE = /^(?:### (?:Operator |\w+ operator )|- \*\*[A-Za-z_][A-Za-z0-9_]*\*\* \()/gm;
   for (let m = RE.exec(text); m !== null; m = RE.exec(text)) marks.push(m.index);
   // One operator is split too: the first message must be the same bytes at
   // every step (task + `# Current Dataflow` header), or the prefix cache

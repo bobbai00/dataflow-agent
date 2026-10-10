@@ -1,0 +1,2359 @@
+{
+  "completed": [
+    {
+      "id": "Luna/evidence_data0_flow0/archeology-easy-6",
+      "retrievals": [
+        {
+          "step": 2,
+          "target": "cities",
+          "view": "sample",
+          "table": {
+            "totalRows": 44691,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": false
+          },
+          "chars": 969,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 3,
+          "target": "answer_city",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 11,
+            "columnsShown": 5,
+            "complete": false
+          },
+          "chars": 280,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Sol/evidence_data1_flow1/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 2,
+          "target": "reports",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 1399,
+          "stats": true,
+          "facts": [
+            "data.column.Number of Reports by Type.counts",
+            "data.column.Number of Reports by Type.values",
+            "data.column.Unnamed: 1.counts",
+            "data.column.Unnamed: 1.values",
+            "data.column.Unnamed: 2.counts",
+            "data.column.Unnamed: 2.values",
+            "data.column.Unnamed: 3.counts",
+            "data.column.Unnamed: 3.values",
+            "data.structure",
+            "flow.scan",
+            "flow.scan.header.0"
+          ]
+        },
+        {
+          "step": 3,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 386,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {
+        "scan": 3,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "id": "Luna/evidence_data0_flow0/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "records",
+          "view": "sample",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 526,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 2,
+          "target": "records",
+          "view": "full",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 28,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 1461,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 3,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 137,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Qwen38_27B/evidence_data0_flow1/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 4,
+          "target": "file1",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4006,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 4,
+          "target": "file2",
+          "view": "full",
+          "table": {
+            "totalRows": 43,
+            "returnedRows": 19,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4846,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 6,
+          "target": "apm",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 6,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4542,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 8,
+          "target": "apm_full",
+          "view": "sample",
+          "table": {
+            "totalRows": 95,
+            "returnedRows": 5,
+            "totalColumns": 34,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 508,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 8,
+          "target": "meta",
+          "view": "sample",
+          "table": {
+            "totalRows": 153,
+            "returnedRows": 5,
+            "totalColumns": 179,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 475,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 10,
+          "target": "answer",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 212,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 652,
+          "stats": false,
+          "facts": [
+            "flow.upstream.joined.f8ff01644f1474155c068ab62820ee41a47da093db8f2402bcdb417fc0d5895c",
+            "flow.removed"
+          ]
+        }
+      ],
+      "upstream": [
+        {
+          "step": 10,
+          "target": "answer",
+          "fact": "flow.upstream.joined.f8ff01644f1474155c068ab62820ee41a47da093db8f2402bcdb417fc0d5895c",
+          "text": "columns: idx str, APP_Z_score float64, Age str, \u2026 +209 more\nrecords: full; 1 of 1 row, 3 of 212 columns (all rows; columns requested)\n| idx | APP_Z_score | Age |\n|---|---|---|\n| S019 | -2.15300777 | \"60\" |\n- flow (joined): Join type=inner, keys=\"idx\". Join matched contribution=95 (sum L(k)*R(k)); output=95, including outer unmatched rows as declared. left matched rows=95/95, unmatched rows=0; matched keys=95/95, unmatched keys=0; null-key rows=0, max eligible multiplicity=1. right matched rows=95/153, unmatched rows=58; matched keys=95/153, unmatched keys=58; null-key rows=0, max eligible multiplicity=1.\n- flow: Limit retained=1/95, removed=94."
+        }
+      ],
+      "execution_flow_semantics": {
+        "scan": 5,
+        "join": 3,
+        "limit": 1
+      }
+    },
+    {
+      "id": "Terra/evidence_data0_flow1/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "workbook1_preview",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4006,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 1,
+          "target": "workbook7_preview",
+          "view": "full",
+          "table": {
+            "totalRows": 43,
+            "returnedRows": 19,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4846,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "app_columns_1",
+          "view": "full",
+          "table": {
+            "totalRows": 12,
+            "returnedRows": 12,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": true
+          },
+          "chars": 967,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "app_columns_7",
+          "view": "full",
+          "table": {
+            "totalRows": 4,
+            "returnedRows": 4,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": true
+          },
+          "chars": 430,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        },
+        {
+          "step": 5,
+          "target": "app_sheet_columns",
+          "view": "full",
+          "table": {
+            "totalRows": 34,
+            "returnedRows": 34,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 1062,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        },
+        {
+          "step": 6,
+          "target": "lowest_app_age",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 436,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {
+        "scan": 2,
+        "find_app_columns": 2,
+        "list_sheet_columns": 1,
+        "lowest_app_patient_age": 1
+      }
+    },
+    {
+      "id": "Terra/evidence_data1_flow1/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "reports",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 1399,
+          "stats": true,
+          "facts": [
+            "data.column.Number of Reports by Type.counts",
+            "data.column.Number of Reports by Type.values",
+            "data.column.Unnamed: 1.counts",
+            "data.column.Unnamed: 1.values",
+            "data.column.Unnamed: 2.counts",
+            "data.column.Unnamed: 2.values",
+            "data.column.Unnamed: 3.counts",
+            "data.column.Unnamed: 3.values",
+            "data.structure",
+            "flow.scan",
+            "flow.scan.header.0"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 285,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {
+        "scan": 2,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "id": "DeepSeek41Flash/evidence_data0_flow0/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 3,
+          "target": "raw",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 20,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 1833,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 5,
+          "target": "raw",
+          "view": "full",
+          "table": {
+            "totalRows": 26,
+            "returnedRows": 26,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 1362,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 6,
+          "target": "result",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 212,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Terra/evidence_data1_flow0/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "workbook_preview",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 3914,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 2,
+          "target": "scores_preview",
+          "view": "full",
+          "table": {
+            "totalRows": 43,
+            "returnedRows": 19,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4754,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 3,
+          "target": "headers1",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 179,
+            "returnedRows": 5,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": false
+          },
+          "chars": 744,
+          "stats": true,
+          "facts": [
+            "data.column.sheet.counts",
+            "data.column.sheet.values",
+            "data.column.column.counts",
+            "data.column.column.values"
+          ]
+        },
+        {
+          "step": 3,
+          "target": "headers7",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 59,
+            "returnedRows": 5,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": false
+          },
+          "chars": 657,
+          "stats": true,
+          "facts": [
+            "data.column.sheet.counts",
+            "data.column.sheet.values",
+            "data.column.column.counts",
+            "data.column.column.values"
+          ]
+        },
+        {
+          "step": 4,
+          "target": "lowest_score",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 34,
+            "complete": true
+          },
+          "chars": 1806,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 5,
+          "target": "lowest_patient_age",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 212,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 205,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Qwen38_27B/evidence_data1_flow0/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 3,
+          "target": "file1",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 153,
+            "returnedRows": 1,
+            "totalColumns": 179,
+            "columnsShown": 50,
+            "complete": false
+          },
+          "chars": 3970,
+          "stats": true,
+          "facts": [
+            "data.column.idx.counts",
+            "data.column.Proteomics_Participant_ID.counts",
+            "data.column.Case_excluded.counts",
+            "data.column.Case_excluded.values",
+            "data.column.Proteomics_TMT_batch.counts",
+            "data.column.Proteomics_TMT_batch.range",
+            "data.column.Proteomics_TMT_batch.values",
+            "data.column.Proteomics_TMT_plex.counts",
+            "data.column.Proteomics_TMT_plex.range",
+            "data.column.Proteomics_TMT_channel.counts",
+            "data.column.Proteomics_Parent_Sample_IDs.counts",
+            "data.column.Proteomics_Aliquot_ID.counts",
+            "data.column.Proteomics_Tumor_Normal.counts",
+            "data.column.Proteomics_Tumor_Normal.values",
+            "data.column.Proteomics_OCT.counts",
+            "data.column.Proteomics_OCT.values",
+            "data.column.Country.counts",
+            "data.column.Country.values",
+            "data.column.Histologic_Grade_FIGO.counts",
+            "data.column.Histologic_Grade_FIGO.values",
+            "data.column.Myometrial_invasion_Specify.counts",
+            "data.column.Myometrial_invasion_Specify.values",
+            "data.column.Histologic_type.counts",
+            "data.column.Histologic_type.values",
+            "data.column.Treatment_naive.counts",
+            "data.column.Treatment_naive.values",
+            "data.column.Tumor_purity.counts",
+            "data.column.Tumor_purity.values",
+            "data.column.Path_Stage_Primary_Tumor-pT.counts",
+            "data.column.Path_Stage_Reg_Lymph_Nodes-pN.counts",
+            "data.column.Path_Stage_Reg_Lymph_Nodes-pN.values",
+            "data.column.Clin_Stage_Dist_Mets-cM.counts",
+            "data.column.Clin_Stage_Dist_Mets-cM.values",
+            "data.column.Path_Stage_Dist_Mets-pM.counts",
+            "data.column.Path_Stage_Dist_Mets-pM.values",
+            "data.column.tumor_Stage-Pathological.counts",
+            "data.column.tumor_Stage-Pathological.values",
+            "data.column.FIGO_stage.counts",
+            "data.column.LVSI.counts",
+            "data.column.LVSI.values",
+            "data.column.BMI.counts",
+            "data.column.Age.counts",
+            "data.column.Diabetes.counts",
+            "data.column.Diabetes.values",
+            "data.column.Race.counts"
+          ]
+        },
+        {
+          "step": 3,
+          "target": "file7",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 2,
+            "returnedRows": 2,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": true
+          },
+          "chars": 332,
+          "stats": false,
+          "facts": [
+            "data.complete"
+          ]
+        },
+        {
+          "step": 5,
+          "target": "sheets7",
+          "view": "full",
+          "table": {
+            "totalRows": 3,
+            "returnedRows": 3,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 144,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 7,
+          "target": "cols1",
+          "view": "full",
+          "table": {
+            "totalRows": 179,
+            "returnedRows": 179,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 3937,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 7,
+          "target": "cols7b",
+          "view": "full",
+          "table": {
+            "totalRows": 34,
+            "returnedRows": 34,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 881,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 9,
+          "target": "apm",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 95,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 34,
+            "complete": false
+          },
+          "chars": 3844,
+          "stats": true,
+          "facts": [
+            "data.column.idx.counts",
+            "data.column.idx.values",
+            "data.column.Log2_variant_per_Mbp.counts",
+            "data.column.Log2_variant_per_Mbp.range",
+            "data.column.Log2_variant_per_Mbp.values",
+            "data.column.mutation_classification.counts",
+            "data.column.mutation_classification.values",
+            "data.column.APP_Z_score.counts",
+            "data.column.APP_Z_score.range",
+            "data.column.APP_Z_score.values",
+            "data.column.APP_classification.counts",
+            "data.column.APP_classification.values",
+            "data.column.Immune_cluster.counts",
+            "data.column.Immune_cluster.values",
+            "data.column.Activated_B_cell.counts",
+            "data.column.Activated_B_cell.range",
+            "data.column.Activated_CD4_T_cell.counts",
+            "data.column.Activated_CD4_T_cell.range",
+            "data.column.Activated_CD8_T_cell.counts",
+            "data.column.Activated_CD8_T_cell.range",
+            "data.column.Central_memory_CD4_T_cell.counts",
+            "data.column.Central_memory_CD4_T_cell.range",
+            "data.column.Central_memory_CD8_T_cell.counts",
+            "data.column.Central_memory_CD8_T_cell.range",
+            "data.column.Effector_memeory_CD4_T_cell.counts",
+            "data.column.Effector_memeory_CD4_T_cell.range",
+            "data.column.Effector_memeory_CD4_T_cell.values",
+            "data.column.Effector_memeory_CD8_T_cell.counts",
+            "data.column.Effector_memeory_CD8_T_cell.range",
+            "data.column.Gamma_delta_T_cell.counts",
+            "data.column.Gamma_delta_T_cell.range",
+            "data.column.Gamma_delta_T_cell.values",
+            "data.column.Immature__B_cell.counts",
+            "data.column.Immature__B_cell.range",
+            "data.column.Memory_B_cell.counts",
+            "data.column.Memory_B_cell.range",
+            "data.column.Regulatory_T_cell.counts",
+            "data.column.Regulatory_T_cell.range",
+            "data.column.T_follicular_helper_cell.counts",
+            "data.column.T_follicular_helper_cell.range"
+          ]
+        },
+        {
+          "step": 11,
+          "target": "joined",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 212,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 280,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Sol/evidence_data0_flow1/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "mmc1_preview",
+          "view": "sample",
+          "table": {
+            "totalRows": 30,
+            "returnedRows": 5,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 1384,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 1,
+          "target": "mmc7_preview",
+          "view": "sample",
+          "table": {
+            "totalRows": 63,
+            "returnedRows": 5,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 930,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "mmc1",
+          "view": "sample",
+          "table": {
+            "totalRows": 153,
+            "returnedRows": 1,
+            "totalColumns": 179,
+            "columnsShown": 50,
+            "complete": false
+          },
+          "chars": 2050,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 4,
+          "target": "matching_columns",
+          "view": "full",
+          "table": {
+            "totalRows": 11,
+            "returnedRows": 11,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 548,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        },
+        {
+          "step": 5,
+          "target": "app_preview_hits",
+          "view": "full",
+          "table": {
+            "totalRows": 30,
+            "returnedRows": 6,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4600,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        },
+        {
+          "step": 6,
+          "target": "lowest_app",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 35,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 741,
+          "stats": false,
+          "facts": [
+            "flow.upstream.app_age.8edff4109312db8bac0d72feee5e9d3b05de20e37e74af9f8de9f9217aba401d",
+            "flow.upstream.ages.1ae0b894abe717fc74e06e040c7c7a52bb13a3b552159feea69a9b3b96481923",
+            "flow.removed"
+          ]
+        }
+      ],
+      "upstream": [
+        {
+          "step": 6,
+          "target": "lowest_app",
+          "fact": "flow.upstream.app_age.8edff4109312db8bac0d72feee5e9d3b05de20e37e74af9f8de9f9217aba401d",
+          "text": "columns: idx str, APP_Z_score float64, Age str, \u2026 +32 more\nrecords: full; 1 of 1 row, 3 of 35 columns (all rows; columns requested)\n| idx | APP_Z_score | Age |\n|---|---|---|\n| S019 | -2.15300777 | \"60\" |\n- flow (app_age): Join type=inner, keys=\"idx\". Join matched contribution=95 (sum L(k)*R(k)); output=95, including outer unmatched rows as declared. left matched rows=95/95, unmatched rows=0; matched keys=95/95, unmatched keys=0; null-key rows=0, max eligible multiplicity=1. right matched rows=95/153, unmatched rows=58; matched keys=95/153, unmatched keys=58; null-key rows=0, max eligible multiplicity=1.\n- flow (ages): contract; Project selection/rename={\"keep\":[\"idx\",\"Age\"]}; rows preserved.\n- flow: Limit retained=1/95, removed=94."
+        },
+        {
+          "step": 6,
+          "target": "lowest_app",
+          "fact": "flow.upstream.ages.1ae0b894abe717fc74e06e040c7c7a52bb13a3b552159feea69a9b3b96481923",
+          "text": "columns: idx str, APP_Z_score float64, Age str, \u2026 +32 more\nrecords: full; 1 of 1 row, 3 of 35 columns (all rows; columns requested)\n| idx | APP_Z_score | Age |\n|---|---|---|\n| S019 | -2.15300777 | \"60\" |\n- flow (app_age): Join type=inner, keys=\"idx\". Join matched contribution=95 (sum L(k)*R(k)); output=95, including outer unmatched rows as declared. left matched rows=95/95, unmatched rows=0; matched keys=95/95, unmatched keys=0; null-key rows=0, max eligible multiplicity=1. right matched rows=95/153, unmatched rows=58; matched keys=95/153, unmatched keys=58; null-key rows=0, max eligible multiplicity=1.\n- flow (ages): contract; Project selection/rename={\"keep\":[\"idx\",\"Age\"]}; rows preserved.\n- flow: Limit retained=1/95, removed=94."
+        }
+      ],
+      "execution_flow_semantics": {
+        "scan": 4,
+        "find_columns": 1,
+        "search_lines": 1,
+        "join": 3,
+        "limit": 1
+      }
+    },
+    {
+      "id": "DeepSeek41Flash/evidence_data1_flow0/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "raw",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 20,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 1833,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 4,
+          "target": "clean",
+          "view": "full",
+          "table": {
+            "totalRows": 24,
+            "returnedRows": 24,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 1074,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 4,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 236,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Opus48/evidence_data1_flow0/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "raw",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 20,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 1833,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 2,
+          "target": "data",
+          "view": "full",
+          "table": {
+            "totalRows": 24,
+            "returnedRows": 24,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 1074,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Terra/evidence_data0_flow1/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "reports",
+          "view": "sample",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 772,
+          "stats": false,
+          "facts": [
+            "flow.scan",
+            "flow.scan.header.0"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "ratio_check",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 392,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {
+        "scan": 2,
+        "identity_theft_ratio": 1
+      }
+    },
+    {
+      "id": "Luna/evidence_data1_flow1/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "records",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 1399,
+          "stats": true,
+          "facts": [
+            "data.column.Number of Reports by Type.counts",
+            "data.column.Number of Reports by Type.values",
+            "data.column.Unnamed: 1.counts",
+            "data.column.Unnamed: 1.values",
+            "data.column.Unnamed: 2.counts",
+            "data.column.Unnamed: 2.values",
+            "data.column.Unnamed: 3.counts",
+            "data.column.Unnamed: 3.values",
+            "data.structure",
+            "flow.scan",
+            "flow.scan.header.0"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 406,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {
+        "scan": 2,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "id": "Opus48/evidence_data1_flow1/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "records",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 1399,
+          "stats": true,
+          "facts": [
+            "data.column.Number of Reports by Type.counts",
+            "data.column.Number of Reports by Type.values",
+            "data.column.Unnamed: 1.counts",
+            "data.column.Unnamed: 1.values",
+            "data.column.Unnamed: 2.counts",
+            "data.column.Unnamed: 2.values",
+            "data.column.Unnamed: 3.counts",
+            "data.column.Unnamed: 3.values",
+            "data.structure",
+            "flow.scan",
+            "flow.scan.header.0"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "parsed",
+          "view": "full",
+          "table": {
+            "totalRows": 24,
+            "returnedRows": 24,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": true
+          },
+          "chars": 730,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {
+        "scan": 2,
+        "parse_it": 1
+      }
+    },
+    {
+      "id": "Opus48/evidence_data0_flow1/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "mmc1",
+          "view": "sample",
+          "table": {
+            "totalRows": 30,
+            "returnedRows": 5,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 1384,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 1,
+          "target": "mmc7",
+          "view": "sample",
+          "table": {
+            "totalRows": 63,
+            "returnedRows": 5,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 930,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "mmc1",
+          "view": "full",
+          "table": {
+            "totalRows": 30,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4025,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 3,
+          "target": "mmc7",
+          "view": "full",
+          "table": {
+            "totalRows": 63,
+            "returnedRows": 19,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4865,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 4,
+          "target": "mmc7",
+          "view": "full",
+          "table": {
+            "totalRows": 63,
+            "returnedRows": 63,
+            "totalColumns": 3,
+            "columnsShown": 1,
+            "complete": false
+          },
+          "chars": 1646,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 5,
+          "target": "mmc7",
+          "view": "full",
+          "table": {
+            "totalRows": 63,
+            "returnedRows": 22,
+            "totalColumns": 3,
+            "columnsShown": 1,
+            "complete": false
+          },
+          "chars": 5029,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 6,
+          "target": "mmc7b",
+          "view": "sample",
+          "table": {
+            "totalRows": 95,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 34,
+            "complete": false
+          },
+          "chars": 1948,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 7,
+          "target": "apm_min1",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 2,
+            "complete": false
+          },
+          "chars": 218,
+          "stats": false,
+          "facts": [
+            "flow.removed"
+          ]
+        },
+        {
+          "step": 8,
+          "target": "mmc1full",
+          "view": "sample",
+          "table": {
+            "totalRows": 153,
+            "returnedRows": 5,
+            "totalColumns": 179,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 475,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 9,
+          "target": "joined",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 36,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 1065,
+          "stats": false,
+          "facts": [
+            "flow.upstream.apm_min1.f9d76f780f4ace032e23a36992fa349797f6985eb35b152d38885619f5e1ff05",
+            "flow.upstream.meta_sel.e7b901242ddb5f5529ca2bbe12bd1d6f299dc4983fff6d7160d307f6136dac68",
+            "flow.join.output",
+            "flow.join.0",
+            "flow.join.1",
+            "flow.join.1.unmatched.examples",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [
+        {
+          "step": 9,
+          "target": "joined",
+          "fact": "flow.upstream.apm_min1.f9d76f780f4ace032e23a36992fa349797f6985eb35b152d38885619f5e1ff05",
+          "text": "columns: idx str, APP_Z_score float64, Proteomics_Participant_ID str, Age str, \u2026 +32 more\nrecords: full; 1 of 1 row, 4 of 36 columns (all rows; columns requested)\n| idx | APP_Z_score | Proteomics_Participant_ID | Age |\n|---|---|---|---|\n| S019 | -2.15300777 | C3L-00413 | \"60\" |\n- flow (apm_min1): Limit n=1, offset=0. Limit retained=1/95, removed=94.\n- flow (meta_sel): contract; Project selection/rename={\"keep\":[\"idx\",\"Proteomics_Participant_ID\",\"Age\"]}; rows preserved.\n- flow: Join matched contribution=1 (sum L(k)*R(k)); output=1, including outer unmatched rows as declared.\n- flow: left matched rows=1/1, unmatched rows=0; matched keys=1/1, unmatched keys=0; null-key rows=0, max eligible multiplicity=1.\n- flow: right matched rows=1/153, unmatched rows=152; matched keys=1/153, unmatched keys=152; null-key rows=0, max eligible multiplicity=1.\n- flow: right eligible unmatched-key examples (not exhaustive): [\"S001\"] \u00d7 1; [\"S002\"] \u00d7 1; [\"S003\"] \u00d7 1.\n- flow: contract; Join: declared left join; nullsEqual=false; validate=many_to_many; row order unspecified."
+        },
+        {
+          "step": 9,
+          "target": "joined",
+          "fact": "flow.upstream.meta_sel.e7b901242ddb5f5529ca2bbe12bd1d6f299dc4983fff6d7160d307f6136dac68",
+          "text": "columns: idx str, APP_Z_score float64, Proteomics_Participant_ID str, Age str, \u2026 +32 more\nrecords: full; 1 of 1 row, 4 of 36 columns (all rows; columns requested)\n| idx | APP_Z_score | Proteomics_Participant_ID | Age |\n|---|---|---|---|\n| S019 | -2.15300777 | C3L-00413 | \"60\" |\n- flow (apm_min1): Limit n=1, offset=0. Limit retained=1/95, removed=94.\n- flow (meta_sel): contract; Project selection/rename={\"keep\":[\"idx\",\"Proteomics_Participant_ID\",\"Age\"]}; rows preserved.\n- flow: Join matched contribution=1 (sum L(k)*R(k)); output=1, including outer unmatched rows as declared.\n- flow: left matched rows=1/1, unmatched rows=0; matched keys=1/1, unmatched keys=0; null-key rows=0, max eligible multiplicity=1.\n- flow: right matched rows=1/153, unmatched rows=152; matched keys=1/153, unmatched keys=152; null-key rows=0, max eligible multiplicity=1.\n- flow: right eligible unmatched-key examples (not exhaustive): [\"S001\"] \u00d7 1; [\"S002\"] \u00d7 1; [\"S003\"] \u00d7 1.\n- flow: contract; Join: declared left join; nullsEqual=false; validate=many_to_many; row order unspecified."
+        }
+      ],
+      "execution_flow_semantics": {
+        "scan": 4,
+        "limit": 1,
+        "join": 4
+      }
+    },
+    {
+      "id": "Sol/evidence_data0_flow0/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "reports",
+          "view": "sample",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 526,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 2,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 234,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Opus48/evidence_data1_flow0/archeology-easy-6",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "records",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 44691,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": false
+          },
+          "chars": 1799,
+          "stats": true,
+          "facts": [
+            "data.column.city.counts",
+            "data.column.city_ascii.counts",
+            "data.column.lat.counts",
+            "data.column.lat.range",
+            "data.column.lng.counts",
+            "data.column.lng.range",
+            "data.column.country.counts",
+            "data.column.country.values",
+            "data.column.iso2.counts",
+            "data.column.iso2.values",
+            "data.column.iso3.counts",
+            "data.column.iso3.values",
+            "data.column.admin_name.counts",
+            "data.column.capital.counts",
+            "data.column.capital.values",
+            "data.column.population.counts",
+            "data.column.population.range",
+            "data.column.id.counts",
+            "data.column.id.range"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "top",
+          "view": "full",
+          "table": {
+            "totalRows": 5,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 5,
+            "complete": false
+          },
+          "chars": 504,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Luna/evidence_data1_flow0/legal-easy-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "records",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 28,
+            "returnedRows": 5,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": false
+          },
+          "chars": 1153,
+          "stats": true,
+          "facts": [
+            "data.column.Number of Reports by Type.counts",
+            "data.column.Number of Reports by Type.values",
+            "data.column.Unnamed: 1.counts",
+            "data.column.Unnamed: 1.values",
+            "data.column.Unnamed: 2.counts",
+            "data.column.Unnamed: 2.values",
+            "data.column.Unnamed: 3.counts",
+            "data.column.Unnamed: 3.values",
+            "data.structure"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "ratio",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 256,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Qwen38_27B/evidence_data0_flow0/archeology-easy-6",
+      "retrievals": [
+        {
+          "step": 2,
+          "target": "cities",
+          "view": "sample",
+          "table": {
+            "totalRows": 44691,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": false
+          },
+          "chars": 969,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 4,
+          "target": "answer",
+          "view": "full",
+          "table": {
+            "totalRows": 5,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": true
+          },
+          "chars": 951,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Luna/evidence_data0_flow0/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 2,
+          "target": "workbook1",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 3914,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 2,
+          "target": "workbook7",
+          "view": "full",
+          "table": {
+            "totalRows": 43,
+            "returnedRows": 19,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4754,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 3,
+          "target": "metadata",
+          "view": "sample",
+          "table": {
+            "totalRows": 153,
+            "returnedRows": 1,
+            "totalColumns": 179,
+            "columnsShown": 50,
+            "complete": false
+          },
+          "chars": 1964,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 3,
+          "target": "apm",
+          "view": "sample",
+          "table": {
+            "totalRows": 95,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 34,
+            "complete": false
+          },
+          "chars": 1863,
+          "stats": false,
+          "facts": []
+        },
+        {
+          "step": 4,
+          "target": "answer_row",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 171,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "Luna/evidence_data1_flow0/archeology-easy-6",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "cities",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 44691,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": false
+          },
+          "chars": 1799,
+          "stats": true,
+          "facts": [
+            "data.column.city.counts",
+            "data.column.city_ascii.counts",
+            "data.column.lat.counts",
+            "data.column.lat.range",
+            "data.column.lng.counts",
+            "data.column.lng.range",
+            "data.column.country.counts",
+            "data.column.country.values",
+            "data.column.iso2.counts",
+            "data.column.iso2.values",
+            "data.column.iso3.counts",
+            "data.column.iso3.values",
+            "data.column.admin_name.counts",
+            "data.column.capital.counts",
+            "data.column.capital.values",
+            "data.column.population.counts",
+            "data.column.population.range",
+            "data.column.id.counts",
+            "data.column.id.range"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "answer_city",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 213,
+          "stats": false,
+          "facts": []
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    },
+    {
+      "id": "DeepSeek41Flash/evidence_data1_flow1/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "f1",
+          "view": "full",
+          "table": {
+            "totalRows": 5,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4004,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 1,
+          "target": "f7",
+          "view": "full",
+          "table": {
+            "totalRows": 13,
+            "returnedRows": 12,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4795,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "meta",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 153,
+            "returnedRows": 1,
+            "totalColumns": 179,
+            "columnsShown": 50,
+            "complete": false
+          },
+          "chars": 4056,
+          "stats": true,
+          "facts": [
+            "data.column.idx.counts",
+            "data.column.Proteomics_Participant_ID.counts",
+            "data.column.Case_excluded.counts",
+            "data.column.Case_excluded.values",
+            "data.column.Proteomics_TMT_batch.counts",
+            "data.column.Proteomics_TMT_batch.range",
+            "data.column.Proteomics_TMT_batch.values",
+            "data.column.Proteomics_TMT_plex.counts",
+            "data.column.Proteomics_TMT_plex.range",
+            "data.column.Proteomics_TMT_channel.counts",
+            "data.column.Proteomics_Parent_Sample_IDs.counts",
+            "data.column.Proteomics_Aliquot_ID.counts",
+            "data.column.Proteomics_Tumor_Normal.counts",
+            "data.column.Proteomics_Tumor_Normal.values",
+            "data.column.Proteomics_OCT.counts",
+            "data.column.Proteomics_OCT.values",
+            "data.column.Country.counts",
+            "data.column.Country.values",
+            "data.column.Histologic_Grade_FIGO.counts",
+            "data.column.Histologic_Grade_FIGO.values",
+            "data.column.Myometrial_invasion_Specify.counts",
+            "data.column.Myometrial_invasion_Specify.values",
+            "data.column.Histologic_type.counts",
+            "data.column.Histologic_type.values",
+            "data.column.Treatment_naive.counts",
+            "data.column.Treatment_naive.values",
+            "data.column.Tumor_purity.counts",
+            "data.column.Tumor_purity.values",
+            "data.column.Path_Stage_Primary_Tumor-pT.counts",
+            "data.column.Path_Stage_Reg_Lymph_Nodes-pN.counts",
+            "data.column.Path_Stage_Reg_Lymph_Nodes-pN.values",
+            "data.column.Clin_Stage_Dist_Mets-cM.counts",
+            "data.column.Clin_Stage_Dist_Mets-cM.values",
+            "data.column.Path_Stage_Dist_Mets-pM.counts",
+            "data.column.Path_Stage_Dist_Mets-pM.values",
+            "data.column.tumor_Stage-Pathological.counts",
+            "data.column.tumor_Stage-Pathological.values",
+            "data.column.FIGO_stage.counts",
+            "data.column.LVSI.counts",
+            "data.column.LVSI.values",
+            "data.column.BMI.counts",
+            "data.column.Age.counts",
+            "data.column.Diabetes.counts",
+            "data.column.Diabetes.values",
+            "data.column.Race.counts",
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "apm",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 95,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 34,
+            "complete": false
+          },
+          "chars": 3929,
+          "stats": true,
+          "facts": [
+            "data.column.idx.counts",
+            "data.column.idx.values",
+            "data.column.Log2_variant_per_Mbp.counts",
+            "data.column.Log2_variant_per_Mbp.range",
+            "data.column.Log2_variant_per_Mbp.values",
+            "data.column.mutation_classification.counts",
+            "data.column.mutation_classification.values",
+            "data.column.APP_Z_score.counts",
+            "data.column.APP_Z_score.range",
+            "data.column.APP_Z_score.values",
+            "data.column.APP_classification.counts",
+            "data.column.APP_classification.values",
+            "data.column.Immune_cluster.counts",
+            "data.column.Immune_cluster.values",
+            "data.column.Activated_B_cell.counts",
+            "data.column.Activated_B_cell.range",
+            "data.column.Activated_CD4_T_cell.counts",
+            "data.column.Activated_CD4_T_cell.range",
+            "data.column.Activated_CD8_T_cell.counts",
+            "data.column.Activated_CD8_T_cell.range",
+            "data.column.Central_memory_CD4_T_cell.counts",
+            "data.column.Central_memory_CD4_T_cell.range",
+            "data.column.Central_memory_CD8_T_cell.counts",
+            "data.column.Central_memory_CD8_T_cell.range",
+            "data.column.Effector_memeory_CD4_T_cell.counts",
+            "data.column.Effector_memeory_CD4_T_cell.range",
+            "data.column.Effector_memeory_CD4_T_cell.values",
+            "data.column.Effector_memeory_CD8_T_cell.counts",
+            "data.column.Effector_memeory_CD8_T_cell.range",
+            "data.column.Gamma_delta_T_cell.counts",
+            "data.column.Gamma_delta_T_cell.range",
+            "data.column.Gamma_delta_T_cell.values",
+            "data.column.Immature__B_cell.counts",
+            "data.column.Immature__B_cell.range",
+            "data.column.Memory_B_cell.counts",
+            "data.column.Memory_B_cell.range",
+            "data.column.Regulatory_T_cell.counts",
+            "data.column.Regulatory_T_cell.range",
+            "data.column.T_follicular_helper_cell.counts",
+            "data.column.T_follicular_helper_cell.range",
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 3,
+          "target": "lowest",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": true
+          },
+          "chars": 905,
+          "stats": false,
+          "facts": [
+            "flow.upstream.joined.04114b0e70bccb9c6e5eb8c671767b9e0ebeae14a137e707f6dfffe3752e0f72",
+            "flow.upstream.apm2.185b37884e5c9f10ba15644bba618d34321aeaee393d30943959b583cdd04e11",
+            "flow.upstream.meta2.6ea5cbcd59cf85778c26c9ad6145b1780fd8fce9aca94251978b1cd7a76a00f0",
+            "flow.removed"
+          ]
+        }
+      ],
+      "upstream": [
+        {
+          "step": 3,
+          "target": "lowest",
+          "fact": "flow.upstream.joined.04114b0e70bccb9c6e5eb8c671767b9e0ebeae14a137e707f6dfffe3752e0f72",
+          "text": "columns: idx str, APP_Z_score float64, Age str\nrecords: full; 1 of 1 row, 3 of 3 columns (complete)\n| idx | APP_Z_score | Age |\n|---|---|---|\n| S019 | -2.15300777 | \"60\" |\n- flow (joined): Join type=inner, keys=\"idx\". Join matched contribution=95 (sum L(k)*R(k)); output=95, including outer unmatched rows as declared. left matched rows=95/95, unmatched rows=0; matched keys=95/95, unmatched keys=0; null-key rows=0, max eligible multiplicity=1. right matched rows=95/153, unmatched rows=58; matched keys=95/153, unmatched keys=58; null-key rows=0, max eligible multiplicity=1. right eligible unmatched-key examples (not exhaustive): [\"S004\"] \u00d7 1; [\"S013\"] \u00d7 1; [\"S015\"] \u00d7 1.\n- flow (apm2): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow (meta2): contract; Project selection/rename={\"keep\":[\"idx\",\"Age\"]}; rows preserved.\n- flow: Limit retained=1/95, removed=94."
+        },
+        {
+          "step": 3,
+          "target": "lowest",
+          "fact": "flow.upstream.apm2.185b37884e5c9f10ba15644bba618d34321aeaee393d30943959b583cdd04e11",
+          "text": "columns: idx str, APP_Z_score float64, Age str\nrecords: full; 1 of 1 row, 3 of 3 columns (complete)\n| idx | APP_Z_score | Age |\n|---|---|---|\n| S019 | -2.15300777 | \"60\" |\n- flow (joined): Join type=inner, keys=\"idx\". Join matched contribution=95 (sum L(k)*R(k)); output=95, including outer unmatched rows as declared. left matched rows=95/95, unmatched rows=0; matched keys=95/95, unmatched keys=0; null-key rows=0, max eligible multiplicity=1. right matched rows=95/153, unmatched rows=58; matched keys=95/153, unmatched keys=58; null-key rows=0, max eligible multiplicity=1. right eligible unmatched-key examples (not exhaustive): [\"S004\"] \u00d7 1; [\"S013\"] \u00d7 1; [\"S015\"] \u00d7 1.\n- flow (apm2): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow (meta2): contract; Project selection/rename={\"keep\":[\"idx\",\"Age\"]}; rows preserved.\n- flow: Limit retained=1/95, removed=94."
+        },
+        {
+          "step": 3,
+          "target": "lowest",
+          "fact": "flow.upstream.meta2.6ea5cbcd59cf85778c26c9ad6145b1780fd8fce9aca94251978b1cd7a76a00f0",
+          "text": "columns: idx str, APP_Z_score float64, Age str\nrecords: full; 1 of 1 row, 3 of 3 columns (complete)\n| idx | APP_Z_score | Age |\n|---|---|---|\n| S019 | -2.15300777 | \"60\" |\n- flow (joined): Join type=inner, keys=\"idx\". Join matched contribution=95 (sum L(k)*R(k)); output=95, including outer unmatched rows as declared. left matched rows=95/95, unmatched rows=0; matched keys=95/95, unmatched keys=0; null-key rows=0, max eligible multiplicity=1. right matched rows=95/153, unmatched rows=58; matched keys=95/153, unmatched keys=58; null-key rows=0, max eligible multiplicity=1. right eligible unmatched-key examples (not exhaustive): [\"S004\"] \u00d7 1; [\"S013\"] \u00d7 1; [\"S015\"] \u00d7 1.\n- flow (apm2): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow (meta2): contract; Project selection/rename={\"keep\":[\"idx\",\"Age\"]}; rows preserved.\n- flow: Limit retained=1/95, removed=94."
+        }
+      ],
+      "execution_flow_semantics": {
+        "scan": 4,
+        "join": 4,
+        "limit": 1
+      }
+    },
+    {
+      "id": "Sol/evidence_data1_flow1/biomedical-hard-3",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "workbook1_preview",
+          "view": "full",
+          "table": {
+            "totalRows": 20,
+            "returnedRows": 1,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4006,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 1,
+          "target": "workbook7_preview",
+          "view": "full",
+          "table": {
+            "totalRows": 43,
+            "returnedRows": 19,
+            "totalColumns": 3,
+            "columnsShown": 3,
+            "complete": false
+          },
+          "chars": 4846,
+          "stats": false,
+          "facts": [
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 3,
+          "target": "relevant_columns",
+          "view": "full",
+          "table": {
+            "totalRows": 11,
+            "returnedRows": 11,
+            "totalColumns": 1,
+            "columnsShown": 1,
+            "complete": true
+          },
+          "chars": 574,
+          "stats": false,
+          "facts": [
+            "flow.process.counts",
+            "flow.contract"
+          ]
+        },
+        {
+          "step": 4,
+          "target": "apm_subtypes",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 95,
+            "returnedRows": 1,
+            "totalColumns": 34,
+            "columnsShown": 34,
+            "complete": false
+          },
+          "chars": 3929,
+          "stats": true,
+          "facts": [
+            "data.column.idx.counts",
+            "data.column.idx.values",
+            "data.column.Log2_variant_per_Mbp.counts",
+            "data.column.Log2_variant_per_Mbp.range",
+            "data.column.Log2_variant_per_Mbp.values",
+            "data.column.mutation_classification.counts",
+            "data.column.mutation_classification.values",
+            "data.column.APP_Z_score.counts",
+            "data.column.APP_Z_score.range",
+            "data.column.APP_Z_score.values",
+            "data.column.APP_classification.counts",
+            "data.column.APP_classification.values",
+            "data.column.Immune_cluster.counts",
+            "data.column.Immune_cluster.values",
+            "data.column.Activated_B_cell.counts",
+            "data.column.Activated_B_cell.range",
+            "data.column.Activated_CD4_T_cell.counts",
+            "data.column.Activated_CD4_T_cell.range",
+            "data.column.Activated_CD8_T_cell.counts",
+            "data.column.Activated_CD8_T_cell.range",
+            "data.column.Central_memory_CD4_T_cell.counts",
+            "data.column.Central_memory_CD4_T_cell.range",
+            "data.column.Central_memory_CD8_T_cell.counts",
+            "data.column.Central_memory_CD8_T_cell.range",
+            "data.column.Effector_memeory_CD4_T_cell.counts",
+            "data.column.Effector_memeory_CD4_T_cell.range",
+            "data.column.Effector_memeory_CD4_T_cell.values",
+            "data.column.Effector_memeory_CD8_T_cell.counts",
+            "data.column.Effector_memeory_CD8_T_cell.range",
+            "data.column.Gamma_delta_T_cell.counts",
+            "data.column.Gamma_delta_T_cell.range",
+            "data.column.Gamma_delta_T_cell.values",
+            "data.column.Immature__B_cell.counts",
+            "data.column.Immature__B_cell.range",
+            "data.column.Memory_B_cell.counts",
+            "data.column.Memory_B_cell.range",
+            "data.column.Regulatory_T_cell.counts",
+            "data.column.Regulatory_T_cell.range",
+            "data.column.T_follicular_helper_cell.counts",
+            "data.column.T_follicular_helper_cell.range",
+            "flow.scan"
+          ]
+        },
+        {
+          "step": 5,
+          "target": "app_lowest",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 2,
+            "columnsShown": 2,
+            "complete": true
+          },
+          "chars": 293,
+          "stats": false,
+          "facts": [
+            "flow.upstream.app_key_score.82fffba093703cdb64bc6cf82c354212b5fa2997207f30d6b469a5d1d4b208ff",
+            "flow.removed"
+          ]
+        },
+        {
+          "step": 5,
+          "target": "lowest_with_age",
+          "view": "full",
+          "table": {
+            "totalRows": 1,
+            "returnedRows": 1,
+            "totalColumns": 4,
+            "columnsShown": 4,
+            "complete": true
+          },
+          "chars": 1143,
+          "stats": false,
+          "facts": [
+            "flow.upstream.app_lowest.319a5a494976b0dbd5fddeca67edbb8d588e3dd01c049c6876841002015e8289",
+            "flow.upstream.patient_age.70b43ad7e437c452674b45587f3fd29e33d047f7b38eadae7b3e551d74ed9e27",
+            "flow.upstream.app_key_score.82fffba093703cdb64bc6cf82c354212b5fa2997207f30d6b469a5d1d4b208ff",
+            "flow.join.output",
+            "flow.join.0",
+            "flow.join.1",
+            "flow.join.1.unmatched.examples",
+            "flow.contract"
+          ]
+        }
+      ],
+      "upstream": [
+        {
+          "step": 5,
+          "target": "app_lowest",
+          "fact": "flow.upstream.app_key_score.82fffba093703cdb64bc6cf82c354212b5fa2997207f30d6b469a5d1d4b208ff",
+          "text": "columns: idx str, APP_Z_score float64\nrecords: full; 1 of 1 row, 2 of 2 columns (complete)\n| idx | APP_Z_score |\n|---|---|\n| S019 | -2.15300777 |\n- flow (app_key_score): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow: Limit retained=1/95, removed=94."
+        },
+        {
+          "step": 5,
+          "target": "lowest_with_age",
+          "fact": "flow.upstream.app_lowest.319a5a494976b0dbd5fddeca67edbb8d588e3dd01c049c6876841002015e8289",
+          "text": "columns: idx str, APP_Z_score float64, Proteomics_Participant_ID str, Age str\nrecords: full; 1 of 1 row, 4 of 4 columns (complete)\n| idx | APP_Z_score | Proteomics_Participant_ID | Age |\n|---|---|---|---|\n| S019 | -2.15300777 | C3L-00413 | \"60\" |\n- flow (app_lowest): Limit n=1, offset=0. Limit retained=1/95, removed=94.\n- flow (patient_age): contract; Project selection/rename={\"keep\":[\"idx\",\"Proteomics_Participant_ID\",\"Age\"]}; rows preserved.\n- flow (app_key_score): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow: Join matched contribution=1 (sum L(k)*R(k)); output=1, including outer unmatched rows as declared.\n- flow: left matched rows=1/1, unmatched rows=0; matched keys=1/1, unmatched keys=0; null-key rows=0, max eligible multiplicity=1.\n- flow: right matched rows=1/153, unmatched rows=152; matched keys=1/153, unmatched keys=152; null-key rows=0, max eligible multiplicity=1.\n- flow: right eligible unmatched-key examples (not exhaustive): [\"S001\"] \u00d7 1; [\"S002\"] \u00d7 1; [\"S003\"] \u00d7 1.\n- flow: contract; Join: declared left join; nullsEqual=false; validate=one_to_one; row order unspecified."
+        },
+        {
+          "step": 5,
+          "target": "lowest_with_age",
+          "fact": "flow.upstream.patient_age.70b43ad7e437c452674b45587f3fd29e33d047f7b38eadae7b3e551d74ed9e27",
+          "text": "columns: idx str, APP_Z_score float64, Proteomics_Participant_ID str, Age str\nrecords: full; 1 of 1 row, 4 of 4 columns (complete)\n| idx | APP_Z_score | Proteomics_Participant_ID | Age |\n|---|---|---|---|\n| S019 | -2.15300777 | C3L-00413 | \"60\" |\n- flow (app_lowest): Limit n=1, offset=0. Limit retained=1/95, removed=94.\n- flow (patient_age): contract; Project selection/rename={\"keep\":[\"idx\",\"Proteomics_Participant_ID\",\"Age\"]}; rows preserved.\n- flow (app_key_score): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow: Join matched contribution=1 (sum L(k)*R(k)); output=1, including outer unmatched rows as declared.\n- flow: left matched rows=1/1, unmatched rows=0; matched keys=1/1, unmatched keys=0; null-key rows=0, max eligible multiplicity=1.\n- flow: right matched rows=1/153, unmatched rows=152; matched keys=1/153, unmatched keys=152; null-key rows=0, max eligible multiplicity=1.\n- flow: right eligible unmatched-key examples (not exhaustive): [\"S001\"] \u00d7 1; [\"S002\"] \u00d7 1; [\"S003\"] \u00d7 1.\n- flow: contract; Join: declared left join; nullsEqual=false; validate=one_to_one; row order unspecified."
+        },
+        {
+          "step": 5,
+          "target": "lowest_with_age",
+          "fact": "flow.upstream.app_key_score.82fffba093703cdb64bc6cf82c354212b5fa2997207f30d6b469a5d1d4b208ff",
+          "text": "columns: idx str, APP_Z_score float64, Proteomics_Participant_ID str, Age str\nrecords: full; 1 of 1 row, 4 of 4 columns (complete)\n| idx | APP_Z_score | Proteomics_Participant_ID | Age |\n|---|---|---|---|\n| S019 | -2.15300777 | C3L-00413 | \"60\" |\n- flow (app_lowest): Limit n=1, offset=0. Limit retained=1/95, removed=94.\n- flow (patient_age): contract; Project selection/rename={\"keep\":[\"idx\",\"Proteomics_Participant_ID\",\"Age\"]}; rows preserved.\n- flow (app_key_score): contract; Project selection/rename={\"keep\":[\"idx\",\"APP_Z_score\"]}; rows preserved.\n- flow: Join matched contribution=1 (sum L(k)*R(k)); output=1, including outer unmatched rows as declared.\n- flow: left matched rows=1/1, unmatched rows=0; matched keys=1/1, unmatched keys=0; null-key rows=0, max eligible multiplicity=1.\n- flow: right matched rows=1/153, unmatched rows=152; matched keys=1/153, unmatched keys=152; null-key rows=0, max eligible multiplicity=1.\n- flow: right eligible unmatched-key examples (not exhaustive): [\"S001\"] \u00d7 1; [\"S002\"] \u00d7 1; [\"S003\"] \u00d7 1.\n- flow: contract; Join: declared left join; nullsEqual=false; validate=one_to_one; row order unspecified."
+        }
+      ],
+      "execution_flow_semantics": {
+        "scan": 4,
+        "find_app_age_columns": 1,
+        "limit": 1,
+        "join": 4
+      }
+    },
+    {
+      "id": "DeepSeek41Flash/evidence_data1_flow0/archeology-easy-6",
+      "retrievals": [
+        {
+          "step": 1,
+          "target": "cities",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 44691,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": false
+          },
+          "chars": 1799,
+          "stats": true,
+          "facts": [
+            "data.column.city.counts",
+            "data.column.city_ascii.counts",
+            "data.column.lat.counts",
+            "data.column.lat.range",
+            "data.column.lng.counts",
+            "data.column.lng.range",
+            "data.column.country.counts",
+            "data.column.country.values",
+            "data.column.iso2.counts",
+            "data.column.iso2.values",
+            "data.column.iso3.counts",
+            "data.column.iso3.values",
+            "data.column.admin_name.counts",
+            "data.column.capital.counts",
+            "data.column.capital.values",
+            "data.column.population.counts",
+            "data.column.population.range",
+            "data.column.id.counts",
+            "data.column.id.range"
+          ]
+        },
+        {
+          "step": 2,
+          "target": "top",
+          "view": "sample_stats",
+          "table": {
+            "totalRows": 5,
+            "returnedRows": 5,
+            "totalColumns": 11,
+            "columnsShown": 11,
+            "complete": true
+          },
+          "chars": 1026,
+          "stats": false,
+          "facts": [
+            "data.complete"
+          ]
+        }
+      ],
+      "upstream": [],
+      "execution_flow_semantics": {}
+    }
+  ],
+  "cancelled": [
+    {
+      "id": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 11,
+        "wire_prefix_checks": 10,
+        "system_prompt_hashes": [
+          "c37b646c22a7ffc705f98f9c754bf78022e927035c70eb30dabfd87c03db829f"
+        ],
+        "answers": 0,
+        "action_failures": 0,
+        "observations": {
+          "tool_messages": 8,
+          "characters": 18970,
+          "max_characters": 4860,
+          "with_flow": 7,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 7,
+          "execute_blocks": 7,
+          "retrieve_blocks": 7
+        },
+        "retrievals": {
+          "actions_requested": 7,
+          "targets_requested": 8,
+          "targets": 8,
+          "view_sample": 4,
+          "characters": 11851,
+          "max_characters": 4096,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 8,
+          "view_full": 4,
+          "complete": 3,
+          "partial_full": 1
+        },
+        "execution": {
+          "actions": 7,
+          "operators_executed": 10,
+          "runs": 8,
+          "succeeded": 8,
+          "with_phase_metrics": 8,
+          "compilationDurationMs": 5.234501,
+          "operators_cached": 4
+        },
+        "profiles": {
+          "retained": 9,
+          "available": 9,
+          "schema_fields": 502,
+          "scans": 5,
+          "source_identities": 5,
+          "source_details_omitted": 2,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 11,
+          "input_tokens": 83675,
+          "output_tokens": 1716,
+          "cached_tokens": 71424,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 602,
+          "cost_usd": null,
+          "provider_reported_cost_usd": null,
+          "usage_complete": false,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 8,
+              "unreported_responses": 0,
+              "complete": false
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 8,
+              "unreported_responses": 0,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": null,
+          "model_latency_seconds": 498.837,
+          "known_usage_cache_read_fraction": 0.8535882880191216,
+          "cache_read_fraction": null
+        }
+      },
+      "temp_path": "/var/folders/3m/vml6z71d6q11ypk7hv81ctj40000gn/T/cancelled-matrix-audit-_67p1vkz"
+    },
+    {
+      "id": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/biomedical-hard-3",
+      "audit": {
+        "violations": [],
+        "warnings": [],
+        "details": [],
+        "wire_requests": 4,
+        "wire_prefix_checks": 3,
+        "system_prompt_hashes": [
+          "2763b3a08620d5da98d3d14ebf0c8f480bfd9f932fec01dd1a4931a0745f7772"
+        ],
+        "answers": 0,
+        "action_failures": 1,
+        "observations": {
+          "tool_messages": 2,
+          "characters": 10449,
+          "max_characters": 9677,
+          "with_flow": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "edit_blocks": 2,
+          "execute_blocks": 2,
+          "retrieve_blocks": 2
+        },
+        "retrievals": {
+          "actions_requested": 2,
+          "targets_requested": 4,
+          "targets": 2,
+          "view_full": 2,
+          "characters": 8668,
+          "max_characters": 4754,
+          "with_data_facts": 0,
+          "with_statistics_caption": 0,
+          "with_table_statistics": 0,
+          "statistics_suppressed_complete": 0,
+          "statistics_unavailable": 0,
+          "statistics_omitted_budget": 0,
+          "with_flow_facts": 0,
+          "partial_full": 2
+        },
+        "execution": {
+          "actions": 2,
+          "operators_executed": 4,
+          "runs": 4,
+          "succeeded": 4,
+          "with_phase_metrics": 4,
+          "compilationDurationMs": 1.101
+        },
+        "profiles": {
+          "retained": 2,
+          "available": 2,
+          "schema_fields": 181,
+          "scans": 2,
+          "source_identities": 2,
+          "source_details_omitted": 1,
+          "source_identities_omitted": 0
+        },
+        "accounting": {
+          "model_requests": 4,
+          "input_tokens": 17084,
+          "output_tokens": 491,
+          "cached_tokens": 5888,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 154,
+          "cost_usd": null,
+          "provider_reported_cost_usd": null,
+          "usage_complete": false,
+          "provider_cost_complete": false,
+          "cache_usage_reporting": {
+            "cached_tokens": {
+              "reported_responses": 2,
+              "unreported_responses": 0,
+              "complete": false
+            },
+            "cache_creation_tokens": {
+              "reported_responses": 2,
+              "unreported_responses": 0,
+              "complete": false
+            }
+          },
+          "cost_estimate_assumptions": [],
+          "elapsed_seconds": null,
+          "model_latency_seconds": 303.748,
+          "known_usage_cache_read_fraction": 0.34464996487941935,
+          "cache_read_fraction": null
+        }
+      },
+      "temp_path": "/var/folders/3m/vml6z71d6q11ypk7hv81ctj40000gn/T/cancelled-matrix-audit-lfnn_xzl"
+    }
+  ],
+  "prompt_capture_mismatches": [],
+  "max_retrieval": [
+    5029,
+    "Opus48/evidence_data0_flow1/biomedical-hard-3/mmc7"
+  ],
+  "max_wire_tool_message": [
+    10231,
+    "Terra/evidence_data0_flow1/biomedical-hard-3/000007-request.json"
+  ],
+  "flow_fact_families": {
+    "scan": 35,
+    "process": 12,
+    "contract": 14,
+    "upstream": 12,
+    "removed": 5,
+    "join": 8
+  },
+  "upstream_per_attempt": {
+    "Qwen38_27B/evidence_data0_flow1/biomedical-hard-3": 1,
+    "Sol/evidence_data0_flow1/biomedical-hard-3": 2,
+    "Opus48/evidence_data0_flow1/biomedical-hard-3": 2,
+    "DeepSeek41Flash/evidence_data1_flow1/biomedical-hard-3": 3,
+    "Sol/evidence_data1_flow1/biomedical-hard-3": 4
+  },
+  "phase_keys": {
+    "version": 93,
+    "compilation": 93,
+    "compilationDurationMs": 93,
+    "runtimeStartAttempted": 93
+  }
+}

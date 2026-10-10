@@ -1,0 +1,53 @@
+Sonnet 5.5: one complete KramaBench round
+
+All 104 original top-level questions per system; 208 attempts total. Same provided source hints. One attempt each; no model reruns or result selection.
+Script: existing smolagents guided prompt, 5K stdout preview. Dataflows: current native DELTA configuration, adaptive full/sample/sample_stats, data stats and flow enabled; 2K samples (5 rows), separate 2K evidence budgets, full bounded at 100K.
+Both: 25 steps, 1,200-second task deadline, Sonnet 5.5 via the same proxy. Automatic provider thinking/effort defaults.
+
+System | Original mean score | Exact passes | Recorded model cost | Median task cost | Model responses
+Script | 72.01% | 71/104 | $9.593361 | $0.031258 | 575
+Dataflows | 73.42% | 71/104 | $5.755982 | $0.043399 | 498
+
+Dataflows recorded total cost is 40.0% lower. Its median task cost is 38.8% higher. Mean-score delta = 1.41 percentage points.
+Accuracy is close in this single round. Do not treat this as a demonstrated accuracy improvement from statistics.
+
+Cost mechanism
+3 returned script responses hit the generation length limit. legal-hard-1 additionally generated 121 literal pseudo-tool calls. All remain in primary scores/costs.
+Protocol-loop task IDs: legal-easy-26, legal-hard-1, legal-hard-18, biomedical-hard-1.
+Same-task sensitivity after excluding these IDs from both arms: script $3.779987; Dataflows $5.514955. This is a descriptive check, not the headline result.
+Cache-read fraction of input: script 84.7%; Dataflows 88.4%. Both retain append-only request prefixes; raw usage and frozen-rate costs reconcile.
+
+Validation
+602 profiles / 6498 columns: no count/version invariant failures.
+23736 independently recomputed retained-table checks plus 549 source checks: no mismatches.
+No evidence-delivery errors. Native retrieval attempts: {'sample_stats': 108, 'full': 275, 'sample': 101}; successful reads: 418.
+
+Anomalies and accounting
+Script task deadlines: ['biomedical-hard-3', 'wildfire-hard-20']. Deadline failures retain original zero grades. Their actual provider charges may be unknown.
+environment-hard-18: the script wrapper lost final_answer(True) to recursive memory serialization. The saved empty response was graded 0 by the unchanged evaluator; no model rerun or answer replacement.
+Instrumentation now records SDK HTTP retries and safely catches optional trace-export failures. Regression tests pass. Agent prompts/configurations stayed unchanged during the campaign.
+
+Dataflows needed missing-action correction on 101/104 tasks; 97 then submitted Answer and 4 ended without it. The native harness still asks for a chat-style Final Answer line. This is a plausible source of submission friction, alongside automatic tool choice; this run does not isolate those causes.
+The paired bootstrap interval for the mean-score difference includes zero. Treat the small score gap as inconclusive in one round. The aggregate cost difference is also sensitive to a few extreme responses.
+
+Concrete trace comparisons
+- legal-easy-26: Both answered the six-state identity-theft question correctly. Script call 2 emitted 128,000 tokens with 2,319 literal pseudo-tool calls; parsing failed, later calls recovered. Dataflows previewed, updated parsing, built Map/Window/Filter and repaired null handling. The cost win here is protocol robustness; it does not isolate a stats effect.
+- archeology-easy-6: Both identified Sao Paulo among cities with negative latitude and longitude. Script loaded/filter/sorted in one code block, then answered (2 responses). Dataflows retrieved sample_stats, built Filter/Sort/Limit, retrieved 5 full rows and needed an Answer correction (4 responses). Smaller prompt and shorter output also favored script.
+- environment-hard-7: Both derived 312/2063 and 140/3295 marine exceedance rates. Dataflow flow evidence correctly exposed 1,373 unmatched samples and the agent investigated them. Script submitted 10.87 percentage points; Dataflows submitted the equivalent proportion 0.11, which fails the required benchmark units.
+- archeology-hard-7: Both computed 274 cities under Euclidean degree distance and 295 under an axis-aligned box. Script chose Euclidean, matching the original reference; Dataflows chose the box. Dataflows recovered an invalid cross-join edit and accurately reported the 5,873*1,388=8,151,724-row cross product. This is interpretation, not inaccurate flow counters.
+- environment-easy-2: Dataflows correctly listed all 8 years in its first plain-text conclusion, but after Answer correction submitted only an incomplete sentence ending with violations (. Its saved answer therefore fails. Script submitted the list through final_answer. The trace confirms a submission failure; raw provider arguments are unavailable, so the model/proxy source of truncation is unresolved.
+- biomedical-hard-3: Dataflows explored Excel sheets with previews and sample_stats, sorted APP_Z_score, joined the selected sample to metadata and retrieved one full 212-column row to see the hidden Age field (60). Script received no provider response before its 1,200-second deadline. The full retrieve was justified; the accuracy difference is a timeout, not proof that stats improved reasoning.
+- environment-hard-18: Script internally executed final_answer(True), but smolagents memory serialization raised RecursionError and the wrapper saved No response from agent. Optional full-memory export then blocked grading. That unchanged saved answer was graded 0 with the original evaluator. Dataflows submitted True and passed. This is a framework failure, not analytical evidence for stats.
+
+Limits
+- One attempt per task per system; no best-of or recovery model runs.
+- Original mean scores include partial RAE/F1 credit; exact passes require score>=1.
+- Costs are recorded successful-response costs at frozen rates, with cache discounts; evaluator and engine costs excluded.
+- SDK retries and deadline requests may have unreported provider charges. Recorded zero at deadline does not mean free. Earlier jobs lack HTTP retry hooks.
+- Frameworks and prompts differ: guided 5K script preview vs adaptive 2K dataflow samples, separate 2K stats/flow budgets and bounded 100K full reads. This comparison cannot attribute a score/cost difference solely to stats or flow.
+- Independent checks cover retained complete tables and six selected sources (including the recorded profile prefix), not every row of every source. Profile budgets omit some value-frequency facts.
+- Four Dataflow tasks ended without an Answer action; additional submitted-answer errors are included in original grades.
+
+Agent: b044a5535; JVM/Python provenance: 04e85b581 JVM; b044a5535 Python profiler; runner: 437d4f850efe04df074060edad0abd9c887e552e; benchmark: 4658eb92db753805e0df3edc207ca46379eda43b.
+Raw artifacts: /home/bob/texera-sonnet55-comparison-20261001
+Frozen input manifest SHA256: ba168602a5557d2bc4d16f375c84f44b6f3fa9d81a0d1d19337f8298688e4279

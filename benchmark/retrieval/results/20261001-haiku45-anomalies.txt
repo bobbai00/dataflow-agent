@@ -1,0 +1,134 @@
+Claude Haiku 4.5 full-run anomaly audit — 2026-10-01
+
+There are interface and finishing problems worth fixing. The recorded costs,
+prefix caching, observation delivery and checked statistics are consistent.
+This audit makes no implementation changes and launches no new model calls.
+The original one-repetition results remain 53/104 full passes, $5.613430 of
+recorded model usage, sample_stats with flow off.
+
+1. Strict tool-use flag is lost on the Anthropic route
+
+The dataflow tool declares strict=true. The installed OpenAI SDK forwards
+that flag, but LiteLLM's OpenAI-to-Anthropic _map_tool_helper constructs a
+tool with name, input_schema, type and description without copying strict.
+A pure local transformation test confirmed that incoming strict=True produces
+no outgoing strict field. The schema still specifies an actions array and
+required fields; local validation still rejects invalid requests.
+
+This explains why the local strict setting cannot be taken as evidence of
+provider-enforced strict inputs. It does not prove that forwarding strict
+would repair every failure; provider/schema compatibility needs verification.
+
+There were 15 malformed actions-string calls across 11 tasks. In every case,
+actions was a string containing another serialized list; that embedded JSON
+was also malformed. Five affected tasks reached the step limit. Several
+other tasks recovered. Automatically decoding these strings would not fix
+them: their inner JSON is invalid too. Clear type-specific error feedback
+and preserved provider strictness are preferable to guessing a repair.
+
+2. Optional-argument signature contradicts validation
+
+The prompt displays project(keep=None, drop=None, rename=None). Explicit
+keep=None reaches the list validator and is rejected, while omitting keep
+works. Five error entries across four tasks show this mismatch, including
+two in wildfire-easy-15. This is an interface inconsistency, not a fault in
+the measured table statistics. Align the advertised defaults and validator
+with regression tests. The frozen benchmark cohort is not changed.
+
+3. Verification loops consume the finishing budget
+
+All 15 no-answer tasks used their full 25 model calls. Together they cost
+$1.417465, about 25% of total recorded model spend.
+
+environment-easy-2 computed the correct eight years by step 9. Its observation
+listed all eight values in full-table frequencies with other=0, although only
+five records were displayed. Haiku then kept sorting, casting, and building
+custom verification/print operators until step 25 and never answered.
+The complete list was 2003, 2011, 2015, 2018, 2020, 2021, 2022, 2023, matching
+the benchmark. This is a finishing failure despite sufficient evidence.
+
+The renderer still appended "View incomplete; unshown rows/columns or evidence
+omitted." That is true of the record view but can obscure the exhaustiveness
+of this particular full-table value summary. The footer is a plausible
+contributor to continued verification, not a proven cause. Distinguish record
+coverage from statistics coverage. Teach that full-row coverage, an exhaustive
+nonnull value list and other=0 enumerate the nonnull values of that column.
+
+legal-hard-29 retrieved a complete one-row candidate result at step 25 and had
+no remaining step for Answer. This observation does not certify the candidate's
+analytical correctness. The model also spent separate calls on edit, execute
+and retrieve despite batching guidance.
+
+biomedical-easy-9 explored wrong workbook sheets, found relevant FDR fields
+around step 23, then revisited sheets and exhausted the budget. This differs
+from the already-solved environmental example; not all no-answer failures
+can be repaired by telling the model to stop verification sooner.
+
+Add a finishing rule and remaining-step awareness. Reserve an Answer call,
+batch actions with known arguments, and stop when the requested result is
+supported. Python stdout is not the retrieved output table; return a compact
+verification table or scalar instead of trying to reveal records with print.
+The existing prompt already states one operator/one operation and preference
+for predefined operators. Their presence did not prevent repeated Process
+verification wrappers in the environmental trace.
+
+4. Some model mistakes persist despite correct evidence
+
+biomedical-easy-2 received Case_excluded values No:144, Yes:9, other=0. It
+projected away that field and averaged 13 ages from the wrong cohort, returning
+68.1 instead of 68.5. Flow was disabled in this run; no flow warning is claimed.
+The prompt already instructs checking eligibility fields before reduction.
+
+legal-hard-14 accumulated 13 error entries while repairing numeric separators,
+ports, null handling, file-column loading and a join key. It ultimately passed.
+These errors represent a successful repair sequence, not 13 independent
+benchmark failures.
+
+astronomy-hard-8 guessed unavailable netCDF4 and h5py for a NASA CDF file,
+then used available cdflib and repaired API and epoch assumptions. This
+supports clearer format/environment guidance; it does not establish a need
+to install the guessed alternatives. astronomy-easy-5 repeatedly suppressed
+bad Skyfield API calls into all-null outputs; correct stats exposed the nulls.
+It also computed on a source preview, contrary to the prompt, and did not
+answer before the budget ended.
+
+The one wildfire-hard-19 timeout is preserved. Its weather source contained
+8,627,181 rows, and a late custom matching operator exceeded the 900-second
+harness limit. Monitored services remained reachable; no engine replacement
+or provider authentication failure was observed.
+
+5. Checks that passed and their limits
+
+All 1,433 recorded model calls were reconciled against available task usage
+and frozen harness pricing. No cache/usage/cost inconsistencies were found.
+Every one of the 1,329 within-task transitions read exactly the previous call's
+cache-read plus cache-write prefix. Aggregate cache reads were 92.9% of input.
+All recorded message-prefix checks passed; no evidence of prefix rewriting.
+
+Eight independently checked CSV/Excel source scans: 1,058 count, range,
+distinct or published-frequency comparisons, zero mismatches. Partial
+profiles were checked against their recorded row prefixes. This does not
+independently validate every derived table, custom model or analytical choice.
+
+Existing automatic checks found zero delivery mismatches, settings drift,
+profile count/version invariant failures or renderer-replay failures. All 509
+health samples passed without service identity changes.
+
+Coverage remains bounded: 128 partial profiles; 51 profiles across 28 tasks
+omitted frequencies for 1,194 columns, including 95 small categories. These
+are coverage limits, not incorrect counts. Project relevant columns and
+retrieve their results when a wide observation omits needed facts.
+
+Scope and artifacts
+
+All calls received deterministic cache/cost checks. Manual mechanism review
+examined tool-call sequences and relevant outputs from seven selected tasks
+plus the timeout summary. It does not classify every wrong answer. No result
+was retried, replaced or given a higher step budget.
+
+Run: /tmp/texera-haiku45-full-20261001-results
+New read-only audits: ANOMALY_AUDIT.json, cache-cost-anomaly-audit.json,
+source-validation-anomaly-audit.json. The machine-readable summary is also
+saved alongside this report in 20261001-haiku45-anomalies.json.
+Agent/runner: 59bd80573. Engine: 04e85b581 JVM; 41a3a4516 Python profiler.
+KramaBench: 4658eb92db753805e0df3edc207ca46379eda43b.

@@ -22,6 +22,7 @@ import type { LogicalPlan, OperatorPortSchemaMap } from "../types/workflow";
 import { createLogger } from "../logger";
 
 const log = createLogger("CompileAPI");
+const SCHEMA_COMPILATION_TIMEOUT_MS = 15_000;
 
 export interface SchemaAttribute {
   attributeName: string;
@@ -44,8 +45,12 @@ export interface WorkflowCompilationResponse {
 
 export async function compileWorkflowAsync(
   logicalPlan: LogicalPlan,
-  token?: string
+  token?: string,
+  options: { abortSignal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<WorkflowCompilationResponse | null> {
+  options.abortSignal?.throwIfAborted();
+  const deadline = AbortSignal.timeout(options.timeoutMs ?? SCHEMA_COMPILATION_TIMEOUT_MS);
+  const signal = options.abortSignal ? AbortSignal.any([options.abortSignal, deadline]) : deadline;
   const config = getBackendConfig();
   const url = `${config.compileEndpoint}/api/compile`;
 
@@ -66,6 +71,7 @@ export async function compileWorkflowAsync(
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -74,8 +80,13 @@ export async function compileWorkflowAsync(
       return null;
     }
 
-    return (await response.json()) as WorkflowCompilationResponse;
+    const result = (await response.json()) as WorkflowCompilationResponse;
+    options.abortSignal?.throwIfAborted();
+    return result;
   } catch (error) {
+    // A compiler outage or deadline permits schema-free preparation. A user
+    // stop must propagate instead of triggering another model request.
+    options.abortSignal?.throwIfAborted();
     log.warn({ err: error }, "compile workflow API error");
     return null;
   }

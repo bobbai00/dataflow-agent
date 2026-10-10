@@ -1,0 +1,253 @@
+{
+  "source": "/tmp/texera-haiku45-full-20261001-results",
+  "agent_revision": "59bd80573",
+  "scope": "Read-only audit of recorded traces. Every recorded call checked for usage/cost and cache continuity; eight simple scans independently compared with sources. Manual mechanism review selected seven tasks plus the timeout summary; does not classify all wrong answers. Original one-repetition scores and configuration remain unchanged. No new model calls or task reruns.",
+  "cache_and_cost": {
+    "calls": 1433,
+    "full_previous_prefix_reads": 1329,
+    "transitions": 1329,
+    "reconciliation_failures": []
+  },
+  "source_profile_checks": {
+    "scans": 8,
+    "comparisons": 1058,
+    "failures": []
+  },
+  "strict_forwarding": {
+    "tool_definition_strict": true,
+    "openai_sdk_forwards_strict": true,
+    "installed_litellm_version": "1.83.10-stable",
+    "test": "Pure local AnthropicConfig._map_tool_helper transform with a synthetic function tool containing strict=True. No network request or provider inference.",
+    "incoming_strict": true,
+    "outgoing_keys": [
+      "description",
+      "input_schema",
+      "name",
+      "type"
+    ],
+    "outgoing_strict": null,
+    "input_schema_actions_type": "array",
+    "required_preserved": true,
+    "interpretation": "Installed OpenAI-to-Anthropic converter drops the strict tool flag. Schema remains supplied and local validation remains active; provider strict enforcement cannot be assumed for this route."
+  },
+  "malformed_action_lists": {
+    "errors": 15,
+    "tasks": 11,
+    "affected_step_limit_tasks": 5,
+    "all_are_strings": true,
+    "all_embedded_json_malformed": true,
+    "details": [
+      {
+        "task": "wildfire-hard-18",
+        "step": 16,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 1208 (char 1207)"
+      },
+      {
+        "task": "wildfire-hard-18",
+        "step": 17,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 1208 (char 1207)"
+      },
+      {
+        "task": "astronomy-hard-12",
+        "step": 5,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 1410 (char 1409)"
+      },
+      {
+        "task": "astronomy-hard-12",
+        "step": 20,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 2663 (char 2662)"
+      },
+      {
+        "task": "astronomy-easy-6",
+        "step": 11,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Unterminated string starting at: line 1 column 701 (char 700)"
+      },
+      {
+        "task": "environment-hard-11",
+        "step": 12,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 617 (char 616)"
+      },
+      {
+        "task": "biomedical-easy-2",
+        "step": 8,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 507 (char 506)"
+      },
+      {
+        "task": "astronomy-easy-4",
+        "step": 6,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 580 (char 579)"
+      },
+      {
+        "task": "astronomy-easy-4",
+        "step": 7,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 597 (char 596)"
+      },
+      {
+        "task": "environment-hard-9",
+        "step": 10,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 4048 (char 4047)"
+      },
+      {
+        "task": "legal-hard-2",
+        "step": 16,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 1227 (char 1226)"
+      },
+      {
+        "task": "biomedical-hard-4",
+        "step": 14,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 313 (char 312)"
+      },
+      {
+        "task": "astronomy-hard-9",
+        "step": 9,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 2584 (char 2583)"
+      },
+      {
+        "task": "astronomy-hard-9",
+        "step": 15,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 1575 (char 1574)"
+      },
+      {
+        "task": "legal-hard-29",
+        "step": 19,
+        "type": "str",
+        "embedded_json_valid": false,
+        "embedded_parse_error": "Expecting ',' delimiter: line 1 column 459 (char 458)"
+      }
+    ]
+  },
+  "project_none_mismatch": {
+    "errors": 5,
+    "tasks": 4,
+    "signature": "project(keep=None, drop=None, rename=None)",
+    "validator": "An explicitly supplied None AST value is passed to strList and rejected; omission is accepted.",
+    "details": [
+      {
+        "task": "wildfire-hard-18",
+        "step": 3,
+        "error": "Change 1 (line 1): Invalid project arguments: keep must be a list of column names, got null. Signature: project(keep=None, drop=None, rename=None) No changes were applied."
+      },
+      {
+        "task": "wildfire-hard-20",
+        "step": 3,
+        "error": "Change 1 (line 1): Invalid project arguments: keep must be a list of column names, got null. Signature: project(keep=None, drop=None, rename=None) No changes were applied."
+      },
+      {
+        "task": "biomedical-hard-8",
+        "step": 5,
+        "error": "Change 1 (line 1): Invalid project arguments: keep must be a list of column names, got null. Signature: project(keep=None, drop=None, rename=None) No changes were applied."
+      },
+      {
+        "task": "wildfire-easy-15",
+        "step": 4,
+        "error": "Change 3 (line 3): Invalid project arguments: keep must be a list of column names, got null. Signature: project(keep=None, drop=None, rename=None) No changes were applied."
+      },
+      {
+        "task": "wildfire-easy-15",
+        "step": 13,
+        "error": "Change 1 (line 1): Invalid project arguments: keep must be a list of column names, got null. Signature: project(keep=None, drop=None, rename=None) No changes were applied."
+      }
+    ]
+  },
+  "step_limit": {
+    "tasks": 15,
+    "completed_model_calls": 375,
+    "cost_usd": 1.417465,
+    "examples": [
+      {
+        "task": "environment-easy-2",
+        "earliest_correct_answer_visible_step": 9,
+        "gold_years": [
+          2003,
+          2011,
+          2015,
+          2018,
+          2020,
+          2021,
+          2022,
+          2023
+        ],
+        "observation": "sample table returns five rows, but full-table frequency summary names all eight values; other=0. Renderer still appends generic View incomplete footer.",
+        "outcome": "Repeated sorting and custom verification/print operators until step 25; no Answer.",
+        "footer_causality": "Plausible contributing ambiguity; trace alone cannot establish causality."
+      },
+      {
+        "task": "legal-hard-29",
+        "last_step": 25,
+        "observation": "Retrieved a complete one-row top_metro result on final allowed step; no step left for Answer. Not evidence that this result is analytically correct."
+      },
+      {
+        "task": "biomedical-easy-9",
+        "observation": "Explored wrong workbook sheets; first saw relevant FDR fields around step 23, then revisited sheets. No Answer by step 25."
+      },
+      {
+        "task": "astronomy-easy-5",
+        "observation": "Computed over the 20-row preview, repeatedly suppressed wrong Skyfield API exceptions into null cells. Statistics correctly exposed all-null altitude. Repaired one API use but exhausted budget without Answer."
+      }
+    ]
+  },
+  "eligibility_example": {
+    "task": "biomedical-easy-2",
+    "observed_exclusion_flag": "No:144, Yes:9, other=0 on metadata retrieval",
+    "agent_behavior": "Projected away Case_excluded and averaged 13 ages; arithmetic correct for wrong cohort.",
+    "answer": "68.1",
+    "official_expected": "68.5",
+    "flow_enabled": false
+  },
+  "repair_loop_example": {
+    "task": "legal-hard-14",
+    "score": 1.0,
+    "action_error_entries": 13,
+    "behavior": "Recovered from numeric separator, port, null handling, missing file column and join key errors, eventually returned correct top five."
+  },
+  "astronomy_library_example": {
+    "task": "astronomy-hard-8",
+    "behavior": "First tried unavailable netCDF4 and h5py for NASA CDF, then used available cdflib and repaired API/epoch assumptions.",
+    "interpretation": "This trace supports better environment/format guidance, not a requirement to install these guessed alternative packages."
+  },
+  "statistics_limits": {
+    "partial_profiles": 128,
+    "profiles_frequency_budget_omissions": 51,
+    "tasks_frequency_budget_omissions": 28,
+    "columns_frequency_omitted": 1194,
+    "small_category_frequencies_omitted": 95,
+    "interpretation": "Bounded coverage and omissions, not incorrect counts. Labeling and relevant-column projection remain necessary."
+  },
+  "recommended_repairs": [
+    "Preserve strict tool-use configuration through the Anthropic route after verifying provider schema support; retain local validation.",
+    "Give specific feedback that actions is an array, not a quoted serialized list; do not guess repairs to malformed embedded JSON.",
+    "Align optional-argument signatures with None handling, with parser regression tests.",
+    "Distinguish incomplete displayed records from full-table and exhaustive value statistics; teach other=0 with full coverage as exhaustive nonnull values for that column.",
+    "Add a finishing rule and remaining-step awareness; batch known graph actions and reserve an Answer call.",
+    "Tell agents that Python stdout is not the result table; return a compact scalar/count or projected table for verification."
+  ],
+  "implementation_changes_this_audit": false
+}

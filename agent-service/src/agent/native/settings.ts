@@ -20,6 +20,50 @@
 /** A rejected setting is a client error, not a server failure. */
 export class NativeCatalogSettingsError extends Error {}
 
+/** Transport is a driver capability, not a mutable prompt preference. */
+export function validateNativeTransport(transport: "tool" | "text" | "turn", input: object): void {
+  const settings = input as Record<string, unknown>;
+  if (settings.nativeTransport !== undefined && settings.nativeTransport !== transport)
+    throw new NativeCatalogSettingsError(
+      `nativeTransport is fixed to ${transport} by the driver; create a new agent to change transport`
+    );
+  if (
+    transport === "text" &&
+    ((settings.agentMode !== undefined && settings.agentMode !== "native") ||
+      (settings.contextMode !== undefined && settings.contextMode !== "delta") ||
+      (settings.messageLayout !== undefined && settings.messageLayout !== "native"))
+  )
+    throw new NativeCatalogSettingsError(
+      "The text-turn driver requires native mode, delta context, and its native transcript layout"
+    );
+  if (transport === "text") {
+    const unsupported = [
+      "stateHistory",
+      "stateLedger",
+      "versionedMode",
+      "sessionTurns",
+      "contextWindowTokens",
+      "enableCompactTool",
+      "enableRecallTool",
+      "enableResumeTool",
+      "staticCompaction",
+      "summarizeParams",
+      "selectorConfig",
+      "learnedConfig",
+      "tunerConfig",
+      "frontierDecayConfig",
+      "probeRetirementConfig",
+      "rolePolicyConfig",
+      "foldResolvedRevisionsConfig",
+      "enableRenderPrefs",
+    ].find(key => settings[key]);
+    if (unsupported || settings.taskContext === "dependencies" || settings.turnHistory === "index")
+      throw new NativeCatalogSettingsError(
+        `The text-turn driver uses a full transcript and does not support ${unsupported ?? (settings.taskContext === "dependencies" ? "taskContext dependencies" : "turnHistory index")}`
+      );
+  }
+}
+
 /** Settings that no longer exist. They are refused rather than mapped so an
  * old experiment configuration never silently becomes a new arm. */
 const REMOVED_SETTINGS = [
@@ -45,21 +89,108 @@ const REMOVED_SETTINGS = [
 
 /** Deliberate breaking change: never silently reinterpret old experiments. */
 export function validateEvidenceSettings(settings: object): void {
+  const supplied = settings as Record<string, unknown>;
+  if (supplied.nativePromptDetail !== undefined && !["full", "on_demand"].includes(String(supplied.nativePromptDetail)))
+    throw new NativeCatalogSettingsError("nativePromptDetail must be full or on_demand");
+  if (supplied.nativeTransport !== undefined && !["tool", "text"].includes(String(supplied.nativeTransport)))
+    throw new NativeCatalogSettingsError("nativeTransport must be tool or text");
+  if (supplied.taskContext !== undefined && !["trajectory", "dependencies"].includes(String(supplied.taskContext)))
+    throw new NativeCatalogSettingsError("taskContext must be trajectory or dependencies");
+  if (supplied.retrievalViews !== undefined) {
+    const views = supplied.retrievalViews;
+    if (
+      !Array.isArray(views) ||
+      views.length === 0 ||
+      new Set(views).size !== views.length ||
+      views.some(v => !["full", "sample", "sample_stats"].includes(v))
+    )
+      throw new NativeCatalogSettingsError(
+        "retrievalViews must be a nonempty list of unique full, sample, or sample_stats views"
+      );
+  }
+  for (const key of ["fullResultCharLimit", "dataEvidenceCharLimit", "flowEvidenceCharLimit"]) {
+    const value = supplied[key];
+    if (value !== undefined && (!Number.isInteger(value) || Number(value) < 128 || Number(value) > 100000))
+      throw new NativeCatalogSettingsError(`${key} must be an integer between 128 and 100000`);
+  }
+  if (supplied.tableFormat !== undefined && !["markdown", "tsv"].includes(String(supplied.tableFormat)))
+    throw new NativeCatalogSettingsError("tableFormat must be markdown or tsv");
+  for (const key of [
+    "keyValueColumns",
+    "columnsShown",
+    "definitionChars",
+    "cellChars",
+    "topValues",
+    "catalogRecords",
+  ]) {
+    const value = supplied[key];
+    if (value !== undefined && (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 100000))
+      throw new NativeCatalogSettingsError(`${key} must be an integer between 0 and 100000`);
+  }
   for (const key of REMOVED_SETTINGS) {
     if (Object.hasOwn(settings, key))
       throw new NativeCatalogSettingsError(
         key === "nativeToolMode" || key === "nativeCatalogVersion"
-          ? `${key} was removed; native mode is the expression program with the single catalog`
+          ? `${key} was removed; native mode uses explicit graph commands with the single catalog`
           : key === "allowedOperatorTypes"
             ? "allowedOperatorTypes was removed with the general mode; the modes are native and code"
             : `${key} was removed; use dataEvidence and flowEvidence booleans`
       );
   }
-  for (const key of ["dataEvidence", "flowEvidence", "nativeProfileCollection", "dataflowReasoning"] as const) {
+  for (const key of [
+    "multiTask",
+    "answerEcho",
+    "dataEvidence",
+    "flowEvidence",
+    "nativeProfileCollection",
+    "dataflowReasoning",
+    "nativeChecks",
+    "stateHistory",
+    "stateLedger",
+  ] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);
   }
+  const scope = (settings as Record<string, unknown>).nativeProfileScope;
+  if (scope !== undefined && scope !== "prefix" && scope !== "full")
+    throw new NativeCatalogSettingsError('nativeProfileScope must be "prefix" or "full"');
+}
+
+/** A distinct context policy must not silently override another experiment. */
+export function validateTaskContextSettings(input: object): void {
+  const settings = input as Record<string, unknown>;
+  if (settings.taskContext !== "dependencies") return;
+  if (
+    settings.agentMode !== "native" ||
+    settings.contextMode !== "delta" ||
+    !settings.stateHistory ||
+    (settings.messageLayout !== undefined && settings.messageLayout !== "native")
+  )
+    throw new NativeCatalogSettingsError(
+      "taskContext dependencies requires native DELTA context, stateHistory and native message layout"
+    );
+  if (
+    settings.turnHistory === "index" ||
+    settings.stateLedger ||
+    settings.versionedMode ||
+    settings.sessionTurns ||
+    settings.contextWindowTokens ||
+    settings.enableCompactTool ||
+    settings.staticCompaction ||
+    settings.summarizeParams ||
+    settings.selectorConfig ||
+    settings.learnedConfig ||
+    settings.tunerConfig ||
+    settings.frontierDecayConfig ||
+    settings.probeRetirementConfig ||
+    settings.rolePolicyConfig ||
+    settings.foldResolvedRevisionsConfig ||
+    settings.enableRenderPrefs
+  )
+    throw new NativeCatalogSettingsError(
+      "taskContext dependencies cannot be combined with another context policy or ledger"
+    );
 }
 
 /** Shared by creation (before allocating an agent) and atomic settings updates. */

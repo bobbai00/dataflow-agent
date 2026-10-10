@@ -25,8 +25,9 @@
  * counters that flow evidence reports. The agent never sees this code; it sees
  * the expression it wrote.
  *
- * The same Python is used, out of process and without executing user code, to
- * parse programs and to check function syntax/signatures before an edit lands.
+ * The same Python is used out of process for parsing and validation. Legacy
+ * validation checks syntax only; registered definitions initialize a bounded
+ * candidate namespace to check actual signatures before an edit lands.
  */
 
 import { createHash } from "node:crypto";
@@ -42,7 +43,10 @@ export interface CompiledNativeOp {
 }
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-const runtimeSource = readFileSync(runtimePath, "utf8");
+const runtimeSource =
+  readFileSync(runtimePath, "utf8") +
+  "\n" +
+  readFileSync(fileURLToPath(new URL("./python/registered.py", import.meta.url)), "utf8");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 /** The interpreter used for parsing and validation (the engine's UDF Python). */
@@ -61,12 +65,12 @@ export function nativeRevision(view: NativeOpView): string {
 }
 
 function runtimeSpec(view: NativeOpView, operatorId: string) {
-  const { source: _source, functions: _functions, ...rest } = view;
+  const { source: _source, functions: _functions, doc: _doc, ...rest } = view;
   return { ...rest, id: operatorId, revision: view.revision ?? nativeRevision(view) };
 }
 
-/** Run the runtime script as a bounded subprocess with a JSON request on stdin.
- * Nothing the model wrote is executed: parsing and validation only. */
+/** Run parsing/validation as a bounded subprocess with JSON on stdin.
+ * Registered validation initializes definition cells, never graph operators. */
 export async function runNativePython(request: unknown, timeoutMs = 10_000): Promise<unknown> {
   const child = Bun.spawn([nativePython(), runtimePath], {
     stdin: new Blob([JSON.stringify(request)]),
@@ -120,7 +124,7 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   for (const id of inputs) {
     if (!NATIVE_ID_RE.test(id)) throw new Error(`input operator id "${id}" is not a valid identifier`);
   }
-  if (new Set(inputs).size !== inputs.length && view.type !== "Join") {
+  if (new Set(inputs).size !== inputs.length && view.type !== "Join" && !view.graph) {
     throw new Error(`inputs must be distinct operators (got ${inputs.join(", ")})`);
   }
   if (def.inputs === 0 && inputs.length !== 0) throw new Error(`${def.name} takes no input tables`);
@@ -131,6 +135,10 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
     throw new Error("union needs at least two input tables");
   }
   const distinct = [...new Set(inputs)];
+  // Explicit graph edges address ports, including repeated sources on separate
+  // ports. Legacy expressions share one physical input for repeated sources.
+  const parameters = view.graph ? inputs.map((_, i) => `_input_${i}`) : distinct;
+  const argumentsInOrder = view.graph ? parameters : inputs;
   const spec = runtimeSpec(view, operatorId);
   // Avoid shadowing even when an input deliberately uses our private prefix.
   let prefix = "_native";
@@ -139,8 +147,8 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
   // JSON is decoded, never textually rewritten into Python tokens. In
   // particular callback strings containing true/false/null stay byte-for-byte.
   const code = [
-    `def ${source ? "load()" : `process(${distinct.join(", ")})`}:`,
-    `    return ${prefix}_scope["execute_native"](${prefix}_spec, [${inputs.join(", ")}])`,
+    `def ${source ? "load()" : `process(${parameters.join(", ")})`}:`,
+    `    return ${prefix}_scope["execute_native_from_engine"](${prefix}_spec, [${argumentsInOrder.join(", ")}])`,
     `import json as ${prefix}_json`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_runtime__"}`,

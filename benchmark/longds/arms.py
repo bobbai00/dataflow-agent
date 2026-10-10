@@ -999,7 +999,21 @@ class LongDSLunaNativeSession(LongDSLunaNativeRuleDelta):
         super().__init__(verbose=verbose, *args, **kwargs)
 
 
+from pathlib import Path
+import sys
+
+# The observation-format arm lives beside the benchmarks; append (never
+# prepend) its directory so it cannot shadow other modules, and keep every
+# other arm usable if it fails to import.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+try:
+    from observation_format_smoke import LongDSObservationFormatLuna
+except ImportError as _error:  # pragma: no cover - depends on the local checkout
+    LongDSObservationFormatLuna = None
+    print(f"note: luna-observation-format unavailable: {_error}", file=sys.stderr)
+
 ARMS = {
+    **({"luna-observation-format": LongDSObservationFormatLuna} if LongDSObservationFormatLuna else {}),
     "luna-native-rule-delta": LongDSLunaNativeRuleDelta,
     "luna-native-rule-latest": LongDSLunaNativeRuleLatest,
     "luna-native-catalog": LongDSLunaNativeCatalog,

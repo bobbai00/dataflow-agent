@@ -54,6 +54,24 @@ def test_csv_all_text_preserves_codes_and_null_like_literals(tmp_path):
     ]
 
 
+def test_multi_file_type_error_offers_a_scan_repair_that_preserves_rows(tmp_path):
+    (tmp_path / "whole.csv").write_text("id,value\n001,2\n")
+    (tmp_path / "fraction.csv").write_text("id,value\n002,2.5\n")
+    pattern = str(tmp_path / "*.csv")
+    with pytest.raises(runtime.NativeError, match="UNION_TYPE") as error:
+        scan(pattern)
+    diagnostic = error.value.diagnostic
+    assert diagnostic["field"] == "files"
+    assert "value" in diagnostic["message"]
+    assert "all_text=True" in diagnostic["message"]
+    loaded = scan(pattern, allText=True)
+    result = runtime.execute_native(spec("Cast", columns=[{"column": "value", "dtype": "float64"}]), [loaded])
+    assert sorted(rows(result), key=lambda row: row["id"]) == [
+        {"id": "001", "value": 2.0},
+        {"id": "002", "value": 2.5},
+    ]
+
+
 def test_csv_duplicate_headers_names_exact_width_and_header_only(tmp_path):
     path = tmp_path / "table.csv"
     path.write_text("a,a\n1,2\n")

@@ -518,18 +518,18 @@ describe("formatOperatorResult - who is blamed when the run stops", () => {
   test("a consumer names its failed upstream; a bystander is told the run stopped elsewhere", async () => {
     const { state, payload } = await stateWithFailedJoin();
     const consumer = formatOperatorResult("label_count", makeOpInfo({ error: payload }), state);
-    expect(consumer).toContain("aggregate `label_count` not executed; upstream `labeled` failed");
+    expect(consumer).toContain("- not run: aggregate `label_count`; upstream `labeled` failed");
     expect(consumer).toContain("JOIN_CARDINALITY");
     const bystander = formatOperatorResult("sales_count", makeOpInfo({ error: payload }), state);
     expect(bystander).toContain(
-      "aggregate `sales_count` not executed; the run stopped when `labeled` failed (JOIN_CARDINALITY)"
+      "- not run: aggregate `sales_count`; the run stopped when `labeled` failed (JOIN_CARDINALITY)"
     );
     expect(bystander).toContain("`sales_count` does not read from `labeled`");
     expect(bystander).not.toContain("upstream");
     const root = formatOperatorResult("labeled", makeOpInfo({ error: payload }), state);
-    expect(root).toContain("join `labeled` failed: [JOIN_CARDINALITY; contract; revision ");
-    expect(root).toContain("Hint: Inspect key uniqueness");
-    expect(root).toContain("Field: validate");
+    expect(root).toContain("- error JOIN_CARDINALITY:");
+    expect(root).toContain("- fix: Inspect key uniqueness");
+    expect(root).toContain("- at: validate");
   });
 
   test("readsFrom follows native inputs transitively", async () => {

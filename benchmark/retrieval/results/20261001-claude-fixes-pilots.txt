@@ -1,0 +1,198 @@
+Claude action-interface validation — 2026-10-01
+
+Conclusion
+
+Sonnet 5.5 used substantially fewer calls than Haiku 4.5 on these two diagnostic
+KramaBench tasks. It still sometimes answered outside the Dataflow tool. The
+first pilot exposed a correct plain-text answer that failed the required Answer
+contract. After a concrete repair example, the follow-up passed both tasks for
+both models. Haiku still made graph and expression mistakes and repeated
+exploration. Neither pilot showed an engine-result or prefix-cache invariant
+failure. These selected cases do not establish full-benchmark accuracy or cost.
+
+Protocol
+
+Original KramaBench tasks: environment-easy-2 and wildfire-easy-15. Each model
+ran once per task at each revision. Both tasks and both models were repeated
+after the Answer fix; all initial attempts and their official scores remain
+recorded. These are complete single-question tasks, not component subtasks.
+
+Native mode, DELTA context, sample_stats only, flow evidence off, 2,000-character
+samples with at most five rows, a separate 2,000-character statistics budget,
+100,000-character retained full results, and 25 completed model calls maximum.
+Thought replay and code snapshots were off. This tests a fixed retrieval view;
+it does not test adaptive choice among views or automatic flow evidence.
+
+The provider aliases were claude-haiku-4.5 and claude-sonnet-5.5; the latter
+resolved to anthropic/claude-sonnet-5-5. Sonnet used provider-default thinking
+and effort with automatic tool choice because it rejects forced tool use.
+Strict typed inputs remained enabled; the final Answer contract was enforced
+locally. Sampling parameters unsupported by Sonnet were dropped.
+
+Scores below come from the original KramaBench task evaluator. Pass means a
+score of 1.0. Model-call counts exclude feedback-only and synthetic final-error
+events. Costs cover agent model usage, including cache reads/writes; they omit
+benchmark scoring, infrastructure and standalone gateway probes.
+
+Results
+
+Initial pilot, agent cd7f661fce20f894c9d53b479ed5f343a17b314c:
+
+Model       Task                 Score  Model calls  Cost USD
+Haiku 4.5   environment-easy-2    1.0    24           0.052462
+Haiku 4.5   wildfire-easy-15      1.0    16           0.053204
+Sonnet 5.5  environment-easy-2    1.0     7           0.071604
+Sonnet 5.5  wildfire-easy-15      0.0     6           0.058549
+
+Haiku: 2/2 passes, 40 calls, $0.105666.
+Sonnet: 1/2 passes, 13 calls, $0.130153.
+
+Follow-up, agent 40043950195873f26e0e714fd0def9f0bb947e9e:
+
+Model       Task                 Score  Model calls  Cost USD
+Haiku 4.5   environment-easy-2    1.0    25           0.063401
+Haiku 4.5   wildfire-easy-15      1.0    14           0.044570
+Sonnet 5.5  environment-easy-2    1.0     5           0.047413
+Sonnet 5.5  wildfire-easy-15      1.0     5           0.057415
+
+Haiku: 2/2 passes, 39 calls, $0.107971.
+Sonnet: 2/2 passes, 10 calls, $0.104828.
+
+Sonnet's higher per-token rates offset much of its call reduction. Follow-up
+output tokens were 5,830 for Haiku and 3,699 for Sonnet. The cost calculation
+uses Sonnet input/output/cache-read/cache-write rates of $2/$10/$0.20/$2.50
+per million tokens, frozen in the campaign manifest. All eight task costs
+independently reconcile with their per-call usage and recorded rates.
+
+Trace findings
+
+- Sonnet's initial wildfire result had the correct computed conclusion, No,
+  but twice returned plain text. The framework rejected the missing Answer,
+  producing the officially scored failure. It is retained as a failure.
+- The follow-up prompt explicitly puts the user's format in answer.content.
+  The single bounded correction gives a valid Answer envelope. Sonnet still
+  returned one plain-text No, then followed that example on the next call.
+  The successful trace demonstrates recovery, not perfect protocol adherence.
+- Haiku still had ten action-failure observations in the follow-up: examples
+  include incompatible union types, guessed column names, missing Process
+  edges and unsupported conditional reducer syntax. Repeated descriptions
+  and Process wrappers also increased calls. These were reported failures,
+  not evidence of stale results. Haiku used its final permitted call to answer
+  the environment task after the remaining-budget reminder.
+- No pilot action list was incorrectly encoded as a string. No project(None)
+  mismatch recurred. Those fixes also have direct regression tests.
+- Native-operator and one-operation-per-operator guidance remains in the
+  prompt. Sonnet still combined several analysis steps in custom Process
+  operators, so operator granularity is not fully resolved.
+
+Final persisted operators in the follow-up (includes retained exploration):
+
+Model       Task                 Predefined/native  Process  Total
+Haiku 4.5   environment-easy-2     6                  3         9
+Haiku 4.5   wildfire-easy-15       6                  3         9
+Sonnet 5.5  environment-easy-2     7                  1         8
+Sonnet 5.5  wildfire-easy-15       4                  1         5
+
+The JSON distinguishes emitted create commands, including rejected atomic
+edits, from final persisted operator counts. A final graph count does not
+measure all successful creations/deletions or how much code each operator ran.
+
+Cache and evidence validation
+
+All 94 successive-call transitions across the eight tasks read exactly the
+previous call's cached prefix (previous read plus write). Usage totals match
+stats.json for all tasks. Follow-up cached-input shares were 93.4% for Haiku
+and 82.5% for Sonnet. Sonnet made fewer calls, so its first uncached prefix
+formed a larger share of total input; the lower percentage is not a cache miss
+in subsequent calls.
+
+The evidence audit checked 77 final-snapshot operator profiles and 484 columns
+with no invariant failures. Partial and unavailable statistics were labeled.
+Incomplete records are now distinguished from statistics coverage, and the
+prompt limits exhaustive-value claims to the reported column and coverage.
+
+An independent pandas.read_csv replay of noaa_wildfires.csv confirmed 6,658
+rows, 2,000 July rows, overall Pearson -0.004725208839664483, July Pearson
+-0.011635324876752735 and July Spearman 0.04871455002226558. These match the
+Sonnet trace. This verifies that example's math; it is not a general semantic
+audit of every calculation in the benchmark.
+
+Relation to the earlier full Haiku run
+
+The frozen 104-task sample_stats/flow-off run is unchanged: 53/104 full passes,
+mean score 53.9%, recorded cost $5.613430. Its same two selected tasks had one
+pass and cost $0.174981. The follow-up Haiku pair passed both at $0.107971,
+38.3% lower cost on this selected pair. Multiple fixes and stochastic model
+behavior changed together; this is not an isolated causal estimate or evidence
+of a 38.3% full-benchmark reduction. No full Sonnet run was performed here.
+
+Implementation and tests
+
+Committed fixes preserve provider strictness through the pinned LiteLLM
+mapper, give explicit malformed-action feedback, align project None defaults,
+clarify statistics coverage and returned tables, and add immutable remaining-
+budget notices. A live schema probe found that repeated regex constraints made
+Haiku's provider schema too complex. The gateway now states those constraints
+in descriptions while local AJV continues to enforce them. A second commit
+improves Answer recovery and flags text-only/missing-Answer traces in the audit.
+
+Validation: 1,152 agent tests passed, zero failed; typecheck and generated native
+reference checks passed; five gateway tests and eight Python campaign/source
+tests passed. Live schema probes confirmed strict typed actions and prefix
+reuse for both models. See 20261001-claude-state-review.txt for the independent
+review of state-registry engine changes and why no wholesale merge was made.
+
+Runtime and artifacts
+
+Validation used gateway :4001, access control :9097 and agent :3078, sharing
+the unchanged engine :8085. Other worktree services and the frozen full-run
+agent were untouched. All four pilot computing units were terminated.
+
+Raw initial artifacts: /tmp/texera-claude-fixes-pilot-20261001
+Raw follow-up artifacts: /tmp/texera-claude-answer-pilot-20261001
+They retain manifests, progress, official scoring, react_steps.json, workflow
+JSON, snapshots, stats.json and audits. The companion committed JSON contains
+per-task usage, scores, action counts, final operator counts and cache checks.
+The initial manifest's engine hash typo was corrected to the frozen engine
+provenance (04e85b581 JVM; 41a3a4516 Python profiler), with the original argument
+and explanation retained. The engine and experiment settings did not change.
+
+Follow-up manual audit: why Haiku used more calls
+
+The environment trace used three calls for the initial Edit, Execute and
+Retrieve, although those actions had known arguments and could be batched.
+It then confused the raw-line preview schema with the parsed full-scan schema,
+adding a redundant CSV parser that expected file/line columns. Four failing
+build/execute attempts involved the mixed-file union types, a cast of decimal
+Indicator Level values to integers, that redundant parser and unsupported
+conditional aggregate syntax. Indicator Level was not needed for this answer.
+
+By trace step 21 (model call 21), above_avg already contained all eight answer
+years. Its statistics said full=8 rows, enumerated all eight Year values and
+reported other=0. Haiku explicitly recognized the full list, then spent four
+more model calls creating, running and reshaping another verification table.
+The final filter/project edits were not executed before Answer. The Answer was
+supported by the earlier retrieved result. Remaining-budget feedback occupies
+trace steps 23 and 26 but is not counted as a model call.
+
+In wildfire, calls 3-10 were description discovery and repairs. A repeated
+Retrieve and identity/renaming Process wrappers kept returning five sampled
+rows. The sample_stats-only arm did not offer full retrieval. Filtering the
+original description table to size/wind rows ultimately returned the three
+needed rows. Two missing-edge executions and one wrong-column execution each
+also produced a failure on the following Retrieve, yielding six failure
+observations from three failed execution attempts. Across the pair, ten failure
+observations therefore represent seven failing build/execute attempts, not ten
+independent faults.
+
+A semantic issue escaped the official Yes/No score. Haiku filtered July with
+182 <= start_day_of_year <= 212 for every year. Independent source replay found
+2,003 selected rows versus 2,000 calendar-July rows: 15 June 30 inclusions and
+12 July 31 exclusions in leap years. Its Pearson result -0.010354101410384979
+matches that incorrect selection; calendar July gives -0.011635324876752735.
+Both support No, so the official pass remains unchanged. Sonnet used the month
+from start_date. The benchmark reference script itself uses a fixed day range
+(181 <= day < 213), so it cannot validate calendar-boundary correctness.
+Engine/profile invariant checks do not prove the model's transformation is
+semantically correct. This issue has been identified, not fixed by the two
+interface commits; the original evaluator and task scores were left intact.

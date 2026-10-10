@@ -148,7 +148,7 @@ export function planSeedSources(sources: readonly string[], maxResultChars: numb
   for (const path of paths) {
     const ext = extname(path.replace(/[*?[\]{}]+/g, "")).toLowerCase();
     if (BINARY_EXTENSIONS.has(ext)) {
-      skipped.push({ path, reason: "binary format needs a process loader" });
+      skipped.push({ path, reason: "binary format needs a custom Python loader" });
       continue;
     }
     const spec: SeedScanSpec = { op: "scan", id: seedOperatorId(path, taken), files: path };
@@ -167,4 +167,9 @@ export function planSeedSources(sources: readonly string[], maxResultChars: numb
 /** `id = scan("path")`, exactly as the model would write it. */
 export function seedStatement(spec: SeedScanSpec): string {
   return `${spec.id} = scan(${JSON.stringify(spec.files)}${spec.format ? `, format=${JSON.stringify(spec.format)}` : ""})`;
+}
+
+/** Current registered protocol; seedStatement retains the historical format. */
+export function registeredSeedStatement(spec: SeedScanSpec): string {
+  return `set ${spec.id}: scan(files=${JSON.stringify(spec.files)}${spec.format ? `, format=${JSON.stringify(spec.format)}` : ""})`;
 }

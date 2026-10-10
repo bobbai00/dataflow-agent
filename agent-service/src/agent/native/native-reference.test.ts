@@ -42,5 +42,5 @@ test("the tool definition is the one native tool with its schema", () => {
     expect((t.schema as any).type).toBe("object");
   }
   const dataflow = tools[0].schema as any;
-  expect(Object.keys(dataflow.properties)).toEqual(["edits", "delete", "observe"]);
+  expect(Object.keys(dataflow.properties)).toEqual(["reasoning", "actions"]);
 });

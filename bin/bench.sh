@@ -27,6 +27,7 @@
 #   bin/bench.sh longds judge --sut <SUT> [--judge-model MODEL]
 #   bin/bench.sh longds analyze --sut <SUT> --task <key>
 #   bin/bench.sh longds download --task <domain/dataset/task>   fetch one more task from HF
+#   bin/bench.sh retrieval run|analyze <args...>  matched native campaigns and reports
 #
 set -euo pipefail
 
@@ -86,7 +87,7 @@ cmd_setup() {
     fi
 
     # KramaBench's evaluate.py does not load the root .env, so the scoring
-    # metrics (llm_paraphrase / f1_approximate, both gpt-4o-mini) read
+    # metrics (llm_paraphrase / f1_approximate, both gpt-5-mini) read
     # OPENAI_API_KEY from the submodule's own .env. Seed it from the root value
     # we already exported; a dummy/absent key silently zeroes those metrics.
     if [[ ! -f "$KB/.env" ]]; then
@@ -95,7 +96,7 @@ cmd_setup() {
             printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" > "$KB/.env"
         else
             echo "[bench] WARNING: $KB/.env missing and OPENAI_API_KEY unset — KramaBench"
-            echo "        scoring calls the real OpenAI API (gpt-4o-mini) and needs it."
+            echo "        scoring calls the real OpenAI API (gpt-5-mini) and needs it."
         fi
     fi
 
@@ -182,10 +183,23 @@ cmd_longds() {
     esac
 }
 
+cmd_retrieval() {
+    need_venv
+    local sub="${1:-}"; shift || true
+    case "$sub" in
+        run)     "$PY" -u "$BENCH_DIR/retrieval/run.py" "$@" ;;
+        analyze) "$PY" "$BENCH_DIR/retrieval/analyze.py" "$@" ;;
+        reconcile) "$PY" "$BENCH_DIR/retrieval/metrics.py" "$@" ;;
+        audit) "$PY" "$BENCH_DIR/retrieval/audit.py" "$@" ;;
+        *) die "retrieval subcommand must be run, reconcile, analyze or audit" ;;
+    esac
+}
+
 case "${1:-}" in
     setup)  shift; cmd_setup "$@" ;;
     kb)     shift; cmd_kb "$@" ;;
     longds) shift; cmd_longds "$@" ;;
+    retrieval) shift; cmd_retrieval "$@" ;;
     *)
         sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
         exit 1

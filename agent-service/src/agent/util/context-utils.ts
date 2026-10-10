@@ -22,6 +22,7 @@
 // of calling tools via the native protocol.
 
 import type { ModelMessage } from "ai";
+import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { CompactionStrategy, ReActStep } from "../../types/agent";
@@ -38,6 +39,7 @@ import {
 } from "../native/selection";
 import { nativeOperatorName } from "../native/catalog";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
+import { asDataflowActionsResult, renderDataflowActionsResult } from "../tools/dataflow-actions";
 import {
   clampCodeChars,
   estimateTableChars,
@@ -56,6 +58,12 @@ import {
 // The import is circular (summarize calls back into renderContextCore below)
 // but strictly call-time — both modules only reference each other inside
 // function bodies, so ESM hoisting resolves it.
+import {
+  observationFormat,
+  describeOperator,
+  operatorBlock,
+  type ObservationFormatOptions,
+} from "../native/observation-format";
 import { applySummarizeParamsPatch, mapLegacyToParams, type SummarizeParamsPatch } from "../context/summarize/params";
 import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context/select/revision-folds";
 import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
@@ -63,6 +71,8 @@ import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { formatNativeDiagnostic } from "../native/diagnostics";
+import { nativeCheckLines } from "../native/checks";
+import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
@@ -90,6 +100,14 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
       if (!result) continue;
       const args = call.input && typeof call.input === "object" ? (call.input as Record<string, unknown>) : {};
       if (call.toolName === TOOL_NAME_DATAFLOW) {
+        const actionResult = asDataflowActionsResult(result.output);
+        if (actionResult) {
+          lines.push(
+            `dataflow ${actionResult.status}: ${actionResult.actions.map(a => `${a.index}. ${a.action.type} ${a.status}`).join("; ")}.`
+          );
+          if (actionResult.error) lines.push(actionResult.error);
+          continue;
+        }
         const batch = asNativeBatchResult(result.output);
         if (!batch) continue;
         const edits = batch.operators.length
@@ -111,11 +129,17 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
   return undefined;
 }
 
+import { buildTaskGraph, renderTaskMessages, taskHistoryFromSteps } from "../task-history";
+
 const log = createLogger("ContextAssembler");
 
-export interface AssembleContextOptions {
+export interface AssembleContextOptions extends ObservationFormatOptions {
+  taskContext?: "trajectory" | "dependencies";
+  taskHistory?: readonly import("../task-history").TaskHistory[];
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  /** Native `check:` lines under executed operators (see native/checks.ts). */
+  nativeChecks?: boolean;
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
   /**
@@ -306,7 +330,14 @@ export interface AssembleContextOptions {
   maxOperatorResultCharLimit?: number;
   /** V2 exposure/budget carried through summarize's legacy mapping. This is
    * derived from the existing data/flow settings, not a second budget. */
-  nativeEvidence?: { data: boolean; flow: boolean; maxChars: number };
+  nativeEvidence?: {
+    data: boolean;
+    flow: boolean;
+    maxChars: number;
+    checks?: boolean;
+    dataMaxChars?: number;
+    flowMaxChars?: number;
+  } & ObservationFormatOptions;
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
   /** Thought-replay reinjection rung (LATEST only). When on, render a
@@ -458,6 +489,49 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
+  if (options.taskContext === "dependencies") {
+    const currentRequest = [...visibleSteps].reverse().find(s => s.role === "user" && s.isBegin);
+    const history =
+      options.taskHistory ?? taskHistoryFromSteps(visibleSteps, snapshotStorage, options.turnNumberByMessageId);
+    const prior = history.filter(t => t.steps[0]?.messageId !== currentRequest?.messageId);
+    if (prior.length && currentRequest) {
+      const currentSteps = visibleSteps.filter(s => s.messageId === currentRequest.messageId);
+      // Seed delta rendering at this task's saved starting workflow. A bounded
+      // checkpoint can then distinguish current work from inherited operators.
+      const initialSnapshot = snapshotStorage.getAssociatedSnapshot(currentRequest.id);
+      const initialState: ReActStep = {
+        ...currentRequest,
+        // User turns have no owned snapshot. Resolve the preceding action's
+        // identity so buildPath can load the actual starting workflow.
+        id: initialSnapshot.reactStepId ?? currentRequest.id,
+        role: "agent",
+        content: "",
+        toolCalls: [{ toolName: "initialize", toolCallId: `task-start-${currentRequest.id}`, input: {} }],
+        toolResults: undefined,
+      };
+      const messages = assembleContext([initialState, ...currentSteps], workflowState, snapshotStorage, mode, {
+        ...options,
+        taskContext: "trajectory",
+        taskHistory: undefined,
+      });
+      // A task-boundary checkpoint stays byte-identical during this task.
+      // The current task's ordinary native tool frames append after it.
+      // Reuse the normal renderer for archived requests, including its event
+      // wrapper. A different wrapper would invalidate the previous first-call
+      // prefix even when every older task card remained unchanged.
+      const requestMessages = new Map(
+        prior.map(task => [
+          task.taskId,
+          assembleContext(task.steps.slice(0, 1), workflowState, snapshotStorage, mode, {
+            ...options,
+            taskContext: "trajectory",
+            taskHistory: undefined,
+          }),
+        ])
+      );
+      return [...renderTaskMessages(buildTaskGraph(snapshotStorage, prior), requestMessages), ...messages];
+    }
+  }
   // The legacy entry point is now a thin preset shim over summarize(): the
   // (mode, options) pair maps to a point in the summarize parameter space
   // (LATEST / DELTA are just two presets), and summarize() calls back into
@@ -858,7 +932,7 @@ export interface BuiltPath {
   initSnapshot: SnapshotData | undefined;
 }
 
-/** Pick the latest user-role node from a full path. Used to hoist the
+/** Pick the latest external user request from a full path. Used to hoist the
  *  latest user message into the `# User Task` block at the top of the
  *  rendered context, and to skip rendering the same node inline within
  *  `# Recent Agent Events` (older user messages still render inline as
@@ -866,7 +940,9 @@ export interface BuiltPath {
 function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
   for (let i = path.length - 1; i >= 0; i--) {
     const n = path[i];
-    if (n.step.role === "user" && n.step.content) return n;
+    // Runtime feedback belongs at its chronological position. Hoisting it
+    // replaces the task and rewrites the cacheable prefix during a repair.
+    if (n.step.role === "user" && n.step.messageSource !== "feedback" && n.step.content) return n;
   }
   return undefined;
 }
@@ -887,6 +963,9 @@ export function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotSt
       }
       continue;
     }
+    // Loaded state (`seedState`) is inherited through the snapshot tree; the
+    // request that describes it is the user's, so the step itself is not shown.
+    if (step.synthetic === "state") continue;
     remaining.push(step);
   }
   const path: PathNode[] = remaining.map((step, i) => ({
@@ -1373,7 +1452,8 @@ function renderAgentCompacted(
     keepFrom,
     latestUserContent,
     latestUserStepId,
-    createFlagsByStep
+    createFlagsByStep,
+    initSnapshot
   );
 }
 
@@ -1454,7 +1534,8 @@ function assembleBudgetedContext(
       keepFrom,
       latestUserContent,
       latestUserStepId,
-      createFlagsByStep
+      createFlagsByStep,
+      initSnapshot
     );
     bestTokens = estimateTokens(best);
     folded = d;
@@ -1485,7 +1566,8 @@ function renderCompressed(
   keepFrom: number,
   latestUserContent: string | undefined,
   latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  initSnapshot?: SnapshotData
 ): string {
   const sections: string[] = [];
 
@@ -1507,7 +1589,34 @@ function renderCompressed(
     attemptReflection: false,
     opExtras: undefined,
   };
-  const deck = serializeSnapshotCompact(boundarySnap, workflowState, deckOptions, /*sectionLevel=*/ 2);
+  // A single current task can inherit a large historical workflow. Checkpoint
+  // only its changed definitions and explicitly observed live operators; the
+  // task index and retrieval tools retain access to earlier work. References
+  // to unchanged inputs stay in the definitions without expanding upstreams.
+  let checkpoint = boundarySnap;
+  if (tasks.length === 1 && initSnapshot) {
+    const baseline = new Map(initSnapshot.workflow.operators.map(op => [op.operatorID, op]));
+    const observed = new Set<string>();
+    for (const node of tasks[0].nodes) {
+      if (node.eventIndex < keepFrom)
+        for (const id of Object.keys(node.snapshot?.nativeObservations ?? {})) observed.add(id);
+    }
+    const operators = boundarySnap.workflow.operators.filter(
+      op => observed.has(op.operatorID) || !isDeepStrictEqual(baseline.get(op.operatorID), op)
+    );
+    const ids = new Set(operators.map(op => op.operatorID));
+    checkpoint = {
+      ...boundarySnap,
+      workflow: {
+        ...boundarySnap.workflow,
+        operators,
+        links: boundarySnap.workflow.links.filter(
+          link => ids.has(link.source.operatorID) && ids.has(link.target.operatorID)
+        ),
+      },
+    };
+  }
+  const deck = serializeSnapshotCompact(checkpoint, workflowState, deckOptions, /*sectionLevel=*/ 2);
   if (deck) {
     sections.push(
       options.compactDeckHeader ??
@@ -1685,11 +1794,15 @@ function renderInterleaved(
 ): string {
   const sections: string[] = [];
   const taskAtBottom = options.userTaskPlacement === "bottom";
+  // Native frames are a conversation: keep each request at its original
+  // position. Hoisting the latest request rewrites the prefix at task changes;
+  // repeating it at the tail prevents reuse after every new action.
+  const chronologicalRequests = options.messageLayout === "native" && !options.turnHistoryIndex;
 
   // 1. # User Task — unless it was moved to the bottom, where it leaves the
   // history as a byte-stable prefix across turns (cache) and sits closest to
   // the generation point (recency).
-  if (latestUserContent && !taskAtBottom) {
+  if (latestUserContent && !taskAtBottom && !chronologicalRequests) {
     sections.push("# User Task");
     sections.push("");
     sections.push(latestUserContent);
@@ -1740,7 +1853,7 @@ function renderInterleaved(
       workflowState,
       options,
       initSnapshot,
-      latestUserStepId,
+      chronologicalRequests ? undefined : latestUserStepId,
       createFlagsByStep,
       options.omitObservations === true
     )
@@ -1778,7 +1891,7 @@ function renderInterleaved(
 
   // 1-at-the-bottom: the request goes last so everything above it is a stable
   // prefix across turns.
-  if (latestUserContent && taskAtBottom) {
+  if (latestUserContent && taskAtBottom && !chronologicalRequests) {
     sections.push("");
     sections.push("# User Task");
     sections.push("");
@@ -1952,7 +2065,14 @@ function serializeTaskBody(
       }
     }
 
-    if (node.snapshot && !omitObservation) {
+    const actionResults = (node.step.toolResults ?? [])
+      .map(tr => asDataflowActionsResult(tr.output))
+      .filter(r => r !== undefined);
+    if (actionResults.length && !omitObservation) {
+      lines.push("Observation:", "", ...actionResults.map(renderDataflowActionsResult), "");
+      if (node.snapshot) setPrev(node.snapshot);
+    }
+    if (node.snapshot && !omitObservation && !actionResults.length) {
       // Observation = the execution outcome of the Action: a per-operator list.
       // Each observation uses the same evidence controls as LATEST. Every
       // operator that CHANGED or
@@ -2093,6 +2213,10 @@ function serializeTaskBody(
             ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${currInfo?.nativeError?.phase === "attempt" ? "edit rejected (not executed)" : currInfo?.nativeError?.diagnostic.stage === "dependency" ? "blocked (not executed)" : (actedVerb.get(op.operatorID) ?? (requestedResults ? (delta.has(op.operatorID) ? "re-executed" : "observed (cached)") : "updated"))}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
+        // Checks are the operator's own violated assumptions: shown whether or
+        // not its table was requested, from this event's immutable snapshot.
+        if (op.nativeOp && currInfo && !currInfo.error && (options.nativeEvidence?.checks ?? options.nativeChecks))
+          for (const line of nativeCheckLines(op, currInfo)) obs.push(`  check: ${line}`);
         // Successful hidden outputs keep a compact receipt. Errors bypass the
         // display choice and continue through the full error renderer below.
         if (requestedResults && !requestedResults.has(op.operatorID) && !currInfo?.error) {
@@ -2240,6 +2364,63 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
     const calls = step.toolCalls ?? [];
     const results = step.toolResults ?? [];
     calls.forEach((tc, i) => {
+      const actionResult = asDataflowActionsResult(results.find(r => r.toolCallId === tc.toolCallId)?.output);
+      if (actionResult) {
+        for (const item of actionResult.actions) {
+          if (item.action.type === "retrieve" && "operator_ids" in item.action) {
+            for (const read of (item.output as any)?.results ?? [])
+              if (read.status === "ok" && (read.superseded_in_call || read.historical_state))
+                pulls.push({
+                  eventIndex: node.eventIndex,
+                  toolName: "retrieve",
+                  operatorId: read.operator_id,
+                  argsSummary: read.superseded_in_call
+                    ? "historical result; changed later in this call"
+                    : "saved historical result",
+                  output: JSON.stringify(read, null, 2),
+                });
+            continue;
+          }
+          if (
+            item.action.type === "retrieve" &&
+            "operator_id" in item.action &&
+            item.status === "ok" &&
+            ((item.output as { superseded_in_call?: boolean })?.superseded_in_call ||
+              (item.output as { historical_state?: unknown })?.historical_state)
+          ) {
+            pulls.push({
+              eventIndex: node.eventIndex,
+              toolName: "retrieve",
+              operatorId: item.action.operator_id,
+              argsSummary: (item.output as { superseded_in_call?: boolean })?.superseded_in_call
+                ? "historical result; changed later in this call"
+                : "saved historical result",
+              output: JSON.stringify(item.output, null, 2),
+            });
+            continue;
+          }
+          if (item.action.type !== "inspect") continue;
+          pulls.push({
+            eventIndex: node.eventIndex,
+            toolName: "inspect",
+            operatorId:
+              item.action.target === "graph"
+                ? "graph"
+                : item.action.target === "task"
+                  ? `task ${item.action.task_id}`
+                  : item.action.target === "reference"
+                    ? `reference ${item.action.topic === "operators" ? item.action.operator_names.join(", ") : item.action.example}`
+                    : item.action.target === "namespace"
+                      ? `namespace${item.action.names ? ` ${item.action.names.join(", ")}` : ""}`
+                      : Array.isArray(item.action.operator_id)
+                        ? item.action.operator_id.join(", ")
+                        : item.action.operator_id,
+            argsSummary: item.status,
+            output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
+          });
+        }
+        return;
+      }
       if (tc.toolName !== "inspectResult" && tc.toolName !== "inspectError") return;
       const inp = (tc.input ?? {}) as Record<string, unknown>;
       const parts: string[] = [];
@@ -2626,7 +2807,9 @@ function renderVersionedCatalog(
         // parameters (the agent's own words) instead of a summary line.
         const nat = op?.nativeOp;
         sections.push(
-          nat ? `#### ${nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`
+          nat
+            ? `#### ${nat.registeredName ?? nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})`
+            : `#### \`${opId}\` (${verb})`
         );
         if (verb === "deleted") {
           sections.push("");
@@ -3132,6 +3315,15 @@ function renderNativeToolCall(
   createFlags?: Map<string, boolean>
 ): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
+  if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(inp.actions)) {
+    return [
+      "- dataflow",
+      `  reasoning: ${String(inp.reasoning ?? "")}`,
+      ...JSON.stringify(inp.actions, null, 2)
+        .split("\n")
+        .map(line => `  ${line}`),
+    ];
+  }
   const edits = typeof inp.edits === "string" ? inp.edits : typeof inp.program === "string" ? inp.program : undefined;
   if (tc.toolName === TOOL_NAME_DATAFLOW && edits !== undefined) {
     // The statements exactly as written; the receipt below says what landed.
@@ -3170,7 +3362,10 @@ function nativeDefinitionLines(
   if (view.functions && (view.type !== "Process" || includeProcessBody))
     for (const source of Object.values(view.functions)) body.push(...source.split("\n"));
   if (view.source) body.push(...view.source.split("\n"));
-  else body.push(`${nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`);
+  else
+    body.push(
+      `${view.registeredName ?? nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`
+    );
   return ["Definition:", ...body.map(l => "  " + l)];
 }
 
@@ -3400,10 +3595,21 @@ function serializeSnapshotFull(
   for (const op of ordered) {
     const compilationError = isCurrent ? options.compilationResult?.operatorErrors?.[op.operatorID] : undefined;
     if (requested && compilationError) {
-      lines.push(
-        `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``
-      );
-      if (op.nativeOp) lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+      if (op.nativeOp) {
+        lines.push(
+          operatorBlock(
+            describeOperator(op, snapshot.results.get(op.operatorID)?.info, {
+              ...observationFormat(options.nativeEvidence ?? options),
+              state: "failed",
+              scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
+              issues: [`- error COMPILATION_FAILED: ${compilationError.type}: ${compilationError.message}`],
+            })
+          ),
+          ""
+        );
+        continue;
+      }
+      lines.push(`${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``);
       lines.push(`Result: [ERROR] compilation failed: ${compilationError.type}: ${compilationError.message}`, "");
       continue;
     }
@@ -3416,15 +3622,21 @@ function serializeSnapshotFull(
       !snapshot.results.get(op.operatorID)?.info.error
     ) {
       const info = snapshot.results.get(op.operatorID)?.info;
-      const rows = info?.totalRowCount ?? info?.outputTuples;
-      lines.push(
-        `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``
-      );
-      if (op.nativeOp)
+      if (op.nativeOp) {
         lines.push(
-          `Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`,
-          `Properties: ${JSON.stringify(op.nativeOp.properties)}`
+          operatorBlock(
+            describeOperator(op, info, {
+              ...observationFormat(options.nativeEvidence ?? options),
+              issues: ["- note: result not requested."],
+              scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
+            })
+          ),
+          ""
         );
+        continue;
+      }
+      const rows = info?.totalRowCount ?? info?.outputTuples;
+      lines.push(`${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``);
       lines.push(
         info
           ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
@@ -3500,6 +3712,9 @@ function nativeEvidenceAtSnapshot(
 ): FormatOperatorResultOptions["nativeEvidence"] {
   const frozen = historical ? snapshot.nativeObservations?.[operatorId] : undefined;
   return {
+    ...observationFormat(options.nativeEvidence ?? options),
+    dataMaxChars: options.nativeEvidence?.dataMaxChars,
+    flowMaxChars: options.nativeEvidence?.flowMaxChars,
     workflow: snapshot.workflow,
     resolveInput: id => snapshot.results.get(id)?.info,
     // Imported old events have no recorded exposure settings: do not invent
@@ -3650,9 +3865,17 @@ function serializeOperatorFull(
   const subscribed = opBlock && options.observedEverIds?.has(op.operatorID) === true;
   if (requested && !requested.has(op.operatorID) && !info?.error && !subscribed) {
     const rows = info?.totalRowCount ?? info?.outputTuples;
+    if (op.nativeOp)
+      return operatorBlock(
+        describeOperator(op, info, {
+          ...observationFormat(options.nativeEvidence ?? options),
+          implementation: options.opExtras?.(op.operatorID)?.includeCode === true,
+          scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
+          issues: ["- note: result not requested."],
+        })
+      );
     return [
-      `${"#".repeat(operatorLevel)} ${op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType} operator \`${op.operatorID}\``,
-      ...(op.nativeOp ? nativeDefinitionLines(op.nativeOp, opBlock) : []),
+      `${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``,
       info
         ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}${opBlock ? "" : "; result not requested"}`
         : `Result: unavailable${opBlock ? "" : "; result not requested"}`,
@@ -3687,6 +3910,23 @@ function serializeOperatorFull(
     });
   }
 
+  if (op.nativeOp) {
+    const block = describeOperator(op, info, {
+      ...observationFormat(options.nativeEvidence ?? options),
+      scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
+      implementation:
+        opBlock ||
+        !!ex?.includeCode ||
+        (!ex && options.messageLayout !== "opSplit" && options.includeOperatorProperties !== false),
+      usedBy: snapshot.workflow.operators
+        .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
+        .map(item => item.operatorID),
+      issues: info?.error && execText ? execText.split("\n") : [],
+    });
+    if (execText?.startsWith("columns: ")) block.columns = [];
+    return [operatorBlock(block), ...(execText && !info?.error ? [execText] : [])].join("\n");
+  }
+
   // No status label in the header. Execution state is conveyed by the Result
   // section itself:
   //   - no info AND no errored upstream → no `Result:` block
@@ -3705,23 +3945,12 @@ function serializeOperatorFull(
   const lines: string[] = [];
   // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
   // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
-  if (op.nativeOp) {
-    lines.push(`${opHash} ${nativeOperatorName(op.nativeOp.type)} operator \`${op.operatorID}\``);
-  } else {
-    lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
-    lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
-  }
+  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
+  lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
   // A header-only shape (Project / Sort / unchanged Compute) carries no result
   // section: the table is the input table transformed exactly as Properties say.
   const headerOnly = shape?.shape === "header" && info && !info.error;
-  if (op.nativeOp) {
-    // The definition as the model wrote it (its operands name the inputs). A
-    // process body is shown where code is asked for: opBlock keeps one field
-    // order for every operator, and the code-in-snapshot flag opts in.
-    for (const l of nativeDefinitionLines(op.nativeOp, opBlock || !!ex?.includeCode)) lines.push(l);
-  } else {
-    for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
-  }
+  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
   // last edited it (latest-edit grain). The thought text lives once in the

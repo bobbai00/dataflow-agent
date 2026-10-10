@@ -80,7 +80,8 @@ class InputManager(
           uri = uri,
           inputMessageQueue = this.inputMessageQueue,
           workerActorId = this.actorId,
-          partitioning = partitioning
+          partitioning = partitioning,
+          inputPortId = portId
         )
     }
 

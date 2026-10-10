@@ -60,15 +60,27 @@ export interface NativeOpView {
   revision?: string;
   /** Internal execution setting, never a model-authored operator argument. */
   profileCollection?: boolean;
+  /** Internal, with profileCollection: "full" profiles every row exactly instead of a bounded prefix. */
+  profileScope?: "full";
+  /** Internal, set with `nativeChecks`: what the operator's checks need to know
+   * about its ancestry (whether its rows come from several sources, and which
+   * columns are a scan's file-name provenance). Not part of the revision. */
+  lineage?: { multiSource: boolean; provenanceColumns: string[] };
   /** Runtime type (`Filter`, `Map`, `Process`, …). */
   type: string;
   properties: Record<string, unknown>;
   /** Upstream operator ids in port order (= positional operands). */
   inputs: string[];
+  /** Explicit graph input ports. Empty input IDs represent unconnected ports. */
+  graph?: { inputPorts: string[] };
   /** The assignment as the model wrote it (`x = filter(...)`), for rendering. */
   source?: string;
   /** Top-level `def` sources the statement refers to, by name. */
   functions?: Record<string, string>;
+  /** Public custom type in the registered-Python protocol (runtime uses Process). */
+  registeredName?: string;
+  /** Universal display metadata; intentionally excluded from computational identity. */
+  doc?: string;
 }
 
 /* ----------------------------------------------------------------------------
@@ -139,6 +151,8 @@ export interface NativeOperatorDef {
   signature: string;
   /** One-paragraph contract shown under the signature. */
   doc: string;
+  /** Compact contract used in the action-mode prompt. */
+  brief: string;
   /** JSON schema of the normalized `properties` (Ajv-validated in the tool). */
   schema: Record<string, unknown>;
   /** Positional arguments after the input tables plus the keyword arguments → runtime properties. */
@@ -272,7 +286,7 @@ function functionSlot(value: ParsedValue, field: string, context: NormalizeConte
     const fn = context.functions[value.name];
     if (!fn)
       return fail(
-        `${field} refers to ${value.name}, which is not a function defined in this program. Define it with \`def ${value.name}(...)\` above the operator, or pass a lambda.`,
+        `${field} refers to ${value.name}, which is not a function defined in this edit. Indent \`def ${value.name}(...)\` under the operator, or pass a lambda.`,
         field
       );
     // The slot's source must run on its own in the engine, so it carries every
@@ -287,10 +301,7 @@ function functionSlot(value: ParsedValue, field: string, context: NormalizeConte
     context.used(slot);
     return slot;
   }
-  return fail(
-    `${field} must be a lambda or the name of a function defined in this program, got ${show(value)}.`,
-    field
-  );
+  return fail(`${field} must be a lambda or the name of a function defined in this edit, got ${show(value)}.`, field);
 }
 
 /** The program functions a piece of source names, transitively, dependencies first. */
@@ -367,10 +378,22 @@ const SCAN_KEYWORDS: Record<string, string> = {
   file_column: "fileColumn",
   preview: "preview",
 };
+const SCAN_NONE_DEFAULTS = new Set([
+  "names",
+  "delim",
+  "comment",
+  "widths",
+  "sheet",
+  "encoding",
+  "file_column",
+  "preview",
+]);
 
 export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "scan",
+    brief:
+      'Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source.',
     type: "Scan",
     inputs: 0,
     rowEffect: "create",
@@ -411,6 +434,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
         Object.keys(SCAN_KEYWORDS).filter(k => k !== "files")
       );
       for (const [key, value] of Object.entries(options)) {
+        // Explicit None has the same meaning as omitting an optional setting.
+        if (value.kind === "const" && value.value === null && SCAN_NONE_DEFAULTS.has(key)) continue;
         const target = SCAN_KEYWORDS[key];
         switch (key) {
           case "format":
@@ -461,6 +486,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "project",
+    brief: "Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged.",
     type: "Project",
     inputs: 1,
     rowEffect: "none",
@@ -477,14 +503,17 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     normalize(rest, kwargs) {
       noPositional("project", rest, "one input table");
       keywords("project", kwargs, ["keep", "drop", "rename"]);
+      // Explicit None has the same meaning as the advertised omitted defaults.
+      const { keep, drop, rename } = Object.fromEntries(
+        Object.entries(kwargs).filter(([, value]) => !(value.kind === "const" && value.value === null))
+      );
       const props: Record<string, unknown> = {};
-      if (kwargs.keep) props.keep = strList(kwargs.keep, "keep", 1);
-      if (kwargs.drop) props.drop = strList(kwargs.drop, "drop", 1);
-      if (kwargs.keep && kwargs.drop) fail("project takes keep or drop, not both.");
-      if (kwargs.rename) {
-        if (kwargs.rename.kind !== "dict" || !kwargs.rename.entries.length)
-          fail("rename must be a {old: new} dictionary.", "rename");
-        else props.rename = Object.fromEntries(kwargs.rename.entries.map(([k, v]) => [k, str(v, "rename")]));
+      if (keep) props.keep = strList(keep, "keep", 1);
+      if (drop) props.drop = strList(drop, "drop", 1);
+      if (keep && drop) fail("project takes keep or drop, not both.");
+      if (rename) {
+        if (rename.kind !== "dict" || !rename.entries.length) fail("rename must be a {old: new} dictionary.", "rename");
+        else props.rename = Object.fromEntries(rename.entries.map(([k, v]) => [k, str(v, "rename")]));
       }
       if (!Object.keys(props).length) fail("project needs keep=, drop= or rename=.");
       return props;
@@ -492,6 +521,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "cast",
+    brief:
+      'Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes, for example amount=float64. Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.',
     type: "Cast",
     inputs: 1,
     rowEffect: "none",
@@ -529,6 +560,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "filter",
+    brief: "fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns.",
     type: "Filter",
     inputs: 1,
     rowEffect: "drop",
@@ -559,6 +591,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "map",
+    brief:
+      'fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values.',
     type: "Map",
     inputs: 1,
     rowEffect: "none",
@@ -582,6 +616,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "aggregate",
+    brief:
+      "One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.",
     type: "Aggregate",
     inputs: 1,
     rowEffect: "collapse",
@@ -626,13 +662,15 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "join",
+    brief:
+      'on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.',
     type: "Join",
     inputs: 2,
     rowEffect: "multiply",
-    signature: 'join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")',
-    doc: 'Joins on explicit keys: `on="id"`, `on=["a", "b"]`, or `on=[("left_col", "right_col")]` when the names differ. how is inner, left, right, full, or cross (no keys). Null keys do not match unless nulls_equal=True. validate (one_to_one, one_to_many, many_to_one) fails the operator when the keys are not unique on the required side. Right-side columns that collide get `suffix`. No output order is promised: sort afterwards.',
+    signature: 'join(L, R, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")',
+    doc: 'Joins on explicit keys: `on="id"`, `on=["a", "b"]`, or `on=[("left_col", "right_col")]` when the names differ. how is inner, left, right, full, cross, semi or anti. `semi` keeps each left row that has at least one match and `anti` each left row that has none, both with the left columns only and no row repeated: `review_orders = join(orders, review_units, on="unit", how="semi")` restricts orders to the units of an existing table without retyping them. Cross joins form every pair of rows: omit on or use None/[] and keep validate="many_to_many". A cross join with a single-row benchmark attaches that value to every left row. Other joins require nonempty keys. Null keys do not match unless nulls_equal=True. validate (one_to_one, one_to_many, many_to_one) fails the operator when the keys are not unique on the required side. A right-side column that collides gets `suffix`, repeated until the name is free; the execution receipt lists such renames. No output order is promised: sort afterwards.',
     schema: object({
-      type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
+      type: { type: "string", enum: ["inner", "left", "right", "full", "cross", "semi", "anti"] },
       on: {
         oneOf: [
           S,
@@ -654,7 +692,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       if (rest.length > 1) fail("join takes the left and right tables, then keywords.");
       const props: Record<string, unknown> = {};
       const on = rest[0] ?? kwargs.on;
-      if (on) {
+      const cross = kwargs.how?.kind === "const" && kwargs.how.value === "cross";
+      const noKeys = (on?.kind === "const" && on.value === null) || (on?.kind === "list" && on.items.length === 0);
+      if (on && !(cross && noKeys)) {
         if (on.kind === "const") props.on = str(on, "on");
         else if (on.kind === "list" && on.items.every(item => item.kind === "const")) props.on = strList(on, "on", 1);
         else if (on.kind === "list" && on.items.every(item => item.kind === "list" && item.items.length === 2))
@@ -663,7 +703,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           );
         else fail('on must be "key", ["k1", "k2"] or [("left_key", "right_key")].', "on");
       }
-      if (kwargs.how) props.type = oneOf(kwargs.how, "how", ["inner", "left", "right", "full", "cross"]);
+      if (kwargs.how)
+        props.type = oneOf(kwargs.how, "how", ["inner", "left", "right", "full", "cross", "semi", "anti"]);
       if (kwargs.nulls_equal) props.nullsEqual = bool(kwargs.nulls_equal, "nulls_equal");
       if (kwargs.suffix) props.rightSuffix = str(kwargs.suffix, "suffix");
       if (kwargs.validate)
@@ -680,6 +721,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "union",
+    brief:
+      "Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.",
     type: "Union",
     inputs: "many",
     rowEffect: "add",
@@ -696,6 +739,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "distinct",
+    brief:
+      'Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order.',
     type: "Distinct",
     inputs: 1,
     rowEffect: "drop",
@@ -713,6 +758,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "sort",
+    brief: 'Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last".',
     type: "Sort",
     inputs: 1,
     rowEffect: "none",
@@ -737,6 +783,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "limit",
+    brief: "Keep n rows from offset. Sort first when selecting a top-k.",
     type: "Limit",
     inputs: 1,
     rowEffect: "drop",
@@ -755,6 +802,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "window",
+    brief:
+      'Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.',
     type: "Window",
     inputs: 1,
     rowEffect: "none",
@@ -816,6 +865,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "unpivot",
+    brief:
+      "Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.",
     type: "Unpivot",
     inputs: 1,
     rowEffect: "add",
@@ -835,6 +886,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "pivot",
+    brief:
+      "Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.",
     type: "Pivot",
     inputs: 1,
     rowEffect: "collapse",
@@ -854,17 +907,19 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "process",
+    brief:
+      "One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators.",
     type: "Process",
     inputs: "many",
     rowEffect: "unknown",
     signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
-    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
+    doc: 'One custom operation in Python: `trend = process(yearly_totals, fn=fit_trend, doc="Fits a linear trend to yearly totals")`. `fn` is a `def` supplied in this edit taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes. A function with no inputs may load a format scan cannot handle and return its parsed table. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Reserve process for one operation the catalog cannot express, such as a custom parser, correlation or model fit. Keep filtering, deriving columns, grouping and joining in separate predefined operators, including after a custom loader.',
     schema: object({ code: S, entry: S, doc: S }, ["code", "entry", "doc"]),
     normalize(rest, kwargs, context) {
       keywords("process", kwargs, ["fn", "doc"]);
       if (rest.length > 1) fail("process takes its input tables, then fn= and doc=.");
       const fnValue = rest[0] ?? kwargs.fn;
-      if (!fnValue) fail("process needs fn=<function defined in this program>.", "fn");
+      if (!fnValue) fail("process needs fn=<function defined in this edit>.", "fn");
       const slot = functionSlot(fnValue!, "fn", context);
       if (slot.params.length !== context.inputs.length)
         fail(
@@ -889,8 +944,45 @@ export function nativeOperatorName(type: string): string {
 }
 
 /** The operator reference for the system prompt: signature + contract, one block per operator. */
-export function nativeCatalogText(): string {
-  return NATIVE_OPERATORS.map(d => `${d.name === "scan" ? "T" : "T2"} = ${d.signature}\n    ${d.doc}`).join("\n\n");
+export function nativeCatalogText(compact = false): string {
+  return NATIVE_OPERATORS.map(
+    d => `${d.inputs === 0 ? "T" : "T2"} = ${d.signature}\n    ${compact ? d.brief : d.doc}`
+  ).join("\n\n");
+}
+
+/** The prompt's operator reference: each signature (input tables first) and its contract. */
+export function catalogText(names?: readonly string[]): string {
+  const selected = names
+    ? names.map(name => {
+        const def = NATIVE_BY_NAME.get(name);
+        if (!def) throw new Error(`Unknown operator: ${name}`);
+        return def;
+      })
+    : NATIVE_OPERATORS;
+  return selected.map(def => `${def.signature}\n    ${def.brief}`).join("\n\n");
+}
+
+/** Signatures stay visible when contracts are retrieved on demand. */
+export function catalogIndexText(): string {
+  return NATIVE_OPERATORS.map(def => def.signature).join("\n");
+}
+
+/** A definition as the model writes it, `id = operator(inputs, ...)`, with its
+ * current inputs; an unconnected input shows as `?`. Stored sources omit the
+ * inputs because edges own them. */
+export function nativeAssignmentText(id: string, view: NativeOpView): string | undefined {
+  if (!view.source) return undefined;
+  // Registered statements already include positional inputs and keyword settings.
+  if (/^set\s+[A-Za-z_][A-Za-z0-9_]*\s*:/.test(view.source)) {
+    return view.source.replace(/^set\s+[A-Za-z_][A-Za-z0-9_]*\s*:/, `set ${id}:`);
+  }
+  // Expression-mode programs stored the whole assignment, inputs included.
+  if (!view.graph) return view.source;
+  const inputs = view.inputs.map(input => input || "?");
+  const open = view.source.indexOf("(");
+  if (!inputs.length || open < 0) return `${id} = ${view.source}`;
+  const rest = view.source.slice(open + 1);
+  return `${id} = ${view.source.slice(0, open + 1)}${inputs.join(", ")}${rest.startsWith(")") ? "" : ", "}${rest}`;
 }
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.

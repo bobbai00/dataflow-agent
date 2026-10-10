@@ -67,6 +67,31 @@ function wireInputs(workflowState: WorkflowState, operatorId: string, inputs: st
   }
 }
 
+/** Ancestry facts for engine-side checks: rows from several sources (a glob
+ * or file-list scan, or a union) and the scans' file-name columns. */
+export function nativeLineage(workflowState: WorkflowState, view: NativeOpView): NonNullable<NativeOpView["lineage"]> {
+  const provenance = new Set<string>();
+  let multiSource = view.type === "Union";
+  const seen = new Set<string>();
+  const queue = [...view.inputs];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const up = workflowState.getOperator(id)?.nativeOp;
+    if (!up) continue;
+    if (up.type === "Union") multiSource = true;
+    if (up.type === "Scan") {
+      const files = up.properties.files;
+      if (Array.isArray(files) ? files.length > 1 : typeof files === "string" && /[*?[]/.test(files))
+        multiSource = true;
+      if (typeof up.properties.fileColumn === "string") provenance.add(up.properties.fileColumn);
+    }
+    queue.push(...up.inputs);
+  }
+  return { multiSource, provenanceColumns: [...provenance] };
+}
+
 function consumersOf(workflowState: WorkflowState, operatorId: string): string[] {
   return [
     ...new Set(
@@ -98,6 +123,8 @@ export async function applyNativeOperator(
     );
   }
   if (context?.settings?.nativeProfileCollection === true) view.profileCollection = true;
+  if (view.profileCollection && context?.settings?.nativeProfileScope === "full") view.profileScope = "full";
+  if (context?.settings?.nativeChecks === true) view.lineage = nativeLineage(workflowState, view);
   for (const up of view.inputs) {
     if (up === id) return createErrorResult(`\`${id}\`: an operator cannot read its own output`);
     if (!workflowState.getOperator(up)) {

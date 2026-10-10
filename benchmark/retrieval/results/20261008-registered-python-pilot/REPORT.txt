@@ -1,0 +1,35 @@
+KramaBench campaign: official scores and model costs
+
+Agent revision: e031c69dface58591da15d910e51c5aadfae5150
+Completed: 18/18; 1 independent repetitions
+Pass threshold: official score >= 1.0. Mean score below includes only scored attempts.
+Costs: token estimates with separate cache reads/writes; reasoning is already included in output. Missing costs stay unknown. Evaluator and engine costs excluded.
+Provider-reported USD is shown separately when every response includes usage.cost; it can differ from public-rate estimates. Exact billed prompt/tool token splits are not provided by these APIs.
+Agent seconds include model and tool execution, excluding scoring. Model seconds sum gateway requests. Attempt seconds also include setup, artifact collection and scoring.
+Three tasks selected before outcomes to exercise filtering and ordering, numeric parsing and rounding, and spreadsheet multi-table analysis; diagnostic integration pilot, not a representative accuracy ranking.
+
+Model | Arm | Passes/attempts | Scored | Mean score | Total USD | Mean agent seconds | Calls | Retrieve views
+DeepSeek41Flash | adaptive_flow1_fullstats | 2/3 | 3 | 66.7% | $0.030698 (3 known) | 24.7 | 36 | {'sample_stats': 2, 'full': 4}
+Luna | adaptive_flow1_fullstats | 3/3 | 3 | 100.0% | $0.007349 (3 known) | 21.5 | 11 | {'sample_stats': 3, 'full': 3, 'sample': 1}
+Opus48 | adaptive_flow1_fullstats | 3/3 | 3 | 100.0% | $0.768885 (3 known) | 23.2 | 12 | {'sample': 2, 'full': 5, 'sample_stats': 1}
+Qwen38_27B | adaptive_flow1_fullstats | 0/3 | 3 | 0.0% | $0.084787 (3 known) | 88.7 | 75 | {'sample': 21, 'full': 1}
+Sol | adaptive_flow1_fullstats | 3/3 | 3 | 100.0% | $0.252371 (3 known) | 17.9 | 9 | {'sample_stats': 2, 'full': 4}
+Terra | adaptive_flow1_fullstats | 3/3 | 3 | 100.0% | $0.102238 (3 known) | 21.2 | 10 | {'sample_stats': 2, 'full': 5}
+
+Token totals (cache reads/writes are subsets of input; reasoning is a subset of output)
+Model | Arm | Input | Cached input | Cache writes | Output | Reasoning | Complete usage attempts
+DeepSeek41Flash | adaptive_flow1_fullstats | 313160 | 232320 | 0 | 4210 | 1237 | 3/3
+Luna | adaptive_flow1_fullstats | 81535 | 63946 | 0 | 2127 | 576 | 3/3
+Opus48 | adaptive_flow1_fullstats | 395832 | 310480 | 85208 | 3215 | 0 | 3/3
+Qwen38_27B | adaptive_flow1_fullstats | 592901 | 562560 | 0 | 9441 | 4983 | 3/3
+Sol | adaptive_flow1_fullstats | 126693 | 79928 | 0 | 1667 | 266 | 3/3
+Terra | adaptive_flow1_fullstats | 116515 | 86242 | 0 | 2037 | 365 | 3/3
+
+Failures and provider-reported cost
+Model | Failed calls | Before-action rejections | Failed actions | Provider USD | Providers
+DeepSeek41Flash | 24 | 0 | 25 | $0.031345 | InferenceNet, Makora, Together, Wafer
+Luna | 0 | 0 | 0 | unknown | not reported
+Opus48 | 2 | 0 | 2 | unknown | not reported
+Qwen38_27B | 64 | 22 | 43 | $0.039240 | Wafer
+Sol | 0 | 0 | 0 | unknown | not reported
+Terra | 1 | 0 | 1 | unknown | not reported

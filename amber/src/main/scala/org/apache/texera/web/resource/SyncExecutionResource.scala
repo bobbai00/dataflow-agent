@@ -412,6 +412,19 @@ class SyncExecutionResource extends LazyLogging {
           executionId = activeExecution.map(_.workflowContext.executionId.id.toString),
           phaseMetrics = activeExecution.map(_.phaseMetrics)
         )
+    } finally {
+      // A console error, target completion, or timeout can shut the client
+      // down before its terminal statistics callback. Flush before returning:
+      // callers may delete this workflow's tables immediately afterwards.
+      activeExecution.foreach { execution =>
+        Option(execution.executionStatsService).foreach { statistics =>
+          try statistics.commitRuntimeStatistics()
+          catch {
+            case e: Exception =>
+              logger.warn(s"Failed to commit runtime statistics: ${e.getMessage}")
+          }
+        }
+      }
     }
   }
 

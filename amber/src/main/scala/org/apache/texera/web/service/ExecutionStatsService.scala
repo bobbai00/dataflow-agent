@@ -66,7 +66,45 @@ import org.apache.texera.web.storage.ExecutionStateStore
 import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
 
 import java.time.Instant
-import java.util.concurrent.Executors
+import java.util.concurrent.{CompletableFuture, Executors}
+import scala.util.control.NonFatal
+
+/** Own the statistics writer on one thread, including its final flush. */
+private[service] final class RuntimeStatisticsPersistence(closeWriter: () => Unit) {
+  private val executor = Executors.newSingleThreadExecutor()
+  private var acceptingWrites = true
+  private val closed = new CompletableFuture[Unit]()
+  // Only the writer thread accesses failure. Drain and close even after a
+  // failed write, then report it to the caller awaiting safe cleanup.
+  private var failure: Option[Throwable] = None
+
+  def persist(write: => Unit): Unit =
+    synchronized {
+      if (acceptingWrites) executor.execute(() => {
+        try write
+        catch { case NonFatal(e) => if (failure.isEmpty) failure = Some(e) }
+      })
+    }
+
+  def close(): CompletableFuture[Unit] =
+    synchronized {
+      if (acceptingWrites) {
+        acceptingWrites = false
+        executor.execute(() => {
+          try {
+            closeWriter()
+            failure match {
+              case Some(e) => closed.completeExceptionally(e)
+              case None    => closed.complete(())
+            }
+          } catch {
+            case e: Throwable => closed.completeExceptionally(e)
+          } finally executor.shutdown()
+        })
+      }
+      closed
+    }
+}
 
 class ExecutionStatsService(
     client: AmberClient,
@@ -74,8 +112,7 @@ class ExecutionStatsService(
     workflowContext: WorkflowContext
 ) extends SubscriptionManager
     with LazyLogging {
-  private val (metricsPersistThread, runtimeStatsWriter) = {
-    val thread = Executors.newSingleThreadExecutor()
+  private val runtimeStatsWriter = {
     val uri = VFSURIFactory.createRuntimeStatisticsURI(
       workflowContext.workflowId,
       workflowContext.executionId
@@ -90,8 +127,12 @@ class ExecutionStatsService(
       uri
     )
     writer.open()
-    (thread, writer)
+    writer
   }
+
+  private val metricsPersistence = new RuntimeStatisticsPersistence(() =>
+    runtimeStatsWriter.close()
+  )
 
   private var lastPersistedMetrics: Map[String, OperatorMetrics] =
     Map.empty[String, OperatorMetrics]
@@ -199,10 +240,10 @@ class ExecutionStatsService(
     addSubscription(
       client
         .registerCallback[RuntimeStatisticsPersist]((evt: RuntimeStatisticsPersist) => {
-          metricsPersistThread.execute(() => {
+          metricsPersistence.persist {
             storeRuntimeStatistics(computeStatsDiff(evt.operatorMetrics))
             lastPersistedMetrics = evt.operatorMetrics
-          })
+          }
         })
     )
   }
@@ -212,15 +253,17 @@ class ExecutionStatsService(
       case ExecutionStateUpdate(state: WorkflowAggregatedState.Recognized)
           if Set(COMPLETED, FAILED, KILLED).contains(state) =>
         logger.info("Workflow execution terminated. Commit runtime statistics.")
-        try {
-          runtimeStatsWriter.close()
-        } catch {
-          case e: Exception =>
-            logger.error("Failed to close runtime statistics writer", e)
-        }
+        // Preserve terminal-event ordering: callers may delete the workflow
+        // immediately after completion, including its statistics table.
+        commitRuntimeStatistics()
       case _ =>
     }
   )
+
+  /** Drain writes and flush even when a sync request shuts down the client
+    * before the engine's terminal callback can arrive.
+    */
+  def commitRuntimeStatistics(): Unit = metricsPersistence.close().get()
 
   private def computeStatsDiff(
       newMetrics: Map[String, OperatorMetrics]
@@ -288,7 +331,9 @@ class ExecutionStatsService(
           runtimeStatsWriter.putOne(runtimeStats)
       }
     } catch {
-      case err: Throwable => logger.error("error occurred when storing runtime statistics", err)
+      case NonFatal(err) =>
+        logger.error("error occurred when storing runtime statistics", err)
+        throw err
     }
   }
 
@@ -357,6 +402,6 @@ class ExecutionStatsService(
   // execution and its thread leaks for the life of the JVM.
   override def unsubscribeAll(): Unit = {
     super.unsubscribeAll()
-    metricsPersistThread.shutdown()
+    commitRuntimeStatistics()
   }
 }

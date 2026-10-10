@@ -29,6 +29,23 @@ import { assembleContext } from "../util/context-utils";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 
 const revision = "0123456789abcdef";
+test("a multi-file scan gets a repair hint that can be applied to its definition", () => {
+  for (const type of ["Scan", "Union"]) {
+    const { diagnostic, info, state } = fixture(type);
+    info.error =
+      "NATIVE_ERROR_V2:" +
+      JSON.stringify({ ...diagnostic, code: "UNION_TYPE", message: "Column value has incompatible types." });
+    const output = formatOperatorResult("answer", info, state);
+    if (type === "Scan") {
+      expect(output).toContain("all_text=True");
+      expect(output).toContain("cast");
+    } else {
+      expect(output).toContain("Cast the named column");
+      expect(output).not.toContain("all_text=True");
+    }
+  }
+});
+
 test("redaction preserves submitted-source line coordinates across multiline values", () => {
   const source =
     "def apply(row):\n    private = environ({\n        'SECRET': 'hidden'\n    })\n    PASSWORD='first\nsecond'\n    return row['x'] / 0";
@@ -112,7 +129,7 @@ test("V2 failures never echo the embedded runtime, including process and shape-o
       const rendered = formatOperatorResult("answer", info, state, { detail, operatorAtEvent: op });
       expect(rendered.length).toBeLessThanOrEqual(1600);
       expect(rendered).toContain("CALLBACK_RUNTIME");
-      expect(rendered).toContain(revision);
+      expect(rendered).not.toContain(revision);
       expect(rendered).toContain("line 3");
       expect(rendered).toContain("division by zero");
       expect(rendered).not.toContain("GENERATED_BOILERPLATE");
@@ -142,6 +159,39 @@ test("V2 opaque infrastructure errors do not masquerade as callback/syntax failu
   expect(rendered).toContain("EXECUTION_TIMEOUT");
   expect(rendered).toContain("infrastructure");
   expect(rendered).not.toContain("GENERATED_BOILERPLATE");
+});
+
+test("a timeout parameter in a library traceback does not classify an unrelated error as a timeout", () => {
+  const { op, info, state } = fixture();
+  info.error =
+    'Traceback (most recent call last):\n  File "concurrent/futures/_base.py", line 456, in result\n    return fut.result(timeout)\nRuntimeError: failed to decode input';
+  const rendered = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(rendered).toContain("EXECUTION_ERROR");
+  expect(rendered).not.toContain("EXECUTION_TIMEOUT");
+});
+
+test("a missing cached input is a storage failure even when its traceback contains timeout arguments", () => {
+  const { op, info, state } = fixture();
+  info.error =
+    'Traceback (most recent call last):\n  File "core/storage/runnables/input_port_materialization_reader_runnable.py", line 220, in run\n    self.emit_columnar()\n  File "concurrent/futures/_base.py", line 456, in result\n    return fut.result(timeout)\nFileNotFoundError: cached parquet does not exist';
+  const rendered = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(rendered).toContain("CACHE_INPUT_READ");
+  expect(rendered).toContain("infrastructure");
+  expect(rendered).toContain("FileNotFoundError: cached parquet does not exist");
+  expect(rendered).toContain("retryable: false");
+  expect(rendered).not.toContain("EXECUTION_TIMEOUT");
+});
+
+test("actual engine deadlines and timeout exceptions still classify as execution timeouts", () => {
+  const { op, info, state } = fixture();
+  for (const error of [
+    "Timeout after 15 seconds",
+    "TimeoutError: request deadline",
+    "Workflow execution was killed (timeout).",
+  ]) {
+    info.error = error;
+    expect(formatOperatorResult("answer", info, state, { operatorAtEvent: op })).toContain("EXECUTION_TIMEOUT");
+  }
 });
 
 test("a Python worker that died mid-run is WORKER_EXITED, named, and not a timeout", () => {
@@ -311,6 +361,6 @@ describe("error taxonomy rendering", () => {
     });
     expect(text).toContain("Field: columns[0].func");
     expect(text).toContain("apply line 2: return row['Acres'] * 2");
-    expect(text).toContain("Hint: Observe the current input schema");
+    expect(text).toContain("Hint: Check the input's columns and correct the column name.");
   });
 });

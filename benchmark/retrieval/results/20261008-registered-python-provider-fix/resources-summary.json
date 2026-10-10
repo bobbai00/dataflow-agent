@@ -1,0 +1,14 @@
+{
+  "samples": 11,
+  "interval_seconds": 15,
+  "first_at": "2026-10-08T22:14:32.204972+00:00",
+  "last_at": "2026-10-08T22:17:02.312921+00:00",
+  "max_active_attempts": 2,
+  "min_memory_available_bytes": 13068632064,
+  "max_load_1min": 4.3212890625,
+  "max_swap_used_bytes": 0,
+  "min_disk_free_bytes": 437985820672,
+  "min_mac_memory_free_percent": 50,
+  "logical_cpus": 16,
+  "limitation": "Observed 15-second samples, not continuous peaks."
+}

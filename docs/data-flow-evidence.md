@@ -19,6 +19,15 @@
 
 # Data and flow evidence: computation and model context
 
+**Historical calculation reference.** The configuration, action names, shared
+budget, defaults, and filter availability below describe the older expression
+protocol. For the current registered-Python protocol, use
+[retrieval views](retrieval-views.md) and the
+[registered-Python design](native-registered-python-design.md). Current data
+statistics accompany explicitly retrieved result samples; automatic flow evidence
+describes measured operator effects, including relevant non-retrieved ancestors.
+The two evidence budgets are separate from the record budget.
+
 This document describes the implemented **Python-native V2, batch + explicit
 observe** path. The calculation and selection reference was checked against
 implementation commit `c5620b9b43f21ee2aa222bfc4ff0c5faf0958ede` on 2026-09-16.
@@ -251,7 +260,7 @@ These are worker collection limits, **not** the model-context character budget:
 | Distinct row identities       |          4,096 | Duplicate-row metric unavailable on overflow                                                        |
 | Displayed frequency entries   |              8 | Remaining non-null mass is `otherCount`                                                             |
 | Profiled scalar string length | 192 characters | Affected value/range data becomes unavailable                                                       |
-| Encoded worker payload        |   65,536 bytes | Drop value dictionaries/frequencies first, then native counters, then profile contents if necessary |
+| Encoded worker payload        |   65,536 bytes | Drop the largest value dictionaries/frequencies first, retaining compact categories where possible; then native counters and profile contents if necessary |
 | Accumulated collection time   |    0.2 seconds | Cooperative cutoff checked every 128 rows; not a hard wall-clock execution timeout                  |
 
 The accumulator still tracks the full output row count via DataFrame lengths
@@ -425,8 +434,9 @@ behavior; this is not inferred by parsing function bodies. Examples include:
 
 - Project: selected/renamed columns; same rows and order.
 - Map: one row out per row in, same order; the added and dropped columns and
-  the columns the function read are measured at run time, and the author's
-  `doc` leads the guarantee.
+  the columns the function read are measured at run time. The author's `doc`
+  stays in the definition; it is not an engine guarantee. Process reports
+  unknown mapping as a warning.
 - Sort: stable sorting, preserving row identities but changing order.
 
 For `Cast`, the runtime counts conversion failures by column. With
@@ -508,12 +518,12 @@ The breadth-first traversal:
 - follows only exact input-version/port/revision bindings;
 - emits at most **three** summaries, visits at most **32** queued ancestors,
   and follows at most **eight** upstream edges of depth;
-- summarizes Aggregate, Join, Filter, Distinct, Limit, Union, Explode, Unpivot,
-  Pivot, and the opaque UDF boundary;
-- includes at most two high-priority local measurements for Aggregate, or one
+- summarizes Project, Aggregate, Join, Filter, Distinct, Limit, Union, Unpivot,
+  Pivot, casts with measured conversion failures, and the opaque UDF boundary;
+- includes at most two high-priority local measurements for Aggregate or Cast, or one
   for the other summarized types (local measurement priority at least 94);
-- can pass through known operations such as Project or Sort without spending a
-  summary on them;
+- traverses past the first three candidates before selecting summaries, so
+  conversion losses can take priority over nearby routine operations;
 - stops at a UDF with an explicit unknown-mapping message. Observing a UDF
   itself does not traverse behind it.
 
@@ -589,9 +599,12 @@ the backend, so the selector may receive an already-truncated sample.
    the preview is for discovering the real parse/header. Structural anomaly
    candidates are still subject to the usual rules.
 9. **Sort each part's candidates and greedily append whole facts.**
-   Descending priority, then lexical fact ID for deterministic ties. Skip a
+   Descending priority, preserving collection order for ties. Skip a
    fact that does not fit and continue trying later, possibly shorter facts.
-   There is no knapsack or LLM selection here.
+   At data budgets of at least 600 characters, count rows use at most half
+   the allocation when other data facts exist. This leaves room for ranges
+   and distributions; compact repeated categories get higher priority than
+   long value lists. There is no LLM selection here.
 10. **Try an incomplete-view notice.** Append it only if space remains. Full
     omission reasons are retained internally even if a printed notice cannot
     fit.

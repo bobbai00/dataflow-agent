@@ -1,0 +1,161 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "cell": "data0-flow0",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6468.117208,
+      "cachedActionDurationMs": 1194.4197080000004,
+      "retrieveOnlyActionDurationMs": 13.514124999999694,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "71",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.785166,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "promptCharacters": 18758,
+      "executionCharacters": 319,
+      "retrievalCharacters": 460,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    },
+    {
+      "cell": "data0-flow1",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6517.227833000001,
+      "cachedActionDurationMs": 1241.6795829999992,
+      "retrieveOnlyActionDurationMs": 16.714833,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "73",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.704583,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "promptCharacters": 19451,
+      "executionCharacters": 2429,
+      "retrievalCharacters": 2826,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    },
+    {
+      "cell": "data1-flow0",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 6546.861457999999,
+      "cachedActionDurationMs": 1208.2344999999987,
+      "retrieveOnlyActionDurationMs": 12.489125000000058,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "75",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.664667,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "promptCharacters": 20199,
+      "executionCharacters": 319,
+      "retrievalCharacters": 994,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    },
+    {
+      "cell": "data1-flow1",
+      "passed": true,
+      "executions": 1,
+      "cachedExecutionRequests": 1,
+      "retrieveOnlyExecutionRequests": 0,
+      "initialActionDurationMs": 7213.642874999998,
+      "cachedActionDurationMs": 1232.3004590000019,
+      "retrieveOnlyActionDurationMs": 12.67058299999917,
+      "cachedExecutionTelemetry": [
+        {
+          "targets": [
+            "summary",
+            "joined",
+            "selected",
+            "converted",
+            "source",
+            "lookup"
+          ],
+          "executionId": "77",
+          "success": true,
+          "state": "Completed",
+          "phaseMetrics": {
+            "version": 1,
+            "compilation": "passed",
+            "compilationDurationMs": 2.952,
+            "runtimeStartAttempted": true
+          }
+        }
+      ],
+      "promptCharacters": 20892,
+      "executionCharacters": 2429,
+      "retrievalCharacters": 3360,
+      "answer": {
+        "total": 175,
+        "measured": 18,
+        "rows": 21
+      }
+    }
+  ]
+}

@@ -29,6 +29,7 @@ export interface OperatorResultSummary extends Pick<
   | "error"
   | "warnings"
   | "totalRowCount"
+  | "truncated"
   | "columnStats"
   | "resultSchema"
   | "executionContext"
@@ -58,6 +59,7 @@ export function operatorInfoToSummary(info: OperatorInfo): OperatorResultSummary
     warnings: info.warnings,
     consoleLogCount: info.consoleLogs?.length,
     totalRowCount: info.totalRowCount,
+    truncated: info.truncated,
     sampleRecords: info.result,
     columnStats: info.columnStats,
     ...(info.executionContext || info.resultVersion

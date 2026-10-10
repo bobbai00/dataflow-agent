@@ -162,14 +162,47 @@ def test_join_empty_cross_missing_keys_mismatched_types_and_suffix_collision():
         ({"type": "cross", "on": "id"}, "JOIN_KEYS"),
         ({"on": "missing"}, "MISSING_COLUMN"),
         ({"on": "id", "rightSuffix": ""}, "JOIN_ARGUMENT"),
-        ({"on": "id", "type": "semi"}, "JOIN_ARGUMENT"),
+        ({"on": "id", "type": "outer"}, "JOIN_ARGUMENT"),
     ]:
         with pytest.raises(runtime.NativeError, match=code):
             execute("Join", left, right, **properties)
     with pytest.raises(runtime.NativeError, match="JOIN_TYPE"):
         execute("Join", left, right.astype({"id": "string"}), on="id")
-    with pytest.raises(runtime.NativeError, match="COLUMN_COLLISION"):
-        execute("Join", left.assign(v_right=1), right, on="id")
+    # A right column whose suffixed name is also taken gets the suffix again;
+    # the rename is recorded instead of failing the join.
+    renamed = execute("Join", left.assign(v_right=1), right, on="id")
+    assert "v_right_right" in renamed.columns and "v_right" in renamed.columns
+    assert renamed.attrs["native_v2"]["operations"]["join"]["renamedRight"] == {"v": "v_right_right"}
+
+
+def test_semi_and_anti_joins_keep_left_rows_once_without_right_columns():
+    left = pd.DataFrame({"id": pd.Series([1, 2, 3, None], dtype="Int64"), "v": ["a", "b", "c", "d"]})
+    right = pd.DataFrame({"id": pd.Series([2, 2, 3, 9], dtype="Int64"), "w": ["x", "y", "z", "q"]})
+    semi = execute("Join", left, right, on="id", type="semi")
+    assert rows(semi) == [{"id": 2, "v": "b"}, {"id": 3, "v": "c"}]
+    assert list(semi.columns) == ["id", "v"]
+    anti = execute("Join", left, right, on="id", type="anti")
+    assert rows(anti) == [{"id": 1, "v": "a"}, {"id": None, "v": "d"}]
+    facts = semi.attrs["native_v2"]["operations"]["join"]
+    assert facts["type"] == "semi" and facts["matchedOutputRows"] == 2
+    assert facts["left"]["matchedRows"] == 2 and facts["left"]["unmatchedRows"] == 2
+    with pytest.raises(runtime.NativeError, match="JOIN_KEYS"):
+        execute("Join", left, right, type="semi")
+
+
+def test_bool_columns_sum_and_average_as_zero_one():
+    frame = pd.DataFrame({"g": ["a", "a", "b"], "flag": pd.Series([True, False, None], dtype="boolean")})
+    result = execute(
+        "Aggregate",
+        frame,
+        groupBy=["g"],
+        aggregations=[{"fn": "sum", "col": "flag", "as": "n_true"}, {"fn": "mean", "col": "flag", "as": "share"}],
+    )
+    assert rows(result) == [{"g": "a", "n_true": 1, "share": 0.5}, {"g": "b", "n_true": None, "share": None}]
+    assert str(result["n_true"].dtype) == "Int64"
+    assert result.attrs["native_v2"]["operations"]["boolAsInt"] == ["flag"]
+    with pytest.raises(runtime.NativeError, match="AGGREGATE_TYPE"):
+        execute("Aggregate", pd.DataFrame({"s": ["x"]}), aggregations=[{"fn": "sum", "col": "s", "as": "t"}])
 
 
 def test_union_strict_align_null_columns_and_port_order():

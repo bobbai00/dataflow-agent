@@ -78,7 +78,7 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   for (const key of removed) expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, key)).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).dataEvidence).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).flowEvidence).toBe(false);
-  expect((DEFAULT_AGENT_SETTINGS as any).dataflowReasoning).toBe(false);
+  expect((DEFAULT_AGENT_SETTINGS as any).dataflowReasoning).toBe(true);
 });
 
 for (const key of removed) {
@@ -104,7 +104,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       test(`${mode}: explicit data=${data}, flow=${flow} do not inherit legacy flags`, () => {
         const options = { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 800 };
         const expected = mapLegacyToParams(mode, options as any);
-        expect(expected.nativeEvidence).toEqual({ data, flow, maxChars: 800 });
+        expect(expected.nativeEvidence).toMatchObject({ data, flow, maxChars: 800, tableFormat: "markdown" });
         for (const level of [0, 1, 2, 3]) {
           expect(
             mapLegacyToParams(mode, {

@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """Score a LongDS run with upstream's own judge.
 
 `JUDGE_PROMPT` is loaded BY PATH from the upstream DataMind clone rather than
@@ -74,6 +91,10 @@ def judge_one(client, model: str, prompt_tpl: str, turn: dict, retries: int = 3,
         solution=solution,
     )
     text = ""
+    usage = []
+    responses = []
+    def recorded(verdict):
+        return {**verdict, "model": model, "usage": usage, "raw_responses": responses}
     for _ in range(retries):
         try:
             # max_tokens is explicit because OpenRouter authorizes a request against
@@ -87,17 +108,19 @@ def judge_one(client, model: str, prompt_tpl: str, turn: dict, retries: int = 3,
                 temperature=0.0,
                 max_tokens=max_tokens,
             )
+            usage.append(resp.usage.model_dump() if resp.usage is not None else {})
+            responses.append(resp.model_dump())
             text = resp.choices[0].message.content or ""
         except Exception as exc:  # noqa: BLE001
-            return {"score": None, "reasoning": "", "error_detail": f"judge call failed: {exc}"}
+            return recorded({"score": None, "reasoning": "", "error_detail": f"judge call failed: {exc}"})
         m = SCORE_RE.search(text)
         if m and m.group(1) in ("0", "1"):
-            return {
+            return recorded({
                 "score": int(m.group(1)),
                 "reasoning": (REASON_RE.search(text).group(1).strip() if REASON_RE.search(text) else ""),
                 "error_detail": (ERROR_RE.search(text).group(1).strip() if ERROR_RE.search(text) else ""),
-            }
-    return {"score": None, "reasoning": "", "error_detail": "unparsable judge reply", "raw": text}
+            })
+    return recorded({"score": None, "reasoning": "", "error_detail": "unparsable judge reply", "raw": text})
 
 
 def judge_task(client, model: str, prompt_tpl: str, run_dir: Path, workers: int,
@@ -114,13 +137,15 @@ def judge_task(client, model: str, prompt_tpl: str, run_dir: Path, workers: int,
     return turns
 
 
-def report(all_turns: list[list[dict]], judge_model: str = "") -> None:
-    """Overall, by state pattern, by dependency breadth, by task progress."""
+def report(all_turns: list[list[dict]], judge_model: str = "") -> int:
+    """Overall, by state pattern, by dependency breadth, by task progress.
+    Returns the number of turns left unjudged."""
     flat = [t for task in all_turns for t in task]
     scored = [t for t in flat if t["judge"].get("score") is not None]
     print(f"\njudged {len(scored)}/{len(flat)} turns")
+    unjudged = len(flat) - len(scored)
     if not scored:
-        return
+        return unjudged
 
     turn_weighted = statistics.mean(t["judge"]["score"] for t in scored) * 100
     per_task = [
@@ -168,6 +193,7 @@ def report(all_turns: list[list[dict]], judge_model: str = "") -> None:
         print(f"\nNOTE: judge is {judge_model or 'not deepseek-v4-pro'}, not the paper's")
         print("deepseek-v4-pro, so absolute scores are not comparable to its published")
         print("numbers. Arm-vs-arm comparisons hold, with the judge held fixed.")
+    return unjudged
 
 
 def main() -> int:
@@ -203,13 +229,20 @@ def main() -> int:
     for d in task_dirs:
         eval_path = d / "results_eval.json"
         if eval_path.exists() and not args.overwrite:
-            print(f"  {d.name}: already judged (use --overwrite to redo)")
-            all_turns.append(json.loads(eval_path.read_text()))
-            continue
+            previous = json.loads(eval_path.read_text())
+            # A task with unjudged turns (a failed judge call) is judged again.
+            if all((t.get("judge") or {}).get("score") is not None for t in previous):
+                print(f"  {d.name}: already judged (use --overwrite to redo)")
+                all_turns.append(previous)
+                continue
         print(f"  {d.name}: judging...")
         all_turns.append(judge_task(client, args.judge_model, prompt_tpl, d, args.max_workers, args.max_tokens))
 
-    report(all_turns, args.judge_model)
+    unjudged = report(all_turns, args.judge_model)
+    if unjudged:
+        failures = [t["judge"].get("error_detail") for task in all_turns for t in task if t["judge"].get("score") is None]
+        print(f"error: {unjudged} turns were not judged; first failure: {failures[0]}", file=sys.stderr)
+        return 1
     return 0
 
 

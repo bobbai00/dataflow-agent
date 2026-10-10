@@ -165,6 +165,37 @@ test("reversed response order binds profiles to exact input versions and source 
   expect(answer.tableProfile).toMatchObject({ status: "available", resultVersion: answer.resultVersion!.id });
 });
 
+test("compact source identity survives detail omissions without claiming complete partial lists", () => {
+  for (const [omitted, unavailable] of [
+    [0, false],
+    [3, false],
+    [0, true],
+  ] as const) {
+    const wf = workflow();
+    const values = wf.operators.map(o => info(o));
+    const profile = JSON.parse(values[0].resultMetadata!.worker);
+    profile.native.operations.scan = {
+      sources: [{ path: "/authorized/data/a.csv", sizeBytes: 12, mtimeNs: "123456789" }],
+      sourceDetailsOmitted: 1,
+      ...(omitted ? { sourcesOmitted: omitted } : {}),
+    };
+    if (unavailable) {
+      profile.status = "unavailable";
+      profile.coverage.complete = false;
+      profile.schema = [];
+      profile.schemaComplete = false;
+      profile.columns = {};
+      profile.omissions = ["payload_budget"];
+    }
+    values[0].resultMetadata!.worker = JSON.stringify(profile);
+    const s = storage(wf);
+    persist(s, response(wf, "100", values));
+    const version = s.getOperatorResult("A", "source")!.resultVersion!;
+    expect(version.complete).toBe(true); // Execution binding; not external file freshness.
+    expect(version.sourceFingerprints).toEqual(omitted ? null : profile.native.operations.scan.sources);
+  }
+});
+
 test("cached observe preserves version and a verified cache hit reuses the producing profile", () => {
   const wf = workflow();
   const s = storage(wf);
@@ -504,4 +535,36 @@ test("repair can reuse a pinned historical profile only with the same producer a
   ]);
   s.setOperatorResult("B", "answer", mismatched.operators.answer);
   expect(s.getOperatorResult("B", "answer")!.tableProfile!.status).toBe("unavailable");
+});
+
+test("a bystander of a failed run keeps its cached result; a consumer of the failure does not", () => {
+  // legal-hard-28: observing `general_imposter` (cached, unrelated) after another
+  // operator failed returned "[ERROR] … not executed" instead of its table.
+  const base = workflow();
+  const s = storage(base);
+  persist(s, response(base));
+  const next = workflow([op("source"), op("answer", ["source"]), op("bad"), op("uses_bad", ["bad"])]);
+  s.createSnapshot("B", next);
+  const failure = (_o: OperatorPredicate): OperatorInfo => ({
+    state: "Failed",
+    resultMode: "table",
+    inputTuples: 0,
+    outputTuples: 0,
+    error:
+      "NATIVE_ERROR_V2:" +
+      JSON.stringify({
+        version: 1,
+        operatorId: "bad",
+        operatorRevision: revision,
+        code: "CALLBACK_RUNTIME",
+        stage: "execute",
+        message: "ValueError: boom",
+      }),
+  });
+  for (const o of next.operators) s.setOperatorResult("B", o.operatorID, failure(o));
+  const answer = s.getOperatorResult("B", "answer")!;
+  expect(answer.error).toBeUndefined();
+  expect(answer.result).toEqual([{ x: 1 }]);
+  expect(s.getOperatorResult("B", "uses_bad")!.error).toContain("bad");
+  expect(s.getOperatorResult("B", "bad")!.error).toContain("boom");
 });

@@ -553,7 +553,20 @@ object WorkflowExecutionsResource {
         .toList
         .map(URI.create)
 
-    urisOfEid.find(isMatchingExternalPortURI)
+    urisOfEid.find(isMatchingExternalPortURI).orElse {
+      // Cleanup removes execution registry rows but preserves cached documents.
+      // Recover only this exact producer; the latest result for an operator may
+      // belong to a different execution and must not satisfy a historical read.
+      new OperatorPortCacheDao(SqlServer.getInstance())
+        .listBySourceExecutionIds(Seq(eid.id))
+        .find { entry =>
+          val components = VFSURIFactory.decodeURI(entry.resultUri)
+          components.executionId == eid &&
+          components.workflowId.id == entry.workflowId &&
+          isMatchingExternalPortURI(entry.resultUri)
+        }
+        .map(_.resultUri)
+    }
   }
 
   /**

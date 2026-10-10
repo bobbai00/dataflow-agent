@@ -203,8 +203,21 @@ describe("native dataflow tool", () => {
     agent.updateSettings({ agentMode: AgentMode.NATIVE, parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
     expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow"]);
-    expect(agent.getSettings().systemPrompt).toContain("= filter(T, fn");
-    expect(agent.getSettings().systemPrompt).toContain("observe");
+    expect(agent.getSettings().systemPrompt).toContain('aggregate(t, by=[], outputs={"output": reducer(...)})');
+    expect(agent.getSettings().systemPrompt).not.toContain("filter(T, fn, doc=");
+    const schema = asSchema((agent as any).tools.dataflow.inputSchema).jsonSchema as any;
+    const actions = schema.properties.actions.items.anyOf;
+    expect(
+      actions
+        .filter((action: any) => action.properties.type.const === "edit")
+        .every((action: any) => action.required.includes("python"))
+    ).toBe(true);
+    expect(actions.find((action: any) => action.properties.type.const === "inspect").properties.target.enum).toEqual([
+      "schema",
+      "source",
+      "reference",
+    ]);
+    expect(agent.getSettings().systemPrompt).toContain("retrieve");
     agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
     expect((agent as any).tools.createOrModifyOperator).toBeDefined();
     expect((agent as any).tools.dataflow).toBeUndefined();

@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import { DEFAULT_OBSERVATION_FORMAT, type ObservationFormatSettings } from "../agent/native/observation-format";
+
 import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
 import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
@@ -25,6 +27,18 @@ import type { RolePolicyConfig } from "../agent/context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
 import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
+
+export type RetrievalView = "full" | "sample" | "sample_stats";
+
+export interface RetrievalSettings {
+  /** Available native Retrieve views. Omitted: sample_stats and full; sample can be enabled explicitly. */
+  retrievalViews?: RetrievalView[];
+  /** Full-view display ceiling (default 5,000). Native transport independently retains up to 100,000 characters. */
+  fullResultCharLimit?: number;
+  /** Separate per-retrieval evidence ceilings; records keep their own budget. */
+  dataEvidenceCharLimit?: number;
+  flowEvidenceCharLimit?: number;
+}
 
 export enum AgentState {
   UNAVAILABLE = "UNAVAILABLE",
@@ -92,8 +106,11 @@ export interface ReActStep {
   operatorAccess?: Record<number, ToolOperatorAccess>;
   /** Set on steps the service performed itself, with no model request behind
    *  them. `"seed"`: the seeded source roots recorded before the first model
-   *  call of a turn (see `seedSources`). Usage is zero by construction. */
-  synthetic?: "seed";
+   *  call of a turn (see `seedSources`). `"state"`: tables loaded as the state
+   *  in force before a session's first request (`seedState`); the step keeps
+   *  its snapshot and results but is never rendered into the model's context
+   *  and does not count as a task. Usage is zero by construction. */
+  synthetic?: "seed" | "state";
 }
 
 export enum OperatorResultSerializationMode {
@@ -146,7 +163,11 @@ export enum ContextMode {
  */
 export type CompactionStrategy = "sliding" | "compress";
 
-export interface AgentSettings {
+export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
+  /** Earlier tasks replayed in full, or indexed with versioned dependencies. */
+  taskContext?: "trajectory" | "dependencies";
+  /** Include the persistent-session instructions from the first request. */
+  multiTask: boolean;
   systemPrompt: string;
   disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
@@ -171,6 +192,10 @@ export interface AgentSettings {
    *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
    *  each operator, so it cannot change on an existing workflow. */
   nativeProfileCollection?: boolean;
+  /** With collection on: "prefix" profiles a bounded prefix of each result
+   *  (row, cell and time budgets); "full" profiles every row exactly with
+   *  vectorized passes. Compiled into each operator like collection. */
+  nativeProfileScope?: "prefix" | "full";
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -269,10 +294,29 @@ export interface AgentSettings {
   dataEvidence: boolean;
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
-  /** Native mode: the `dataflow` tool takes a required `reasoning` argument, written
-   *  first — why this call and what the observed tables should show — which is
-   *  replayed with the call so later steps see it. Off by default. */
+  /** Retained for archived configurations. Native action calls always require
+   *  reasoning; native settings normalize this field to true. */
   dataflowReasoning: boolean;
+  /** Native mode: `check:` lines under every executed operator whose own
+   *  assumptions the engine found violated on the full tables (header rows,
+   *  records repeated across sources, join fan-out, row effects inside a
+   *  process function). Off by default. */
+  nativeChecks: boolean;
+  /** Initial native reference material; omitted/full retains the complete prompt. */
+  nativePromptDetail?: "full" | "on_demand";
+  /** How the registered protocol travels: `tool` (one JSON tool call of
+   *  actions per model step), `turn` (one tool call carrying a turn of
+   *  statements; a reply without a tool call is the answer) or `text` (the
+   *  model's message is the turn; see native/turn-syntax.ts). Set from the
+   *  driver kind at creation. */
+  nativeTransport?: "tool" | "text" | "turn";
+  /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
+  stateHistory: boolean;
+  /** System-verified reuse of earlier state in native mode: a ledger of each
+   *  sealed task's tables in the Answer receipt, provenance cards for inputs
+   *  taken from earlier state in edit receipts, and execution notes for empty,
+   *  limited or subset inputs. Off by default. */
+  stateLedger: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -505,9 +549,16 @@ export interface AgentSettings {
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
+  taskContext: "trajectory",
+  ...DEFAULT_OBSERVATION_FORMAT,
+  multiTask: false,
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
+  fullResultCharLimit: 5000,
+  retrievalViews: ["sample_stats", "full"],
+  dataEvidenceCharLimit: 2000,
+  flowEvidenceCharLimit: 2000,
   operatorResultSerializationMode: OperatorResultSerializationMode.TSV,
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
@@ -517,9 +568,15 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // Collected by default so evidence can be switched on without rebuilding
   // the workflow; exposure stays opt-in below.
   nativeProfileCollection: true,
+  nativeProfileScope: "prefix",
   dataEvidence: false,
   flowEvidence: false,
-  dataflowReasoning: false,
+  dataflowReasoning: true,
+  nativeChecks: false,
+  nativePromptDetail: "full",
+  nativeTransport: "tool",
+  stateHistory: false,
+  stateLedger: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
@@ -583,7 +640,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
  * together) and not mutable via UpdateAgentSettings. (The `toolDialect`
  * sub-mode, by contrast, IS mutable.)
  */
-export type AgentDriverKind = "vercel-tool-use" | "local-react";
+export type AgentDriverKind = "vercel-tool-use" | "local-react" | "text-turn" | "turn-tool";
 
 /**
  * Tool-call dialect for the `local-react` text-mode driver — the wire syntax
@@ -620,7 +677,9 @@ export interface AgentDelegateConfig {
   computingUnitId?: number;
 }
 
-export interface AgentSettingsApi {
+export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  taskContext?: "trajectory" | "dependencies";
+  multiTask?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
@@ -633,9 +692,20 @@ export interface AgentSettingsApi {
   agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
+  nativeChecks?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
+  /** How the registered protocol travels: `tool` (one JSON tool call of
+   *  actions per model step), `turn` (one tool call carrying a turn of
+   *  statements; a reply without a tool call is the answer) or `text` (the
+   *  model's message is the turn; see native/turn-syntax.ts). Set from the
+   *  driver kind at creation. */
+  nativeTransport?: "tool" | "text" | "turn";
+  stateHistory?: boolean;
+  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -721,7 +791,9 @@ export interface CreateAgentRequest {
   driver?: AgentDriverKind;
 }
 
-export interface UpdateAgentSettingsRequest {
+export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
+  taskContext?: "trajectory" | "dependencies";
+  multiTask?: boolean;
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
@@ -733,9 +805,20 @@ export interface UpdateAgentSettingsRequest {
   agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
+  nativeChecks?: boolean;
+  nativePromptDetail?: "full" | "on_demand";
+  /** How the registered protocol travels: `tool` (one JSON tool call of
+   *  actions per model step), `turn` (one tool call carrying a turn of
+   *  statements; a reply without a tool call is the answer) or `text` (the
+   *  model's message is the turn; see native/turn-syntax.ts). Set from the
+   *  driver kind at creation. */
+  nativeTransport?: "tool" | "text" | "turn";
+  stateHistory?: boolean;
+  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */

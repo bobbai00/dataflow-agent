@@ -139,6 +139,53 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("transport follows the driver and incompatible updates are atomic", async () => {
+    const transports = { "text-turn": "text", "vercel-tool-use": "tool", "turn-tool": "turn" } as const;
+    for (const driver of ["text-turn", "vercel-tool-use", "turn-tool"] as const) {
+      const transport = transports[driver];
+      const created = await readJson<any>(await createAgent({ driver }));
+      expect(created.settings.nativeTransport).toBe(transport);
+      expect(created.driver).toBe(driver);
+      const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+      for (const opposite of Object.values(transports).filter(value => value !== transport)) {
+        const response = await patchJson(`${API}/agents/${created.id}/settings`, {
+          nativeTransport: opposite,
+          maxSteps: 7,
+        });
+        expect(response.status).toBe(400);
+        expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+        expect((await createAgent({ driver, settings: { nativeTransport: opposite } })).status).toBe(400);
+      }
+    }
+  });
+
+  test("text transport rejects unsupported modes before creating an agent", async () => {
+    for (const settings of [{ agentMode: "code" }, { contextMode: "latest" }, { messageLayout: "opSplit" }]) {
+      expect((await createAgent({ driver: "text-turn", settings })).status).toBe(400);
+      expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(0);
+    }
+  });
+
+  test("text transport rejects context policies and tools its transcript cannot use", async () => {
+    const created = await readJson<any>(await createAgent({ driver: "text-turn" }));
+    const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+    for (const settings of [
+      { taskContext: "dependencies", stateHistory: true },
+      { contextWindowTokens: 2000 },
+      { stateLedger: true },
+      { enableRecallTool: true },
+      { enableResumeTool: true },
+      { enableCompactTool: true },
+      { turnHistory: "index" },
+      { sessionTurns: true },
+      { versionedMode: true },
+    ]) {
+      expect((await createAgent({ driver: "text-turn", settings })).status).toBe(400);
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, settings)).status).toBe(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+    }
+  });
+
   test("explicit message layout is echoed in create, info and settings", async () => {
     const response = await createAgent({ settings: { messageLayout: "native" } });
     const created = await readJson<any>(response);
@@ -402,7 +449,38 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(clearedBody.frontierDecayConfig).toBeUndefined();
   });
 
-  test("only the two evidence controls survive create, GET, and PATCH", async () => {
+  test("retrieval capabilities and budgets survive create, GET, and PATCH", async () => {
+    const settings = {
+      retrievalViews: ["full", "sample", "sample_stats"],
+      fullResultCharLimit: 100000,
+      maxOperatorResultCharLimit: 1500,
+      maxResultRows: 5,
+      dataEvidenceCharLimit: 1000,
+      flowEvidenceCharLimit: 1200,
+      flowEvidence: true,
+    };
+    const created = await readJson<any>(await createAgent({ settings }));
+    expect(created.settings).toMatchObject(settings);
+    const patch = { retrievalViews: ["sample_stats"], fullResultCharLimit: 80000 };
+    expect((await patchJson(`${API}/agents/${created.id}/settings`, patch)).status).toBe(200);
+    expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+      ...settings,
+      ...patch,
+    });
+    for (const bad of [
+      { retrievalViews: [] },
+      { retrievalViews: ["sample", "sample"] },
+      { fullResultCharLimit: 100001 },
+    ]) {
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, bad)).status).toBeGreaterThanOrEqual(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+        ...settings,
+        ...patch,
+      });
+    }
+  });
+
+  test("the two evidence controls survive create, GET, and PATCH", async () => {
     const created = await readJson<any>(
       await createAgent({
         settings: {

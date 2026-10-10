@@ -79,6 +79,82 @@ function makeAbcdPath() {
   };
 }
 
+describe("immutable native definitions across snapshots", () => {
+  function nativeWorkflow() {
+    const workflow = makeWorkflow(["source", "summary"]);
+    for (const op of workflow.operators) {
+      op.operatorProperties.code = `# ${op.operatorID}\n${"# generated runtime\n".repeat(6000)}`;
+      (op as any).nativeOp = {
+        type: "Scan",
+        source: `scan("${op.operatorID}.csv")`,
+        revision: op.operatorID,
+        properties: {},
+      } as any;
+    }
+    return workflow;
+  }
+
+  test("unchanged native definitions are shared while caller-owned graphs stay independent", () => {
+    const store = new WorkflowSnapshotStorage(makeAbcdPath());
+    const input = nativeWorkflow();
+    const first = store.createSnapshot("A", input);
+    const secondInput = {
+      ...structuredClone(input),
+      operatorPositions: { source: { x: 100, y: 200 } },
+    };
+    const second = store.createSnapshot("B", secondInput);
+    expect(second.workflow).toEqual(secondInput);
+    expect(second.workflow).not.toBe(first.workflow);
+    for (let i = 0; i < input.operators.length; i++) {
+      expect(second.workflow.operators[i] === first.workflow.operators[i]).toBe(true);
+      expect(Object.isFrozen(first.workflow.operators[i].operatorProperties)).toBe(true);
+      expect(first.workflow.operators[i]).not.toBe(input.operators[i]);
+    }
+    secondInput.operators[0].operatorProperties.code = "caller mutation";
+    secondInput.operatorPositions.source.x = 999;
+    expect(second.workflow.operators[0].operatorProperties.code).not.toBe("caller mutation");
+    expect(second.workflow.operatorPositions.source.x).toBe(100);
+    expect(first.workflow.operatorPositions).toEqual({});
+  });
+
+  test("changed definitions get their own immutable copy on creation and during a pending edit", () => {
+    const store = new WorkflowSnapshotStorage(makeAbcdPath());
+    const input = nativeWorkflow();
+    const first = store.createSnapshot("A", input);
+    const original = JSON.stringify(first.workflow);
+    const edited = structuredClone(input);
+    edited.operators[0].operatorProperties.code = "changed source";
+    edited.operators[0].nativeOp!.revision = "source-v2";
+    const second = store.createSnapshot("B", edited);
+    expect(second.workflow).toEqual(edited);
+    expect(second.workflow.operators[0]).not.toBe(first.workflow.operators[0]);
+    expect(second.workflow.operators[1] === first.workflow.operators[1]).toBe(true);
+    const secondSource = second.workflow.operators[0];
+    edited.operators[1].operatorProperties.code = "changed summary";
+    edited.operators[1].nativeOp!.revision = "summary-v2";
+    store.updatePendingWorkflow("B", edited);
+    expect(second.workflow).toEqual(edited);
+    expect(second.workflow.operators[0] === secondSource).toBe(true);
+    expect(second.workflow.operators[1]).not.toBe(first.workflow.operators[1]);
+    expect(JSON.stringify(first.workflow)).toBe(original);
+    expect(() => {
+      first.workflow.operators[1].operatorProperties.code = "illegal mutation";
+    }).toThrow();
+    edited.operators[1].operatorProperties.code = "later caller mutation";
+    expect(second.workflow.operators[1].operatorProperties.code).toBe("changed summary");
+  });
+
+  test("mutable legacy definitions are never shared between snapshots", () => {
+    const store = new WorkflowSnapshotStorage(makeAbcdPath());
+    const input = makeWorkflow(["source"]);
+    const first = store.createSnapshot("A", input);
+    const second = store.createSnapshot("B", input);
+    expect(second.workflow.operators[0]).not.toBe(first.workflow.operators[0]);
+    first.workflow.operators[0].operatorProperties.code = "legacy mutation";
+    expect(second.workflow.operators[0].operatorProperties.code).toBeUndefined();
+  });
+});
+
 describe("WorkflowSnapshotStorage — snapshot tree shape", () => {
   test("stored result bodies cannot be mutated through a caller-owned reference", () => {
     const storage = new WorkflowSnapshotStorage(makeAbcdPath());

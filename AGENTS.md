@@ -27,10 +27,10 @@ building, executing, and iterating on Texera dataflow operators. The fork adds
 three things on top of the upstream platform:
 
 1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
-   two modes — **native** (default: the model writes the dataflow as a program
-   of `name = operator(...)` expressions over one operator catalog, with
-   `filter`/`map`/`process` carrying Python; see
-   [docs/native-expression-mode.md](docs/native-expression-mode.md)) and
+   two modes — **native** (default: the model edits a graph with
+   `set id: type(inputs, settings)` and `delete id` declarations over thirteen
+   built-ins and registered Python table functions; see
+   [docs/native-registered-python-design.md](docs/native-registered-python-design.md)) and
    **code** (every operator a free Python function) — plus a heavily
    instrumented context-assembly layer (DELTA/LATEST modes, sampling budgets,
    evidence, turn indexing — every knob is a runtime setting).
@@ -74,7 +74,7 @@ troubleshooting playbook (network-switch S3 drift, UDF python resolution,
 proto regeneration): [docs/local-dev-with-agent.md](docs/local-dev-with-agent.md).
 
 Service ports: config 9094 · access-control (LLM proxy) 9096 · file 9092 ·
-compiling 9090 · CU-managing 8082 · texera-web 8080 · CU-master 8085 ·
+compiling 9090 · CU-managing 8888 (admin 8082) · texera-web 8080 · CU-master 8085 ·
 agent-service 3001 · frontend 4200 · LiteLLM 4000.
 
 ## 3. System architecture
@@ -82,7 +82,7 @@ agent-service 3001 · frontend 4200 · LiteLLM 4000.
 ```
 Frontend (:4200) ──ws/rest──▶ texera-web (:8080) ──┐
                                                    │ compile: WorkflowCompilingService (:9090)
-External callers ──rest/ws──▶ agent-service (:3001)│ compute: ComputingUnitManaging (:8082)
+External callers ──rest/ws──▶ agent-service (:3001)│ compute: ComputingUnitManaging (:8888)
                                │    │              ▼
                                │    └─workflow CRUD/exec──▶ Amber engine (CU-master :8085)
                                │                              └─ Python UDF workers (.venv)
@@ -98,9 +98,9 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   (logical → physical plan) → CU-managing (allocate) → Amber engine
   (execute, stream results). The sbt module graph in `build.sbt` mirrors this.
 - **`agent-service/`** is a standalone Bun/Elysia process, NOT part of the
-  sbt build. Tools live in `src/agent/tools/` (`dataflow` program tool and
+  sbt build. Tools live in `src/agent/tools/` (`dataflow` action tool and
   upsert for native mode, code authoring for code mode, execution,
-  inspection/recall); the native catalog, program parser and Python runtime
+  inspection/recall); the native catalog, expression parser and Python runtime
   in `src/agent/native/`; context assembly in `src/agent/context/` and
   `src/agent/util/context-utils.ts`; the ReAct loop in
   `src/agent/texera-agent.ts`. **Never import frontend or amber code from
@@ -142,7 +142,7 @@ results, and history carry (LongDS-Bench drives it exactly this way).
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
-Tools per mode: native exposes one tool, `dataflow(edits, delete, observe)`;
+Tools per mode: native exposes one tool, `dataflow(reasoning, actions)`;
 code exposes `createOrModifyOperator` and `deleteOperator`. `recallState`,
 `resumeFrom` and `compactContext` are opt-in in either mode.
 The rendered native system prompt, tool definitions and operator reference
@@ -152,27 +152,61 @@ live in [native-mode/](native-mode/), generated from the code by
 ### Default agent configuration
 
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
-created with no `settings` runs: **`agentMode: native`** (the expression
-program; `code` is the other mode), **`contextMode: delta`**,
+created with no `settings` runs: **`agentMode: native`** (explicit graph
+commands; `code` is the other mode), **`contextMode: delta`**,
 **`nativeProfileCollection: true`**, **`dataEvidence: false`** and
-**`flowEvidence: false`**. The two booleans independently control selected
-evidence in explicitly observed results; collection is compiled into each
-operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
+**`flowEvidence: false`**. Native retrieval choices control data-statistics
+exposure; `flowEvidence` independently adds flow metadata. Collection is
+compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
-(K=10). Native mode forces provider parallel tool calls off (the program is
+(K=10). Native mode forces provider parallel tool calls off (the action list is
 the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
-"index"` all off), and every pull tool (recall / inspect / resume / compact) is
-off. See [README.md §2](README.md) for the full table.
+"index"` all off). Optional recall, resume, and compaction tools are off;
+graph inspection is built into `dataflow`. See [README.md §2](README.md) for
+the full table.
+
+Measured `filter(t, predicate="name", settings={})` calls a registered predicate
+with a read-only row mapping and keyword settings. Boolean/null verdicts keep or
+drop rows; null verdicts are included in rejected counts. It preserves schema and
+order and collects bounded rejected-value frequencies. General table functions
+do not acquire filter/join/cast semantics automatically. Python edits invalidate
+both custom table operators and measured filters plus their descendants.
+
+`inspect target="schema"` reads exact column names/types from current completed
+results; `target="source"` reads retained scan/workbook discovery metadata.
+Both accept `operator_id` and optional `offset`/`limit` pages (limit 1–200), return
+`next_offset`, and never execute or open files. Use scan preview=1, execute, then
+source inspection for workbook layout; parsed schema requires a normal scan.
+
+Native Retrieve requires `operator_ids` and a `view`: `full`, `sample`, or `sample_stats`. Session
+`retrievalViews` controls the available choices independently of `dataEvidence`.
+Both omitted views and current default settings select `["sample_stats", "full"]`;
+explicitly select `["sample", "full"]` to disable native data statistics.
+`flowEvidence` adds measured operator effects to execution observations and
+bounded flow summaries to retrieval. `fullResultCharLimit` defaults to 5,000; transport
+retains up to 100,000 characters independently of the display cap;
+`maxOperatorResultCharLimit` and `maxResultRows` bound samples. Statistics and
+automatic flow metadata have separate `dataEvidenceCharLimit` and
+`flowEvidenceCharLimit` budgets (2,000 each). Execution retains the large
+bounded result for every arm; switching views never executes. See
+[docs/retrieval-views.md](docs/retrieval-views.md).
 
 Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
 `allowedOperatorTypes`, and the old level/statistics overlays) produce an
 error, not a compatibility mapping. Schema and samples fill one result budget;
 each enabled evidence kind appends within its own budget, so evidence never
 displaces rows; a complete small table suppresses redundant data facts.
-`dataflowReasoning` (default off) adds a required `reasoning` argument to the
-`dataflow` tool.
+`dataflowReasoning` is retained for archived settings and normalized to true
+in native mode. Every call requires a brief rationale and an ordered list of
+`inspect`, `edit`, `execute`, `retrieve`, or `answer` actions. Edits do not
+execute; retrieval never executes; Answer must be the sole action and ends
+the loop. Each Edit atomically stages Python definitions and graph declarations;
+it never executes. Functions share authored definitions, while every operator
+invocation has fresh execution variables. A failed edit skips later actions while earlier completed edits remain. After
+an execution failure, subsequent requested executions and inspect/retrieve may continue. Edits are skipped;
+a skipped edit also blocks later executions from silently using the old graph.
 `inspectResult` is never exposed. See
-[docs/native-expression-mode.md](docs/native-expression-mode.md) and
+[docs/native-registered-python-design.md](docs/native-registered-python-design.md) and
 [docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark
 arms must run their recorded revisions; do not reinterpret old labels.
 
@@ -247,7 +281,7 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | LiteLLM container — only the providers you call |
 | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` | optional: swap the local proxy for an external OpenAI-compatible gateway |
 | `JUDGE_BASE_URL`, `JUDGE_API_KEY` | optional: LongDS judge endpoint (defaults to the local proxy) |
-| `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-4o-mini directly — a dummy key silently zeroes paraphrase metrics |
+| `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-5-mini directly — a dummy key silently zeroes paraphrase metrics |
 | `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
 
 **Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build

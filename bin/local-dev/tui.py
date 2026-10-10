@@ -643,13 +643,9 @@ def is_dirty(svc: Service) -> bool:
 def _jvm_is_dirty(svc: Service) -> bool:
     stamp = BUILD_STAMP_DIR / svc.name
     if not stamp.exists() or stamp.stat().st_size == 0:
-        # Lazy seed: if a jar is present, assume it matches current source and
-        # write the hash. First REPL after a fresh checkout pays this once.
-        jar = REPO_ROOT / svc.artifact_jar if svc.artifact_jar else None
-        if jar is None or not jar.exists():
-            return True
-        stamp.write_text(source_hash(svc))
-        return False
+        # Only a verified build may associate a source hash with a jar.
+        # Inspection must not bless a potentially stale prebuilt artifact.
+        return True
 
     files = _jvm_source_files(svc)
     stamp_mtime = stamp.stat().st_mtime

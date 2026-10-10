@@ -21,7 +21,12 @@ import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ProfileColumn } from "./profiles";
-import { collectNativeEvidence, restrictNativeObservation, selectNativeObservation } from "./evidence";
+import {
+  collectNativeEvidence,
+  FLOW_OMITTED_NOTICE,
+  restrictNativeObservation,
+  selectNativeObservation,
+} from "./evidence";
 import { downstreamRelevantColumns } from "./evidence-lineage";
 
 function column(rows = 5, nulls = 1): ProfileColumn {
@@ -137,6 +142,147 @@ const factText = (f: ReturnType<typeof fixture>) =>
 const observe = (f: ReturnType<typeof fixture>, options = {}) =>
   selectNativeObservation({ ...f, data: true, flow: true, maxChars: 2000, ...options });
 
+test("full retrieval preserves long cells and reports a bounded incomplete table", () => {
+  const f = fixture("Scan", {});
+  f.info.resultSchema = [{ name: "x", type: "string", encoding: "string" }];
+  f.info.result = Array.from({ length: 12 }, (_, i) => ({ x: `${i}:` + "z".repeat(180) }));
+  f.info.totalRowCount = 12;
+  f.info.truncated = false;
+  const full = observe(f, { view: "full", data: false, flow: false, maxChars: 1100, maxRows: 1 });
+  expect(full.text).toContain("z".repeat(180));
+  expect(full.text.length).toBeLessThanOrEqual(1100);
+  expect(full.table?.complete).toBe(false);
+  expect(full.table?.totalRows).toBe(12);
+  expect(full.table!.returnedRows).toBeGreaterThan(1);
+  expect(full.table!.returnedRows).toBeLessThan(12);
+  expect(full.text).toContain("retained records, not a random sample");
+});
+
+test("sample_stats preserves the sample and has its own statistics budget", () => {
+  const f = fixture();
+  const sample = observe(f, { view: "sample", data: false, flow: false, maxChars: 200, dataMaxChars: 800 });
+  const stats = observe(f, { view: "sample_stats", data: true, flow: false, maxChars: 200, dataMaxChars: 800 });
+  const records = (o: typeof sample) => ({ rows: o.records?.rows, fields: o.records?.fields });
+  expect(records(stats)).toEqual(records(sample));
+  expect(stats.text).toContain("statistics:");
+  expect(sample.text).not.toContain("statistics:");
+});
+
+test("sample statistics preserve exact floating-point extrema", () => {
+  const f = fixture();
+  f.info.resultSchema = [{ name: "x", type: "float64", encoding: "number-or-special-string" }];
+  f.info.tableProfile!.columns.x = {
+    ...column(3, 0),
+    type: "float64",
+    min: { type: "float64", value: -2.15300777 },
+    max: { type: "float64", value: 0.0000123456789 },
+  };
+  const result = observe(f, { view: "sample_stats", flow: false });
+  expect(result.text).toContain("-2.15300777 to 0.0000123456789");
+  expect(result.text).not.toContain("-2.153 to");
+});
+
+test("partial records do not obscure exhaustive full-table value statistics", () => {
+  const f = fixture("Scan", {});
+  const years = [2003, 2011, 2015, 2018, 2020, 2021, 2022, 2023];
+  f.info.result = years.map(x => ({ x }));
+  f.info.truncated = false;
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = f.info.tableProfile!.coverage.rowsProcessed = years.length;
+  f.info.tableProfile!.columns.x = {
+    ...column(years.length, 0),
+    min: { type: "int64", value: "2003" },
+    max: { type: "int64", value: "2023" },
+    omissions: [],
+    frequencies: {
+      values: years.map(x => ({ value: { type: "int64", value: String(x) }, count: 1 })),
+      otherCount: 0,
+      truncated: false,
+    },
+  };
+  const result = observe(f, { view: "sample_stats", flow: false, maxRows: 5, dataMaxChars: 2000, topValues: 0 });
+  expect(result.table?.returnedRows).toBe(5);
+  expect(result.table?.complete).toBe(false);
+  expect(result.text).toContain("statistics: full table, 8 of 8 rows");
+  expect(result.text).toContain("all: 2003 1; 2011 1; 2015 1; 2018 1; 2020 1; 2021 1; 2022 1; 2023 1");
+  expect(result.text).toContain("first and last retained records; … marks omitted rows");
+});
+
+test("preview completeness never implies that the full source was read", () => {
+  const f = fixture("Scan", { files: "large.csv", preview: 3 });
+  f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
+  f.info.truncated = false;
+  for (const view of ["full", "sample", "sample_stats"] as const) {
+    const result = observe(f, { view, data: view === "sample_stats", flow: false });
+    expect(result.table?.complete).toBe(true);
+    expect(result.text).toContain("source preview only");
+    expect(result.text).toContain("(complete; source preview only)");
+    expect(result.text).not.toContain("(complete) (all rows)");
+  }
+});
+
+test("sample statistics disclose partial coverage without changing the sample", () => {
+  const f = fixture("Scan");
+  f.info.totalRowCount = 100000;
+  f.info.tableProfile!.coverage = {
+    scope: "partial",
+    complete: false,
+    expectedWorkers: 1,
+    receivedWorkers: 1,
+    rowsProcessed: 3,
+  };
+  f.info.tableProfile!.status = "partial";
+  const sample = observe(f, { view: "sample", data: false, flow: false });
+  const stats = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(stats.text).toContain("statistics: partial profile, 3 of 100,000 rows");
+  expect(stats.text).toContain("1 of 1 columns");
+  expect(stats.records?.rows).toEqual(sample.records?.rows);
+  expect(stats.table).toEqual(sample.table);
+});
+
+test("raw-line transport artifacts are not presented as parsed data statistics", () => {
+  const f = fixture("Scan", { format: "lines" });
+  f.info.tableProfile!.columns = { line: { ...column(3, 0), type: "str" } };
+  f.info.tableProfile!.structure.duplicateRows = 2;
+  const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(result.text).toContain("statistics: unavailable for raw lines; parse them into columns first");
+  expect(result.text).not.toContain("duplicate rows=2");
+  expect(result.selected.some(id => id.startsWith("data."))).toBe(false);
+});
+
+test("unavailable statistics are explicit and do not fabricate zero counts", () => {
+  const f = fixture("Scan");
+  f.info.tableProfile = undefined;
+  const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(result.text).toContain("statistics: unavailable for this result");
+  expect(result.text).not.toContain("null=0");
+});
+
+test("a nonempty table with zero profiled rows has unavailable data statistics", () => {
+  const f = fixture("Scan");
+  f.info.totalRowCount = 8627181;
+  f.info.tableProfile!.status = "partial";
+  f.info.tableProfile!.coverage.complete = false;
+  f.info.tableProfile!.coverage.scope = "partial";
+  f.info.tableProfile!.coverage.rowsProcessed = 0;
+  f.info.tableProfile!.columns = { x: column(0, 0) };
+  const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(result.text).toContain("statistics: unavailable for this result");
+  expect(result.selected.some(id => id.startsWith("data."))).toBe(false);
+  expect(result.text).not.toContain("column counts");
+  expect(result.table?.returnedRows).toBeGreaterThan(0);
+});
+
+test("flow evidence remains available when a full record view fills its budget", () => {
+  const f = fixture();
+  f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
+  f.info.truncated = false;
+  const full = observe(f, { view: "full", data: false, maxChars: 100, flowMaxChars: 700 });
+  expect(full.text).toContain("- flow:");
+  expect(full.text).toContain("kept=3/5");
+  expect(full.table?.returnedRows).toBe(3);
+  expect(full.table?.complete).toBe(true);
+});
+
 test("compact counts share coverage labels without losing unknown or null counts", () => {
   const f = fixture("Scan");
   f.info.tableProfile!.columns = {
@@ -145,13 +291,33 @@ test("compact counts share coverage labels without losing unknown or null counts
     unknown_distinct: { ...column(3, 0), distinctCount: null },
   };
   const result = observe(f, { flow: false });
-  expect(result.text).toContain("Data measurement: column counts (full=3 rows)");
-  expect(result.text).toContain("column | null | nonnull | distinct(nonnull)");
-  expect(result.text).toContain('"nullable" | 2 | 1 | 1');
-  expect(result.text).toContain('"unknown_distinct" | 0 | 3 | unknown');
-  expect(result.text).toContain('"x" | 0 | 3 | 3');
+  expect(result.text).toContain("statistics: full table, 3 of 3 rows");
+  expect(result.text).toContain("column | type | nulls | distinct | values");
+  expect(result.text).toContain("nullable | int64 | 2 | 1 |");
+  expect(result.text).toContain("unknown_distinct | int64 | 0 | unknown |");
+  expect(result.text).toContain("x | int64 | 0 | 3 |");
   expect(result.text).not.toContain('"nullable" (full=3 rows): null=');
-  expect(result.text).toContain("Sample stored row 1: 1");
+  expect(result.text).toContain("| 1 |");
+});
+
+test("sample records do not claim a row position in the original table", () => {
+  const f = fixture("Sort");
+  f.info.result = [
+    { rank: 1, label: "first" },
+    { rank: 5, label: "fifth" },
+  ];
+  f.info.resultSchema = [
+    { name: "rank", type: "int64", encoding: "number-or-decimal-string" },
+    { name: "label", type: "str", encoding: "string" },
+  ];
+  f.info.totalRowCount = 5;
+  f.info.truncated = true;
+  const result = observe(f, { data: false, flow: false });
+  expect(result.text).toContain("| 1 | first |");
+  expect(result.text).toContain("| 5 | fifth |");
+  expect(result.text).not.toContain("row 2");
+  expect(result.text).not.toContain("(complete) (all rows)");
+  expect(result.text).toContain("retained records, not a random sample");
 });
 
 test("compact count groups do not conflate partial and full column coverage", () => {
@@ -163,9 +329,9 @@ test("compact count groups do not conflate partial and full column coverage", ()
     partial_other: column(2, 0),
   };
   const result = observe(f, { flow: false });
-  expect(result.text).toContain("column counts (full=3 rows)");
-  expect(result.text).toContain("column counts (partial prefix=2/3 rows)");
-  expect(result.text).toContain('"partial" | 1 | 1 | 1');
+  expect(result.text).toContain("statistics: full table, 3 of 3 rows");
+  expect(result.text).toContain("statistics: partial profile, 2 of 3 rows");
+  expect(result.text).toContain("partial | int64 | 1 | 1 |");
 });
 
 test("combined keeps the data count beside the flow comparison: a flow line never suppresses a data line", () => {
@@ -176,9 +342,9 @@ test("combined keeps the data count beside the flow comparison: a flow line neve
   expect(both.omitted).not.toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
   const data = observe(f, { flow: false });
   expect(data.selected).toContain("data.column.x.counts");
-  expect(data.text).toContain("null=1/3, nonnull=2; distinct(nonnull)=2");
+  expect(data.text).toContain("x | int64 | 1 | 2 |");
   const flow = observe(f, { data: false });
-  expect(flow.text).not.toContain("Data measurement:");
+  expect(flow.text).not.toContain("statistics:");
   expect(flow.text).toContain('predicate column "x":');
   f.results.get("left")!.error = "upstream failed";
   const unavailable = observe(f);
@@ -186,17 +352,19 @@ test("combined keeps the data count beside the flow comparison: a flow line neve
   expect(unavailable.text).not.toContain('predicate column "x":');
 });
 
-test("count compaction leaves budget savings empty and preserves sampled records", () => {
+test("column counts are budgeted as table rows and preserve sampled records", () => {
   const f = fixture("Scan");
   f.info.tableProfile!.columns = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`field_${i}`, column(3, 0)]));
   const result = observe(f, { flow: false, maxChars: 700 });
-  expect(result.text).toContain("column counts (full=3 rows)");
-  expect(result.text.length).toBeLessThan(550);
-  expect(result.chunks.filter(c => c.id.startsWith("sample.")).map(c => c.text)).toEqual(["Sample stored row 1: 1"]);
+  expect(result.text).toContain("statistics: full table, 3 of 3 rows");
+  // Counts are budgeted as the table rows they render as, so the room they
+  // save holds more columns instead of going unused; the budget still holds.
+  expect(result.text.split("\n").filter(l => /^\| field_\d+ \|/.test(l)).length).toBeGreaterThan(2);
+  expect(result.records?.rows.map(row => row.line)).toEqual(["| 1 |"]);
   const excluded = result.omitted.filter(c => c.reason === "budget").map(c => c.id);
   expect(excluded.some(id => id.startsWith("data.column."))).toBe(true);
   expect(result.selected.some(id => excluded.includes(id))).toBe(false);
-  expect(result.selected.filter(id => id.endsWith(".counts")).length).toBeLessThan(10);
+  expect(result.text.length).toBeLessThanOrEqual(2 * 700 + 1);
 });
 
 test("raw preview protects ordered header rows from metadata profiles and long cells", () => {
@@ -224,13 +392,35 @@ test("raw preview protects ordered header rows from metadata profiles and long c
   for (const data of [false, true])
     for (const flow of [false, true]) {
       const result = observe(f, { data, flow });
-      expect(result.text).toContain("heading_marker | amount");
-      expect(result.text).toContain("Sample stored row 6:");
-      expect(result.text.indexOf("Sample stored row 2:")).toBeLessThan(result.text.indexOf("Sample stored row 6:"));
+      expect(result.text.replace(/\\([\\|])/g, "$1")).toContain("heading_marker | amount");
+      expect(result.text.replace(/\\([\\|])/g, "$1")).toContain('| Sheet1 | 5 | "heading_marker | amount" |');
+      expect(result.text.indexOf("| Sheet1 | 1 |")).toBeLessThan(result.text.indexOf("| Sheet1 | 5 |"));
       expect(result.selected.some(id => id.startsWith("data.column."))).toBe(false);
-      expect(result.text).toContain("...[truncated]...");
+      expect(result.text).toContain("clipped cell");
       expect(result.text.length).toBeLessThanOrEqual(data && flow ? 4000 : 2000);
     }
+});
+
+test("one-row header previews use the record budget when the complete header is too wide", () => {
+  const f = fixture("Scan", { files: "book.xlsx", preview: 1 });
+  const header = "column | ".repeat(80) + "Age | " + 'quoted "field" | '.repeat(300);
+  f.info.result = [{ sheet: "Sheet1", row_no: 0, line: header }];
+  f.info.resultSchema = [
+    { name: "sheet", type: "str", encoding: "string" },
+    { name: "row_no", type: "int64", encoding: "number-or-decimal-string" },
+    { name: "line", type: "str", encoding: "string" },
+  ];
+  f.info.totalRowCount = 1;
+  f.info.truncated = false;
+  for (const data of [false, true]) {
+    const result = observe(f, { data, flow: false, maxChars: 2000, maxRows: 5 });
+    expect(result.text.replace(/\\([\\|])/g, "$1")).toContain("Age |");
+    expect(result.text).toContain("clipped cell");
+    expect(result.text).toContain("(all rows; source preview only; 1 clipped cell)");
+    expect(result.text.length).toBeGreaterThan(1850);
+    expect(result.chunks[0].text.length).toBeLessThanOrEqual(2000);
+    expect(result.table?.complete).toBe(false);
+  }
 });
 
 test("result bindings remain exact audit metadata without a model-facing version preamble", () => {
@@ -315,7 +505,7 @@ test("zero input gives undefined retention, not zero percent", () => {
     outputRows: 0,
     operations: { keptRows: 0, rejectedRows: 0, nullPredicates: 0 },
   });
-  expect(factText(f)).toContain("kept=0/0 (undefined)");
+  expect(factText(f)).toContain("kept=0/0 (no rows)");
 });
 
 test("partial column profiles do not erase full operator counters or claim full column coverage", () => {
@@ -331,6 +521,18 @@ test("partial column profiles do not erase full operator counters or claim full 
   f.info.tableProfile!.columns.x = column(2);
   expect(factText(f)).toContain("kept=3/5");
   expect(factText(f)).toContain("partial prefix=2/3 rows");
+});
+
+test("zero profiled rows omit column comparisons but preserve operator counters", () => {
+  const f = fixture();
+  for (const info of [f.info, f.results.get("left")!]) {
+    info.tableProfile!.coverage.rowsProcessed = 0;
+    info.tableProfile!.coverage.complete = false;
+    info.tableProfile!.columns.x = column(0, 0);
+  }
+  expect(factText(f)).toContain("kept=3/5");
+  expect(factText(f)).not.toContain("Flow measurement: predicate column");
+  expect(collectNativeEvidence(f).facts.some(fact => fact.family === "data")).toBe(false);
 });
 
 test("stale profile, wrong operator revision, failed or missing input cannot earn relational measurements", () => {
@@ -380,7 +582,7 @@ test("aggregate shows group size and per-reducer nonnull denominators", () => {
   expect(factText(f)).toContain('"mean" nonnull=4/5');
 });
 
-test("equijoin distinguishes matched output contribution from row and key coverage", () => {
+function joinFixture() {
   const f = fixture("Join", { type: "left", on: [["x", "x"]], nullsEqual: false });
   f.results.get("right")!.totalRowCount = 4;
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 8;
@@ -418,6 +620,11 @@ test("equijoin distinguishes matched output contribution from row and key covera
       },
     },
   });
+  return f;
+}
+
+test("equijoin distinguishes matched output contribution from row and key coverage", () => {
+  const f = joinFixture();
   const text = factText(f);
   expect(text).toContain("matched contribution=6");
   expect(text).toContain("left matched rows=3/5");
@@ -428,17 +635,83 @@ test("equijoin distinguishes matched output contribution from row and key covera
   expect(collectNativeEvidence(f).facts.some(x => x.id.startsWith("flow.join."))).toBe(false);
 });
 
-test("projection/derive guarantees are contractual, UDF remains unknown at equal row counts", () => {
+test("join witnesses are bounded optional evidence and cannot override counters or versions", () => {
+  const f = joinFixture();
+  const left = (f.info.tableProfile!.native!.operations!.join as Record<string, any>).left;
+  left.unmatchedExamples = [{ values: [{ type: "int64", value: "9007199254740993" }], count: 1, truncated: false }];
+  left.duplicateExamples = [{ values: [{ type: "int64", value: "7" }], count: 3, truncated: false }];
+  expect(factText(f)).toContain("[9007199254740993] × 1");
+  expect(factText(f)).toContain("[7] × 3");
+  expect(observe(f, { flow: false }).text).not.toContain("key examples");
+  expect(observe(f, { data: false, flowMaxChars: 400 }).text).toContain("matched contribution=6");
+  left.unmatchedExamples[0].count = 100;
+  left.duplicateExamples[0].values[0].value = "9223372036854775808";
+  expect(factText(f)).not.toContain("key examples");
+  expect(factText(f)).toContain("matched contribution=6");
+  f.info.resultVersion!.inputs[0].resultVersion = "stale";
+  expect(factText(f)).not.toContain("matched contribution=6");
+});
+
+test("guarantees describe contracts, UDF remains unknown at equal row counts", () => {
   for (const kind of ["Project", "Map", "Cast", "Sort"]) {
     const f = fixture(kind);
     f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
     f.info.tableProfile!.native!.outputRows = 5;
-    expect(collectNativeEvidence(f).facts.find(x => x.id === "flow.contract")?.kind).toBe("guarantee");
+    const contract = collectNativeEvidence(f).facts.find(x => x.id === "flow.contract");
+    // A project, cast or sort contract only restates the operator's name.
+    expect(contract?.kind).toBe(kind === "Map" ? "guarantee" : undefined);
   }
   const f = fixture("Process");
   f.info.totalRowCount = 5;
-  expect(factText(f)).toContain("row/column mapping unknown");
+  expect(factText(f)).not.toContain("mapping unknown");
   expect(factText(f)).not.toContain("row identities preserved");
+});
+
+test("a registered function adds no flow line: its row mapping is not measured", () => {
+  const f = fixture("Process");
+  f.op.nativeOp!.registeredName = "select_records";
+  const text = factText(f);
+  expect(text).not.toContain("select_records");
+  expect(text).not.toContain("mapping unknown");
+  expect(text).not.toContain("Process");
+});
+
+test("an author's description is never presented as an engine guarantee", () => {
+  for (const type of ["Map", "Filter", "Process"]) {
+    const f = fixture(type, { doc: "Every excluded participant has been removed" });
+    const text = factText(f);
+    expect(text).not.toContain("Every excluded participant has been removed");
+    // A registered function gets neither a warning nor a guarantee line.
+    if (type === "Process") expect(text).not.toMatch(/Flow (?:warning|guarantee): Process/);
+  }
+});
+
+test("wide data views leave room for compact category values and relevant ranges", () => {
+  const f = fixture("Scan");
+  f.info.resultSchema = Array.from({ length: 80 }, (_, i) => ({ name: `c${i}`, type: "int64", encoding: "number" }));
+  f.info.tableProfile!.columns = Object.fromEntries(f.info.resultSchema.map(c => [c.name, column(100, 0)]));
+  f.info.tableProfile!.columns.c0 = {
+    ...column(100, 0),
+    type: "str",
+    min: null,
+    max: null,
+    distinctCount: 2,
+    frequencies: {
+      values: [
+        { value: { type: "str", value: "Yes" }, count: 80 },
+        { value: { type: "str", value: "No" }, count: 20 },
+      ],
+      otherCount: 0,
+      truncated: false,
+    },
+  };
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 100;
+  f.info.tableProfile!.coverage.rowsProcessed = 100;
+  const selection = observe(f, { view: "sample_stats", flow: false, dataMaxChars: 2000 });
+  expect(selection.selected).toContain("data.column.c0.counts");
+  expect(selection.selected).toContain("data.column.c0.values");
+  expect(selection.selected.some(id => id.endsWith(".range"))).toBe(true);
+  expect(selection.omitted.some(f => f.id.endsWith(".counts") && f.reason === "budget")).toBe(true);
 });
 
 test("complete small tables outrank redundant data profiles but retain useful input evidence", () => {
@@ -446,7 +719,7 @@ test("complete small tables outrank redundant data profiles but retain useful in
   f.info.result = [{ x: 10 }, { x: 20 }, { x: 30 }];
   f.info.truncated = false;
   const selection = observe(f);
-  expect(selection.text).toContain("Complete table");
+  expect(selection.text).toContain("(complete)");
   expect(selection.selected.some(x => x.startsWith("data.column"))).toBe(false);
   expect(selection.text).toContain("kept=3/5");
   expect(selection.omitted.some(x => x.reason === "redundant_complete_table")).toBe(true);
@@ -459,7 +732,7 @@ test("all exposure arms share typed data formatting and obey their result budget
       for (const maxChars of [1, 12, 60, 160, 400, 2000]) {
         const selection = observe(f, { data, flow, maxChars });
         // The table and data lines fit `maxChars`; flow lines have their own budget of at most the same size.
-        expect(selection.text.length).toBeLessThanOrEqual(data && flow ? 2 * maxChars : maxChars);
+        expect(selection.text.length).toBeLessThanOrEqual((1 + Number(data) + Number(flow)) * maxChars + 2);
         if (!data) expect(selection.selected.some(x => x.startsWith("data."))).toBe(false);
         if (!flow) expect(selection.selected.some(x => x.startsWith("flow."))).toBe(false);
         expect(observe(f, { data, flow, maxChars })).toEqual(selection);
@@ -522,7 +795,7 @@ test("unknown or truncated data is never labelled a complete table", () => {
   ]) {
     const f = fixture();
     change(f);
-    expect(observe(f).text).not.toContain("Complete table");
+    expect(observe(f).text).not.toContain("(complete)");
   }
 });
 
@@ -541,9 +814,9 @@ test("true null, literal NULL, unsafe int64 and reserved-looking user columns su
     { missing: null, text: "NULL", id: "9007199254740993", __row_index__: "user value", __is_visualization__: true },
   ];
   const text = observe(f, { data: false, flow: false }).text;
-  expect(text).toContain('null\t"NULL"\t9007199254740993\t"user value"\ttrue');
-  expect(text).toContain('"__row_index__"');
-  expect(text).toContain('"__is_visualization__"');
+  expect(text).toContain('| null | "NULL" | 9007199254740993 | user value | true |');
+  expect(text).toContain("__row_index__");
+  expect(text).toContain("__is_visualization__");
 });
 
 test("budget selection prioritizes relevant columns beyond the old first/last column cap", () => {
@@ -554,7 +827,7 @@ test("budget selection prioritizes relevant columns beyond the old first/last co
   f.info.tableProfile!.columns = Object.fromEntries(names.map(name => [name, column(3)]));
   f.info.tableProfile!.columnCount = 100;
   const selected = observe(f, { flow: false, maxChars: 550 });
-  expect(selected.text).toContain('"c70"');
+  expect(selected.text).toContain("c70");
   expect(selected.selected).toContain("data.column.c70.counts");
   expect(selected.omitted.some(x => x.reason === "budget")).toBe(true);
 });
@@ -614,10 +887,12 @@ test("data counts append to the full no-evidence view instead of replacing sampl
   const withData = observe(f, { flow: false, maxChars: 850 });
   const without = observe(f, { data: false, flow: false, maxChars: 850 });
   for (const name of ["x", "y", "z"]) expect(withData.selected).toContain(`data.column.${name}.counts`);
-  const rows = (o: ReturnType<typeof observe>) => o.selected.filter(id => id.startsWith("sample."));
+  const rows = (o: ReturnType<typeof observe>) => o.records?.rows;
   expect(rows(withData)).toEqual(rows(without));
-  expect(rows(withData).length).toBeGreaterThan(8);
-  expect(withData.text.startsWith(without.text.replace(/\nView incomplete[^\n]*$/, ""))).toBe(true);
+  expect(rows(withData)?.length).toBeGreaterThan(8);
+  expect(withData.text.startsWith(without.text.replace(/\nretained records, not a random sample[^\n]*$/, ""))).toBe(
+    true
+  );
   expect(withData.text.length).toBeLessThanOrEqual(2 * 850);
 });
 
@@ -704,37 +979,193 @@ test("observed final count includes bound upstream group grain, not hidden table
   expect(selection.text).toContain("groups=5 from 10 rows");
   expect(selection.text).toContain("row denominator=10/10");
   expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
-  expect(selection.text).not.toContain("Data measurement");
+  expect(selection.text).not.toContain("statistics:");
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(true);
   expect(observe(f, { flow: false }).text).not.toContain("account");
   expect(selection.text.length).toBeLessThanOrEqual(2000);
 });
 
-test("upstream summaries stop at stale edges and opaque UDFs", () => {
+test.each([false, true])(
+  "upstream conversion losses survive nearby summaries and remain version bound (custom=%s)",
+  custom => {
+    const f = calculationFixture();
+    const raw = f.workflow.operators.find(op => op.operatorID === "raw")!;
+    const source = { ...structuredClone(raw), operatorID: "source" };
+    f.workflow.operators.unshift(source);
+    Object.assign(raw.nativeOp!, {
+      type: "Cast",
+      inputs: ["source"],
+      properties: { columns: [{ column: "x", dtype: "int64" }], errors: "null" },
+    });
+    const rawInfo = f.results.get("raw")!;
+    const sourceInfo = structuredClone(rawInfo);
+    Object.assign(sourceInfo.resultVersion!, { id: "source".padEnd(64, "0"), operatorId: "source", inputs: [] });
+    sourceInfo.tableProfile!.resultVersion = sourceInfo.resultVersion!.id;
+    f.results.set("source", sourceInfo);
+    rawInfo.resultVersion!.inputs = [
+      { inputIndex: 0, operatorId: "source", outputPort: 0, resultVersion: sourceInfo.resultVersion!.id },
+    ];
+    rawInfo.tableProfile!.native = {
+      operatorType: "Cast",
+      inputOperators: ["source"],
+      inputRows: [10],
+      outputRows: 10,
+      operations: {
+        conversionFailures: { x: 6 },
+        conversionFailureExamples: {
+          x: { examples: [{ values: [{ type: "str", value: "1,299" }], count: 4, truncated: false }], otherCount: 2 },
+        },
+      },
+    };
+    // Add enough nearby projections to exhaust the old first-three-ancestors rule.
+    for (let i = 0; i < 3; i++) {
+      const id = `project${i}`;
+      const previous = f.op.nativeOp!.inputs[0];
+      const previousInfo = f.results.get(previous)!;
+      const op = { ...structuredClone(source), operatorID: id };
+      Object.assign(op.nativeOp!, { type: "Project", inputs: [previous], properties: { keep: ["x"] } });
+      if (custom && i === 1)
+        Object.assign(op.nativeOp!, { type: "Process", registeredName: "reshape_values", properties: {} });
+      const info = structuredClone(previousInfo);
+      Object.assign(info.resultVersion!, {
+        id: id.padEnd(64, "0"),
+        operatorId: id,
+        inputs: [{ inputIndex: 0, operatorId: previous, outputPort: 0, resultVersion: previousInfo.resultVersion!.id }],
+      });
+      info.tableProfile!.resultVersion = info.resultVersion!.id;
+      info.tableProfile!.native = null;
+      f.workflow.operators.push(op);
+      f.results.set(id, info);
+      f.op.nativeOp!.inputs = [id];
+      f.info.resultVersion!.inputs = [
+        { inputIndex: 0, operatorId: id, outputPort: 0, resultVersion: info.resultVersion!.id },
+      ];
+    }
+    const selected = observe(f, { data: false, flowMaxChars: 1000 });
+    expect(selected.text).toContain("- flow (raw):");
+    expect(selected.text).toContain('"x" conversion failures=6/10');
+    expect(selected.text).toContain('"1,299" × 4');
+    if (custom) expect(selected.text).toContain("row/column correspondence to this output unknown");
+    expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
+    expect(selected.text).not.toContain("UNOBSERVED_ROW_CANARY");
+    rawInfo.resultVersion!.inputs[0].resultVersion = "stale";
+    expect(observe(f).text).not.toContain("conversion failures");
+    expect(observe(f).text).not.toContain("1,299");
+  }
+);
+
+test("invalid cast witnesses cannot remove valid conversion counts", () => {
+  const f = fixture("Cast", { columns: [{ column: "x", dtype: "int64" }], errors: "null" });
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 5,
+    operations: {
+      conversionFailures: { x: 2 },
+      conversionFailureExamples: {
+        x: {
+          examples: [{ values: [{ type: "str", value: "bad" }], count: 2, truncated: false }],
+          otherCount: 1,
+        },
+      },
+    },
+  });
+  expect(factText(f)).toContain('"x" conversion failures=2/5');
+  expect(factText(f)).not.toContain("failed-value examples");
+});
+
+test("upstream summaries stop at stale edges and preserve opaque UDF semantics", () => {
   const f = calculationFixture();
   f.info.resultVersion!.inputs[0].resultVersion = "older";
   expect(observe(f).text).not.toContain("account");
   f.info.resultVersion!.inputs[0].resultVersion = f.results.get("left")!.resultVersion!.id;
-  f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!.type = "Process";
+  Object.assign(f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!, {
+    type: "Process",
+    registeredName: "summarize_records",
+  });
   const text = observe(f).text;
-  expect(text).toContain("mapping unknown");
+  expect(text).not.toContain("mapping unknown");
+  expect(text).not.toContain("summary stops here");
+  expect(text).not.toContain("Process");
   expect(text).not.toContain("groups=5 from 10 rows");
   expect(text).not.toContain("UNOBSERVED_ROW_CANARY");
 });
 
-test("an observed UDF itself is an opaque calculation boundary", () => {
+test("an observed UDF includes measured input ancestors without inferring row correspondence", () => {
   const f = calculationFixture();
   f.op.nativeOp!.type = "Process";
   const selection = observe(f);
-  expect(selection.text).toContain("mapping unknown");
-  expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(false);
-  expect(selection.text).not.toContain("account");
+  expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
+  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain("row/column correspondence to this output unknown");
+  expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
+  expect(selection.selected.some(id => id.startsWith("flow.filter"))).toBe(false);
 });
+
+function opaqueAncestorFixture() {
+  const f = calculationFixture();
+  const upstream = f.results.get("left")!;
+  const custom = { ...structuredClone(f.op), operatorID: "custom" };
+  Object.assign(custom.nativeOp!, {
+    type: "Process",
+    registeredName: "choose_rows",
+    inputs: ["left"],
+    properties: {},
+  });
+  const info = structuredClone(upstream);
+  Object.assign(info.resultVersion!, {
+    id: "custom".padEnd(64, "0"),
+    operatorId: "custom",
+    inputs: [{ inputIndex: 0, operatorId: "left", outputPort: 0, resultVersion: upstream.resultVersion!.id }],
+  });
+  info.tableProfile!.resultVersion = info.resultVersion!.id;
+  info.totalRowCount = info.tableProfile!.rowCount = 2;
+  info.tableProfile!.native = {
+    operatorType: "Process",
+    inputOperators: ["left"],
+    inputRows: [5],
+    outputRows: 2,
+    operations: {},
+  };
+  f.workflow.operators.push(custom);
+  f.results.set("custom", info);
+  f.op.nativeOp!.inputs = ["custom"];
+  f.info.resultVersion!.inputs = [
+    { inputIndex: 0, operatorId: "custom", outputPort: 0, resultVersion: info.resultVersion!.id },
+  ];
+  return f;
+}
+
+test("downstream retrieval crosses a custom operator using version-bound graph dependencies only", () => {
+  const f = opaqueAncestorFixture();
+  const selection = observe(f, { data: false });
+  expect(selection.text).not.toContain("mapping unknown");
+  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain("row/column correspondence to this output unknown");
+  expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
+  expect(selection.selected.some(id => id.startsWith("flow.filter"))).toBe(false);
+  expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
+  expect(selection.chunks.filter(chunk => chunk.upstream).length).toBeLessThanOrEqual(3);
+  expect(observe(f, { flow: false }).text).not.toContain("groups=5 from 10 rows");
+  expect(observe(f, { upstream: false }).text).not.toContain("groups=5 from 10 rows");
+});
+
+test.each(["input version", "input revision", "failed custom", "incomplete custom"])(
+  "custom dependency traversal refuses an invalid %s",
+  corruption => {
+    const f = opaqueAncestorFixture();
+    const custom = f.results.get("custom")!;
+    if (corruption === "input version") custom.resultVersion!.inputs[0].resultVersion = "old";
+    if (corruption === "input revision") f.results.get("left")!.resultVersion!.operatorRevision = "old";
+    if (corruption === "failed custom") custom.error = "custom operator failed";
+    if (corruption === "incomplete custom") custom.resultVersion!.complete = false;
+    expect(observe(f).text).not.toContain("groups=5 from 10 rows");
+  }
+);
 
 test("missing evidence is not an execution error and never triggers hidden work", () => {
   const f = fixture();
   delete f.info.tableProfile;
-  expect(observe(f).text).toContain("Output Table");
+  expect(observe(f).text).toContain("records:");
   expect(observe(f).text).not.toContain("[ERROR]");
   expect(observe(f).omitted.some(x => x.id === "profile_unavailable")).toBe(true);
 });
@@ -743,8 +1174,8 @@ test("shape-only and tighter row limits cannot imply complete visibility", () =>
   const f = fixture();
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
-  expect(observe(f, { detail: "shape" }).text).not.toContain("Complete table");
-  expect(observe(f, { maxRows: 1 }).text).not.toContain("Complete table");
+  expect(observe(f, { detail: "shape" }).text).not.toContain("(complete)");
+  expect(observe(f, { maxRows: 1 }).text).not.toContain("(complete)");
 });
 
 test("compaction only shortens recorded evidence and never adds new facts", () => {
@@ -753,12 +1184,12 @@ test("compaction only shortens recorded evidence and never adds new facts", () =
   f.info.truncated = false;
   const recorded = observe(f);
   const shape = restrictNativeObservation(recorded, { detail: "shape" });
-  expect(shape).not.toContain("Complete table");
+  expect(shape).not.toContain("(complete)");
   expect(shape).not.toContain("10\n20\n30");
   expect(shape).toContain("kept=3/5");
-  expect(shape).not.toContain("Data measurement");
+  expect(shape).not.toContain("statistics:");
   const sample = restrictNativeObservation(recorded, { maxRows: 1 });
-  expect(sample).not.toContain("Complete table");
+  expect(sample).not.toContain("(complete)");
   expect(sample).toContain("10");
   expect(sample).not.toContain("20\n30");
   for (const maxChars of [1, 40, 150, 1000])
@@ -780,5 +1211,99 @@ test("empty grouped aggregate has zero groups and undefined per-group range", ()
     },
   });
   expect(factText(f)).toContain("groups=0 from 0 rows");
-  expect(factText(f)).toContain('"n" row denominator=0/0 (undefined)');
+  expect(factText(f)).toContain('"n" row denominator=0/0 (no rows)');
+});
+
+test("aggregate semantics: what a distinct count counts, a key that pools entities, an unread flag", () => {
+  const str = (distinct: number, values?: Array<[string, number]>): ProfileColumn => ({
+    ...column(12, 0),
+    type: "str",
+    distinctCount: distinct,
+    min: null,
+    max: null,
+    frequencies: values
+      ? {
+          values: values.map(([value, count]) => ({ value: { type: "str", value }, count })),
+          otherCount: 0,
+          truncated: false,
+        }
+      : null,
+  });
+  const f = fixture("Aggregate", {
+    groupBy: ["state"],
+    aggregations: [{ fn: "count_distinct", col: "GlobalID", as: "areas" }],
+  });
+  const input = f.results.get("left")!;
+  input.totalRowCount = input.tableProfile!.rowCount = input.tableProfile!.coverage.rowsProcessed = 12;
+  input.tableProfile!.columns = {
+    GlobalID: str(12),
+    GACCName: str(2),
+    state: str(3),
+    Case_excluded: str(2, [
+      ["No", 11],
+      ["Yes", 1],
+    ]),
+  };
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 3;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 3,
+    inputRows: [12],
+    operations: {
+      groupCount: 3,
+      groupSizes: { min: 2, max: 6, total: 12 },
+      aggregateNonNull: { areas: { total: 12, min: 2, max: 6 } },
+      keyDependencies: [{ column: "Community", groups: 3, split: 1, example: { key: ["CA"], values: ["a", "b"] } }],
+    },
+  });
+  const text = factText(f);
+  expect(text).toContain(
+    '"areas" = count_distinct("GlobalID"): "GlobalID" is unique on every one of the 12 input rows, so it counts rows; input columns with fewer values: "GACCName" (2)'
+  );
+  expect(text).toContain('group key ["state"] determines "Community" in most groups but not in 1 of 3');
+  expect(text).toContain(
+    'input column "Case_excluded" was read by no operator on the way here; over the 12 rows reduced it is "No":11, "Yes":1.'
+  );
+  // A flag the lineage filtered on has been read: no line.
+  f.workflow.operators[0].nativeOp!.properties = { keep: ["Case_excluded", "GlobalID", "GACCName", "state"] };
+  expect(factText(f)).not.toContain("was read by no operator");
+});
+
+test("per-file scan findings cannot push the file and row counts out of the flow budget", () => {
+  const f = fixture("Scan", { files: "data/legal/*.csv" });
+  const sources = Array.from({ length: 30 }, (_, i) => ({
+    path: `/data/legal/2024_CSN_Report_${String(i).padStart(2, "0")}_${"Category".repeat(4)}.csv`,
+    headerCheck: { blank: 3, suggest: { skipLines: 2, header: ["Year", "Category", "# of Reports", "Percentage"] } },
+  }));
+  f.info.tableProfile!.native!.operations = {
+    scan: { preview: false, resolvedFiles: 32, selectedFiles: 30, omittedFiles: 2, sources },
+  };
+  // The execute receipt's selection: flow only, the operator's own facts.
+  const own = observe(f, { data: false, flowMaxChars: 2000, upstream: false });
+  const flow = own.chunks.filter(chunk => chunk.id.startsWith("flow."));
+  expect(flow[0].text).toBe("- flow: Scan parsed selected sources; files selected=30/32, omitted=2; output=3 rows.");
+  expect(flow.at(-1)!.text).toBe(FLOW_OMITTED_NOTICE);
+  expect(own.omitted.some(item => item.reason === "budget" && item.id.startsWith("flow.scan.header."))).toBe(true);
+  expect(own.text.length).toBeLessThanOrEqual(2000 + own.chunks[0].text.length + 1);
+});
+
+test("filter rejected-value frequencies are optional, validated and scoped to rejected rows", () => {
+  const f = fixture();
+  const operations = f.info.tableProfile!.native!.operations!;
+  const rejected = {
+    rejectedRows: 2,
+    columnsObserved: 1,
+    columns: {
+      x: { examples: [{ values: [{ type: "str", value: "missing" }], count: 1, truncated: false }], otherCount: 1 },
+    },
+  };
+  operations.filterRejectedValues = rejected;
+  let text = factText(f);
+  expect(text).toContain("rejected rows, including null-predicate drops");
+  expect(text).toContain('"missing"');
+  expect(text).toContain("other=1");
+  expect(text).toContain("not causes");
+  rejected.columns.x.otherCount = 2;
+  text = factText(f);
+  expect(text).not.toContain('"missing"');
+  expect(text).toContain("Filter kept=3/5");
 });

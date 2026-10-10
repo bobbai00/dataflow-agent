@@ -33,6 +33,10 @@ export interface NativeColumnCount {
 export interface NativeUpstreamIdentity {
   operatorId: string;
   resultVersion: string;
+  /** Facts included in this ancestor summary, for same-call references. */
+  factIds?: string[];
+  description?: string;
+  scope?: string;
 }
 
 /** Compact only the already-selected facts. Do not spend the saved budget on
@@ -41,6 +45,8 @@ export function compactNativeObservation(
   observation: NativeObservation,
   facts: readonly NativeEvidenceFact[]
 ): NativeObservation {
+  // Version 2 already packs counts, ranges and values into atomic table rows.
+  if (observation.version === 2) return observation;
   const byId = new Map(facts.map(f => [f.id, f]));
   const countKey = (c: NativeColumnCount) =>
     JSON.stringify([c.resultVersion, c.column, c.scope, c.rows, c.nulls, c.nonnull, c.distinct]);
@@ -120,11 +126,50 @@ export function shareNativeObservation(
       const key = JSON.stringify([origin.operatorId, origin.resultVersion, line]);
       const earlier = seen.get(key);
       if (earlier && earlier !== observerId) {
-        const reference = `Flow upstream: see ${JSON.stringify(earlier)} above for ${JSON.stringify(origin.operatorId)}.`;
+        const reference = `${observation.version === 2 ? "- flow: see" : "Flow upstream: see"} ${JSON.stringify(earlier)} above for ${JSON.stringify(origin.operatorId)}.`;
         if (reference.length < line.length) return reference;
       }
       if (!earlier) seen.set(key, observerId);
       return line;
     })
     .join("\n");
+}
+
+/** A memo is confined to one action batch. Frozen observations stay complete;
+ * only the receipt uses references to facts actually printed earlier here. */
+export type FlowReceiptObservation = Pick<NativeObservation, "resultVersion" | "chunks">;
+
+export class FlowReceiptMemo {
+  private readonly shown = new Map<string, string>();
+
+  render(observation: FlowReceiptObservation, operatorId: string, location: string): string {
+    const key = (id: string, version: string, fact: string) => JSON.stringify([id, version, fact]);
+    const references = new Set<string>();
+    return observation.chunks
+      .map(chunk => {
+        if (!chunk.id.startsWith("flow.") || chunk.id === "flow.omitted") return chunk.text;
+        const origin = chunk.upstream;
+        const version = origin?.resultVersion ?? observation.resultVersion;
+        if (!version) return chunk.text; // Unknown identity never establishes equivalence.
+        const id = origin?.operatorId ?? operatorId;
+        const facts = origin?.factIds?.length ? origin.factIds : [chunk.id];
+        const prior = facts.map(fact => this.shown.get(key(id, version, fact)));
+        if (prior.every(Boolean)) {
+          if (!origin && prior.every(place => place === location)) return "";
+          const places = [...new Set(prior)].join(", ");
+          const reference = `- flow (${id}): ${origin?.description ? origin.description + "; " : ""}see ${places}.${origin?.scope ? " " + origin.scope : ""}`;
+          // Preserve new scope qualifiers and do not expand short measurements.
+          if (reference.length < chunk.text.length) {
+            if (references.has(reference)) return "";
+            references.add(reference);
+            return reference;
+          }
+        }
+        // Ancestor summaries can contain a subset; register only named facts.
+        for (const fact of facts) this.shown.set(key(id, version, fact), location);
+        return chunk.text;
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
 }

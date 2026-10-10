@@ -1,0 +1,211 @@
+{
+  "observations": {
+    "tool_messages": 102,
+    "characters": 242598,
+    "max_characters": 10231,
+    "with_flow": 41,
+    "with_statistics_caption": 14,
+    "with_table_statistics": 13,
+    "edit_blocks": 76,
+    "execute_blocks": 76,
+    "retrieve_blocks": 82,
+    "inspect_blocks": 12
+  },
+  "retrievals": {
+    "actions_requested": 81,
+    "targets_requested": 98,
+    "stats_actions_requested": 14,
+    "stats_targets_requested": 17,
+    "targets": 92,
+    "view_sample_stats": 17,
+    "characters": 161854,
+    "max_characters": 5029,
+    "with_data_facts": 15,
+    "with_statistics_caption": 17,
+    "with_table_statistics": 15,
+    "statistics_suppressed_complete": 2,
+    "statistics_unavailable": 0,
+    "statistics_omitted_budget": 0,
+    "with_flow_facts": 49,
+    "view_full": 59,
+    "complete": 35,
+    "view_sample": 16,
+    "partial_full": 26,
+    "complete_small_without_stats": 2
+  },
+  "execution": {
+    "actions": 75,
+    "operators_executed": 119,
+    "runs": 93,
+    "succeeded": 89,
+    "with_phase_metrics": 93,
+    "compilationDurationMs": 64.78925,
+    "operators_cached": 38,
+    "operators_failed": 4,
+    "failed": 4,
+    "operators_not run": 1
+  },
+  "profiles": {
+    "retained": 112,
+    "available": 112,
+    "schema_fields": 4095,
+    "scans": 51,
+    "source_identities": 51,
+    "source_details_omitted": 16,
+    "source_identities_omitted": 0
+  },
+  "wire_requests": 128,
+  "wire_prefix_checks": 103,
+  "violations": {},
+  "warnings": {},
+  "exposure_by_arm": {
+    "evidence_data0_flow0": {
+      "completed": 6,
+      "with_actual_table_stats": 0,
+      "with_flow_retrieval": 0,
+      "counts": {
+        "actions_requested": 16,
+        "targets_requested": 18,
+        "targets": 17,
+        "view_sample": 6,
+        "characters": 22126,
+        "max_characters": 4754,
+        "with_data_facts": 0,
+        "with_statistics_caption": 0,
+        "with_table_statistics": 0,
+        "statistics_suppressed_complete": 0,
+        "statistics_unavailable": 0,
+        "statistics_omitted_budget": 0,
+        "with_flow_facts": 0,
+        "view_full": 11,
+        "partial_full": 3,
+        "complete": 8
+      }
+    },
+    "evidence_data0_flow1": {
+      "completed": 5,
+      "with_actual_table_stats": 0,
+      "with_flow_retrieval": 5,
+      "counts": {
+        "actions_requested": 27,
+        "targets_requested": 32,
+        "targets": 30,
+        "view_full": 20,
+        "characters": 59778,
+        "max_characters": 5029,
+        "with_data_facts": 0,
+        "with_statistics_caption": 0,
+        "with_table_statistics": 0,
+        "statistics_suppressed_complete": 0,
+        "statistics_unavailable": 0,
+        "statistics_omitted_budget": 0,
+        "with_flow_facts": 30,
+        "partial_full": 14,
+        "view_sample": 10,
+        "complete": 6
+      }
+    },
+    "evidence_data1_flow0": {
+      "completed": 8,
+      "with_actual_table_stats": 6,
+      "with_flow_retrieval": 0,
+      "counts": {
+        "actions_requested": 23,
+        "targets_requested": 29,
+        "targets": 26,
+        "view_full": 16,
+        "characters": 40067,
+        "max_characters": 4754,
+        "with_data_facts": 8,
+        "with_statistics_caption": 10,
+        "with_table_statistics": 8,
+        "statistics_suppressed_complete": 2,
+        "statistics_unavailable": 0,
+        "statistics_omitted_budget": 0,
+        "with_flow_facts": 0,
+        "partial_full": 5,
+        "stats_actions_requested": 8,
+        "stats_targets_requested": 10,
+        "view_sample_stats": 10,
+        "complete": 13,
+        "complete_small_without_stats": 2
+      }
+    },
+    "evidence_data1_flow1": {
+      "completed": 6,
+      "with_actual_table_stats": 6,
+      "with_flow_retrieval": 6,
+      "counts": {
+        "actions_requested": 15,
+        "targets_requested": 19,
+        "stats_actions_requested": 6,
+        "stats_targets_requested": 7,
+        "targets": 19,
+        "view_sample_stats": 7,
+        "characters": 39883,
+        "max_characters": 4846,
+        "with_data_facts": 7,
+        "with_statistics_caption": 7,
+        "with_table_statistics": 7,
+        "statistics_suppressed_complete": 0,
+        "statistics_unavailable": 0,
+        "statistics_omitted_budget": 0,
+        "with_flow_facts": 19,
+        "view_full": 12,
+        "complete": 8,
+        "partial_full": 4
+      }
+    }
+  },
+  "resources": {
+    "samples": 62,
+    "first": "2026-10-08T23:06:23.121316+00:00",
+    "last": "2026-10-08T23:22:03.209020+00:00",
+    "minimum_memory_available_bytes": 14273855488,
+    "minimum_disk_free_bytes": 437726408704,
+    "maximum_swap_used_bytes": 0,
+    "maximum_load1": 7.62548828125,
+    "maximum_memory_percent_used": 72.3,
+    "maximum_active_attempts": 2,
+    "logical_cpus": 16,
+    "memory_total_bytes": 51539607552
+  },
+  "source_freeze": {
+    "launch_sha256": "d9c5bf2006798704922adf23abe896d235edcf63eb4dd32c8b6bd6a148fe0447",
+    "files": {
+      "runtime": 1011,
+      "other": 109
+    },
+    "changed": [
+      {
+        "path": "benchmark/retrieval/matrix_audit.py",
+        "bucket": "other",
+        "exists": true
+      },
+      {
+        "path": "benchmark/retrieval/test_matrix_audit.py",
+        "bucket": "other",
+        "exists": true
+      }
+    ],
+    "manifest_match": true
+  },
+  "cancelled": [
+    {
+      "id": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow1_Rep1/biomedical-hard-3",
+      "wire_requests": 11,
+      "wire_prefix_checks": 10,
+      "violations": [],
+      "warnings": [],
+      "answers": 0
+    },
+    {
+      "id": "DataflowSystemDeepSeek41Flash_20261008_registered_python_evidence_matrix_evidence_data0_flow0_Rep1/biomedical-hard-3",
+      "wire_requests": 4,
+      "wire_prefix_checks": 3,
+      "violations": [],
+      "warnings": [],
+      "answers": 0
+    }
+  ]
+}

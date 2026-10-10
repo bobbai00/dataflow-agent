@@ -18,6 +18,7 @@
  */
 
 import type { OperatorPredicate } from "../../types/workflow";
+import { inlineCode } from "./observation-format";
 
 /** Successful table budgets never consume the diagnostic detail allowance. */
 export const NATIVE_DIAGNOSTIC_CHARS = 1200;
@@ -91,7 +92,7 @@ export const REPAIR_HINTS: Record<string, string> = {
   PROJECT_OPTIONS: "Use keep OR drop (not both) and/or rename; each names existing columns.",
   CAST_OPTIONS: 'format and timezone apply to datetime only; errors is "raise" or "null".',
   AGGREGATE_ARGUMENT: "Every output is name=reducer(col); only count() may omit the column.",
-  JOIN_ARGUMENT: "how is inner/left/right/full/cross; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
+  JOIN_ARGUMENT: "how is inner/left/right/full/cross/semi/anti; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
   JOIN_KEYS: "Name the keys explicitly with on=; a cross join takes none. Keys are never inferred.",
   UNION_ARGUMENT: 'schema is "strict" (identical columns) or "align" (absent columns become null).',
   DISTINCT_ARGUMENT: 'keep is "first" or "last"; columns lists the key columns, or omit it for whole-row distinct.',
@@ -116,8 +117,8 @@ export const REPAIR_HINTS: Record<string, string> = {
     "Return scalar cells of one type per column: finite numbers, strings, booleans, UTC datetimes or None.",
   ROW_CONTRACT: "This operator must keep every input row; use filter or process to change the row count.",
   // Data (execute / contract)
-  MISSING_COLUMN: "Observe the current input schema and update the referenced column.",
-  COLUMN_COLLISION: "Choose unique output names; do not silently overwrite another column.",
+  MISSING_COLUMN: "Check the input's columns and correct the column name.",
+  COLUMN_COLLISION: "Give each new output column a distinct name.",
   CAST_INVALID_VALUE: 'Normalize the input or explicitly choose errors="null" if losing those values is intended.',
   AGGREGATE_TYPE: "Cast the column to a numeric type first; sum/mean/stddev/median need numbers.",
   AGGREGATE_RANGE: "The reduced value does not fit the output type; use float64 or a smaller population.",
@@ -156,7 +157,14 @@ export function resolveNativeDiagnostic(
   const parsed = parseNativeDiagnostic(error);
   if (parsed) {
     const origin = parsed.operatorId === op.operatorID ? op : resolveOperator?.(parsed.operatorId);
-    if (origin?.nativeOp?.revision === parsed.operatorRevision) return parsed;
+    if (origin?.nativeOp?.revision === parsed.operatorRevision) {
+      if (origin.nativeOp.type === "Scan" && parsed.code === "UNION_TYPE")
+        return {
+          ...parsed,
+          hint: "Set all_text=True in this scan and cast its output, or scan and cast each file before union.",
+        };
+      return parsed;
+    }
     return {
       ...base,
       code: "DIAGNOSTIC_BINDING_MISMATCH",
@@ -228,7 +236,22 @@ export function resolveNativeDiagnostic(
           : "The worker process crashed; inspect that operator's inputs before retrying unchanged code.",
       retryable: true,
     };
-  if (/timed?\s*out|timeout/i.test(raw))
+  if (/input_port_materialization_reader_runnable\.py|Error reading cached input/.test(raw))
+    return {
+      ...base,
+      code: "CACHE_INPUT_READ",
+      stage: "infrastructure",
+      message: clipped(raw.trim().split("\n").at(-1) ?? raw, 320),
+      hint: "Check the stored input. Restore its materialization or recompute the producer before retrying.",
+      retryable: false,
+    };
+  // Tracebacks can contain fut.result(timeout) even for a FileNotFoundError.
+  // Require a deadline report, rather than the name of a library parameter.
+  if (
+    /\btimed?\s+out\b|\bTimeoutError\b|\bEXECUTION_TIMEOUT\b|\btimeout\s+after\b|\bkilled\s*\(timeout\)|\b(?:request|execution|workflow|engine|worker|operation|connection)\s+timeout\b/i.test(
+      raw
+    )
+  )
     return {
       ...base,
       code: "EXECUTION_TIMEOUT",
@@ -343,4 +366,17 @@ export function formatNativeDiagnostic(diagnostic: NativeDiagnostic): string {
       `${diagnostic.stage === "infrastructure" ? "Infrastructure retryable" : "Retryable unchanged"}: ${diagnostic.retryable}`
     );
   return `${header} ${clipped(details.join("\n"), NATIVE_DIAGNOSTIC_CHARS)}`;
+}
+
+/** Model-facing issue; identities and the complete diagnostic stay in the trace. */
+export function nativeDiagnosticIssue(diagnostic: NativeDiagnostic): string {
+  const hint = diagnostic.hint ?? REPAIR_HINTS[diagnostic.code];
+  const source = diagnostic.source;
+  return [
+    `- error ${diagnostic.code}: ${clipped(sanitizeDiagnosticText(diagnostic.message), 400)}`,
+    ...(source ? [`  - at: ${source.entry} line ${source.line}${source.column === undefined ? "" : ` column ${source.column}`}: ${inlineCode(clipped(sanitizeDiagnosticText(source.excerpt.trim()), 180))}`] : []),
+    ...(diagnostic.field && !source ? [`  - at: ${clipped(sanitizeDiagnosticText(diagnostic.field), 100)}`] : []),
+    ...(hint ? [`  - fix: ${clipped(sanitizeDiagnosticText(hint), 220)}`] : []),
+    ...(diagnostic.retryable !== undefined ? [`  - note: ${diagnostic.stage === "infrastructure" ? "infrastructure retryable" : "retryable unchanged"}: ${diagnostic.retryable}`] : []),
+  ].join("\n");
 }

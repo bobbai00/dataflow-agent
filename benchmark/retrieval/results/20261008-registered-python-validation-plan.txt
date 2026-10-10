@@ -1,0 +1,65 @@
+Registered Python validation pilot — prepared 2026-10-08
+
+Scope: 3 unchanged KramaBench tasks × 6 exact requested models, one attempt each.
+This is a diagnostic integration pilot, not a representative accuracy ranking.
+The campaign started after implementation checks and a deterministic engine probe passed.
+
+Tasks selected before results:
+- archeology-easy-6: numeric filtering and ordering in one 4.69 MB CSV.
+- legal-easy-3: numeric parsing, two-row comparison and final rounding in a small CSV.
+- biomedical-hard-3: workbook discovery and multi-table analysis across two XLSX files.
+All required source files resolve locally; no task instructions or truth are altered.
+
+Models and routes verified using provider catalog GET requests on 2026-10-08:
+- gpt-5.6-luna -> OpenAI gpt-5.6-luna, medium effort.
+- gpt-5.6-terra -> OpenAI gpt-5.6-terra, medium effort.
+- gpt-5.6-sol -> OpenAI gpt-5.6-sol, medium effort.
+- claude-opus-4.8 -> Anthropic claude-opus-4-8, provider default thinking/effort.
+- qwen3.8-27b -> configured OpenRouter qwen/qwen3.8-27b, provider defaults.
+- deepseek-v4.1-flash -> configured OpenRouter deepseek/deepseek-v4.1-flash, provider defaults.
+The local LiteLLM /v1/models catalog lists all six. No model substitutions.
+
+Proposed execution: one adaptive_flow1_fullstats arm; 25 agent steps; 2 workers;
+900 s watchdog per task; no outcome-selected retries. Official KramaBench
+response metrics use the existing evaluate.py scorer; pipeline grading remains
+excluded. Report all individual scores and max official response score; pass
+requires that score >=1. Report incomplete/unscored attempts separately.
+
+Accounting:
+- Archive exact gateway request/response bodies per agent, without HTTP headers,
+  credentials or URL query strings. Preserve original harness-stats.json.
+- Reconcile input, output, cache reads, cache writes and reasoning tokens with
+  returned provider usage. Reasoning is already included in output tokens.
+- Price each request with frozen verified standard-tier token rates and the
+  applicable >272K GPT-5.6 long-context multiplier. Prices are estimates, not
+  account invoices; missing/unsupported rates remain null. No zero-price fallback.
+- Agent elapsed_seconds includes models and tools but excludes scorer runtime.
+  model_latency_seconds sums gateway durations (transport/gateway included).
+  Attempt wall time also includes setup, scoring and artifact collection.
+- Multi-result retrieval counts each target, including successful targets in a
+  partially failed retrieval. Check profile coverage/version and context integrity.
+- Incomplete wire responses produce usage_complete=false and unknown total cost;
+  retain the cost of returned usage separately without claiming total spend.
+
+Runtime isolation:
+Existing Docker and Kubernetes deployments remain running. The pilot uses a
+separate texera-python-pilot Docker project/network/volumes and native services
+through bin/local-dev.sh. An explicit LITELLM_BASE_URL override points local
+access control to localhost:4000; the user's llm.conf is unchanged.
+Agent tracing: TEXERA_LLM_TRACE_DIR=/tmp/registered-python-wire.
+Host: 51.5 GB RAM and approximately 438 GB free disk at preparation.
+Local endpoints: agent3001, web8080, CU-managing application8888, CU-master8085.
+8082 is the CU-managing admin port, not the application API.
+
+Confirmed support fixes during setup:
+- local-dev infra_up incorrectly claimed success after Docker failed, and its
+  caller continued into database bootstrap. Failure now propagates; regression
+  reproduced before the fix and passes afterward.
+- Harness unknown model prices became $0; campaign accounting preserves null.
+- Launcher shell and TUI lazily marked any existing jar clean without a build;
+  missing stamps now require a verified build. Both regression paths passed.
+- Retrieval analytics assumed one target; batch targets are now expanded.
+- Reports omitted existing task durations; separate timing columns are added.
+
+Run command, after all implementation/engine checks pass:
+bin/bench.sh retrieval run --output benchmark/retrieval/runs/20261008-registered-python-pilot --endpoint http://localhost:3001 --repetitions 1 --workers 2 --timeout 900 --direct-artifacts --wire-dir /tmp/registered-python-wire --tasks archeology-easy-6 legal-easy-3 biomedical-hard-3 --models Luna Terra Sol Opus48 Qwen38_27B DeepSeek41Flash --arms adaptive_flow1_fullstats

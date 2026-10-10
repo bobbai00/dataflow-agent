@@ -18,7 +18,7 @@
  */
 
 import type { OperatorInfo } from "../../types/execution";
-import { parseNativeDiagnostic, formatNativeDiagnostic, resolveNativeDiagnostic } from "../native/diagnostics";
+import { parseNativeDiagnostic, nativeDiagnosticIssue, resolveNativeDiagnostic } from "../native/diagnostics";
 import { nativeOperatorName } from "../native/catalog";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import {
@@ -204,7 +204,7 @@ export function formatOperatorResult(
     const rootInfo = options.nativeEvidence?.resolveInput(diagnostic.operatorId);
     const rootDiagnostic =
       rootInfo?.nativeError?.diagnostic ?? (rootInfo?.error ? parseNativeDiagnostic(rootInfo.error) : undefined);
-    const name = `${nativeOperatorName(eventOp.nativeOp.type)} \`${operatorId}\``;
+    const name = `${eventOp.nativeOp.registeredName ?? nativeOperatorName(eventOp.nativeOp.type)} \`${operatorId}\``;
     if (diagnostic.operatorId !== operatorId) {
       // The engine aborts the whole run at the first failure and hands every
       // unfinished operator the same payload. Say which case this is: a
@@ -217,17 +217,19 @@ export function formatOperatorResult(
         rootDiagnostic.operatorRevision === diagnostic.operatorRevision &&
         rootDiagnostic.code === diagnostic.code;
       if (!reads) {
-        return `[ERROR] ${name} not executed; the run stopped when \`${diagnostic.operatorId}\` failed (${diagnostic.code}). \`${operatorId}\` does not read from \`${diagnostic.operatorId}\`, so its own definition is not implicated; it runs once that operator is repaired or deleted.`;
+        return `- not run: ${name}; the run stopped when \`${diagnostic.operatorId}\` failed (${diagnostic.code}). \`${operatorId}\` does not read from \`${diagnostic.operatorId}\`, so its own definition is not implicated; it runs once that operator is repaired or deleted.`;
       }
       if (rootConfirmed) {
-        return `[ERROR] ${name} not executed; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}). Repair that operator; this consumer did not run.`;
+        return `- not run: ${name}; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}). Repair that operator; this consumer did not run.`;
       }
     }
-    const label =
-      diagnostic.operatorId === operatorId
-        ? `${name} failed`
-        : `${name} not executed; upstream \`${diagnostic.operatorId}\` failed`;
-    return `[ERROR] ${label}: ${formatNativeDiagnostic(diagnostic)}${opInfo.nativeError ? `\nDiagnostic: ${opInfo.nativeError.diagnosticId}${opInfo.nativeError.phase === "attempt" ? " (rejected edit; DAG definition unchanged)" : ""}` : ""}`;
+    return (
+      (diagnostic.operatorId !== operatorId
+        ? `- not run: ${name}; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}).\n`
+        : "") +
+      nativeDiagnosticIssue(diagnostic) +
+      (opInfo.nativeError?.phase === "attempt" ? "\n- note: rejected edit; dataflow definition unchanged." : "")
+    );
   }
   if (opInfo.error && options.detail === "shape") {
     // Shape-level error render: the first line carries the exception; the
@@ -264,6 +266,7 @@ export function formatOperatorResult(
     }
     const budget = evidence?.maxChars ?? 2000;
     const observation = selectNativeObservation({
+      ...evidence,
       workflow: evidence?.workflow ?? workflowState.getWorkflowContent(),
       resolveInput: evidence?.resolveInput ?? (() => undefined),
       op: nativeOp,

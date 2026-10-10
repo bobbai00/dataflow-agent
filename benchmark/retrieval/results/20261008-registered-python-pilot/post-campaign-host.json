@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-10-08T22:10:24.034449+00:00",
+  "phase": "after primary campaign; not a peak measurement",
+  "load_average": [
+    9.587890625,
+    6.953125,
+    6.0546875
+  ],
+  "logical_cpus": 16,
+  "memory_total_bytes": 51539607552,
+  "memory_available_bytes": 12785582080,
+  "memory_percent_used": 75.2,
+  "swap_used_bytes": 0,
+  "disk_free_bytes": 438178082816,
+  "mac_memory_pressure": "The system has 51539607552 (3145728 pages with a page size of 16384).\nSystem-wide memory free percentage: 50%"
+}

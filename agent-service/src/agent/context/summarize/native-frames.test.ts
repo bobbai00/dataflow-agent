@@ -72,6 +72,21 @@ const MAP = new Map<number, ReActStep>([
 ]);
 
 describe("buildNativeFrames", () => {
+  test("retains the entire multiline reply for Answer repair", () => {
+    const reply =
+      'The computation is complete.\n\n- The result is 10.87 percentage points.\n- Check units.\n\n```json\n{"value":10.87}\n```\nFinal Answer: 10.87';
+    const text = `# User Task\nFind the answer.\n\n## Agent Event 1\nThought: ${reply}`;
+    const { messages } = buildNativeFrames(text, new Map([[1, step("s1", [])]]));
+    expect(messages.find(m => m.role === "assistant")?.content).toBe(reply);
+    expect(messages.at(-1)?.content).toBe("Continue.");
+  });
+
+  test("multiline rationale stops at the real Action block", () => {
+    const text = CTX.replace("Thought: load the file", "Thought: load the file\n\nThen validate the schema.");
+    const { messages } = buildNativeFrames(text, MAP);
+    expect((messages[1].content as any[])[0].text).toBe("load the file\n\nThen validate the schema.");
+  });
+
   test("emits a real tool-calling transcript", () => {
     const { messages, events } = buildNativeFrames(CTX, MAP);
     expect(events).toBe(2);
@@ -105,6 +120,80 @@ describe("buildNativeFrames", () => {
     expect(parts[0].output.value).toContain("Schema (2 cols): a (str), b (str)");
     expect(messages[4].content as any).toBeDefined();
     expect(((messages[4].content as any[])[0]).output.value).toContain("Lineage: 12 rows in");
+  });
+
+  test("registered dataflow keeps native roles and exact code with only rendered outcomes", () => {
+    const input = {
+      reasoning: "Normalize the labels and read the result.",
+      actions: [
+        {
+          type: "edit",
+          python: 'def normalize(t, column):\n    """Trim labels in the selected column."""\n    return t.assign(**{column: t[column].str.strip()})\n',
+          changes: 'set clean: normalize(raw, column="label")',
+        },
+        { type: "execute", operator_ids: ["clean"] },
+        { type: "retrieve", operator_ids: ["clean"], view: "full" },
+      ],
+    };
+    const recorded = step("registered", []);
+    recorded.toolCalls = [{ toolCallId: "registered-call", toolName: "dataflow", input }];
+    recorded.toolResults = [{
+      toolCallId: "registered-call",
+      output: { kind: "dataflow-actions", status: "completed", cachedOperatorCount: 2 },
+    }];
+    const observation = [
+      "### 1. Edit — completed",
+      "- Function `normalize` registered.",
+      '- Operator `clean` added: `normalize(raw, column="label")`.',
+      "### 2. Execute — completed",
+      "- Operator `clean` executed.",
+      "### 3. Retrieve — completed",
+      "Operator `clean`: 1 row, 1 column.",
+      "| label |",
+      "| --- |",
+      "| example |",
+    ].join("\n");
+    const text = `# User Task\nTrim the labels.\n\n## Agent Event 1\nAction:\ndataflow\nObservation:\n${observation}`;
+    const { messages } = buildNativeFrames(text, new Map([[1, recorded]]));
+
+    expect(messages.map(message => message.role)).toEqual(["user", "assistant", "tool"]);
+    expect(messages[1].content).toEqual([
+      { type: "tool-call", toolCallId: "registered-call", toolName: "dataflow", input },
+    ]);
+    expect(messages[2].content).toEqual([
+      {
+        type: "tool-result",
+        toolCallId: "registered-call",
+        toolName: "dataflow",
+        output: { type: "text", value: observation },
+      },
+    ]);
+    expect(JSON.stringify(messages[2])).not.toContain("cachedOperatorCount");
+  });
+
+  test.each(["completed", "failed"])("dataflow retains its %s receipt without a rendered observation", status => {
+    const recorded = step("registered", []);
+    recorded.toolCalls = [{ toolCallId: "registered-call", toolName: "dataflow", input: { actions: [] } }];
+    recorded.toolResults = [{ toolCallId: "registered-call", output: { kind: "dataflow-actions", status } }];
+    const text = "# User Task\nInspect the graph.\n\n## Agent Event 1\nAction:\ndataflow";
+    const { messages } = buildNativeFrames(text, new Map([[1, recorded]]));
+    expect((messages[2].content as any[])[0].output.value).toBe(`dataflow-actions: ${status}`);
+  });
+
+  test("only the dataflow call carrying the observation omits its receipt", () => {
+    const recorded = step("multi", []);
+    recorded.toolCalls = ["first", "last"].map(toolCallId => ({ toolCallId, toolName: "dataflow", input: { actions: [] } }));
+    recorded.toolResults = ["first", "last"].map(toolCallId => ({
+      toolCallId,
+      output: { kind: "dataflow-actions", status: "completed" },
+    }));
+    const text = "# User Task\nInspect the graph.\n\n## Agent Event 1\nAction:\ndataflow\nObservation:\nOperator `a` exists.";
+    const { messages } = buildNativeFrames(text, new Map([[1, recorded]]));
+    const results = messages[2].content as any[];
+    expect(results.map(result => [result.toolCallId, result.output.value])).toEqual([
+      ["first", "dataflow-actions: completed"],
+      ["last", "Operator `a` exists."],
+    ]);
   });
 
   test("every tool call has exactly one matching result (provider validity)", () => {

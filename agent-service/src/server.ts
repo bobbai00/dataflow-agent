@@ -17,11 +17,21 @@
  * under the License.
  */
 
+import { observationFormat, observationFormatPatch } from "./agent/native/observation-format";
+
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
+import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
+import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
+import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
 import { TexeraAgent } from "./agent/texera-agent";
-import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import {
+  NativeCatalogSettingsError,
+  validateNativeSettings,
+  validateEvidenceSettings,
+  validateNativeTransport,
+} from "./agent/native/settings";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -36,6 +46,8 @@ import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
+import { TextTurnDriver } from "./agent/llm-drivers/text-turn-driver";
+import { assembleTextTurnContext } from "./agent/util/context-utils-text-turn";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
 import { assembleContext, type AssembleContextOptions } from "./agent/util/context-utils";
@@ -99,6 +111,11 @@ import { AgentMode, AgentState, ContextMode, OperatorResultSerializationMode } f
 function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): AgentDriverKind {
   if (explicit) return explicit;
   return modelType === "local-llm" ? "local-react" : "vercel-tool-use";
+}
+
+/** The registered protocol's transport is a property of the driver kind. */
+function driverTransport(kind: AgentDriverKind): "tool" | "text" | "turn" {
+  return kind === "text-turn" ? "text" : kind === "turn-tool" ? "turn" : "tool";
 }
 
 /** Latest user-role message content along the visible path — the task text the
@@ -227,12 +244,26 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     compilationResult,
     turnNumberByMessageId,
     offBranchTurns,
+    taskHistory,
   }) => {
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      taskContext: settings.taskContext,
+      taskHistory,
+      ...observationFormat(settings),
+      nativeEvidence: {
+        ...observationFormat(settings),
+        data: settings.dataEvidence,
+        flow: settings.flowEvidence,
+        maxChars: settings.maxOperatorResultCharLimit,
+        dataMaxChars: settings.dataEvidenceCharLimit,
+        flowMaxChars: settings.flowEvidenceCharLimit,
+        checks: settings.nativeChecks,
+      },
       dataEvidence: settings.dataEvidence,
       flowEvidence: settings.flowEvidence,
+      nativeChecks: settings.nativeChecks,
       resultSelection: settings.resultSelection,
       includeOperatorProperties: settings.includeOperatorProperties,
       thoughtReplay: settings.thoughtReplay,
@@ -286,6 +317,9 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       flow: settings.flowEvidence,
       maxChars: settings.maxOperatorResultCharLimit,
     };
+
+    if (settings.taskContext === "dependencies")
+      return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
     // base-preserving frontier decay > legacy contextMode.
@@ -494,6 +528,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
   };
 
+  if (kind === "text-turn") return input => assembleTextTurnContext(input.visibleSteps);
   if (kind === "local-react") {
     // The local text-mode driver picks the assembler by tool-call dialect so
     // each dialect's context matches the format its system prompt describes:
@@ -541,6 +576,9 @@ async function createAgentInstance(
   const agentId = `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
 
+  const inputBudget = readInputBudget(process.env);
+  const modelCallLimit = Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0);
+
   const openai = createOpenAI({
     baseURL: `${config.modelsEndpoint}/api`,
     // The LLM gateway (access-control-service) enforces a REGULAR/ADMIN-role
@@ -549,15 +587,45 @@ async function createAgentInstance(
     apiKey: delegateConfig.userToken,
     // Every model request has a deadline; a request that never answers is
     // abandoned and the turn retries it (TexeraAgent.sendMessage).
-    fetch: withRequestTimeout(),
+    fetch: withRequestTimeout(
+      withRequiredToolChoice(
+        withModelWireTrace(
+          process.env.TEXERA_LLM_TRACE_DIR,
+          () => ({
+            agentId,
+            workflowId: delegateConfig.workflowId,
+            headId: agent.getHead(),
+            messageId: agent.getCurrentMessageId(),
+            inputBudget,
+            modelCallLimit,
+          }),
+          withInputBudget(
+            inputBudget,
+            withModelCallLimit(modelCallLimit, () => agent.getCurrentMessageId())
+          )
+        )
+      )
+    ),
   });
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml
   // with extra_body to inject reasoning_effort, bypassing LiteLLM's param validation.
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
+  const requestLimits = {
+    maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS) : undefined,
+    maxRetries: process.env.MODEL_SDK_RETRIES ? Number(process.env.MODEL_SDK_RETRIES) : undefined,
+  };
   const driver: LLMDriver =
-    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+    driverKind === "local-react"
+      ? new LocalReactTextDriver({ model })
+      : driverKind === "text-turn"
+        ? new TextTurnDriver({ model, ...requestLimits })
+        : new VercelToolUseDriver({
+            model,
+            ...requestLimits,
+            ...(driverKind === "turn-tool" ? { transport: "turn" as const } : {}),
+          });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -575,6 +643,8 @@ async function createAgentInstance(
   // synthetic `initialize` step that anchors both the workflow snapshot and
   // every per-operator baseline result. `initialize` itself loads the workflow
   // (retrieveWorkflow) from the delegate config, so no inline load is needed.
+  // The text transport's prompt describes turns, not tool calls.
+  if (driverKind === "text-turn") agent.updateSettings({ nativeTransport: "text" });
   await agent.initialize(delegateConfig);
 
   agentStore.set(agentId, agent);
@@ -587,9 +657,25 @@ async function createAgentInstance(
 /** Render the agent's live settings in the wire shape shared by
  *  `GET /:id`, `GET /:id/settings` and `PATCH /:id/settings` — one source so
  *  a knob the frontend can set is always a knob it can read back. */
+const OBSERVATION_SETTINGS_SCHEMA = {
+  tableFormat: t.Optional(t.Union([t.Literal("markdown"), t.Literal("tsv")])),
+  ...Object.fromEntries(
+    ["keyValueColumns", "columnsShown", "definitionChars", "cellChars", "topValues", "catalogRecords"].map(key => [
+      key,
+      t.Optional(t.Integer({ minimum: 0, maximum: 100000 })),
+    ])
+  ),
+  answerEcho: t.Optional(t.Boolean()),
+  multiTask: t.Optional(t.Boolean()),
+  taskContext: t.Optional(t.Union([t.Literal("trajectory"), t.Literal("dependencies")])),
+};
+
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   const agentSettings = agent.getSettings();
   return {
+    ...observationFormat(agentSettings),
+    multiTask: agentSettings.multiTask,
+    taskContext: agentSettings.taskContext,
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
@@ -600,9 +686,19 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     maxOperatorEdits: agentSettings.maxOperatorEdits,
     agentMode: agentSettings.agentMode,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
+    nativeProfileScope: agentSettings.nativeProfileScope,
     dataEvidence: agentSettings.dataEvidence,
+    retrievalViews: agentSettings.retrievalViews,
+    fullResultCharLimit: agentSettings.fullResultCharLimit,
+    dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
+    flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
     dataflowReasoning: agentSettings.dataflowReasoning,
+    nativePromptDetail: agentSettings.nativePromptDetail,
+    nativeTransport: agentSettings.nativeTransport,
+    nativeChecks: agentSettings.nativeChecks,
+    stateHistory: agentSettings.stateHistory,
+    stateLedger: agentSettings.stateLedger,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     messageLayout: agentSettings.messageLayout,
@@ -809,6 +905,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       }
 
       validateNativeSettings(settings);
+      validateNativeTransport(driverTransport(resolveDriverKind(modelType, driver)), settings ?? {});
 
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
@@ -831,6 +928,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             "applying initial agent settings"
           );
           agent.updateSettings({
+            ...observationFormatPatch(settings),
+            multiTask: settings.multiTask,
+            taskContext: settings.taskContext,
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
             operatorResultSerializationMode: settings.operatorResultSerializationMode
@@ -843,9 +943,19 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             maxOperatorEdits: settings.maxOperatorEdits,
             agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
             nativeProfileCollection: settings.nativeProfileCollection,
+            nativeProfileScope: settings.nativeProfileScope,
             dataEvidence: settings.dataEvidence,
+            retrievalViews: settings.retrievalViews,
+            fullResultCharLimit: settings.fullResultCharLimit,
+            dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
+            flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
+            nativePromptDetail: settings.nativePromptDetail,
+            nativeTransport: settings.nativeTransport,
+            nativeChecks: settings.nativeChecks,
+            stateHistory: settings.stateHistory,
+            stateLedger: settings.stateLedger,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
             parallelToolCalls: settings.parallelToolCalls,
@@ -916,7 +1026,14 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         computingUnitId: t.Optional(t.Number()),
         // Explicit driver override. Must be in the schema or Elysia's
         // normalize pass strips it from the body before the handler reads it.
-        driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
+        driver: t.Optional(
+          t.Union([
+            t.Literal("vercel-tool-use"),
+            t.Literal("local-react"),
+            t.Literal("text-turn"),
+            t.Literal("turn-tool"),
+          ])
+        ),
         settings: t.Optional(
           t.Object({
             maxOperatorResultCharLimit: t.Optional(t.Number()),
@@ -928,10 +1045,26 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             maxSteps: t.Optional(t.Number()),
             maxOperatorEdits: t.Optional(t.Number()),
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+            ...OBSERVATION_SETTINGS_SCHEMA,
             nativeProfileCollection: t.Optional(t.Boolean()),
+            nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
             dataEvidence: t.Optional(t.Boolean()),
+            retrievalViews: t.Optional(
+              t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
+                minItems: 1,
+                maxItems: 3,
+              })
+            ),
+            fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+            dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+            flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
+            nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
+            nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text"), t.Literal("turn")])),
+            nativeChecks: t.Optional(t.Boolean()),
+            stateHistory: t.Optional(t.Boolean()),
+            stateLedger: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -1086,6 +1219,10 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
    * now." Convenient endpoint for batch drivers that just want the final
    * workflow after a turn without paginating through snapshots.
    */
+  .get("/:id/task-history", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    return { headId: agent.getHead(), tasks: agent.getTaskHistory() };
+  })
   .get("/:id/workflow", ({ params: { id } }) => {
     const agent = getAgent(id);
     return {
@@ -1143,7 +1280,11 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
 
   .get("/:id/system-info", ({ params: { id } }) => {
     const agent = getAgent(id);
-    return agent.getSystemInfo();
+    return {
+      ...agent.getSystemInfo(),
+      inputBudget: readInputBudget(process.env),
+      modelCallLimit: Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0),
+    };
   })
 
   .post("/:id/stop", ({ params: { id } }) => {
@@ -1151,6 +1292,45 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     agent.stop();
     return { status: "stopping" };
   })
+
+  // Load tables as the state in force before the first request: an edit
+  // program (one `scan` per saved table) plus execution, recorded as a hidden
+  // synthetic step with no model call. Used by the gold-prefix protocol.
+  .post(
+    "/:id/seed-state",
+    async ({ params: { id }, body, set }) => {
+      const agent = getAgent(id);
+      if (agent.getState() !== AgentState.AVAILABLE) {
+        set.status = 409;
+        return { error: `agent is ${agent.getState()} — seed state while it is idle` };
+      }
+      let receipt: Awaited<ReturnType<typeof agent.seedState>>;
+      try {
+        receipt = await agent.seedState(body.changes, body.completedTasks ?? 0);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Refusals about when or how state may be loaded are the caller's to fix.
+        if (/before the first request|requires native mode|seed state while it is idle|completedTasks/.test(message)) {
+          set.status = 409;
+          return { error: message };
+        }
+        throw error;
+      }
+      broadcastNextContext(id, agent);
+      return {
+        status: receipt.status,
+        error: receipt.error ?? null,
+        operators: receipt.operators,
+        actions: receipt.actions.map((item: (typeof receipt.actions)[number]) => ({
+          type: item.action.type,
+          status: item.status,
+          output: item.output,
+        })),
+        headId: agent.getHead(),
+      };
+    },
+    { body: t.Object({ changes: t.String(), completedTasks: t.Optional(t.Integer({ minimum: 0 })) }) }
+  )
 
   // Synchronous one-turn REST entry point — the easy integration surface for
   // external callers (scripts, notebooks, other services) that don't want to
@@ -1292,6 +1472,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       );
 
       agent.updateSettings({
+        ...observationFormatPatch(settings),
+        multiTask: settings.multiTask,
+        taskContext: settings.taskContext,
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
         operatorResultSerializationMode: settings.operatorResultSerializationMode
@@ -1305,9 +1488,19 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         maxOperatorEdits: settings.maxOperatorEdits,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         nativeProfileCollection: settings.nativeProfileCollection,
+        nativeProfileScope: settings.nativeProfileScope,
         dataEvidence: settings.dataEvidence,
+        retrievalViews: settings.retrievalViews,
+        fullResultCharLimit: settings.fullResultCharLimit,
+        dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
+        flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
         dataflowReasoning: settings.dataflowReasoning,
+        nativePromptDetail: settings.nativePromptDetail,
+        nativeTransport: settings.nativeTransport,
+        nativeChecks: settings.nativeChecks,
+        stateHistory: settings.stateHistory,
+        stateLedger: settings.stateLedger,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1361,10 +1554,26 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         maxOperatorEdits: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+        ...OBSERVATION_SETTINGS_SCHEMA,
         nativeProfileCollection: t.Optional(t.Boolean()),
+        nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
         dataEvidence: t.Optional(t.Boolean()),
+        retrievalViews: t.Optional(
+          t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
+            minItems: 1,
+            maxItems: 3,
+          })
+        ),
+        fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+        dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+        flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
+        nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
+        nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text"), t.Literal("turn")])),
+        nativeChecks: t.Optional(t.Boolean()),
+        stateHistory: t.Optional(t.Boolean()),
+        stateLedger: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),

@@ -1,0 +1,63 @@
+{
+  "files": 9,
+  "position_rows": 77760,
+  "variants": [
+    {
+      "hourly_aggregation": "mean",
+      "clip_before_diff": false,
+      "density_filter": false,
+      "rows": 215,
+      "correlation": -0.19344252820628005
+    },
+    {
+      "hourly_aggregation": "mean",
+      "clip_before_diff": false,
+      "density_filter": true,
+      "rows": 209,
+      "correlation": -0.1912437486948762
+    },
+    {
+      "hourly_aggregation": "mean",
+      "clip_before_diff": true,
+      "density_filter": false,
+      "rows": 215,
+      "correlation": -0.19344252820628005
+    },
+    {
+      "hourly_aggregation": "mean",
+      "clip_before_diff": true,
+      "density_filter": true,
+      "rows": 209,
+      "correlation": -0.1912437486948762
+    },
+    {
+      "hourly_aggregation": "first",
+      "clip_before_diff": false,
+      "density_filter": false,
+      "rows": 215,
+      "correlation": 0.1103704481862124
+    },
+    {
+      "hourly_aggregation": "first",
+      "clip_before_diff": false,
+      "density_filter": true,
+      "rows": 209,
+      "correlation": 0.10643613627605324
+    },
+    {
+      "hourly_aggregation": "first",
+      "clip_before_diff": true,
+      "density_filter": false,
+      "rows": 215,
+      "correlation": 0.1103704481862124
+    },
+    {
+      "hourly_aggregation": "first",
+      "clip_before_diff": true,
+      "density_filter": true,
+      "rows": 209,
+      "correlation": 0.10643613627605324
+    }
+  ],
+  "scope": "Independent calculation on original files; diagnostic only, does not alter official scoring."
+}

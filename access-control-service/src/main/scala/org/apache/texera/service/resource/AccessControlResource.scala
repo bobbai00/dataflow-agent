@@ -21,7 +21,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.typesafe.scalalogging.LazyLogging
 import jakarta.annotation.security.{PermitAll, RolesAllowed}
-import jakarta.ws.rs.client.{Client, ClientBuilder, Entity}
+import jakarta.ws.rs.client.{Client, ClientBuilder, Entity, InvocationCallback}
+import jakarta.ws.rs.container.{AsyncResponse, ConnectionCallback, Suspended}
 import jakarta.ws.rs.core._
 import jakarta.ws.rs.{Consumes, DELETE, GET, POST, PUT, Path, Produces}
 import org.apache.texera.auth.JwtParser.parseToken
@@ -31,10 +32,12 @@ import org.apache.texera.common.config.{GuiConfig, LLMConfig}
 import org.apache.texera.dao.SqlServer
 import org.apache.texera.dao.jooq.generated.enums.PrivilegeEnum
 import org.apache.texera.dao.jooq.generated.tables.daos.WorkflowComputingUnitDao
+import org.glassfish.jersey.client.ClientProperties
 
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Optional
+import java.util.concurrent.TimeUnit
 import scala.jdk.CollectionConverters.{CollectionHasAsScala, MapHasAsScala}
 import scala.util.matching.Regex
 
@@ -295,14 +298,40 @@ class LiteLLMProxyResource(
   def proxyPost(
       @Context uriInfo: UriInfo,
       @Context headers: HttpHeaders,
-      body: String
-  ): Response = {
+      body: String,
+      @Suspended async: AsyncResponse
+  ): Unit = {
     if (!copilotEnabled) {
-      return Response
-        .status(Response.Status.FORBIDDEN)
-        .entity(LiteLLMProxyResource.CopilotDisabledBody)
-        .build()
+      async.resume(
+        Response
+          .status(Response.Status.FORBIDDEN)
+          .entity(LiteLLMProxyResource.CopilotDisabledBody)
+          .build()
+      )
+      return
     }
+
+    val remaining = LLMProxyRequest.remainingMillis(
+      headers.getHeaderString(LLMProxyRequest.DeadlineHeader),
+      System.currentTimeMillis()
+    ) match {
+      case Right(millis) => millis
+      case Left(status) =>
+        val body =
+          if (status == 504) LLMProxyRequest.TimeoutBody
+          else """{"error":{"message":"Invalid LLM request deadline","type":"invalid_request"}}"""
+        async.resume(Response.status(status).entity(body).build())
+        return
+    }
+
+    val call = new LLMProxyRequest(async)
+    // Disconnect notification is container-dependent; the deadline also bounds
+    // outbound work when the client has gone away without a notification.
+    async.register(new ConnectionCallback {
+      override def onDisconnect(disconnected: AsyncResponse): Unit = call.disconnect()
+    })
+    async.setTimeoutHandler(_ => call.expire())
+    async.setTimeout(remaining, TimeUnit.MILLISECONDS)
 
     // uriInfo.getPath returns "chat/completions" for /api/chat/completions.
     // LiteLLM (and the UCI gateway) require the /v1/ prefix on the OpenAI-compatible routes.
@@ -315,6 +344,8 @@ class LiteLLMProxyResource(
       val requestBuilder = client
         .target(targetUrl)
         .request(MediaType.APPLICATION_JSON)
+        .property(ClientProperties.CONNECT_TIMEOUT, math.min(15000L, remaining).toInt)
+        .property(ClientProperties.READ_TIMEOUT, remaining.toInt)
         .header("Authorization", s"Bearer $litellmApiKey")
 
       // Forward other relevant headers from the original request
@@ -322,33 +353,27 @@ class LiteLLMProxyResource(
         case (key, values)
             if !key.equalsIgnoreCase("Authorization") &&
               !key.equalsIgnoreCase("Host") &&
-              !key.equalsIgnoreCase("Content-Length") =>
+              !key.equalsIgnoreCase("Content-Length") &&
+              !key.equalsIgnoreCase(LLMProxyRequest.DeadlineHeader) =>
           values.asScala.foreach(value => requestBuilder.header(key, value))
-        case _ => // Skip Authorization, Host, and Content-Length headers
+        case _ => // Do not forward internal credentials, routing or deadline headers.
       }
 
-      val response = requestBuilder.post(Entity.json(body))
-
-      // Build response with same status and body from LiteLLM
-      val responseBody = response.readEntity(classOf[String])
-      val responseBuilder = Response
-        .status(response.getStatus)
-        .entity(responseBody)
-
-      // Forward response headers
-      response.getHeaders.asScala.foreach {
-        case (key, values) =>
-          values.asScala.foreach(value => responseBuilder.header(key, value))
-      }
-
-      responseBuilder.build()
+      call.attach(
+        requestBuilder
+          .async()
+          .post(
+            Entity.json(body),
+            new InvocationCallback[Response] {
+              override def completed(response: Response): Unit = call.completed(response)
+              override def failed(error: Throwable): Unit = call.failed(error)
+            }
+          )
+      )
     } catch {
       case e: Exception =>
-        logger.error(s"Error proxying request to LiteLLM: ${e.getMessage}", e)
-        Response
-          .status(Response.Status.BAD_GATEWAY)
-          .entity(s"""{"error": "Failed to proxy request to LiteLLM: ${e.getMessage}"}""")
-          .build()
+        logger.error(s"Error starting LiteLLM request: ${e.getClass.getSimpleName}")
+        call.failed(e)
     }
   }
 }

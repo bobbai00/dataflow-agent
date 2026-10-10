@@ -33,6 +33,8 @@ import type { WorkflowCompilationResponse } from "../../api/compile-api";
  * compilation (e.g. `getNextStepContext()` previews or empty workflows).
  */
 export interface ContextAssemblerInput {
+  /** Original trajectories, including saved off-branch tasks, for task indexing. */
+  taskHistory?: readonly import("../task-history").TaskHistory[];
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;
@@ -120,6 +122,14 @@ export interface DriverRunTurnInput {
    *  calls per turn. The local-react driver always supports multiple Action
    *  pairs in a single turn — this flag is effectively a no-op there. */
   parallelToolCalls: boolean;
+  /** Native action mode always finishes through an answer action. */
+  requireToolCall?: boolean;
+  /** Set by onStepFinish after the answer action has been accepted. */
+  getFinalAnswer?: () => string | undefined;
+  /** Whether a result of this task has been displayed (a retrieval succeeded).
+   *  The turn transport accepts a reply without a tool call as the answer only
+   *  then; the text transport accepts a bare `Final Answer:` line only then. */
+  resultShown?: () => boolean;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool
@@ -141,6 +151,20 @@ export interface DriverRunTurnResult {
   usage: TokenUsage;
 }
 
+/** Native turns end through Answer. Preserve billed usage when a provider
+ * stops with a plain-text plan so the agent can offer one protocol correction. */
+export class MissingAnswerActionError extends Error {
+  constructor(
+    readonly partial: DriverRunTurnResult,
+    readonly canContinue: boolean
+  ) {
+    super(
+      "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
+    );
+    this.name = "MissingAnswerActionError";
+  }
+}
+
 /**
  * Strategy interface that hides the LLM call style from `TexeraAgent`.
  * Both implementations preserve the agent's bookkeeping invariants — they
@@ -148,5 +172,7 @@ export interface DriverRunTurnResult {
  * every emitted assistant turn.
  */
 export interface LLMDriver {
+  /** Fixed protocol paired with this driver's parser and context assembler. */
+  readonly nativeTransport?: "tool" | "text" | "turn";
   runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult>;
 }

@@ -190,8 +190,8 @@ function fixture() {
 }
 
 /** The message that carries one operator's block, or "" if it has none. */
-const blockFor = (messages: string[], id: string) => messages.find(m => m.includes(`operator \`${id}\``)) ?? "";
-const hasBody = (block: string) => block.includes("Output Table:");
+const blockFor = (messages: string[], id: string) => messages.find(m => m.includes(`**${id}**`)) ?? "";
+const hasBody = (block: string) => block.includes("records:");
 
 const source = { op: "scan", id: "source", files: "data/test.csv" };
 const selected = {
@@ -217,17 +217,18 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
 
   // The observed operator shows its body, with its operator semantics intact.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
-  expect(blockFor(messages, "selected")).toContain("Flow measurement: Filter kept=3/5");
-  // The author's doc leads the guarantee of a custom operator.
-  expect(blockFor(messages, "selected")).toContain("Flow guarantee: Filter: legacy fixture; stable subset");
+  expect(blockFor(messages, "selected")).toContain("- flow: Filter kept=3/5");
+  // Author descriptions stay in definitions; guarantees describe the contract.
+  expect(blockFor(messages, "selected")).toContain("- flow: contract; Filter: stable subset");
+  expect(blockFor(messages, "selected")).not.toContain("- flow: contract; Filter: legacy fixture");
 
   // The two the agent did not ask for carry a row count and nothing else. An
   // unobserved table is not leaked just because the layout retains bodies.
   for (const id of ["source", "final"]) {
     expect(hasBody(blockFor(messages, id))).toBe(false);
-    expect(blockFor(messages, id)).toContain("Result: executed");
+    expect(blockFor(messages, id)).toContain("result:");
   }
-  expect(messages.join("\n")).not.toContain("Sample stored row 1: -1");
+  expect(messages.join("\n")).not.toContain("Sample record: -1");
 });
 
 test("opBlock: an observed result survives the agent looking elsewhere", async () => {
@@ -241,7 +242,7 @@ test("opBlock: an observed result survives the agent looking elsewhere", async (
   expect(hasBody(blockFor(messages, "final"))).toBe(true);
   // `selected` keeps the body it earned at step A: nothing about it changed.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
-  expect(blockFor(messages, "selected")).toContain("Flow measurement: Filter kept=3/5");
+  expect(blockFor(messages, "selected")).toContain("- flow: Filter kept=3/5");
   // Still never observed, so still withheld.
   expect(hasBody(blockFor(messages, "source"))).toBe(false);
 
@@ -261,11 +262,11 @@ test("opBlock: a redefined operator shows the result its NEW definition produced
 
   // The block still carries a result — and it is the CURRENT one.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
-  expect(blockFor(messages, "selected")).toContain("Output Table: 2 rows");
+  expect(blockFor(messages, "selected")).toContain("result: 2 rows");
   expect(blockFor(messages, "selected")).toContain("row['x'] > 15");
   // The measurement from the superseded revision is gone, not merely moved.
-  expect(messages.join("\n")).not.toContain("Flow measurement: Filter kept=3/5");
-  expect(blockFor(messages, "selected")).not.toContain("Output Table: 3 rows");
+  expect(messages.join("\n")).not.toContain("- flow: Filter kept=3/5");
+  expect(blockFor(messages, "selected")).not.toContain("result: 3 rows");
 });
 
 test("opBlock: an upstream change refreshes every downstream result the agent watches", async () => {
@@ -273,7 +274,7 @@ test("opBlock: an upstream change refreshes every downstream result the agent wa
   // `final` is observed too, so both downstream blocks are subscribed.
   await f.record("B", [], ["final"]);
   f.storage.captureNativeObservations("B", ["final"], { data: true, flow: true, maxChars: 2000 });
-  expect(blockFor(f.render("opBlock"), "final")).toContain("Output Table: 3 rows");
+  expect(blockFor(f.render("opBlock"), "final")).toContain("result: 3 rows");
 
   // Now only the SOURCE changes. `selected` and `final` are untouched
   // definitions, but their data moves underneath them — which is precisely the
@@ -284,10 +285,10 @@ test("opBlock: an upstream change refreshes every downstream result the agent wa
 
   for (const id of ["selected", "final"]) {
     expect(hasBody(blockFor(messages, id))).toBe(true);
-    expect(blockFor(messages, id)).toContain("Output Table: 1 rows");
-    expect(blockFor(messages, id)).not.toContain("Output Table: 3 rows");
+    expect(blockFor(messages, id)).toContain("result: 1 row × 1 column");
+    expect(blockFor(messages, id)).not.toContain("result: 3 rows");
   }
-  expect(messages.join("\n")).not.toContain("Flow measurement: Filter kept=3/5");
+  expect(messages.join("\n")).not.toContain("- flow: Filter kept=3/5");
   // The source itself was never observed, so it still shows only its shape.
   expect(hasBody(blockFor(messages, "source"))).toBe(false);
 });
@@ -330,7 +331,7 @@ test("opBlock: definitions and process code do not depend on the observe list", 
   );
 
   // Every block carries its definition as written, whatever the observe list.
-  for (const id of ["source", "scored"]) expect(blockFor(f.render("opBlock"), id)).toContain("Definition:");
+  for (const id of ["source", "scored"]) expect(blockFor(f.render("opBlock"), id)).toContain("definition:");
 });
 
 test("opBlock: the volatile tail sections get their own messages", async () => {

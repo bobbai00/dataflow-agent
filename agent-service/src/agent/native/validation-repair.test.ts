@@ -22,7 +22,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { assembleContext } from "../util/context-utils";
-import { type NativeBatchResult } from "../tools/native-batch-tools";
+import { createNativeTools, type NativeBatchResult } from "../tools/native-batch-tools";
 import { NATIVE_OPERATORS } from "./catalog";
 import { NativeValidationRepair } from "./validation-repair";
 import { formatNativeDiagnostic } from "./diagnostics";
@@ -196,13 +196,24 @@ async function agentFixture() {
   metadata.seedCodeModeDefaults();
   agent.metadataStore = metadata;
   Object.assign(agent.settings, { agentMode: AgentMode.NATIVE });
+  const currentTools = agent.createTools.bind(agent);
+  agent.createTools = () => ({
+    ...currentTools(),
+    ...createNativeTools(agent.workflowState, {
+      metadataStore: agent.metadataStore,
+      nativeValidationRepair: agent.nativeValidationRepair,
+      settings: agent.settings,
+    }),
+  });
   agent.tools = agent.createTools();
-  const call = async (name: string, args: unknown, allowError = false) => {
+  const call = async (name: string, args: any, allowError = false) => {
+    const input = args;
     const result = await agent.handleDebugInput(
-      `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(args))})`
+      `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(input))})`
     );
-    if (!allowError) expect(result.error).toBeUndefined();
-    return agent.getAllSteps().find((step: any) => step.id === agent.getHead()).toolResults[0].output;
+    const output = agent.getAllSteps().find((step: any) => step.id === agent.getHead()).toolResults[0].output;
+    if (!allowError) expect(result.error).toBe(output.error);
+    return output;
   };
   const edit = async (program = bad): Promise<NativeBatchResult> => call("dataflow", { edits: program });
   await agent.handleDebugInput("Repair repeated invalid arguments.");
@@ -253,8 +264,14 @@ test("repair state survives tool rebuilding, but resets on checkout, new debug t
   await edit();
   let modelResult: NativeBatchResult | undefined;
   agent.driver = {
-    runTurn: async ({ tools }: any) => {
-      modelResult = await tools.dataflow.execute({ edits: bad });
+    runTurn: async ({ tools, onStepFinish }: any) => {
+      const input = { edits: bad };
+      modelResult = await tools.dataflow.execute(input);
+      await onStepFinish({
+        text: "",
+        toolCalls: [{ toolName: "dataflow", toolCallId: "model", input }],
+        toolResults: [{ toolCallId: "model", output: modelResult }],
+      });
       return { text: "", messages: [], usage: {} };
     },
   };

@@ -1,0 +1,1719 @@
+[
+  {
+    "model": "DeepSeek41Flash",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 56640,
+      "output_tokens": 804,
+      "total_tokens": 57444,
+      "reasoning_tokens": 208,
+      "cached_tokens": 22528,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.011333567999999999,
+      "num_steps": 4,
+      "elapsed_seconds": 8.51,
+      "reported_usage_cost_usd": 0.011333567999999999,
+      "pricing": {
+        "model": "deepseek-v4.1-flash",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+        "rates": {
+          "input": 3e-07,
+          "output": 1.2e-06,
+          "cache_read": 6e-09,
+          "cache_creation": null
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 4,
+      "model_responses_with_usage": 4,
+      "model_latency_seconds": 2.947,
+      "response_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "requested_model": "deepseek-v4.1-flash",
+      "provider_reported_cost_usd": 0.011333568,
+      "partial_provider_reported_cost_usd": 0.011333568,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 4,
+      "response_providers": [
+        "Together"
+      ]
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 3,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 2,
+      "columns": 16
+    },
+    "final_answer": "**Final Answer: S\u00e3o Paulo**",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 57444,
+      "token_usage_sut_input": 56640,
+      "token_usage_sut_output": 804,
+      "token_usage_sut_reasoning": 208,
+      "token_usage_sut_cached": 22528,
+      "cost_usd_sut": 0.0,
+      "runtime": 8.748838424682617,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Terra",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 19575,
+      "output_tokens": 431,
+      "total_tokens": 20006,
+      "reasoning_tokens": 78,
+      "cached_tokens": 11834,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.0230208,
+      "num_steps": 3,
+      "elapsed_seconds": 19.28,
+      "reported_usage_cost_usd": 0.0230208,
+      "pricing": {
+        "model": "gpt-5.6-terra",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        "rates": {
+          "input": 2e-06,
+          "output": 1.2e-05,
+          "cache_read": 2.0000000000000002e-07,
+          "cache_creation": 2.5e-06
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 12.228,
+      "response_models": [
+        "gpt-5.6-terra"
+      ],
+      "requested_model": "gpt-5.6-terra",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 4,
+      "columns": 44
+    },
+    "final_answer": "**Final Answer: S\u00e3o Paulo**",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 20006,
+      "token_usage_sut_input": 19575,
+      "token_usage_sut_output": 431,
+      "token_usage_sut_reasoning": 78,
+      "token_usage_sut_cached": 11834,
+      "cost_usd_sut": 0.023021,
+      "runtime": 19.474594116210938,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Qwen38_27B",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 198820,
+      "output_tokens": 2925,
+      "total_tokens": 201745,
+      "reasoning_tokens": 1437,
+      "cached_tokens": 188736,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.02778701,
+      "num_steps": 25,
+      "elapsed_seconds": 95.18,
+      "reported_usage_cost_usd": 0.02778701,
+      "pricing": {
+        "model": "qwen3.8-27b",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+        "rates": {
+          "input": 4.25e-07,
+          "output": 2.5499999999999997e-06,
+          "cache_read": 8.500000000000001e-08,
+          "cache_creation": 5.3125e-07
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 25,
+      "model_responses_with_usage": 25,
+      "model_latency_seconds": 92.229,
+      "response_models": [
+        "qwen3.8-27b"
+      ],
+      "requested_model": "qwen3.8-27b",
+      "provider_reported_cost_usd": 0.012459472,
+      "partial_provider_reported_cost_usd": 0.012459472,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 25,
+      "response_providers": [
+        "Wafer"
+      ]
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 24,
+      "action_errors": 20,
+      "tool_errors": 20,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 0,
+      "profiles": 1,
+      "columns": 11
+    },
+    "final_answer": "I",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "I"
+      },
+      "code": "",
+      "token_usage_sut": 201745,
+      "token_usage_sut_input": 198820,
+      "token_usage_sut_output": 2925,
+      "token_usage_sut_reasoning": 1437,
+      "token_usage_sut_cached": 188736,
+      "cost_usd_sut": 0.0,
+      "runtime": 95.37142395973206,
+      "success": 0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Luna",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 26283,
+      "output_tokens": 833,
+      "total_tokens": 27116,
+      "reasoning_tokens": 171,
+      "cached_tokens": 18458,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.00293376,
+      "num_steps": 4,
+      "elapsed_seconds": 19.9,
+      "reported_usage_cost_usd": 0.00293376,
+      "pricing": {
+        "model": "gpt-5.6-luna",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "rates": {
+          "input": 2.0000000000000002e-07,
+          "output": 1.2e-06,
+          "cache_read": 2e-08,
+          "cache_creation": 2.5e-07
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 4,
+      "model_responses_with_usage": 4,
+      "model_latency_seconds": 14.429,
+      "response_models": [
+        "gpt-5.6-luna"
+      ],
+      "requested_model": "gpt-5.6-luna",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 3,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 3,
+      "columns": 13
+    },
+    "final_answer": "Final Answer: 13.1628",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 27116,
+      "token_usage_sut_input": 26283,
+      "token_usage_sut_output": 833,
+      "token_usage_sut_reasoning": 171,
+      "token_usage_sut_cached": 18458,
+      "cost_usd_sut": 0.002934,
+      "runtime": 20.071717023849487,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Luna",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 19494,
+      "output_tokens": 509,
+      "total_tokens": 20003,
+      "reasoning_tokens": 169,
+      "cached_tokens": 17099,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.0014317800000000001,
+      "num_steps": 3,
+      "elapsed_seconds": 16.16,
+      "reported_usage_cost_usd": 0.0014317800000000001,
+      "pricing": {
+        "model": "gpt-5.6-luna",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "rates": {
+          "input": 2.0000000000000002e-07,
+          "output": 1.2e-06,
+          "cache_read": 2e-08,
+          "cache_creation": 2.5e-07
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 10.094,
+      "response_models": [
+        "gpt-5.6-luna"
+      ],
+      "requested_model": "gpt-5.6-luna",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 3,
+      "columns": 33
+    },
+    "final_answer": "Final Answer: S\u00e3o Paulo",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 20003,
+      "token_usage_sut_input": 19494,
+      "token_usage_sut_output": 509,
+      "token_usage_sut_reasoning": 169,
+      "token_usage_sut_cached": 17099,
+      "cost_usd_sut": 0.001432,
+      "runtime": 16.362357139587402,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Sol",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 19196,
+      "output_tokens": 659,
+      "total_tokens": 19855,
+      "reasoning_tokens": 80,
+      "cached_tokens": 11688,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.0478872,
+      "num_steps": 3,
+      "elapsed_seconds": 16.93,
+      "reported_usage_cost_usd": 0.0478872,
+      "pricing": {
+        "model": "gpt-5.6-sol",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+        "rates": {
+          "input": 4e-06,
+          "output": 2e-05,
+          "cache_read": 4.0000000000000003e-07,
+          "cache_creation": 5e-06
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 11.815,
+      "response_models": [
+        "gpt-5.6-sol"
+      ],
+      "requested_model": "gpt-5.6-sol",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 3,
+      "columns": 11
+    },
+    "final_answer": "13.1628\n\n**Final Answer: 13.1628**",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 19855,
+      "token_usage_sut_input": 19196,
+      "token_usage_sut_output": 659,
+      "token_usage_sut_reasoning": 80,
+      "token_usage_sut_cached": 11688,
+      "cost_usd_sut": 0.0,
+      "runtime": 17.106475114822388,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Qwen38_27B",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 197481,
+      "output_tokens": 2784,
+      "total_tokens": 200265,
+      "reasoning_tokens": 1310,
+      "cached_tokens": 187200,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.027380625,
+      "num_steps": 25,
+      "elapsed_seconds": 68.26,
+      "reported_usage_cost_usd": 0.027380625,
+      "pricing": {
+        "model": "qwen3.8-27b",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+        "rates": {
+          "input": 4.25e-07,
+          "output": 2.5499999999999997e-06,
+          "cache_read": 8.500000000000001e-08,
+          "cache_creation": 5.3125e-07
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 25,
+      "model_responses_with_usage": 25,
+      "model_latency_seconds": 67.729,
+      "response_models": [
+        "qwen3.8-27b"
+      ],
+      "requested_model": "qwen3.8-27b",
+      "provider_reported_cost_usd": 0.0120248478,
+      "partial_provider_reported_cost_usd": 0.0120248478,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 25,
+      "response_providers": [
+        "Wafer"
+      ]
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 24,
+      "action_errors": 0,
+      "tool_errors": 22,
+      "envelope_errors": 22,
+      "text_replies": 0,
+      "retrievals": 0,
+      "profiles": 0,
+      "columns": 0
+    },
+    "final_answer": "I",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "I"
+      },
+      "code": "",
+      "token_usage_sut": 200265,
+      "token_usage_sut_input": 197481,
+      "token_usage_sut_output": 2784,
+      "token_usage_sut_reasoning": 1310,
+      "token_usage_sut_cached": 187200,
+      "cost_usd_sut": 0.0,
+      "runtime": 68.45214080810547,
+      "success": 0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Qwen38_27B",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 196600,
+      "output_tokens": 3732,
+      "total_tokens": 200332,
+      "reasoning_tokens": 2236,
+      "cached_tokens": 186624,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.02961944,
+      "num_steps": 25,
+      "elapsed_seconds": 102.75,
+      "reported_usage_cost_usd": 0.02961944,
+      "pricing": {
+        "model": "qwen3.8-27b",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b",
+        "rates": {
+          "input": 4.25e-07,
+          "output": 2.5499999999999997e-06,
+          "cache_read": 8.500000000000001e-08,
+          "cache_creation": 5.3125e-07
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 25,
+      "model_responses_with_usage": 25,
+      "model_latency_seconds": 102.279,
+      "response_models": [
+        "qwen3.8-27b"
+      ],
+      "requested_model": "qwen3.8-27b",
+      "provider_reported_cost_usd": 0.014755384,
+      "partial_provider_reported_cost_usd": 0.014755384,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 25,
+      "response_providers": [
+        "Wafer"
+      ]
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 24,
+      "action_errors": 23,
+      "tool_errors": 22,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 0,
+      "profiles": 0,
+      "columns": 0
+    },
+    "final_answer": "I",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "I"
+      },
+      "code": "",
+      "token_usage_sut": 200332,
+      "token_usage_sut_input": 196600,
+      "token_usage_sut_output": 3732,
+      "token_usage_sut_reasoning": 2236,
+      "token_usage_sut_cached": 186624,
+      "cost_usd_sut": 0.0,
+      "runtime": 103.00562691688538,
+      "mean_absolute_error": null,
+      "mean_squared_error": null,
+      "rae_score": 0.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 201616,
+      "output_tokens": 1722,
+      "total_tokens": 203338,
+      "reasoning_tokens": 693,
+      "cached_tokens": 188672,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.007081632,
+      "num_steps": 25,
+      "elapsed_seconds": 47.82,
+      "reported_usage_cost_usd": 0.007081632,
+      "pricing": {
+        "model": "deepseek-v4.1-flash",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+        "rates": {
+          "input": 3e-07,
+          "output": 1.2e-06,
+          "cache_read": 6e-09,
+          "cache_creation": null
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 25,
+      "model_responses_with_usage": 25,
+      "model_latency_seconds": 47.29,
+      "response_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "requested_model": "deepseek-v4.1-flash",
+      "provider_reported_cost_usd": 0.009917248,
+      "partial_provider_reported_cost_usd": 0.009917248,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 25,
+      "response_providers": [
+        "Wafer"
+      ]
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 24,
+      "action_errors": 22,
+      "tool_errors": 22,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 0,
+      "profiles": 0,
+      "columns": 0
+    },
+    "final_answer": "I",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "I"
+      },
+      "code": "",
+      "token_usage_sut": 203338,
+      "token_usage_sut_input": 201616,
+      "token_usage_sut_output": 1722,
+      "token_usage_sut_reasoning": 693,
+      "token_usage_sut_cached": 188672,
+      "cost_usd_sut": 0.0,
+      "runtime": 47.98812437057495,
+      "success": 0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Sol",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 19222,
+      "output_tokens": 436,
+      "total_tokens": 19658,
+      "reasoning_tokens": 86,
+      "cached_tokens": 17098,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.0240552,
+      "num_steps": 3,
+      "elapsed_seconds": 14.29,
+      "reported_usage_cost_usd": 0.0240552,
+      "pricing": {
+        "model": "gpt-5.6-sol",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+        "rates": {
+          "input": 4e-06,
+          "output": 2e-05,
+          "cache_read": 4.0000000000000003e-07,
+          "cache_creation": 5e-06
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 9.103,
+      "response_models": [
+        "gpt-5.6-sol"
+      ],
+      "requested_model": "gpt-5.6-sol",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 2,
+      "columns": 15
+    },
+    "final_answer": "**Final Answer: S\u00e3o Paulo**",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 19658,
+      "token_usage_sut_input": 19222,
+      "token_usage_sut_output": 436,
+      "token_usage_sut_reasoning": 86,
+      "token_usage_sut_cached": 17098,
+      "cost_usd_sut": 0.0,
+      "runtime": 14.519777297973633,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Luna",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 35758,
+      "output_tokens": 785,
+      "total_tokens": 36543,
+      "reasoning_tokens": 236,
+      "cached_tokens": 28389,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.00298358,
+      "num_steps": 4,
+      "elapsed_seconds": 28.4,
+      "reported_usage_cost_usd": 0.00298358,
+      "pricing": {
+        "model": "gpt-5.6-luna",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "rates": {
+          "input": 2.0000000000000002e-07,
+          "output": 1.2e-06,
+          "cache_read": 2e-08,
+          "cache_creation": 2.5e-07
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 4,
+      "model_responses_with_usage": 4,
+      "model_latency_seconds": 13.827,
+      "response_models": [
+        "gpt-5.6-luna"
+      ],
+      "requested_model": "gpt-5.6-luna",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 3,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 5,
+      "profiles": 8,
+      "columns": 273
+    },
+    "final_answer": "60\n\n**Final Answer: 60**",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "60"
+      },
+      "code": "",
+      "token_usage_sut": 36543,
+      "token_usage_sut_input": 35758,
+      "token_usage_sut_output": 785,
+      "token_usage_sut_reasoning": 236,
+      "token_usage_sut_cached": 28389,
+      "cost_usd_sut": 0.002984,
+      "runtime": 28.599467277526855,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Opus48",
+    "task": "archeology-easy-6",
+    "stats": {
+      "input_tokens": 33154,
+      "output_tokens": 590,
+      "total_tokens": 33744,
+      "reasoning_tokens": 0,
+      "cached_tokens": 20730,
+      "cache_creation_tokens": 12388,
+      "cost_usd": 0.10272,
+      "num_steps": 3,
+      "elapsed_seconds": 16.07,
+      "reported_usage_cost_usd": 0.10272,
+      "pricing": {
+        "model": "claude-opus-4.8",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://platform.claude.com/docs/en/models/opus-4-8/overview",
+        "rates": {
+          "input": 5e-06,
+          "output": 2.5e-05,
+          "cache_read": 5e-07,
+          "cache_creation": 6.25e-06
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 9.375,
+      "response_models": [
+        "claude-opus-4.8"
+      ],
+      "requested_model": "claude-opus-4.8",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 4,
+      "columns": 44
+    },
+    "final_answer": "S\u00e3o Paulo\n\n**Final Answer: S\u00e3o Paulo**",
+    "official_evaluation": {
+      "task_id": "archeology-easy-6",
+      "model_output": {
+        "id": "main-task",
+        "answer": "S\u00e3o Paulo"
+      },
+      "code": "",
+      "token_usage_sut": 33744,
+      "token_usage_sut_input": 33154,
+      "token_usage_sut_output": 590,
+      "token_usage_sut_reasoning": 0,
+      "token_usage_sut_cached": 20730,
+      "cost_usd_sut": 0.0,
+      "runtime": 16.269901275634766,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Opus48",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 33342,
+      "output_tokens": 862,
+      "total_tokens": 34204,
+      "reasoning_tokens": 0,
+      "cached_tokens": 30526,
+      "cache_creation_tokens": 2780,
+      "cost_usd": 0.054368,
+      "num_steps": 3,
+      "elapsed_seconds": 16.4,
+      "reported_usage_cost_usd": 0.054368,
+      "pricing": {
+        "model": "claude-opus-4.8",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://platform.claude.com/docs/en/models/opus-4-8/overview",
+        "rates": {
+          "input": 5e-06,
+          "output": 2.5e-05,
+          "cache_read": 5e-07,
+          "cache_creation": 6.25e-06
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 11.106,
+      "response_models": [
+        "claude-opus-4.8"
+      ],
+      "requested_model": "claude-opus-4.8",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 3,
+      "columns": 11
+    },
+    "final_answer": "Identity theft reports: 2024 = 1,135,291 and 2001 = 86,250. Ratio = 1,135,291 / 86,250 = 13.1628.\n\n**Final Answer: 13.1628**",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 34204,
+      "token_usage_sut_input": 33342,
+      "token_usage_sut_output": 862,
+      "token_usage_sut_reasoning": 0,
+      "token_usage_sut_cached": 30526,
+      "cost_usd_sut": 0.0,
+      "runtime": 16.60413122177124,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "DeepSeek41Flash",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 54904,
+      "output_tokens": 1684,
+      "total_tokens": 56588,
+      "reasoning_tokens": 336,
+      "cached_tokens": 21120,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.012282719999999999,
+      "num_steps": 7,
+      "elapsed_seconds": 17.83,
+      "reported_usage_cost_usd": 0.012282719999999999,
+      "pricing": {
+        "model": "deepseek-v4.1-flash",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash",
+        "rates": {
+          "input": 3e-07,
+          "output": 1.2e-06,
+          "cache_read": 6e-09,
+          "cache_creation": null
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 7,
+      "model_responses_with_usage": 7,
+      "model_latency_seconds": 9.38,
+      "response_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "requested_model": "deepseek-v4.1-flash",
+      "provider_reported_cost_usd": 0.010094405,
+      "partial_provider_reported_cost_usd": 0.010094405,
+      "provider_cost_complete": true,
+      "model_responses_with_provider_cost": 7,
+      "response_providers": [
+        "InferenceNet",
+        "Makora"
+      ]
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 6,
+      "action_errors": 3,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 3,
+      "columns": 11
+    },
+    "final_answer": "Identity theft reports: 1,135,291 in 2024 vs 86,250 in 2001. Ratio = 1,135,291 / 86,250 = 13.1628 (rounded to 4 decimal places).\n\n**Final Answer: 13.1628**",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 56588,
+      "token_usage_sut_input": 54904,
+      "token_usage_sut_output": 1684,
+      "token_usage_sut_reasoning": 336,
+      "token_usage_sut_cached": 21120,
+      "cost_usd_sut": 0.0,
+      "runtime": 18.04885482788086,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Sol",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 88275,
+      "output_tokens": 572,
+      "total_tokens": 88847,
+      "reasoning_tokens": 100,
+      "cached_tokens": 51142,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.1804288,
+      "num_steps": 3,
+      "elapsed_seconds": 22.37,
+      "reported_usage_cost_usd": 0.1804288,
+      "pricing": {
+        "model": "gpt-5.6-sol",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+        "rates": {
+          "input": 4e-06,
+          "output": 2e-05,
+          "cache_read": 4.0000000000000003e-07,
+          "cache_creation": 5e-06
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 9.975,
+      "response_models": [
+        "gpt-5.6-sol"
+      ],
+      "requested_model": "gpt-5.6-sol",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 8,
+      "columns": 367
+    },
+    "final_answer": "**Final Answer: 60**",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "60"
+      },
+      "code": "",
+      "token_usage_sut": 88847,
+      "token_usage_sut_input": 88275,
+      "token_usage_sut_output": 572,
+      "token_usage_sut_reasoning": 100,
+      "token_usage_sut_cached": 51142,
+      "cost_usd_sut": 0.0,
+      "runtime": 22.575212240219116,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Terra",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 77824,
+      "output_tokens": 898,
+      "total_tokens": 78722,
+      "reasoning_tokens": 145,
+      "cached_tokens": 57458,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.06299959999999999,
+      "num_steps": 4,
+      "elapsed_seconds": 29.78,
+      "reported_usage_cost_usd": 0.06299959999999999,
+      "pricing": {
+        "model": "gpt-5.6-terra",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        "rates": {
+          "input": 2e-06,
+          "output": 1.2e-05,
+          "cache_read": 2.0000000000000002e-07,
+          "cache_creation": 2.5e-06
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 4,
+      "model_responses_with_usage": 4,
+      "model_latency_seconds": 17.667,
+      "response_models": [
+        "gpt-5.6-terra"
+      ],
+      "requested_model": "gpt-5.6-terra",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 3,
+      "action_errors": 1,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 8,
+      "columns": 367
+    },
+    "final_answer": "60\n\n**Final Answer: 60**",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "60"
+      },
+      "code": "",
+      "token_usage_sut": 78722,
+      "token_usage_sut_input": 77824,
+      "token_usage_sut_output": 898,
+      "token_usage_sut_reasoning": 145,
+      "token_usage_sut_cached": 57458,
+      "cost_usd_sut": 0.063,
+      "runtime": 29.985100269317627,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Opus48",
+    "task": "biomedical-hard-3",
+    "stats": {
+      "input_tokens": 329336,
+      "output_tokens": 1763,
+      "total_tokens": 331099,
+      "reasoning_tokens": 0,
+      "cached_tokens": 259224,
+      "cache_creation_tokens": 70040,
+      "cost_usd": 0.611797,
+      "num_steps": 6,
+      "elapsed_seconds": 37.1,
+      "reported_usage_cost_usd": 0.611797,
+      "pricing": {
+        "model": "claude-opus-4.8",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://platform.claude.com/docs/en/models/opus-4-8/overview",
+        "rates": {
+          "input": 5e-06,
+          "output": 2.5e-05,
+          "cache_read": 5e-07,
+          "cache_creation": 6.25e-06
+        },
+        "long_context_threshold": null,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 6,
+      "model_responses_with_usage": 6,
+      "model_latency_seconds": 23.462,
+      "response_models": [
+        "claude-opus-4.8"
+      ],
+      "requested_model": "claude-opus-4.8",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 5,
+      "action_errors": 2,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 3,
+      "profiles": 10,
+      "columns": 215
+    },
+    "final_answer": "The patient with the lowest APP-Z score (S019, APP_Z_score = -2.153) has an age of 60.\n\n**Final Answer: 60**",
+    "official_evaluation": {
+      "task_id": "biomedical-hard-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "60"
+      },
+      "code": "",
+      "token_usage_sut": 331099,
+      "token_usage_sut_input": 329336,
+      "token_usage_sut_output": 1763,
+      "token_usage_sut_reasoning": 0,
+      "token_usage_sut_cached": 259224,
+      "cost_usd_sut": 0.0,
+      "runtime": 37.311901330947876,
+      "success": 1,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  },
+  {
+    "model": "Terra",
+    "task": "legal-easy-3",
+    "stats": {
+      "input_tokens": 19116,
+      "output_tokens": 708,
+      "total_tokens": 19824,
+      "reasoning_tokens": 142,
+      "cached_tokens": 16950,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.016218,
+      "num_steps": 3,
+      "elapsed_seconds": 14.49,
+      "reported_usage_cost_usd": 0.016218,
+      "pricing": {
+        "model": "gpt-5.6-terra",
+        "kind": "token_estimate",
+        "currency": "USD",
+        "unit": "per_token",
+        "verified_on": "2026-10-08",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        "rates": {
+          "input": 2e-06,
+          "output": 1.2e-05,
+          "cache_read": 2.0000000000000002e-07,
+          "cache_creation": 2.5e-06
+        },
+        "long_context_threshold": 272000,
+        "input_includes_cached": true,
+        "output_includes_reasoning": true
+      },
+      "usage_complete": true,
+      "model_requests": 3,
+      "model_responses_with_usage": 3,
+      "model_latency_seconds": 10.129,
+      "response_models": [
+        "gpt-5.6-terra"
+      ],
+      "requested_model": "gpt-5.6-terra",
+      "provider_reported_cost_usd": null,
+      "partial_provider_reported_cost_usd": null,
+      "provider_cost_complete": false,
+      "model_responses_with_provider_cost": 0,
+      "response_providers": []
+    },
+    "metrics_audit": {
+      "warnings": [],
+      "usage_mismatches": [],
+      "costs": {
+        "cost_usd": "Frozen public token-rate estimate; not an invoice.",
+        "reported_usage_cost_usd": "Partial frozen-rate estimate for responses with known usage and pricing.",
+        "provider_reported_cost_usd": "Sum of response usage.cost only when every gateway request reports cost; not combined with estimates."
+      },
+      "timing": {
+        "elapsed_seconds": "Agent turn wall time, including model and tools; excludes scoring.",
+        "model_latency_seconds": "Sum of captured gateway request durations; includes transport and gateway overhead."
+      }
+    },
+    "attempt_audit": {
+      "violations": [],
+      "warnings": [],
+      "prefix_checks": 2,
+      "action_errors": 0,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "text_replies": 0,
+      "retrievals": 2,
+      "profiles": 2,
+      "columns": 7
+    },
+    "final_answer": "**Final Answer: 13.1628**",
+    "official_evaluation": {
+      "task_id": "legal-easy-3",
+      "model_output": {
+        "id": "main-task",
+        "answer": "13.1628"
+      },
+      "code": "",
+      "token_usage_sut": 19824,
+      "token_usage_sut_input": 19116,
+      "token_usage_sut_output": 708,
+      "token_usage_sut_reasoning": 142,
+      "token_usage_sut_cached": 16950,
+      "cost_usd_sut": 0.016218,
+      "runtime": 14.66239070892334,
+      "mean_absolute_error": 0.0,
+      "mean_squared_error": 0.0,
+      "rae_score": 1.0,
+      "token_usage_metrics": 0,
+      "token_usage_metrics_input": 0,
+      "token_usage_metrics_output": 0,
+      "token_usage_subtask_eval": 0,
+      "token_usage_subtask_eval_input": 0,
+      "token_usage_subtask_eval_output": 0
+    }
+  }
+]

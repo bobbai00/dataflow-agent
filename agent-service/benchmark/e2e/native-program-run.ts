@@ -21,7 +21,7 @@
  *
  *   TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3061 bun run benchmark/e2e/native-program-run.ts
  *
- * Drives the `dataflow` program tool through the debug transport: a chain with
+ * Drives the `dataflow` action tool through the debug transport: a chain with
  * a process loader, observe/hidden receipts, a cached read, an upstream
  * revision that refreshes an existing descendant, a preview window with
  * skip_lines, a statement that does not parse, a partial failure, an
@@ -111,6 +111,20 @@ function debug(
   name: string,
   args: Record<string, unknown>
 ): Promise<{ context: string; results: Record<string, any>; error?: string }> {
+  // Expand expression fixtures into the public ordered-action protocol.
+  // An empty edit is a cached retrieval; deletion alone does not execute.
+  if (name === "dataflow" && !("actions" in args)) {
+    const expressions = String(args.edits ?? "");
+    const remove = (args.delete ?? []) as string[];
+    args = {
+      reasoning: "Check the edits and their execution results.",
+      actions: [
+        ...(expressions || remove.length ? [{ type: "edit", expressions, delete: remove }] : []),
+        ...(expressions ? [{ type: "execute" }] : []),
+        ...((args.observe ?? []) as string[]).map(operator_id => ({ type: "retrieve", operator_id })),
+      ],
+    };
+  }
   return new Promise<{ context: string; results: Record<string, any>; error?: string }>((resolve, reject) => {
     const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${agentId}/react`);
     let sent = false;
@@ -197,7 +211,7 @@ try {
   // 2. A cached read does not execute anything.
   const snap1 = await getSnapshot(agentId, "head", baseUrl);
   const second = await debug("dataflow", { edits: "", observe: ["source"] });
-  assert.match(second.context, /observed \(cached\)/);
+  assert.match(second.context, /retrieve: ok/);
   const snap2 = await getSnapshot(agentId, "head", baseUrl);
   assert.deepEqual(
     (snap2.results.source as any).sampleRecords,
@@ -216,7 +230,7 @@ try {
   });
   assert.equal(revision.results.total.sampleRecords[0].sum_x, 3, "existing downstream aggregate was not refreshed");
   assert.equal(revision.results.answer.sampleRecords[0].sum_x, 3, "new dependent chain saw an old result");
-  assert.match(lastObservation(revision.context), /total.*re-executed/);
+  assert.match(lastObservation(revision.context), /total: ok/);
   assert.match(lastObservation(revision.context), /result not requested/);
   assert.ok(!lastObservation(revision.context).includes("RECOMPUTED_SENTINEL"));
   const latestHidden = renderMirroredContext(ContextMode.LATEST);
@@ -260,7 +274,7 @@ try {
     ],
     "same-shaped Scan revision did not refresh the existing descendant"
   );
-  assert.match(lastObservation(movedWindow.context), /window_lines.*re-executed/);
+  assert.match(lastObservation(movedWindow.context), /window_lines: ok/);
   assert.ok(!lastObservation(movedWindow.context).includes("WINDOW_FOUR"), "hidden preview leaked in DELTA");
 
   // 5. A failed Scan revision surfaces despite observe:[] and supersedes its success.
@@ -269,9 +283,11 @@ try {
     observe: [],
   });
   assert.ok(missingWindow.results.window?.error, "failed Scan revision retained a success");
-  assert.match(lastObservation(missingWindow.context), /scan `window` failed:/);
+  assert.match(lastObservation(missingWindow.context), /window: error/);
   assert.match(lastObservation(missingWindow.context), /missing\.txt/);
   assert.ok(!lastObservation(missingWindow.context).includes("WINDOW_FOUR"), "failed revision exposed old data");
+
+  await debug("dataflow", { edits: "", delete: ["window_lines", "window"] });
 
   // 6. A statement that does not parse fails alone and lands nothing of its own.
   const before = await getSnapshot(agentId, "head", baseUrl);
@@ -284,7 +300,7 @@ try {
   );
 
   // 7. Partial failure: an invalid statement fails, its dependent is blocked, a
-  //    valid sibling lands and executes.
+  //    valid sibling lands; the execute action is skipped.
   const partial = await debug("dataflow", {
     edits: [
       "invalid = filter(source, 4)",
@@ -293,9 +309,14 @@ try {
     ].join("\n"),
     observe: [],
   });
-  assert.match(partial.context, /invalid.*error:/);
-  assert.match(partial.context, /blocked.*blocked:/);
-  assert.ok(partial.results.valid?.sampleRecords);
+  assert.match(partial.context, /invalid: error/);
+  assert.match(partial.context, /blocked: blocked/);
+  assert.match(lastObservation(partial.context), /execute: skipped/);
+  assert.ok(!partial.results.valid?.sampleRecords, "a failed edit must skip execute");
+  await debug("dataflow", {
+    reasoning: "Execute the independent statements that landed.",
+    actions: [{ type: "execute" }],
+  });
 
   // 8. An execution error replaces the previous success and is inspectable.
   const failed = await debug("dataflow", {

@@ -1,0 +1,1140 @@
+{
+  "summary": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 3,
+      "scored": 3,
+      "mean_score": 1.0,
+      "cost_usd": 0.015068759999999999,
+      "costs_known": 3,
+      "model_calls": 15,
+      "retrieval_views": {
+        "full": 8,
+        "sample_stats": 1,
+        "sample": 2
+      },
+      "retrieval_chars": 31485,
+      "reads_with_data": 2,
+      "reads_with_flow": 10,
+      "reads_with_upstream": 1,
+      "partial_full_reads": 1,
+      "successful_reads": 10,
+      "no_answer": 0,
+      "prefix_checks": 12,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 15,
+      "provider_reported_cost_usd": 0.010152073,
+      "provider_costs_known": 3,
+      "response_providers": [
+        "Makora",
+        "Together",
+        "Wafer"
+      ],
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 4,
+      "answered_after_tool_errors": 2,
+      "input_tokens": 151254,
+      "output_tokens": 3595,
+      "cached_tokens": 117760,
+      "reasoning_tokens": 936,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 21.21666666666667,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 11.786666666666667,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 24.274277527738985,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.7785579224351091,
+      "actions": {
+        "edit": 8,
+        "execute": 8,
+        "retrieve": 11,
+        "answer": 3,
+        "inspect": 3
+      },
+      "statuses": {
+        "ok": 29,
+        "error": 4
+      },
+      "edit_operations": {
+        "operator.created": 12,
+        "edge.created": 7,
+        "operator.updated": 4
+      },
+      "operators_created": {
+        "scan": 6,
+        "join": 1,
+        "sort": 1,
+        "limit": 1,
+        "sw_top": 1,
+        "parse_reports": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "attempts": 3,
+      "passes": 3,
+      "scored": 3,
+      "mean_score": 1.0,
+      "cost_usd": 0.06047614,
+      "costs_known": 3,
+      "model_calls": 28,
+      "retrieval_views": {
+        "sample": 2,
+        "full": 8
+      },
+      "retrieval_chars": 40347,
+      "reads_with_data": 0,
+      "reads_with_flow": 9,
+      "reads_with_upstream": 3,
+      "partial_full_reads": 2,
+      "successful_reads": 9,
+      "no_answer": 0,
+      "prefix_checks": 25,
+      "prefix_failures": 0,
+      "usage_complete_attempts": 3,
+      "model_requests": 28,
+      "provider_reported_cost_usd": 0.0235750892,
+      "provider_costs_known": 3,
+      "response_providers": [
+        "Wafer"
+      ],
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 4,
+      "answered_after_tool_errors": 1,
+      "input_tokens": 323854,
+      "output_tokens": 5845,
+      "cached_tokens": 270784,
+      "reasoning_tokens": 2521,
+      "cache_creation_tokens": 0,
+      "mean_elapsed_seconds": 52.6,
+      "elapsed_seconds_known": 3,
+      "mean_model_latency_seconds": 42.20466666666667,
+      "model_latency_seconds_known": 3,
+      "mean_attempt_seconds": 55.36924065269219,
+      "attempt_seconds_known": 3,
+      "cache_fraction": 0.8361298609867409,
+      "actions": {
+        "inspect": 4,
+        "edit": 10,
+        "execute": 10,
+        "retrieve": 10,
+        "answer": 3
+      },
+      "statuses": {
+        "ok": 33,
+        "error": 4
+      },
+      "edit_operations": {
+        "operator.created": 14,
+        "edge.created": 9,
+        "operator.deleted": 2,
+        "operator.updated": 3
+      },
+      "operators_created": {
+        "scan": 6,
+        "filter_sw": 1,
+        "sort": 2,
+        "limit": 3,
+        "join": 1,
+        "compute_ratio": 1
+      }
+    }
+  ],
+  "contrasts": [],
+  "rows": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.00796734,
+      "input_tokens": 64109,
+      "provider_reported_cost_usd": 0.003227065,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 961,
+      "cached_tokens": 42240,
+      "reasoning_tokens": 384,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 31.96,
+      "model_latency_seconds": 17.18,
+      "attempt_seconds": 34.92282579210587,
+      "usage_complete": true,
+      "model_requests": 4,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 4,
+      "prefix_checks": 3,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 2,
+        "sample_stats": 1
+      },
+      "actions": {
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 10
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 4,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.002679624,
+      "input_tokens": 38722,
+      "provider_reported_cost_usd": 0.002679624,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Together"
+      ],
+      "output_tokens": 957,
+      "cached_tokens": 34304,
+      "reasoning_tokens": 216,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 10.27,
+      "model_latency_seconds": 4.296,
+      "attempt_seconds": 13.699138625059277,
+      "usage_complete": true,
+      "model_requests": 5,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 1,
+      "model_calls": 5,
+      "prefix_checks": 4,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "sample": 2,
+        "full": 1
+      },
+      "actions": {
+        "inspect": 1,
+        "edit": 2,
+        "retrieve": 3,
+        "execute": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 8,
+        "error": 1
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "operator.updated": 1,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "sw_top": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.01204569,
+      "input_tokens": 63166,
+      "provider_reported_cost_usd": 0.0051463348,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 1330,
+      "cached_tokens": 53504,
+      "reasoning_tokens": 552,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 34.13,
+      "model_latency_seconds": 24.418,
+      "attempt_seconds": 36.75287016690709,
+      "usage_complete": true,
+      "model_requests": 8,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 8,
+      "prefix_checks": 7,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "sample": 1,
+        "full": 2
+      },
+      "actions": {
+        "inspect": 1,
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 3,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 11
+      },
+      "edit_operations": {
+        "operator.created": 5,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 1,
+        "filter_sw": 1,
+        "sort": 1,
+        "limit": 2
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "success": 1
+      },
+      "cost_usd": 0.02755241,
+      "input_tokens": 150744,
+      "provider_reported_cost_usd": 0.0077128232,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 1587,
+      "cached_tokens": 119296,
+      "reasoning_tokens": 716,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 45.48,
+      "model_latency_seconds": 33.697,
+      "attempt_seconds": 48.468346500070766,
+      "usage_complete": true,
+      "model_requests": 8,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 0,
+      "envelope_errors": 0,
+      "action_errors": 0,
+      "model_calls": 8,
+      "prefix_checks": 7,
+      "prefix_failures": 0,
+      "answered_after_action_errors": false,
+      "answered_after_tool_errors": false,
+      "views": {
+        "full": 2
+      },
+      "actions": {
+        "inspect": 1,
+        "edit": 2,
+        "execute": 2,
+        "retrieve": 2,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 8
+      },
+      "edit_operations": {
+        "operator.created": 7,
+        "operator.deleted": 2,
+        "edge.created": 4
+      },
+      "operators_created": {
+        "scan": 4,
+        "join": 1,
+        "sort": 1,
+        "limit": 1
+      }
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.0044217959999999995,
+      "input_tokens": 48423,
+      "provider_reported_cost_usd": 0.004245384,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Makora"
+      ],
+      "output_tokens": 1677,
+      "cached_tokens": 41216,
+      "reasoning_tokens": 336,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 21.42,
+      "model_latency_seconds": 13.884,
+      "attempt_seconds": 24.200868166051805,
+      "usage_complete": true,
+      "model_requests": 6,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 1,
+      "envelope_errors": 0,
+      "action_errors": 3,
+      "model_calls": 6,
+      "prefix_checks": 5,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "full": 5
+      },
+      "actions": {
+        "inspect": 2,
+        "edit": 3,
+        "execute": 3,
+        "retrieve": 5,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 11,
+        "error": 3
+      },
+      "edit_operations": {
+        "operator.created": 3,
+        "operator.updated": 3,
+        "edge.created": 2
+      },
+      "operators_created": {
+        "scan": 1,
+        "parse_reports": 1,
+        "identity_ratio": 1
+      }
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "score": 1.0,
+      "pass": true,
+      "official_scores": {
+        "rae_score": 1.0
+      },
+      "cost_usd": 0.02087804,
+      "input_tokens": 109944,
+      "provider_reported_cost_usd": 0.0107159312,
+      "provider_cost_complete": true,
+      "response_providers": [
+        "Wafer"
+      ],
+      "output_tokens": 2928,
+      "cached_tokens": 97984,
+      "reasoning_tokens": 1253,
+      "cache_creation_tokens": 0,
+      "elapsed_seconds": 78.19,
+      "model_latency_seconds": 68.499,
+      "attempt_seconds": 80.88650529109873,
+      "usage_complete": true,
+      "model_requests": 12,
+      "no_answer": false,
+      "answer_recorded": true,
+      "native_actions_observed": true,
+      "tool_errors": 2,
+      "envelope_errors": 0,
+      "action_errors": 4,
+      "model_calls": 12,
+      "prefix_checks": 11,
+      "prefix_failures": 0,
+      "answered_after_action_errors": true,
+      "answered_after_tool_errors": true,
+      "views": {
+        "sample": 1,
+        "full": 4
+      },
+      "actions": {
+        "inspect": 2,
+        "edit": 5,
+        "execute": 5,
+        "retrieve": 5,
+        "answer": 1
+      },
+      "statuses": {
+        "ok": 14,
+        "error": 4
+      },
+      "edit_operations": {
+        "operator.created": 2,
+        "operator.updated": 3,
+        "edge.created": 1
+      },
+      "operators_created": {
+        "scan": 1,
+        "compute_ratio": 1
+      }
+    }
+  ],
+  "retrievals": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "f1",
+      "view": "full",
+      "status": "ok",
+      "result_version": "a499104a88199e13e9c85335ad981dbee5d1136fb44936864878d728b8ae1796",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 12812,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 1,
+      "operator_id": "f7",
+      "view": "full",
+      "status": "ok",
+      "result_version": "a08209c1dc2a381bd27d7179d364bc0a6825cdeb9cdf016ea621993f3bd39044",
+      "totalRows": 13,
+      "returnedRows": 13,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 5437,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "meta",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "2a56f198a0adb8e663ed268fe96f1c7e52d9b639188ddd6c036a81b8233b29c8",
+      "totalRows": 153,
+      "returnedRows": 1,
+      "totalColumns": 179,
+      "columnsShown": 50,
+      "complete": false,
+      "chars": 4056,
+      "data_facts": 45,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "apm",
+      "view": "sample_stats",
+      "status": "ok",
+      "result_version": "52d55ec1534f7e98abd46b1ca1ee4fbf6b4624d034515c0cb4efe1c9e06b2199",
+      "totalRows": 95,
+      "returnedRows": 1,
+      "totalColumns": 34,
+      "columnsShown": 34,
+      "complete": false,
+      "chars": 3942,
+      "data_facts": 47,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "top",
+      "view": "full",
+      "status": "ok",
+      "result_version": "47f79582b54bb75db7e1b0b733313652f6d67ba0959e9774501e679955d14692",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 212,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 899,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "cities",
+      "view": "sample",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "cities",
+      "view": "sample",
+      "status": "ok",
+      "result_version": "c86b4417ebf2031672cd8c6b7eac314902fb2de8b86589303c2cdae68d1a1f34",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 886,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "operator_id": "sw",
+      "view": "full",
+      "status": "ok",
+      "result_version": "72a40cdf8b15da4cf23a4d574e9afb0991052e6b4e53b5509df8c64da850a6aa",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": true,
+      "chars": 1112,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 3,
+      "operator_id": "records",
+      "view": "sample",
+      "status": "ok",
+      "result_version": "2427ba5944a0d57e3f2cbfaee84655eba8ed6d998aa4818a3d091b4868de570d",
+      "totalRows": 44691,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": false,
+      "chars": 1057,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "answer",
+      "view": "full",
+      "status": "ok",
+      "result_version": "64ae4e117acdea1527880e03ad428571b4f83ae0a0693792118a11aa53414c4d",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 11,
+      "columnsShown": 11,
+      "complete": true,
+      "chars": 596,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "operator_id": "top5",
+      "view": "full",
+      "status": "ok",
+      "result_version": "39f6398cf1b2476350eeba1b1a2a02b96dfeb9dcfb83d33630768b7c16a9e253",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 11,
+      "columnsShown": 5,
+      "complete": false,
+      "chars": 639,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "operator_id": "mmc1",
+      "view": "full",
+      "status": "ok",
+      "result_version": "d475712839e9cee2049dbd4193a39b014dc06784c846a603c712deec5a8a496f",
+      "totalRows": 10,
+      "returnedRows": 10,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 24598,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "operator_id": "mmc7",
+      "view": "full",
+      "status": "ok",
+      "result_version": "36651b59b1bfa4735e2cb4dc34f6148907e5fd3b0c65e6adc0a1ae7119b3240d",
+      "totalRows": 23,
+      "returnedRows": 23,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 10211,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "biomedical-hard-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "operator_id": "answer",
+      "view": "full",
+      "status": "ok",
+      "result_version": "19d4d41a1cfed7b75c30f59700f90b5f5f7d8e49fc93937f142500c7194fa4d8",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 212,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 727,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 1
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "raw",
+      "view": "full",
+      "status": "ok",
+      "result_version": "7b4600e961f7b5a395a89ce7df0cb24eb974d19f3066373f95b4b5040e89ebe7",
+      "totalRows": 5,
+      "returnedRows": 5,
+      "totalColumns": 3,
+      "columnsShown": 3,
+      "complete": true,
+      "chars": 632,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "operator_id": "parsed",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "parsed",
+      "view": "full",
+      "status": "ok",
+      "result_version": "e82e909bea01c496f021603618cda7d8399b870c775a9c10e395ec39954990a4",
+      "totalRows": 24,
+      "returnedRows": 24,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1247,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "fe6064782bdeb508b086dd6e2876d8f87382dd9cff4d85aa85c96629b1e62697",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 5,
+      "columnsShown": 5,
+      "complete": true,
+      "chars": 462,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "operator_id": "records",
+      "view": "sample",
+      "status": "ok",
+      "result_version": "c101303511be1396832e833dcdb06113e52e95e3ee9a4d8e0611eddc751a8033",
+      "totalRows": 28,
+      "returnedRows": 5,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": false,
+      "chars": 772,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 5,
+      "operator_id": "records",
+      "view": "full",
+      "status": "ok",
+      "result_version": "e0dbb6642eb04f7863ac4c8c5adfd0f99faa9869c689aea260291d2f58d7d44d",
+      "totalRows": 26,
+      "returnedRows": 26,
+      "totalColumns": 4,
+      "columnsShown": 4,
+      "complete": true,
+      "chars": 1447,
+      "data_facts": 0,
+      "flow_facts": 1,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "error",
+      "result_version": null,
+      "chars": 0,
+      "data_facts": 0,
+      "flow_facts": 0,
+      "upstream_facts": 0
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 11,
+      "operator_id": "ratio",
+      "view": "full",
+      "status": "ok",
+      "result_version": "ca2582763be325b78ceaeda1cc047034070c1b64c6a0bc9717e95f7c35d33fa7",
+      "totalRows": 1,
+      "returnedRows": 1,
+      "totalColumns": 1,
+      "columnsShown": 1,
+      "complete": true,
+      "chars": 300,
+      "data_facts": 0,
+      "flow_facts": 2,
+      "upstream_facts": 0
+    }
+  ],
+  "errors": [
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "archeology-easy-6",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 2,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "cities"
+        ],
+        "view": "sample"
+      },
+      "error": "{'results': [{'operator_id': 'cities', 'status': 'error', 'error': 'RESULT_NOT_RUN: `cities` has not been executed. Execute it, then retrieve.'}]}"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "parsed",
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'parsed', 'status': 'error', 'state': 'failed', 'message': '- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: parse_reports line 6: `result[\\'Year\\'] = pd.to_numeric(result[\\'Year\\'].astype(\\'string\\').str.strip(), errors=\\'raise\\').astype(\\'int64\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}, {'id': 'raw', 'status': 'ok', 'state': 'executed', 'rows': 26}, {'id': 'ratio', 'status': 'error', 'state': 'not run', 'cause': 'upstream `parsed` failed'}], 'operator_blocks': [{'id': 'raw', 'kind': 'scan', 'state': 'executed', 'inputs': [], 'result': '26 rows × 4 columns', 'columns': ['Year str', '\"Fraud \" str', '\"Identity Theft \" str', '\"Other \" str'], 'issues': ['- flow: Scan parsed selected sources; files selected=1/1, omitted=0; output=26 rows.']}, {'id': 'parsed', 'kind': 'parse_reports', 'state': 'failed', 'inputs': [{'id': 'raw'}], 'result': 'failed', 'columns': [], 'scope': ['parse_reports \"parsed\": row selection inside Python is unknown; inspect its definition.'], 'issues': ['- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: parse_reports line 6: `result[\\'Year\\'] = pd.to_numeric(result[\\'Year\\'].astype(\\'string\\').str.strip(), errors=\\'raise\\').astype(\\'int64\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.']}], 'error': 'Execution failed due to th"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "parsed"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'parsed', 'status': 'error', 'error': 'RESULT_FAILED: the last execution of `parsed` failed.\\n- error CALLBACK_RUNTIME: ValueError: Unable to parse string \"Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission\" at position 25\\n  - at: parse_reports line 6: `result[\\'Year\\'] = pd.to_numeric(result[\\'Year\\'].astype(\\'string\\').str.strip(), errors=\\'raise\\').astype(\\'int64\\')`\\n  - fix: Repair the submitted function and relevant input handling before retrying.'}]}"
+    },
+    {
+      "model": "DeepSeek41Flash",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemDeepSeek41Flash_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 4,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': 'RESULT_NOT_RUN: `ratio` did not run because upstream `parsed` failed. Repair it, execute, then retrieve.'}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': \"- error CALLBACK_RUNTIME: KeyError: 'Identity Theft'\\n  - at: compute_ratio line 6: `df['Identity Theft'] = df['Identity Theft'].astype(str).str.replace(',', '', regex=False).astype(float)`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}, {'id': 'records', 'status': 'ok', 'state': 'cached', 'rows': 26}], 'operator_blocks': [{'id': 'ratio', 'kind': 'compute_ratio', 'state': 'failed', 'inputs': [{'id': 'records'}], 'result': 'failed', 'columns': [], 'scope': ['compute_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': [\"- error CALLBACK_RUNTIME: KeyError: 'Identity Theft'\\n  - at: compute_ratio line 6: `df['Identity Theft'] = df['Identity Theft'].astype(str).str.replace(',', '', regex=False).astype(float)`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"]}], 'error': 'Execution failed due to the following error:\\nExecution error:\\n  ratio: (line 2) `return _native_scope[\"execute_native_from_engine\"](_native_spec, [_input_0])` - NativeError: NATIVE_ERROR_V2:{\"version\":1,\"operatorId\":\"ratio\",\"operatorRevision\":\"a4c9b1c5014096ea\",\"code\":\"CALLBACK_RUNTIME\",\"stage\":\"execute\",\"message\":\"KeyError: \\'Identity Theft\\'\",\"field\":\"python\",\"source\":{\"entry\":\"compute_ratio\",\"line\":6,\"excerpt\":\"    df[\\'Identity Theft\\'] = df[\\'Identity Theft\\'].astype(str).str.replace(\\',\\', \\'\\', regex=False).astype(float)\",\"cell\":1}}'}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 7,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': \"RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: KeyError: 'Identity Theft'\\n  - at: compute_ratio line 6: `df['Identity Theft'] = df['Identity Theft'].astype(str).str.replace(',', '', regex=False).astype(float)`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}]}"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "action": {
+        "type": "execute",
+        "operator_ids": [
+          "ratio"
+        ]
+      },
+      "error": "{'operators': [{'id': 'ratio', 'status': 'error', 'state': 'failed', 'message': \"- error CALLBACK_RUNTIME: ValueError: could not convert string to float: 'None'\\n  - at: compute_ratio line 7: `df['Identity Theft'] = df['Identity Theft'].astype(str).str.replace(',', '', regex=False).astype(float)`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}, {'id': 'records', 'status': 'ok', 'state': 'cached', 'rows': 26}], 'operator_blocks': [{'id': 'ratio', 'kind': 'compute_ratio', 'state': 'failed', 'inputs': [{'id': 'records'}], 'result': 'failed', 'columns': [], 'scope': ['compute_ratio \"ratio\": row selection inside Python is unknown; inspect its definition.'], 'issues': [\"- error CALLBACK_RUNTIME: ValueError: could not convert string to float: 'None'\\n  - at: compute_ratio line 7: `df['Identity Theft'] = df['Identity Theft'].astype(str).str.replace(',', '', regex=False).astype(float)`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"]}], 'error': 'Execution failed due to the following error:\\nExecution error:\\n  ratio: (line 2) `return _native_scope[\"execute_native_from_engine\"](_native_spec, [_input_0])` - NativeError: NATIVE_ERROR_V2:{\"version\":1,\"operatorId\":\"ratio\",\"operatorRevision\":\"f85bdc8377347d02\",\"code\":\"CALLBACK_RUNTIME\",\"stage\":\"execute\",\"message\":\"ValueError: could not convert string to float: \\'None\\'\",\"field\":\"python\",\"source\":{\"entry\":\"compute_ratio\",\"line\":7,\"excerpt\":\"    df[\\'Identity Theft\\'] = df[\\'Identity Theft\\'].astype(str).str.replace(\\',\\', \\'\\', regex=False).astype(float)\",\"cell\":"
+    },
+    {
+      "model": "Qwen38_27B",
+      "arm": "adaptive_flow1_fullstats",
+      "task": "legal-easy-3",
+      "rep": 1,
+      "sut": "DataflowSystemQwen38_27B_20261008_registered_python_provider_fix_adaptive_flow1_fullstats_Rep1",
+      "step": 9,
+      "action": {
+        "type": "retrieve",
+        "operator_ids": [
+          "ratio"
+        ],
+        "view": "full"
+      },
+      "error": "{'results': [{'operator_id': 'ratio', 'status': 'error', 'error': \"RESULT_FAILED: the last execution of `ratio` failed.\\n- error CALLBACK_RUNTIME: ValueError: could not convert string to float: 'None'\\n  - at: compute_ratio line 7: `df['Identity Theft'] = df['Identity Theft'].astype(str).str.replace(',', '', regex=False).astype(float)`\\n  - fix: Repair the submitted function and relevant input handling before retrying.\"}]}"
+    }
+  ]
+}

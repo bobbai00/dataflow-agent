@@ -42,6 +42,7 @@
  *    the future tool `inputSchema` for a model-driven summarize() call.
  */
 
+import { observationFormat } from "../../native/observation-format";
 import { z } from "zod";
 import { AgentMode, ContextMode } from "../../../types/agent";
 import type { AssembleContextOptions } from "../../util/context-utils";
@@ -285,7 +286,29 @@ export type FlowParams = z.infer<typeof FlowParamsSchema>;
 
 export const SummarizeParamsSchema = z.object({
   /** The two evidence controls and their shared result budget. */
-  nativeEvidence: z.object({ data: z.boolean(), flow: z.boolean(), maxChars: z.number().int().min(0) }).optional(),
+  nativeEvidence: z
+    .object({
+      data: z.boolean(),
+      flow: z.boolean(),
+      maxChars: z.number().int().min(0),
+      checks: z.boolean().optional(),
+      tableFormat: z.enum(["markdown", "tsv"]).optional(),
+      ...Object.fromEntries(
+        [
+          "keyValueColumns",
+          "columnsShown",
+          "definitionChars",
+          "cellChars",
+          "topValues",
+          "catalogRecords",
+          "dataMaxChars",
+          "flowMaxChars",
+        ].map(key => [key, z.number().int().min(0).optional()])
+      ),
+      answerEcho: z.boolean().optional(),
+    })
+    .passthrough()
+    .optional(),
   trajectory: TrajectoryParamsSchema.default({}),
   /** Render the `# Current Dataflow` snapshot section (every operator's block).
    *  The legacy DELTA shape sets this false — state lives inline in the
@@ -391,9 +414,11 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
 
   return SummarizeParamsSchema.parse({
     nativeEvidence: options.nativeEvidence ?? {
+      ...observationFormat(options),
       data: options.dataEvidence === true,
       flow: options.flowEvidence === true,
       maxChars: options.maxOperatorResultCharLimit ?? 2000,
+      ...(options.nativeChecks === true ? { checks: true } : {}),
     },
     trajectory: {
       events: isLatest ? "none" : "interleaved",

@@ -49,6 +49,9 @@ export interface PortDescription {
 }
 
 export interface OperatorPredicate {
+  /** Provenance of a copied historical definition. Saved observations keep
+   * their original identity; they are not a materialization of this new ID. */
+  readonly stateOrigin?: { taskId: number; stepId: string; operatorId: string; subgraphHash: string };
   readonly operatorID: string;
   readonly operatorType: string;
   readonly operatorVersion: string;
@@ -70,10 +73,17 @@ export interface OperatorPredicate {
    */
   readonly nativeOp?: {
     type: string;
+    /** Authored function name; engine compilation may still use Process. */
+    registeredName?: string;
+    /** Operator documentation is metadata, excluded from computational revisions. */
+    doc?: string;
     properties: Record<string, unknown>;
     inputs: string[];
+    /** Public graph ports in logical input order. */
+    graph?: { inputPorts: string[] };
     revision?: string;
     profileCollection?: boolean;
+    profileScope?: "full";
     /** The assignment as the model wrote it (`x = filter(...)`). */
     source?: string;
     /** Top-level `def` sources the statement refers to, by name. */
@@ -126,6 +136,8 @@ export interface WorkflowSettings {
 }
 
 export interface WorkflowContent {
+  /** Session-wide authored definitions, persisted independently of graph nodes. */
+  readonly nativeNamespace?: import("../agent/native/registered").RegisteredNamespace;
   readonly operators: OperatorPredicate[];
   readonly operatorPositions: { [key: string]: Point };
   readonly links: OperatorLink[];

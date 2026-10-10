@@ -44,22 +44,27 @@ export function autoLayoutWorkflow(workflowState: WorkflowState): void {
   const graph = new dagre.graphlib.Graph();
   graph.setGraph(LAYOUT_CONFIG);
   graph.setDefaultEdgeLabel(() => ({}));
+  // Dagre uses object-keyed dictionaries internally. Keep user-authored IDs
+  // such as __proto__ out of those dictionaries without restricting the graph.
+  const layoutIds = new Map(operators.map((operator, index) => [operator.operatorID, `node_${index}`]));
 
   for (const operator of operators) {
-    graph.setNode(operator.operatorID, {
+    graph.setNode(layoutIds.get(operator.operatorID)!, {
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
     });
   }
 
   for (const link of links) {
-    graph.setEdge(link.source.operatorID, link.target.operatorID);
+    const source = layoutIds.get(link.source.operatorID);
+    const target = layoutIds.get(link.target.operatorID);
+    if (source !== undefined && target !== undefined) graph.setEdge(source, target);
   }
 
   dagre.layout(graph);
 
   for (const operator of operators) {
-    const node = graph.node(operator.operatorID);
+    const node = graph.node(layoutIds.get(operator.operatorID)!);
     if (node) {
       workflowState.updateOperatorPosition(operator.operatorID, {
         x: node.x,

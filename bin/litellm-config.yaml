@@ -30,6 +30,8 @@
 # reasoning_tokens). Used to verify that gpt-5-mini-medium's reasoning_effort
 # actually reaches the OpenAI API. Set back to false once diagnosis is done.
 litellm_settings:
+  # Preserve strict tool inputs on the Anthropic route (LiteLLM 1.83.10).
+  callbacks: [strict_tools.hook]
   set_verbose: true
   # Drop provider-unsupported params (e.g. `stop` for gpt-5.2 reasoning models)
   # instead of 400-erroring. Needed so the smolagents CodeAgent baseline can run
@@ -73,6 +75,20 @@ model_list:
       # default — every request 400s and the task records 0 steps / 0 tokens.
       # Drop it at the proxy so callers need no per-model special-casing.
       additional_drop_params: ["temperature"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  # Sonnet 5.5 uses automatic tool choice; native mode still requires Answer.
+  # Leave adaptive thinking and effort at the provider defaults for this arm.
+  - model_name: claude-sonnet-5.5
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      additional_drop_params: ["temperature", "top_p", "top_k"]
       cache_control_injection_points:
         - location: message
           role: system
@@ -137,3 +153,44 @@ model_list:
       model: openai/gpt-5.6-terra
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
+
+  # Registered-Python validation models; each route preserves the requested ID.
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+  - model_name: claude-opus-4.8
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      additional_drop_params: ["temperature", "top_p", "top_k"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  - model_name: qwen3.8-27b
+    litellm_params:
+      model: openrouter/qwen/qwen3.8-27b
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      # Pin the serving providers so a campaign measures one model, not the
+      # router: unquantized or fp8 weights with structured-output support, in
+      # price order, no fallback outside the list. The fp4 routes (Sail
+      # Research, Decart) and InferenceNet produced the 2026-10-08 failure loops.
+      extra_body:
+        provider:
+          order: ["deepinfra", "dekallm", "wafer"]
+          allow_fallbacks: false
+  - model_name: deepseek-v4.1-flash
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4.1-flash
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      extra_body:
+        provider:
+          order: ["deepinfra", "morph", "wafer"]
+          allow_fallbacks: false

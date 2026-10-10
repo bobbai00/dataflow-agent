@@ -41,6 +41,7 @@ import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import { NativeValidationRepair } from "../native/validation-repair";
 import { applyNativeOperator, deleteNativeOperator } from "./native-upsert";
+import { asDataflowActionsResult } from "./dataflow-actions";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
 
@@ -58,7 +59,7 @@ export interface NativeBatchOutcome {
 /** Stored as the tool result on the owning ReAct event. Observation choices
  * are event facts, never mutable preferences on an operator. */
 export interface NativeBatchResult {
-  kind: "native-batch";
+  kind: "native-batch" | "dataflow-actions";
   operators: NativeBatchOutcome[];
   observe: string[];
   observationErrors: string[];
@@ -67,7 +68,11 @@ export interface NativeBatchResult {
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
   if (!output || typeof output !== "object") return undefined;
   const r = output as NativeBatchResult;
-  return r.kind === "native-batch" && Array.isArray(r.operators) && Array.isArray(r.observe) ? r : undefined;
+  return (r.kind === "native-batch" || r.kind === "dataflow-actions") &&
+    Array.isArray(r.operators) &&
+    Array.isArray(r.observe)
+    ? r
+    : undefined;
 }
 
 export function nativeBatchResults(step: Pick<ReActStep, "toolCalls" | "toolResults">): NativeBatchResult[] {
@@ -79,7 +84,11 @@ export function nativeBatchResults(step: Pick<ReActStep, "toolCalls" | "toolResu
 }
 
 export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResults">): Set<string> | undefined {
-  const results = nativeBatchResults(step);
+  const results = nativeBatchResults(step).filter(result => {
+    const actions = asDataflowActionsResult(result);
+    // Structural inspection and answering do not change which tables were read.
+    return !actions || actions.actions.some(item => ["edit", "fork", "execute", "retrieve"].includes(item.action.type));
+  });
   return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
 }
 
@@ -179,6 +188,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         }
         const compiled = await compileProgram(args.edits, {
           profileCollection: context?.settings?.nativeProfileCollection === true,
+          profileScope: context?.settings?.nativeProfileScope === "full" ? "full" : undefined,
         });
         const statements: ProgramStatement[] = compiled.statements;
         // Deletes apply first. A delete is refused while a consumer survives the
@@ -244,7 +254,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         const byId = new Map<string, number>();
         for (const [index, statement] of statements.entries()) {
           if (byId.has(statement.id)) {
-            const message = `\`${statement.id}\` is assigned twice in one program; define each table once.`;
+            const message = `\`${statement.id}\` is assigned twice in one edit; define each table once.`;
             fail(byId.get(statement.id)!, message);
             fail(index, message);
           } else byId.set(statement.id, index);
@@ -295,9 +305,9 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           if (outcomes[index]) continue;
           for (const id of inputs.get(statement.id) ?? []) {
             if (syntaxIds.has(id) && !inputs.has(id))
-              fail(index, `Input \`${id}\` did not parse in this program; dependent statement skipped.`, "blocked");
+              fail(index, `Input \`${id}\` did not parse in this edit; dependent statement skipped.`, "blocked");
             else if (!inputs.has(id) && !byId.has(id))
-              fail(index, `Input table \`${id}\` does not exist and is not defined in this program.`);
+              fail(index, `Input table \`${id}\` does not exist and is not defined in this edit.`);
           }
         }
         const visited = new Set<string>();
@@ -345,7 +355,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             if (!outcome || outcome.status === "error" || outcome.status === "blocked") {
               fail(
                 index,
-                `Input \`${id}\` was not updated successfully in this program; dependent statement skipped.`,
+                `Input \`${id}\` was not updated successfully in this edit; dependent statement skipped.`,
                 "blocked"
               );
               return;

@@ -1,0 +1,3 @@
+{
+  "_about": "Runtime map from a data source a KramaBench task declares to the file the task means, applied by benchmark/observation_format_smoke.py. Empty since 2026-10-05: the pinned KramaBench task files carry every correction this map held (astronomy-hard-7 from upstream 03bd9bb; astronomy-hard-9 and -11 omni2.txt -> omni2.text and the astronomy-hard-12 six-digit time glob in fork commit 6b33f01). Add an entry only for a pinned KramaBench that still declares a source its data lake lacks."
+}

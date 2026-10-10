@@ -103,6 +103,20 @@ async function observationFromService(): Promise<string> {
 }
 
 function debug(name: string, args: Record<string, unknown>): Promise<{ context: string; tool: any; error?: string }> {
+  // Expand expression fixtures into the public ordered-action protocol.
+  // An empty edit is a cached retrieval; deletion alone does not execute.
+  if (name === "dataflow" && !("actions" in args)) {
+    const expressions = String(args.edits ?? "");
+    const remove = (args.delete ?? []) as string[];
+    args = {
+      reasoning: "Check the edits and their execution results.",
+      actions: [
+        ...(expressions || remove.length ? [{ type: "edit", expressions, delete: remove }] : []),
+        ...(expressions ? [{ type: "execute" }] : []),
+        ...((args.observe ?? []) as string[]).map(operator_id => ({ type: "retrieve", operator_id })),
+      ],
+    };
+  }
   return new Promise<{ raw: string; tool: any; error?: string }>((resolve, reject) => {
     const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${agentId}/react`);
     let sent = false;
@@ -170,7 +184,7 @@ try {
   agentId = agent.id;
 
   // 1. Program syntax: the unparseable statement fails at its line; the other
-  //    statement lands (and then fails at execution, since the file is absent).
+  //    statement lands; the execute action is skipped.
   const syntax = await debug("dataflow", {
     edits: 'sales_probe = scan("x.csv"\nnames_probe = scan("y.csv")',
     observe: [],
@@ -180,7 +194,7 @@ try {
     "line 1",
     "was never closed",
     "other statements landed",
-    "scan operator `names_probe` added",
+    "added scan operator `names_probe`",
   ]);
   await debug("dataflow", { edits: "", delete: ["names_probe"] });
 
@@ -209,7 +223,7 @@ try {
     "UPSTREAM_FAILED",
     "`bad_join`",
   ]);
-  check("independent statements still land", argsText, ["scan operator `sales` added", "scan operator `names` added"]);
+  check("independent statements still land", argsText, ["added scan operator `sales`", "added scan operator `names`"]);
 
   // 3. Execute layer (Python, with data): cast failure names column and value; blocked consumer names the root.
   const cast = await debug("dataflow", {
@@ -247,6 +261,8 @@ try {
     "Hint: Observe the current input schema",
   ]);
 
+  await debug("dataflow", { edits: "", delete: ["doubled"] });
+
   // 5. Relational contracts. The engine aborts the run at the first failure,
   // so an unrelated statement in the same execution must be told exactly that
   // (not blamed on an operator it never reads), while a real consumer names its
@@ -273,21 +289,13 @@ try {
   // Whether a bystander finishes before the engine aborts the run is timing
   // dependent. Either it produced its result, or it was told the run stopped
   // elsewhere; it is never blamed for an operator it does not read.
-  const bystanderStart = cardinalityText.indexOf("- aggregate operator `typed_count`");
-  const bystanderEnd = cardinalityText.indexOf("\n- ", bystanderStart + 1);
-  const bystander = cardinalityText.slice(bystanderStart, bystanderEnd < 0 ? undefined : bystanderEnd);
-  const bystanderRan = /`typed_count` added\s+result:\s+Output Table: 1 rows/.test(bystander);
-  const bystanderTold =
-    bystander.includes("`typed_count` not executed; the run stopped when `labeled` failed (JOIN_CARDINALITY)") &&
-    bystander.includes("does not read from `labeled`");
-  report.push(
-    `${bystanderRan || bystanderTold ? "ok  " : "FAIL"} bystander ${bystanderRan ? "ran" : "was told the run stopped elsewhere"}`
-  );
-  assert.ok(bystanderRan || bystanderTold, `bystander attribution\n${bystander.slice(0, 800)}`);
-  assert.ok(
-    !bystander.includes("upstream `labeled` failed"),
-    "a bystander must not be blamed on a non-upstream operator"
-  );
+  const outcomes = cardinality.tool.actions.find((a: any) => a.action.type === "execute").output.operators;
+  const bystander = outcomes.find((op: any) => op.id === "typed_count");
+  assert.ok(bystander, "execution must report the independent branch");
+  const bystanderText = bystander.message ?? "";
+  assert.ok(bystander.status === "ok" || bystanderText.includes("does not read from `labeled`"));
+  assert.ok(!bystanderText.includes("upstream `labeled` failed"));
+  report.push("ok  bystander attribution");
   // Remove the failing join and its consumer so the next execution is clean.
   const refused = await debug("dataflow", { edits: "", delete: ["labeled"] });
   check("a delete is refused while a consumer still reads the operator", lastObservation(refused.context), [
@@ -332,6 +340,8 @@ try {
     "Duplicate header names",
     "header=False",
   ]);
+
+  await debug("dataflow", { edits: "", delete: ["summary", "dup"] });
 
   // 7. A row-to-row map that returns different keys per row is a schema error naming both rows.
   const mapErr = await debug("dataflow", {
