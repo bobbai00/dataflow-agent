@@ -23,7 +23,6 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { DataflowActionsResult } from "../tools/dataflow-actions";
 import { renderActionObservations } from "../native/action-observations";
 import { selectNativeObservation } from "../native/evidence";
-import { nativeDiagnosticIssue } from "../native/diagnostics";
 import { describeOperator, type ObservationFormatOptions } from "../native/observation-format";
 import type { ProfileColumn, ProfileScalar } from "../native/profiles";
 import { availableRetrievalViews } from "../native/retrieval";
@@ -367,49 +366,14 @@ export function registeredExamples(options: Options): string {
     );
   }
 
-  // The turn transport's prompt stays short: the reading example, the flow
-  // repair when flow evidence is on, and the answer rule.
-  if (options.transport === "turn") {
-    parts.push(
-      "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 1200**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
-    );
-    return parts.join("\n\n");
-  }
-
-  const parseDefinition = `import pandas as pd\n\ndef parse_amounts(table):\n    """Convert source amounts to numeric values."""\n    return table.assign(amount=pd.to_numeric(table['amount'], errors='raise'))`;
+  // One reading example, the flow repair when flow evidence is on, and the
+  // answer rule. Every example is paid for on every call of every task.
   parts.push(
-    "### Repair a function, then combine two input tables",
-    "Request: convert comma-grouped amounts and multiply by each category's rate and a scale of 2. The source has amount='1,200', category='A'; the rates table has category='A', rate=0.5.",
-    turn(
-      `summary: Read the inputs and parse amounts before combining them.\n\`\`\`python\n${parseDefinition}\n\`\`\`\nset amounts: scan(files='data/amounts.csv', all_text=True)\nset rates: scan(files='data/rates.csv')\nset parsed: parse_amounts(amounts)\n${show("parsed")}`
-    ),
-    "Execution reports that parsed failed. Its diagnostic includes:",
-    block(
-      nativeDiagnosticIssue({
-        version: 1,
-        operatorId: "parsed",
-        operatorRevision: "example",
-        code: "CALLBACK_RUNTIME",
-        stage: "execute",
-        message: 'ValueError: Unable to parse string "1,200" at position 0',
-        source: {
-          entry: "parse_amounts",
-          line: 5,
-          excerpt: "return table.assign(amount=pd.to_numeric(table['amount'], errors='raise'))",
-        },
-      })
-    ),
-    "Read the relevant input before deciding how to repair it:",
-    turn(`summary: Verify the failing values and the matching rate keys.\n${show("amounts, rates")}`),
-    "The records confirm that commas group thousands, so remove those separators explicitly. Replace parse_amounts and register a function with two ordered inputs and a keyword setting in the same turn:",
-    turn(
-      `summary: Normalize thousands separators; match each amount to one rate and apply scale 2.\n\`\`\`python\nimport pandas as pd\n\ndef parse_amounts(table):\n    """Parse comma-grouped amounts; reject other malformed values."""\n    values = table['amount'].astype('string').str.replace(',', '', regex=False)\n    return table.assign(amount=pd.to_numeric(values, errors='raise'))\n\ndef apply_rates(amounts, rates, *, scale=1):\n    """Match each amount to its category rate and compute the scaled amount."""\n    joined = amounts.merge(rates, on='category', how='left', validate='many_to_one')\n    if joined['rate'].isna().any():\n        raise ValueError('Every amount needs a rate')\n    return joined.assign(adjusted=joined['amount'] * joined['rate'] * scale)\n\`\`\`\nset adjusted: apply_rates(parsed, rates, scale=2)\n${show("adjusted", true)}`
-    ),
-    "The receipt confirms function replacement/registration and the new operator, then returns adjusted=1200. Function definitions are shared; each invocation has its own variables and receives tables only through its edges.",
-    turn("answer: 1200"),
-    options.transport === "text"
-      ? "If the user explicitly requests the label Final Answer:, put that label inside the answer content, for example `answer: Final Answer: 1200`. It is a formatting choice, never a replacement for the answer command."
-      : "If the user explicitly requests the label Final Answer:, include it in the answer action's content. Otherwise use the requested answer format without adding that label."
+    options.transport === "turn"
+      ? "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
+      : options.transport === "text"
+        ? "If the user explicitly requests the label Final Answer:, put that label inside the answer content, for example `answer: Final Answer: 60`. It is a formatting choice, never a replacement for the answer command."
+        : "If the user explicitly requests the label Final Answer:, include it in the answer action's content. Otherwise use the requested answer format without adding that label."
   );
   return parts.join("\n\n");
 }

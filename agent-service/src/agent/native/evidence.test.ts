@@ -168,33 +168,6 @@ test("sample_stats preserves the sample and has its own statistics budget", () =
   expect(sample.text).not.toContain("statistics:");
 });
 
-test("full records and statistic bounds preserve distinct adjacent floats", () => {
-  const f = fixture("Scan", {});
-  const low = 1;
-  const high = 1 + Number.EPSILON;
-  f.info.resultSchema = [{ name: "x", type: "float64", encoding: "number" }];
-  f.info.result = [{ x: low }, { x: high }];
-  f.info.totalRowCount = 2;
-  f.info.truncated = false;
-  Object.assign(f.info.tableProfile!, { rowCount: 2, schema: [{ name: "x", type: "float64", dtype: "Float64" }] });
-  Object.assign(f.info.tableProfile!.coverage, { rowsProcessed: 2 });
-  Object.assign(f.info.tableProfile!.columns.x, {
-    type: "float64",
-    rowsProcessed: 2,
-    nullCount: 0,
-    nonnullCount: 2,
-    distinctCount: 2,
-    min: { type: "float64", value: low },
-    max: { type: "float64", value: high },
-  });
-  const full = observe(f, { view: "full", data: false, flow: false });
-  expect(full.text).toContain("| 1 |");
-  expect(full.text).toContain("| 1.0000000000000002 |");
-  expect(full.table?.complete).toBe(true);
-  const sampled = observe(f, { view: "sample_stats", maxRows: 1, flow: false });
-  expect(sampled.text).toContain("1 to 1.0000000000000002");
-});
-
 test("sample statistics preserve exact floating-point extrema", () => {
   const f = fixture();
   f.info.resultSchema = [{ name: "x", type: "float64", encoding: "number-or-special-string" }];

@@ -147,9 +147,14 @@ export function displayValue(
       (layout === "key-value" && /, |: /.test(shown));
     text = quote ? JSON.stringify(shown) : shown;
   } else if (typeof value === "number")
-    // The shortest round-trip representation preserves distinct float64
-    // values and exact observed range bounds. Rounding belongs in computation.
-    text = Number.isFinite(value) ? String(value) : "null";
+    // Integers are exact. A fraction shows 15 significant digits: float64
+    // carries about 16, and the last one or two are binary rounding noise
+    // (63.153999999999996 for a sum that is 63.154).
+    text = !Number.isFinite(value)
+      ? "null"
+      : Number.isInteger(value) || kind === "int64"
+        ? String(value)
+        : String(Number(value.toPrecision(15)));
   else if (typeof value === "bigint") text = String(value);
   else text = JSON.stringify(value) ?? "unknown";
   return { text: layout === "markdown" ? escapeMarkdown(text) : text, clipped };

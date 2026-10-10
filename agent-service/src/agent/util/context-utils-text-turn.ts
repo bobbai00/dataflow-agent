@@ -31,7 +31,7 @@ import type { ModelMessage } from "ai";
 import type { ReActStep } from "../../types/agent";
 import { asDataflowActionsResult } from "../tools/dataflow-actions";
 import { renderTurnReceipt } from "../native/turn-receipt";
-import { sanitizeTurnReplay, type ParsedTurn } from "../native/turn-syntax";
+import { sanitizeTurnReplay, type TurnReceiptInfo, type TurnStatement } from "../native/turn-syntax";
 
 /** The receipt text of one recorded step, or undefined for a step without a call. */
 export function textTurnReceipt(step: ReActStep): string | undefined {
@@ -39,17 +39,18 @@ export function textTurnReceipt(step: ReActStep): string | undefined {
   if (!call) return undefined;
   const result = asDataflowActionsResult(step.toolResults?.find(r => r.toolCallId === call.toolCallId)?.output);
   if (!result) return undefined;
-  const input = call.input as Partial<ParsedTurn> & { turn?: string; missingSummary?: boolean };
-  const turn: ParsedTurn | undefined = Array.isArray(input?.statements)
+  const input = call.input as {
+    statements?: TurnStatement[];
+    missingSummary?: boolean;
+    ignoredProse?: number[];
+    wroteReceipt?: boolean;
+  };
+  const turn: TurnReceiptInfo | undefined = Array.isArray(input?.statements)
     ? {
-        summary: typeof (input as any).reasoning === "string" ? (input as any).reasoning : "",
+        statements: input.statements,
         missingSummary: !!input.missingSummary,
-        ignoredProse: Array.isArray((input as any).ignoredProse) ? (input as any).ignoredProse : [],
-        wroteReceipt: !!(input as any).wroteReceipt,
-        definitions: "",
-        changes: "",
-        statements: input.statements!,
-        actions: result.actions.map(item => item.action),
+        ignoredProse: Array.isArray(input.ignoredProse) ? input.ignoredProse : [],
+        wroteReceipt: !!input.wroteReceipt,
       }
     : undefined;
   return renderTurnReceipt(result, turn);

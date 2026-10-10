@@ -239,4 +239,4 @@ The new result is total=60. Check the returned result before ending the task.
 
 Reply, without the tool: `60`
 
-If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 1200**`. A reply before any `show result` has succeeded is not an answer and computes nothing.
+If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing.

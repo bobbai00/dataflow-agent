@@ -109,6 +109,7 @@ import {
 import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
 import { planSeedSources, registeredSeedStatement } from "./native/seed-sources";
 import { formatNativeDiagnostic } from "./native/diagnostics";
+import { requestFilePath } from "./native/turn-syntax";
 import { NativeValidationRepair } from "./native/validation-repair";
 import {
   REPEATED_FAILURE_LIMIT,
@@ -2103,7 +2104,7 @@ export class TexeraAgent {
           parallelToolCalls: this.settings.parallelToolCalls,
           requireToolCall: this.settings.agentMode === AgentMode.NATIVE,
           getFinalAnswer: () => this.nativeActionAnswer,
-          acceptTextAnswer: () => this.settings.nativeTransport === "turn" && this.resultShownInMessage(messageId),
+          resultShown: () => this.resultShownInMessage(messageId),
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
@@ -3131,8 +3132,8 @@ export class TexeraAgent {
     return true;
   }
 
-  /** Turn transport: has a `show result` of this task succeeded, so that a reply
-   * without a tool call may end the task as the answer? */
+  /** Has a retrieval of this task succeeded? A turn-transport reply without a
+   * tool call, or a bare text-transport `Final Answer:` line, ends the task only then. */
   private resultShownInMessage(messageId: string): boolean {
     return (this.reActStepsByMessageId.get(messageId) ?? []).some(step =>
       (step.toolResults ?? []).some(tr =>
@@ -3148,14 +3149,10 @@ export class TexeraAgent {
    * from the request when it has one, so a model that hesitates has a turn to copy. */
   private turnTransportLapseFeedback(): string {
     const request = [...this.getVisibleReActSteps()].reverse().find(step => step.role === "user" && step.isBegin);
-    const path =
-      /[\w.-]+(?:\/[\w.-]+)+\.(?:csv|tsv|xlsx|xls|json|jsonl|parquet|txt|gpkg|html|xml)\b/i.exec(
-        String(request?.content ?? "")
-      )?.[0] ?? "data/<folder>/input/<file>";
     const starter = JSON.stringify({
       summary: "Read the first file.",
       python: "",
-      statements: `set data: scan(files='${path}')\nshow result data`,
+      statements: `set data: scan(files='${requestFilePath(String(request?.content ?? ""))}')\nshow result data`,
     });
     return (
       "That reply was text, so nothing was computed and no result has been shown yet. The engine reads the task's files; " +

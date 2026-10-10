@@ -257,13 +257,26 @@ test("a restated summary replaces the first; an answer inside a turn fence ends 
   const fencedAnswer = parse("EACC leads.\n\n````turn\nsummary: EACC has the highest count.\nanswer: EACC\n````");
   expect(fencedAnswer.ok).toBe(true);
   if (fencedAnswer.ok) expect(fencedAnswer.turn.actions).toEqual([{ type: "answer", content: "EACC" }]);
+  // A bare Final Answer line in a turn without statements is the answer; the
+  // driver accepts it only after a result has been shown.
   const bare = parse("summary: The mean is 68.1.\n\n**Final Answer: 68.1**");
-  expect(bare.ok).toBe(false);
+  expect(bare.ok).toBe(true);
+  if (bare.ok) {
+    expect(bare.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.1**" }]);
+    expect(bare.turn.bareAnswer).toBe(true);
+  }
+  const explicit = parse("answer: 68.1");
+  expect(explicit.ok && explicit.turn.bareAnswer).toBe(false);
   const bareOnly = parse("The analyzed samples give 68.5.\n\n**Final Answer: 68.5**");
-  expect(bareOnly.ok).toBe(false);
-  // A bare answer after edits is rejected too; it cannot finalize the task.
+  expect(bareOnly.ok).toBe(true);
+  if (bareOnly.ok) expect(bareOnly.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.5**" }]);
+  // After statements, a Final Answer line is a guess written before the receipt: ignored prose.
   const mixed = parse("summary: x\nset a: scan(files='x.csv')\n**Final Answer: 3**");
-  expect(mixed.ok).toBe(false);
+  expect(mixed.ok).toBe(true);
+  if (mixed.ok) {
+    expect(mixed.turn.actions.map(a => a.type)).toEqual(["edit"]);
+    expect(mixed.turn.ignoredProse).toEqual([3]);
+  }
 });
 
 test("receipt headers are meaningful only outside Python, declarations, and answer content", () => {

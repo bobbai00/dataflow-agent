@@ -126,9 +126,10 @@ export interface DriverRunTurnInput {
   requireToolCall?: boolean;
   /** Set by onStepFinish after the answer action has been accepted. */
   getFinalAnswer?: () => string | undefined;
-  /** Turn transport: whether a reply without a tool call may end the task as
-   *  the answer now (a result has been shown). Before that it is a lapse. */
-  acceptTextAnswer?: () => boolean;
+  /** Whether a result of this task has been displayed (a retrieval succeeded).
+   *  The turn transport accepts a reply without a tool call as the answer only
+   *  then; the text transport accepts a bare `Final Answer:` line only then. */
+  resultShown?: () => boolean;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool

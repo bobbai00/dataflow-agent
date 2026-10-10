@@ -56,7 +56,6 @@ for (const view of ["full", "sample", "sample_stats"] as const)
     }
     expect(prompt).toContain("show schema <id> [from <index>]");
     expect(prompt).toContain("docstring");
-    expect(prompt).toContain("two input tables");
     expect(prompt).not.toContain("statistics on every column");
   });
 
@@ -203,13 +202,11 @@ test("synthetic teaching edits compile and their calculations and repair run in 
     for (const action of call.actions) {
       if (action.type !== "edit") continue;
       stage = { ...(await stageRegisteredEdit({ ...stage, ...action })), python: "", changes: "" };
-      for (const id of ["totals", "report", "kept", "total", "parsed", "adjusted"]) {
+      for (const id of ["totals", "report", "kept", "total"]) {
         const op = stage.operators[id];
         if (!op) continue;
         const key =
-          id === "kept" || id === "total" || id === "parsed"
-            ? `${id}_${action.python?.includes(" >= ") || action.python?.includes("str.replace") ? "fixed" : "first"}`
-            : id;
+          id === "kept" || id === "total" ? `${id}_${action.python?.includes(" >= ") ? "fixed" : "first"}` : id;
         compiled[key] ??= compileNativeOp(op, id).code;
       }
     }
@@ -232,17 +229,6 @@ fixed=invoke('kept_fixed',readings)
 assert len(first)==2 and len(fixed)==4
 assert invoke('total_first',first)['total'].iloc[0]==40
 assert invoke('total_fixed',fixed)['total'].iloc[0]==60
-amounts=pd.DataFrame({'category':['A'],'amount':['1,200']})
-try:
-    invoke('parsed_first',amounts)
-    raise AssertionError('the example must fail before the repair')
-except ValueError:
-    pass
-parsed=invoke('parsed_fixed',amounts)
-rates=pd.DataFrame({'category':['A'],'rate':[0.5]})
-assert invoke('adjusted',parsed,rates)['adjusted'].iloc[0]==1200
-assert invoke('adjusted',parsed,rates)['adjusted'].iloc[0]==1200
-assert amounts['amount'].iloc[0]=='1,200'
 print('verified')`,
     ],
     { input: JSON.stringify(compiled), encoding: "utf8" }

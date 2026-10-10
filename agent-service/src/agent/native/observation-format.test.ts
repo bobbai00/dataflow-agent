@@ -63,17 +63,10 @@ describe("observation value representation", () => {
   test("key-value text quotes its delimiters", () => {
     expect(displayValue("a, b: c", "str", "key-value").text).toBe('"a, b: c"');
   });
-  test("floats round trip without changing ties; integers and int64 transport stay exact", () => {
-    for (const layout of ["markdown", "tsv", "key-value"] as const) {
-      for (const value of [56.75779857397504, 63.153999999999996, 0.1 + 0.2, 1, 1 + Number.EPSILON]) {
-        const shown = displayValue(value, "float64", layout);
-        expect(Number(shown.text)).toBe(value);
-        expect(shown.clipped).toBe(false);
-      }
-      expect(displayValue(1, "float64", layout).text).not.toBe(
-        displayValue(1 + Number.EPSILON, "float64", layout).text
-      );
-    }
+  test("fractions show 15 significant digits; integers and int64 decimal transport stay exact", () => {
+    expect(displayValue(56.75779857397504, "float64", "markdown").text).toBe("56.757798573975");
+    expect(displayValue(63.153999999999996, "float64", "markdown").text).toBe("63.154");
+    expect(displayValue(0.1 + 0.2, "float64", "markdown").text).toBe("0.3");
     expect(displayValue(9007199254740994, "float64", "markdown").text).toBe("9007199254740994");
     expect(displayValue(120.5, "float64", "markdown").text).toBe("120.5");
     expect(displayValue("9223372036854775807", "int64", "markdown").text).toBe("9223372036854775807");

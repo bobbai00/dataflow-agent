@@ -37,7 +37,7 @@ import { asSchema, generateText, type LanguageModel, type ModelMessage } from "a
 import { MissingAnswerActionError, type DriverRunTurnInput, type DriverRunTurnResult, type LLMDriver } from "./types";
 import type { RetrievalView, TokenUsage } from "../../types/agent";
 import { TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
-import { parseTurn, type ParsedTurn } from "../native/turn-syntax";
+import { parseTurn, RECEIPT_STOP_SEQUENCES, requestFilePath, type ParsedTurn } from "../native/turn-syntax";
 
 export interface TextTurnDriverOptions {
   model: LanguageModel;
@@ -93,6 +93,9 @@ export class TextTurnDriver implements LLMDriver {
         system: input.systemPrompt,
         messages,
         temperature: this.temperature,
+        // The receipt is the engine's message; a model that keeps writing past
+        // its statements stops at the first receipt heading.
+        stopSequences: [...RECEIPT_STOP_SEQUENCES],
         abortSignal: input.abortSignal,
       });
       // Every completion, including an empty one, consumes and records one
@@ -155,8 +158,14 @@ export class TextTurnDriver implements LLMDriver {
       } else if (!parsed.ok) {
         output = rejected(
           parsed.line === undefined
-            ? "this message is not a turn, so nothing was computed. Write summary: followed by statements such as set, execute, or show. For a data answer, compute and display the relevant result first. To finish, write answer: followed by the answer, clarification, or failure explanation in the user's requested format; answer must be the only statement."
+            ? `this message is not a turn, so nothing was computed. ${starterTurn(messages)}`
             : parsed.error
+        );
+        isError = true;
+      } else if (parsed.turn.bareAnswer && !input.resultShown?.()) {
+        // A bare Final Answer line before any result was shown is a guess.
+        output = rejected(
+          `a final answer comes after the computation: no result has been shown yet. ${starterTurn(messages)}`
         );
         isError = true;
       } else {
@@ -194,6 +203,26 @@ function viewsFromTool(tool: any): readonly RetrievalView[] {
     // Fall through to the default views.
   }
   return ["sample_stats", "full"];
+}
+
+/** The correction for a reply that computed nothing: the first turn to write,
+ * with the first file the request names, so a model that refuses or guesses
+ * has a turn to copy. */
+function starterTurn(messages: ModelMessage[]): string {
+  const content = messages.find(message => message.role === "user")?.content;
+  const request =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map(part => ("text" in part ? part.text : "")).join("")
+        : "";
+  return [
+    "You do not open files yourself: the engine reads them. Begin like this, with the task's own paths:",
+    "summary: Read the first file.",
+    `set data: scan(files='${requestFilePath(request)}')`,
+    "show result data",
+    "Then compute in further turns, and give the final answer with answer: alone in a turn, after show result has displayed what it rests on.",
+  ].join("\n");
 }
 
 /** A rejected turn in the dataflow tool's receipt shape: nothing ran. */

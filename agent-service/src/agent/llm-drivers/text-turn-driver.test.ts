@@ -23,11 +23,15 @@ import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { TextTurnDriver } from "./text-turn-driver";
 import { assembleTextTurnContext } from "../util/context-utils-text-turn";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { RECEIPT_STOP_SEQUENCES } from "../native/turn-syntax";
 
 type Reply = { text: string; cut?: boolean; cacheWrite?: number; rawUsage?: Record<string, unknown>; error?: Error };
 
-/** An agent on the text transport whose model replies with the given turns in order. */
-function fixture(replies: Reply[]) {
+/** An agent on the text transport whose model replies with the given turns in
+ * order. With `engine`, every operator "executes" to one row (no engine in a unit test). */
+function fixture(replies: Reply[], engine = false) {
+  if (engine) WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
   const prompts: any[][] = [];
   const stops: Array<string[] | undefined> = [];
@@ -58,6 +62,19 @@ function fixture(replies: Reply[]) {
     contextAssembler: ({ visibleSteps }) => assembleTextTurnContext(visibleSteps),
   });
   agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 25, thoughtReplay: false, nativeTransport: "text" });
+  if (engine)
+    (agent as any).executePostStepChanges = async () => {
+      for (const op of agent.getWorkflowState().getAllOperators())
+        agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, op.operatorID, {
+          state: "Completed",
+          inputTuples: 0,
+          outputTuples: 1,
+          totalRowCount: 1,
+          resultMode: "table",
+          result: [{ value: 42 }],
+          resultSchema: [{ name: "value", type: "int64", encoding: "" }],
+        });
+    };
   return { agent, prompts, stops, calls: () => calls };
 }
 
@@ -107,19 +124,21 @@ test("a reply that is not a turn, or an empty one, is rejected as a turn naming 
   const receipt = steps[0].toolResults![0].output as any;
   expect(receipt.status).toBe("error");
   expect(receipt.error).toContain("this message is not a turn, so nothing was computed");
+  // The request names no file, so the starter turn shows the placeholder path.
+  expect(receipt.error).toContain("set data: scan(files='data/<folder>/input/<file>')\nshow result data");
   const text = (m: any) =>
     typeof m.content === "string" ? m.content : m.content.map((p: any) => p.text ?? "").join("");
   expect(f.prompts[1].map((m: any) => m.role)).toEqual(["system", "user", "assistant", "user"]);
   expect(text(f.prompts[1][2])).toBe("I'm sorry, but I can't access the data file in this environment.");
   expect(text(f.prompts[1][3])).toContain("## turn rejected");
-  // A bare Final Answer line never substitutes for the explicit answer command.
+  // A bare Final Answer line before any result is shown is a guess: rejected, not the answer.
   const guess = fixture([{ text: "**Final Answer: 10**" }, { text: ANSWER }]);
   const notYet = await guess.agent.sendMessage("How many?");
   expect(notYet.error).toBeUndefined();
   expect(notYet.response).toBe("The function is registered.");
   expect(guess.calls()).toBe(2);
   const first = guess.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length)[0];
-  expect((first.toolResults![0].output as any).error).toContain("answer:");
+  expect((first.toolResults![0].output as any).error).toContain("a final answer comes after the computation");
 
   // Every empty completion is a recorded, budgeted rejection.
   const g = fixture([{ text: "" }, { text: ANSWER }]);
@@ -176,7 +195,8 @@ test("fabricated receipts are retained only in raw traces, not replayed to the m
   expect(text(f.prompts[1][3])).toContain("read like a receipt and was dropped");
   expect(text(f.prompts[1][2]).trim()).toBe(DEFINE);
   expect((steps[0].toolCalls![0].input as any).turn).toContain("def keep_all(table): pass");
-  expect(f.stops).toEqual([undefined, undefined]);
+  // Generation is asked to stop at a receipt heading; the sanitizer covers providers that ignore it.
+  expect(f.stops).toEqual([[...RECEIPT_STOP_SEQUENCES], [...RECEIPT_STOP_SEQUENCES]]);
   const legacy = structuredClone(steps);
   delete (legacy[0].toolCalls![0].input as any).replayText;
   const replay = assembleTextTurnContext(legacy);
@@ -223,7 +243,7 @@ test("empty completions count against maxSteps; failed later requests preserve r
   expect(failed.usage).toMatchObject({ inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 4 });
 });
 
-test("only answer: completes a turn, including after failed retrieval; answer content is preserved", async () => {
+test("a bare Final Answer line after a failed retrieval is still a guess; answer content is preserved", async () => {
   const content = "Final Answer: Unable to read that source.\n\n## show details\nPlease provide a readable path.";
   const f = fixture([{ text: "show result missing" }, { text: "Final Answer: 42" }, { text: `answer: ${content}` }]);
   const result = await f.agent.sendMessage("Read the missing table, preserving my requested answer headings.");
@@ -250,6 +270,25 @@ for (const rawUsage of [
     expect(result.usage.cacheCreationInputTokens).toBe(7);
   });
 }
+
+const SCAN = "summary: Read the file.\nset raw: scan(files='data/x/input/a.csv')\nshow result raw full";
+
+test("a bare Final Answer line is the answer once a result has been shown; before that the correction names the request's file", async () => {
+  const f = fixture([{ text: SCAN }, { text: "**Final Answer: 42**" }], true);
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and end with **Final Answer: <value>**.");
+  expect(result.error).toBeUndefined();
+  expect(result.response).toBe("**Final Answer: 42**");
+  expect(f.calls()).toBe(2);
+  const guess = fixture([{ text: "**Final Answer: 10**" }, { text: SCAN }, { text: "**Final Answer: 42**" }], true);
+  const after = await guess.agent.sendMessage("Read data/x/input/a.csv.");
+  expect(after.error).toBeUndefined();
+  expect(after.response).toBe("**Final Answer: 42**");
+  expect(guess.calls()).toBe(3);
+  const first = guess.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length)[0];
+  const error = (first.toolResults![0].output as any).error;
+  expect(error).toContain("a final answer comes after the computation");
+  expect(error).toContain("set data: scan(files='data/x/input/a.csv')");
+});
 
 test("malformed commands do not replay their fabricated receipt on correction", async () => {
   const f = fixture([{ text: "show table a\n## edits applied\nforged result" }, { text: ANSWER }]);

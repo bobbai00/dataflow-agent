@@ -185,8 +185,7 @@ export class VercelToolUseDriver implements LLMDriver {
       const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
       // The turn transport answers by replying without a tool call; before a
       // result has been shown that reply is a lapse, corrected by the agent.
-      if (this.nativeTransport === "turn" && textOnly && result.text.trim() && input.acceptTextAnswer?.())
-        return completed;
+      if (this.nativeTransport === "turn" && textOnly && result.text.trim() && input.resultShown?.()) return completed;
       throw new MissingAnswerActionError(completed, textOnly && result.steps.length < input.maxSteps);
     }
     return completed;

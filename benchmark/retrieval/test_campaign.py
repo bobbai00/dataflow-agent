@@ -115,6 +115,29 @@ class CampaignTests(unittest.TestCase):
             self.assertIn("flow_markdown_leak", findings["violations"])
             self.assertEqual(findings["wire_audit"]["observations"]["text_receipts"], 1)
 
+    def test_turn_transport_final_reply_is_the_answer_but_a_lapse_is_not(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"agentMode": "native", "retrievalViews": ["sample", "full"], "flowEvidence": False}
+            (path / "settings.json").write_text(json.dumps(settings))
+            (path / "config.json").write_text(json.dumps({"driver": "turn-tool"}))
+            receipt = {"kind": "dataflow-actions", "status": "completed", "actions": [
+                {"action": {"type": "retrieve", "operator_ids": ["rows"], "view": "sample"}, "status": "ok",
+                 "output": {"results": [{"status": "ok", "operator_id": "rows", "evidence": []}]}}]}
+            call = {"role": "agent", "inputMessages": [], "toolCalls": [{"toolName": "dataflow", "toolCallId": "c1"}],
+                    "toolResults": [{"toolCallId": "c1", "output": receipt}]}
+            final = {"role": "agent", "inputMessages": [], "toolCalls": [], "content": "**Final Answer: 4**", "isEnd": True}
+            (path / "react_steps.json").write_text(json.dumps([call, final]))
+            findings = audit_attempt(path, settings)
+            self.assertNotIn("missing_answer_action", findings["warnings"])
+            self.assertNotIn("text_without_dataflow", findings["warnings"])
+            lapse = {"role": "agent", "inputMessages": [], "toolCalls": [], "content": "I cannot open files.", "isEnd": False}
+            (path / "react_steps.json").write_text(json.dumps([lapse, call, final]))
+            self.assertIn("text_without_dataflow", audit_attempt(path, settings)["warnings"])
+            failed = {**final, "content": "Error: The turn ended without an answer action."}
+            (path / "react_steps.json").write_text(json.dumps([call, failed]))
+            self.assertIn("missing_answer_action", audit_attempt(path, settings)["warnings"])
+
     def test_partial_batch_failure_still_audits_successful_result(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)

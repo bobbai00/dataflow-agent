@@ -74,6 +74,9 @@ export interface TurnReceiptInfo {
 
 export interface ParsedTurn extends TurnReceiptInfo {
   summary: string;
+  /** Text transport: the answer came from a bare `Final Answer:` line, not an
+   *  `answer:` statement. The driver accepts it only after a result was shown. */
+  bareAnswer: boolean;
   /** Python definitions from every fence, in order. */
   definitions: string;
   /** `set`/`delete` lines at their turn line numbers; other lines blank. */
@@ -104,6 +107,22 @@ interface StatementParseOptions extends TurnParseOptions {
 }
 
 const IDENTIFIER = /^[A-Za-z_]\w*$/;
+/** Text transport: generation stops at a receipt heading, because the receipt
+ * is the engine's message (Opus kept writing one and reasoned from invented
+ * rows). Four entries, the most an OpenAI-compatible `stop` accepts. A receipt
+ * that slips past a provider without stop support is still cut by
+ * `sanitizeTurnReplay`. */
+export const RECEIPT_STOP_SEQUENCES = ["## edits ", "## turn rejected", "## execute ", "## show "] as const;
+
+/** The first data file a request names, for the starter turn a correction
+ * shows; a placeholder when the request names none. */
+export function requestFilePath(request: string): string {
+  return (
+    /[\w.-]+(?:\/[\w.-]+)+\.(?:csv|tsv|xlsx|xls|json|jsonl|parquet|txt|gpkg|html|xml)\b/i.exec(request)?.[0] ??
+    "data/<folder>/input/<file>"
+  );
+}
+
 /** Receipt headers only mark engine text outside definitions and answer bodies. */
 const RECEIPT_HEADER =
   /^(?:user\s*:?\s*)?## (?:edits applied|edits rejected|turn rejected|execute(?:\s|$)|show(?:\s|$))/;
@@ -306,6 +325,7 @@ function parseStatements(text: string, options: StatementParseOptions, wroteRece
   const ignoredProse: number[] = [];
   let answer: string | undefined;
   let answerLine = 0;
+  let bareAnswer = false;
   let fenceStart: number | undefined;
   let fenceMarker = "```";
   let fenceBody: string[] = [];
@@ -385,9 +405,15 @@ function parseStatements(text: string, options: StatementParseOptions, wroteRece
       summary = summaryMatch[1].trim();
       continue;
     }
-    const answerMatch = /^answer:\s*(.*)$/is.exec(trimmed);
+    const explicit = /^answer:\s*(.*)$/is.exec(trimmed);
+    // Text transport: a bare `Final Answer:` line in a turn without statements
+    // is the line the request asked for, so it is the answer; the driver
+    // rejects it as a guess until a result has been shown.
+    const answerMatch =
+      explicit ?? (!options.fields && !statements.length ? /^(\**\s*Final Answer:.*)$/is.exec(trimmed) : null);
     if (answerMatch) {
       if (options.fields) return fail(number, ANSWER_IN_FIELDS);
+      bareAnswer = !explicit;
       let rest = lines.slice(i + 1);
       if (turnFence) {
         let close = rest.length - 1;
@@ -403,13 +429,9 @@ function parseStatements(text: string, options: StatementParseOptions, wroteRece
       answerLine = number;
       break;
     }
-    if (/^\**\s*Final Answer:/i.test(trimmed))
-      return fail(
-        number,
-        options.fields
-          ? ANSWER_IN_FIELDS
-          : "Final Answer: is answer content, not a command. Use answer: followed by the requested answer format in its own turn."
-      );
+    // After statements, a `Final Answer:` line is a guess written before the
+    // receipt: in a text turn it is prose and ignored below.
+    if (options.fields && /^\**\s*Final Answer:/i.test(trimmed)) return fail(number, ANSWER_IN_FIELDS);
     const setMatch = /^(set\s+([A-Za-z_]\w*)\s*:|delete\s+([A-Za-z_]\w*))(.*)$/s.exec(trimmed);
     if (setMatch) {
       changes[i] = line;
@@ -585,6 +607,7 @@ function parseStatements(text: string, options: StatementParseOptions, wroteRece
     ok: true,
     turn: {
       summary: summary ?? "",
+      bareAnswer,
       missingSummary,
       ignoredProse,
       wroteReceipt,
