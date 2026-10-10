@@ -212,9 +212,32 @@ function resumesAfterUnclosedFence(lines: string[], index: number, marker: strin
   );
 }
 
+const fieldText = (value: unknown) => (typeof value === "string" ? value : value == null ? "" : String(value));
+
+/** Several calls of one response read as one call: each field is unwrapped as
+ * it would be alone, then the definitions and the statements are joined in
+ * call order. */
+export function mergeTurnFields(calls: readonly TurnFields[]): { python: string; statements: string } {
+  const join = (values: string[], separator: string) =>
+    values
+      .map(value => value.trim())
+      .filter(Boolean)
+      .join(separator);
+  return {
+    python: join(
+      calls.map(call => unwrapFence(fieldText(call.python), ["python", "py"])),
+      "\n\n"
+    ),
+    statements: join(
+      calls.map(call => unwrapFence(fieldText(call.statements), ["text", "turn", "markdown", "md"])),
+      "\n"
+    ),
+  };
+}
+
 /** Parse the fields of a `dataflow` call into its action list. */
 export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnParse {
-  const text = (value: unknown) => (typeof value === "string" ? value : value == null ? "" : String(value));
+  const text = fieldText;
   const python = unwrapFence(text(fields.python), ["python", "py"]);
   const lines = unwrapFence(text(fields.statements), ["text", "turn", "markdown", "md"])
     .replace(/\r\n?/g, "\n")

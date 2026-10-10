@@ -31,7 +31,7 @@
 import { jsonSchema, tool } from "ai";
 import type { RetrievalView } from "../../types/agent";
 import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
-import { parseTurn } from "../native/turn-syntax";
+import { mergeTurnFields, parseTurn } from "../native/turn-syntax";
 import { prepareActions, rejectedActions, type DataflowActionsResult } from "./dataflow-actions";
 
 export interface DataflowToolInput {
@@ -87,6 +87,18 @@ export function prepareDataflowCall(
   if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;
   return prepareActions(actions, views, { statements, ignoredProse });
+}
+
+/** Several calls in one response run as one call: definitions from every call
+ * register first, the set and delete lines apply together, then the requests
+ * run in call order. Undefined when a call is not a well-formed dataflow call. */
+export function mergeDataflowCalls(
+  inputs: readonly unknown[],
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
+): DataflowActionsResult | undefined {
+  const fields = inputs.map(toolFields);
+  if (fields.some(field => !field)) return undefined;
+  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views);
 }
 
 export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {

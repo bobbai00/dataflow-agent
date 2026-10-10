@@ -285,6 +285,8 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnRece
         ? `note: lines ${turn.ignoredProse.join(", ")} of statements are not statements and were ignored.`
         : `note: line ${turn.ignoredProse[0]} of statements is not a statement and was ignored.`
     );
+  if (result.mergedInto)
+    return "note: this call ran together with the first dataflow call of the same response; that call's receipt covers its definitions and statements.";
   if (!result.actions.length) {
     const message = String(result.error ?? "No actions ran.").replace(/\s*No actions ran\.$/, "");
     return [...sections, "## call rejected", message].join("\n");

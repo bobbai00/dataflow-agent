@@ -62,6 +62,8 @@ export interface DataflowActionsResult {
   format?: ObservationFormatSettings;
   /** The statements of the call, so the receipt is rendered by statement. */
   turn?: TurnReceiptInfo;
+  /** A later call of a response that ran as part of that response's first call. */
+  mergedInto?: string;
 }
 
 export const EMPTY_DATAFLOW_ERROR = "The dataflow is empty. Add an operator before execute.";

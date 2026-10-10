@@ -109,8 +109,8 @@ import { isTransientModelError } from "./llm-drivers/request-timeout";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
-import { asDataflowActionsResult } from "./tools/dataflow-actions";
-import { createDataflowTool } from "./tools/turn-tool";
+import { asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
+import { createDataflowTool, mergeDataflowCalls } from "./tools/turn-tool";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
@@ -2163,6 +2163,45 @@ export class TexeraAgent {
     );
   }
 
+  /** Several dataflow calls in one response (DeepSeek splits a step into a
+   * statements call and a definitions call) run as one call: every definition
+   * registers first, the set and delete lines apply together, then the requests
+   * run in call order. The first call's result becomes the merged receipt; each
+   * later call's result points to it. */
+  private mergeResponseCalls(
+    toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
+    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }>
+  ): void {
+    const calls = (toolCalls ?? []).filter(tc => tc.toolName === TOOL_NAME_DATAFLOW);
+    if (calls.length < 2) return;
+    const results = calls.map(tc =>
+      asDataflowActionsResult(toolResults.find(tr => tr.toolCallId === tc.toolCallId)?.output)
+    );
+    if (results.some(result => !result)) return;
+    const merged = mergeDataflowCalls(
+      calls.map(tc => tc.input),
+      availableRetrievalViews(this.settings)
+    );
+    if (!merged) return;
+    const replace = (target: DataflowActionsResult, source: DataflowActionsResult) => {
+      for (const key of Object.keys(target)) delete (target as unknown as Record<string, unknown>)[key];
+      Object.assign(target, source);
+    };
+    replace(results[0]!, merged);
+    for (const result of results.slice(1))
+      replace(result!, {
+        kind: "dataflow-actions",
+        protocol: "registered-python-v1",
+        status: "completed",
+        actions: [],
+        operators: [],
+        observe: [],
+        observationErrors: [],
+        mergedInto: calls[0].toolCallId,
+      });
+    this.log.info({ stepId: this.head, calls: calls.length }, "merged several dataflow calls from one response");
+  }
+
   /** A reply without a tool call before any result was shown computed
    * nothing. The correction names the first call to make, with a path from the
    * request when it has one, so a model that hesitates has a call to copy. */
@@ -2183,15 +2222,14 @@ export class TexeraAgent {
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
     overrides?: { maxChars?: number }
   ): Promise<void> {
+    if (toolResults?.some(tr => asDataflowActionsResult(tr.output)) && this.head)
+      this.mergeResponseCalls(toolCalls, toolResults);
     const actions = (toolResults ?? []).map(tr => asDataflowActionsResult(tr.output)).filter(r => r !== undefined);
     if (actions.length && this.head) {
       const stepId = this.head;
-      // Several distinct dataflow calls in one response (Qwen splits one turn's
-      // work into two or more calls) run in the order given, each with its own
-      // receipt, as if their action lists had been sent as one call.
-      if (actions.length > 1)
-        this.log.info({ stepId, calls: actions.length }, "running several dataflow calls from one response in order");
       for (const result of actions) {
+        // A call merged into the response's first call has nothing left to run.
+        if (result.mergedInto) continue;
         await executeDataflowActionBatch(result, {
           state: this.workflowState,
           storage: this.snapshotStorage,

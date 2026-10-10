@@ -24,13 +24,15 @@ import { TexeraAgent } from "../texera-agent";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { renderDataflowActionsResult } from "../tools/dataflow-actions";
 
 type Call = { python: string; statements: string };
 
 /** One response carrying the same dataflow call several times (a provider decoding
  * repeat, seen 62 times in one Qwen response) counts as one call: it runs once and
  * the replayed context shows one call with one result. Distinct calls in one
- * response run in order, each with its own receipt. */
+ * response run as one call: the first call's result holds the receipt, and each
+ * later call's result points to it. */
 function fixture(replyAt: (call: number) => Call[] | string) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
@@ -116,7 +118,7 @@ test("identical repeated tool calls in one response collapse to one recorded cal
   expect(replayedCalls(f.prompts[1])).toHaveLength(1);
 });
 
-test("distinct calls in one response run in order, each with its own receipt", async () => {
+test("distinct calls in one response run as one call; the later call points to the receipt", async () => {
   const f = fixture(call => (call === 1 ? [scan, lookup] : "The value is 42."));
   const result = await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
   expect(result.error).toBeUndefined();
@@ -126,9 +128,43 @@ test("distinct calls in one response run in order, each with its own receipt", a
   expect(steps[0].toolResults).toHaveLength(2);
   const [first, second] = steps[0].toolResults!.map(tr => tr.output as any);
   expect(first.status).toBe("completed");
-  expect(first.actions.map((a: any) => a.action.type)).toEqual(["edit", "execute", "retrieve"]);
-  expect(second.status).toBe("completed");
-  expect(second.actions.map((a: any) => [a.action.type, a.status])).toEqual([["inspect", "ok"]]);
-  // Both calls and both receipts are replayed, in order.
+  expect(first.actions.map((a: any) => [a.action.type, a.status])).toEqual([
+    ["edit", "ok"],
+    ["execute", "ok"],
+    ["retrieve", "ok"],
+    ["inspect", "ok"],
+  ]);
+  expect(second).toMatchObject({ status: "completed", actions: [], mergedInto: "dup-1-0" });
+  expect(renderDataflowActionsResult(second)).toContain("ran together with the first dataflow call");
+  // Both calls and both results are replayed, in order.
   expect(replayedCalls(f.prompts[1]).map((p: any) => p.toolCallId)).toEqual(["dup-1-0", "dup-1-1"]);
+});
+
+test("a statements call and a definitions call in one response run as one call", async () => {
+  // DeepSeek sends the statements that use a predicate and the definition in two calls.
+  const uses: Call = {
+    python: "",
+    statements: "set raw: scan(files='data/x/input/a.csv')\nset kept: filter(raw, predicate='keep')\nshow result kept",
+  };
+  const defines: Call = { python: 'def keep(row):\n    """Keep every row."""\n    return True', statements: "" };
+  const f = fixture(call => (call === 1 ? [uses, defines] : "The value is 42."));
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
+  expect(result.error).toBeUndefined();
+  const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
+  const [first, second] = steps[0].toolResults!.map(tr => tr.output as any);
+  expect(first.status).toBe("completed");
+  expect(first.actions.map((a: any) => [a.action.type, a.status])).toEqual([
+    ["edit", "ok"],
+    ["execute", "ok"],
+    ["retrieve", "ok"],
+  ]);
+  expect(second).toMatchObject({ status: "completed", mergedInto: "dup-1-0" });
+  expect(steps[0].toolResults!.map(tr => tr.isError)).toEqual([false, false]);
+  expect(
+    f.agent
+      .getWorkflowState()
+      .getAllOperators()
+      .map(op => op.operatorID)
+      .sort()
+  ).toEqual(["kept", "raw"]);
 });
