@@ -91,16 +91,26 @@ test("a turn runs as one dataflow call; the next request replays the turn and it
   expect(text(second[0])).toContain("Each message you send is one turn");
 });
 
-test("a reply that is not a turn gets one correction, after which the answer ends the task", async () => {
-  const f = fixture([{ text: "I will look at the files first and then answer." }, { text: ANSWER }]);
-  const result = await f.agent.sendMessage("Say hello.");
+test("a reply that is not a turn, or an empty one, is rejected as a turn naming what to write", async () => {
+  const f = fixture([{ text: "**Final Answer: 10**" }, { text: ANSWER }]);
+  const result = await f.agent.sendMessage("How many?");
   expect(result.error).toBeUndefined();
   expect(result.response).toBe("The function is registered.");
-  const feedback = f.agent.getVisibleReActSteps().find(s => s.role === "user" && s.messageSource === "feedback");
-  expect(feedback?.content).toContain("No Dataflow action was called");
-  // The correction reached the model as a user message after its text reply.
-  const second = f.prompts[1];
-  expect(second.map((m: any) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+  const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
+  const receipt = steps[0].toolResults![0].output as any;
+  expect(receipt.status).toBe("error");
+  expect(receipt.error).toContain("this message is not a turn, so nothing was computed");
+  const text = (m: any) => (typeof m.content === "string" ? m.content : m.content.map((p: any) => p.text ?? "").join(""));
+  expect(f.prompts[1].map((m: any) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+  expect(text(f.prompts[1][2])).toBe("**Final Answer: 10**");
+  expect(text(f.prompts[1][3])).toContain("## turn rejected");
+
+  const g = fixture([{ text: "" }, { text: ANSWER }]);
+  const second = await g.agent.sendMessage("Say hello.");
+  expect(second.error).toBeUndefined();
+  const empty = g.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length)[0];
+  expect((empty.toolResults![0].output as any).error).toContain("the reply was empty");
+  expect(text(g.prompts[1][2])).toBe("(empty reply)");
 });
 
 test("a turn that does not parse is rejected with its line, and nothing runs", async () => {

@@ -55,13 +55,11 @@ export function textTurnReceipt(step: ReActStep): string | undefined {
 
 export function assembleTextTurnContext(visibleSteps: ReActStep[]): ModelMessage[] {
   const messages: ModelMessage[] = [];
-  const push = (role: "user" | "assistant", content: string) => {
-    const last = messages.at(-1);
-    // Adjacent same-role messages merge: a receipt followed by feedback, or
-    // two user requests, read as one message.
-    if (last && last.role === role && typeof last.content === "string") last.content = `${last.content}\n\n${content}`;
-    else messages.push({ role, content });
-  };
+  // Adjacent same-role messages stay separate (a receipt followed by
+  // feedback): merging would rewrite an earlier message and break the
+  // append-only prefix that caching and the audit rely on. Providers that
+  // need alternation combine them on the wire.
+  const push = (role: "user" | "assistant", content: string) => messages.push({ role, content });
   for (const step of visibleSteps) {
     if (step.role === "user") {
       if (step.content) push("user", step.content);
@@ -70,7 +68,8 @@ export function assembleTextTurnContext(visibleSteps: ReActStep[]): ModelMessage
     const call = step.toolCalls?.[0];
     if (call?.toolName === "initialize") continue;
     const turn = typeof (call?.input as any)?.turn === "string" ? ((call!.input as any).turn as string) : undefined;
-    if (turn !== undefined) push("assistant", turn);
+    // An empty reply is replayed as a marker: providers reject empty content.
+    if (turn !== undefined) push("assistant", turn.trim() ? turn : "(empty reply)");
     else if (step.content && !step.isEnd) push("assistant", step.content);
     const receipt = textTurnReceipt(step);
     if (receipt !== undefined && !step.isEnd) push("user", receipt);

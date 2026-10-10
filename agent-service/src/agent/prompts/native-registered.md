@@ -23,7 +23,7 @@ You answer data-analysis questions by building, executing, and checking Dataflow
 
 ## 2. Your resources
 
-You have the task files, a persistent Dataflow, built-in table operators, and Python functions you register. Use the single `dataflow(reasoning, actions)` tool.
+You have the task files, a persistent Dataflow, built-in table operators, and Python functions you register.{{^text}} Use the single `dataflow(reasoning, actions)` tool.{{/text}}{{#text}} Every message you send is one turn in the syntax of section 3; plain text is not read and computes nothing. Never answer from memory: the final answer is the `answer:` statement, alone in its turn, after `show result` has displayed what it rests on.{{/text}}
 
 {{CONTEXT_LAYOUT}}
 

@@ -25,6 +25,7 @@ from campaign import install_provider_prices
 sys.path.insert(0, str(Path.cwd()))
 import systems
 from systems import cost_utils
+from systems import native_expression_system
 from systems.native_expression_system import _NativeExpressionBase
 
 manifest = json.loads(Path(os.environ["RETRIEVAL_MANIFEST"]).read_text())
@@ -40,6 +41,12 @@ def save(path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
 
 
+# The driver kind is a creation parameter of the protocol dict the base class
+# spreads into its constructor; override it there rather than as a kwarg.
+if manifest.get("driver"):
+    native_expression_system._PROTOCOL["driver"] = manifest["driver"]
+
+
 class RetrievalSystem(_NativeExpressionBase):
     _MODEL = manifest["models"][job["model"]]
     _NAME = job["sut"]
@@ -49,8 +56,6 @@ class RetrievalSystem(_NativeExpressionBase):
     def __init__(self, *args, **kwargs):
         kwargs["agent_service_endpoint"] = manifest["endpoint"]
         kwargs["computing_unit_id"] = int(os.environ["RETRIEVAL_CUID"])
-        if manifest.get("driver"):
-            kwargs["driver"] = manifest["driver"]
         super().__init__(*args, **kwargs)
 
     def _setup_agent(self, **kwargs):

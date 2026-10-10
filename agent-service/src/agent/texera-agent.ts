@@ -2338,8 +2338,9 @@ export class TexeraAgent {
               !this.abortController?.signal.aborted
             ) {
               partials.push(error.partial);
-              const feedback =
-                "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
+              const feedback = this.settings.nativeTransport === "text"
+                ? "No turn was found in your reply. Write a turn: a summary: line, then statements (set, execute, show); finish with answer: alone in a turn once show result has displayed what the answer rests on."
+                : "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
                 JSON.stringify({
                   reasoning: "Submit the supported result.",
                   actions: [{ type: "answer", content: "<answer in the user's required format>" }],

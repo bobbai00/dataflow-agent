@@ -27,10 +27,11 @@
  * replays the turn text as the assistant message and the receipt as a user
  * message.
  *
- * A reply that is not a turn (prose only) ends the driver run with
- * `MissingAnswerActionError(canContinue)`, which the agent answers with its
- * one bounded correction. A reply cut off by the output limit is recorded as a
- * rejected turn naming the cause, so the model shortens its next one.
+ * A reply that is not a turn (prose, or nothing), or one cut off by the
+ * output limit, is recorded as a rejected turn whose receipt names the cause,
+ * so the task continues and the repeated-failure guard bounds the retries.
+ * `MissingAnswerActionError` is thrown only when the step budget ends without
+ * an answer.
  */
 import { asSchema, generateText, type LanguageModel, type ModelMessage } from "ai";
 import { MissingAnswerActionError, type DriverRunTurnInput, type DriverRunTurnResult, type LLMDriver } from "./types";
@@ -114,14 +115,6 @@ export class TextTurnDriver implements LLMDriver {
 
       const parsed = parseTurn(rawText, { views });
       const cut = result.finishReason === "length";
-      if (!parsed.ok && !cut && parsed.line === undefined) {
-        // Prose without a statement: let the agent decide (one correction, then stop).
-        await input.onStepFinish({ text: rawText, toolCalls: undefined, toolResults: undefined, usage });
-        throw new MissingAnswerActionError(
-          { text: rawText, messages, usage: aggregated },
-          stepNumber < input.maxSteps && !input.abortSignal?.aborted
-        );
-      }
       const toolCallId = `text-turn-${++this.callSeq}-${Date.now()}`;
       const summary = parsed.ok ? parsed.turn.summary : "";
       const callInput: TextTurnCallInput = {
@@ -138,8 +131,17 @@ export class TextTurnDriver implements LLMDriver {
           "the reply was cut off at the output limit before its statements ended. Keep the summary to one line and the turn short; put long work in a function."
         );
         isError = true;
+      } else if (!rawText.trim()) {
+        // GPT reasoning models sometimes return no visible text; a rejected
+        // turn keeps the task going without spending the one correction.
+        output = rejected("the reply was empty. Write a turn: a summary: line, then statements (set, execute, show).");
+        isError = true;
       } else if (!parsed.ok) {
-        output = rejected(parsed.error);
+        output = rejected(
+          parsed.line === undefined
+            ? "this message is not a turn, so nothing was computed. Write a summary: line and statements (set, execute, show); give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
+            : parsed.error
+        );
         isError = true;
       } else {
         try {
