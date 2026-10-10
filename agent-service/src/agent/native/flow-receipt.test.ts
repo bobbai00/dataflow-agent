@@ -34,15 +34,15 @@ function view(version: string | null, chunks: NativeObservation["chunks"]): Nati
 }
 const text = "- flow: 95 of 95 left records matched; 95 of 153 right records matched; no left records unmatched.";
 const measurement = { id: "flow.join.counts", text };
-test("same-call references require the same producing result and printed fact", () => {
+test("a fact already printed in this receipt is not repeated, for the same producing result only", () => {
   const memo = new FlowReceiptMemo();
   expect(memo.render(view("v1", [measurement]), "joined", "action 1 / joined")).toBe(text);
-  expect(memo.render(view("v1", [measurement]), "joined", "action 2 / joined")).toContain("see action 1 / joined");
+  expect(memo.render(view("v1", [measurement]), "joined", "action 2 / joined")).toBe("");
   expect(memo.render(view("v2", [measurement]), "joined", "action 3 / joined")).toBe(text);
   expect(memo.render(view(null, [measurement]), "joined", "action 4 / joined")).toBe(text);
   expect(new FlowReceiptMemo().render(view("v1", [measurement]), "joined", "action 1 / joined")).toBe(text);
 });
-test("ancestor references retain opaque scope and never reference omitted measurements", () => {
+test("an ancestor summary is dropped only when every fact it names was printed", () => {
   const memo = new FlowReceiptMemo();
   memo.render(view("v1", [measurement]), "joined", "action 1 / joined");
   const scope = "Before custom processing; row/column correspondence to this output unknown.";
@@ -57,9 +57,8 @@ test("ancestor references retain opaque scope and never reference omitted measur
       scope,
     },
   };
-  const rendered = memo.render(view("out1", [upstream]), "report", "action 2 / report");
-  expect(rendered).toContain("see action 1 / joined");
-  expect(rendered).toContain(scope);
+  // No pointer back: it would only restate the operator's definition.
+  expect(memo.render(view("out1", [upstream]), "report", "action 2 / report")).toBe("");
   const missing = { ...upstream, upstream: { ...upstream.upstream, factIds: [measurement.id, "flow.join.unseen"] } };
   expect(memo.render(view("out1", [missing]), "report", "action 3 / report")).toBe(missing.text);
 });

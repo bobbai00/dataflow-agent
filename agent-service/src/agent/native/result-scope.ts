@@ -19,6 +19,7 @@
 
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
+import { scanNoteLines } from "./checks";
 
 /** Facts from one observation's graph and results. These describe input
  * ancestry, not whether a selection satisfies the user's analytical request.
@@ -72,6 +73,7 @@ export function resultScope(
     if (!item || !view) continue;
     const inputs = view.inputs.filter(Boolean);
     let line: string | undefined;
+    let notes: string[] = [];
     if (view.type === "Process") {
       // The result need not be a subset of its inputs. Do not infer its
       // population from upstream filters or limits, even if counts match.
@@ -90,24 +92,37 @@ export function resultScope(
         const sheets = [
           ...new Set(
             (Array.isArray(sources) ? sources : []).flatMap((source: any) =>
-              Array.isArray(source?.sheets) ? source.sheets.filter((sheet: unknown): sheet is string => typeof sheet === "string") : []
+              Array.isArray(source?.sheets)
+                ? source.sheets.filter((sheet: unknown): sheet is string => typeof sheet === "string")
+                : []
             )
           ),
         ];
         if (sheets.length > 1 || (sheets.length === 1 && view.properties.sheet === undefined))
-          line = `workbook sheets of ${name(id)}: ${sheets.slice(0, 20).map(sheet => JSON.stringify(sheet)).join(", ")}${sheets.length > 20 ? ` … +${sheets.length - 20}` : ""}; scan(..., sheet='name') reads one${view.properties.sheet === undefined ? " (the first is read now)" : ""}.`;
+          line = `workbook sheets of ${name(id)}: ${sheets
+            .slice(0, 20)
+            .map(sheet => JSON.stringify(sheet))
+            .join(
+              ", "
+            )}${sheets.length > 20 ? ` … +${sheets.length - 20}` : ""}; scan(..., sheet='name') reads one${view.properties.sheet === undefined ? " (the first is read now)" : ""}.`;
+        // How the sources were read (header findings, skipped lines, renamed
+        // or widened columns, concatenated files), with the scan's own result
+        // in every setting.
+        if (id === op.operatorID)
+          notes = scanNoteLines(view, (completed(id)?.tableProfile?.native?.operations as any) ?? {});
       }
       if (includeUpstream) pending.push(...inputs);
     }
-    if (line) {
+    for (const entry of [line, ...notes]) {
+      if (!entry) continue;
       const allowance = 600 - omission.length - chars - lines.length;
-      if (line.length > allowance) {
-        lines.push(line.slice(0, Math.max(0, allowance - 22)) + "… (clipped; inspect)");
+      if (entry.length > allowance) {
+        lines.push(entry.slice(0, Math.max(0, allowance - 22)) + "… (clipped; inspect)");
         if (pending.some(input => !seen.has(input))) lines.push(omission);
         return lines;
       }
-      lines.push(line);
-      chars += line.length;
+      lines.push(entry);
+      chars += entry.length;
     }
   }
   if (pending.some(id => !seen.has(id))) lines.push(omission);

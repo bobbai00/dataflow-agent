@@ -179,7 +179,8 @@ export interface FrozenRecords {
   view: string;
   layout: Layout;
   fields: Array<{ name: string; type: string }>;
-  /** In selection priority (head and tail alternate for samples); `index` is
+  /** In selection priority (for samples, one row per cell pattern, then head
+   * and tail rows alternating); `index` is
    * the row's position in the retained result, used to print rows in table
    * order. Older frozen observations have no index and print as stored. */
   rows: Array<{ line: string; clipped: number; index?: number }>;
@@ -192,6 +193,8 @@ export interface FrozenRecords {
   columnsRequested?: boolean;
   /** Characters the records were cut at, when the budget removed rows. */
   cutAt?: number;
+  /** Sample rows were chosen one per cell pattern before head and tail rows. */
+  shapes?: boolean;
 }
 export interface RenderedRecords {
   text: string;
@@ -220,7 +223,11 @@ function recordCaption(view: FrozenRecords, rows: FrozenRecords["rows"], shapeOn
       ? ["complete"]
       : allRows
         ? ["all rows"]
-        : [gaps ? "first and last retained records; … marks omitted rows" : "retained records, not a random sample"]),
+        : [
+            gaps
+              ? `${view.shapes ? "one row per pattern of missing, numeric and text cells, then " : ""}first and last retained records; … marks omitted rows`
+              : "retained records, not a random sample",
+          ]),
     ...(view.columnsRequested ? ["columns requested"] : []),
     ...(cutAt !== undefined ? [`cut at ${formatCount(cutAt)} characters`] : []),
     ...(view.preview ? ["source preview only"] : []),
@@ -233,6 +240,43 @@ const isContiguous = (rows: FrozenRecords["rows"]) => {
   const indexes = rows.map(row => row.index ?? -1).sort((a, b) => a - b);
   return indexes.every((index, i) => i === 0 || index === indexes[i - 1] + 1);
 };
+
+/** A cell's class in a row's pattern: missing, number-like, or other text. */
+function cellClass(value: unknown): "missing" | "number" | "text" {
+  if (value === null || value === undefined) return "missing";
+  if (typeof value === "number" || typeof value === "bigint") return "number";
+  if (typeof value !== "string") return "text";
+  const text = value.replace(/\s/g, "");
+  if (!text) return "missing";
+  return /^[(+\-$€£]*\d[\d,]*(\.\d+)?(e[+-]?\d+)?%?\)?$/i.test(text) ? "number" : "text";
+}
+
+/** Sample priority: one row of each cell pattern (common patterns first, the
+ * all-missing one last), then head and tail rows alternating. A few rows from
+ * each end alone can miss the rows a filter must handle: an unranked row just
+ * above a footnote, a subtotal, a repeated header. */
+function sampleOrder(
+  rows: readonly Record<string, unknown>[],
+  fields: readonly { name: string }[]
+): { order: number[]; patterns: number } {
+  const ends = rows.map((_, i) => (i % 2 === 0 ? i / 2 : rows.length - 1 - Math.floor(i / 2)));
+  const patterns = new Map<string, { first: number; count: number; empty: boolean }>();
+  rows.forEach((row, i) => {
+    const classes = fields.map(field => cellClass(row[field.name]));
+    const key = classes.join(",");
+    const pattern = patterns.get(key);
+    if (pattern) pattern.count++;
+    else patterns.set(key, { first: i, count: 1, empty: classes.every(c => c === "missing") });
+  });
+  // Patterns that barely repeat (a sparse wide table where every row differs)
+  // carry no shape signal; head and tail rows then show the table's ends.
+  if (patterns.size < 2 || patterns.size * 2 > rows.length) return { order: ends, patterns: 1 };
+  const representatives = [...patterns.values()]
+    .sort((a, b) => Number(a.empty) - Number(b.empty) || b.count - a.count || a.first - b.first)
+    .map(pattern => pattern.first);
+  const chosen = new Set(representatives);
+  return { order: [...representatives, ...ends.filter(i => !chosen.has(i))], patterns: patterns.size };
+}
 
 /** Rows in table order, with a gap line wherever retained rows were skipped. */
 function displayLines(rows: FrozenRecords["rows"], layout: Layout, width: number): string[] {
@@ -339,10 +383,8 @@ export function renderRecords(
   const position = new Map(declared.map((field, i) => [field.name, i]));
   const rowLimit =
     options.view !== "full" && options.maxRows && options.maxRows > 0 ? Math.floor(options.maxRows) : rows.length;
-  const ordered =
-    options.view === "full" || options.preview
-      ? rows.map((_, i) => i)
-      : rows.map((_, i) => (i % 2 === 0 ? i / 2 : rows.length - 1 - Math.floor(i / 2)));
+  const sampled = options.view === "full" || options.preview ? undefined : sampleOrder(rows, allowed);
+  const ordered = sampled ? sampled.order : rows.map((_, i) => i);
   const build = (fields: typeof allowed, cellLimit?: number): FrozenRecords => {
     const layout =
       config.keyValueColumns > 0 && fields.length > config.keyValueColumns ? "key-value" : config.tableFormat;
@@ -372,6 +414,7 @@ export function renderRecords(
       schema,
       preview: !!options.preview,
       ...(options.columns?.length ? { columnsRequested: true } : {}),
+      ...(sampled && sampled.patterns > 1 ? { shapes: true } : {}),
       sourceComplete:
         !!info.resultSchema &&
         info.truncated === false &&
@@ -526,7 +569,8 @@ export function operatorBlock(block: OperatorBlock): string {
     ...(block.result ? [`  - result: ${block.result}`] : []),
     ...(block.columns?.length ? [`  - columns: ${block.columns.join(", ")}`] : []),
     ...(block.usedBy?.length ? [`  - used by: ${block.usedBy.map(inlineCode).join(", ")}`] : []),
-    ...(block.scope ?? []).map(line => `  - scope: ${line}`),
+    // A scan's reading notes keep their own label.
+    ...(block.scope ?? []).map(line => (line.startsWith("note: ") ? `  - ${line}` : `  - scope: ${line}`)),
     // An issue's own detail lines (`- at:`, `- fix:`) nest under it.
     ...(block.issues ?? []).flatMap(issue => {
       const [first, ...rest] = issue.split("\n");

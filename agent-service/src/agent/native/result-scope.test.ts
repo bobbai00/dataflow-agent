@@ -166,3 +166,27 @@ test("preview counts describe a preview, and long or cyclic ancestry stays bound
   expect(clipped.length).toBeLessThanOrEqual(600);
   expect(clipped).toContain("omitted");
 });
+
+test("a scan's own result carries how its sources were read; downstream scopes do not repeat it", () => {
+  const f = fixture();
+  f.results.get("orders")!.tableProfile = {
+    native: {
+      operations: {
+        scan: {
+          preview: false,
+          selectedFiles: 3,
+          sources: [
+            { path: "/data/a.csv", headerCheck: { header: ["BRD8"], valueLike: ["BRD8"], suggest: { header: false } } },
+            { path: "/data/b.csv" },
+            { path: "/data/c.csv" },
+          ],
+        },
+      },
+    },
+  } as any;
+  expect(f.scope("orders")).toEqual([
+    'note: header "BRD8" of `a.csv` looks like a value of its column; a file without a header row needs header=False with names.',
+    "note: 3 files are concatenated into this table, and its rows do not record their source file; file_column='file' adds it.",
+  ]);
+  expect(f.scope("eligible").join("\n")).not.toContain("note:");
+});

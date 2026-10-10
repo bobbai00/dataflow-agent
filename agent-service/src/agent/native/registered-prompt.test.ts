@@ -108,12 +108,18 @@ for (const data of [false, true])
       expect(prompt).not.toContain("{{");
       expect(prompt.includes("Column statistics in `sample_stats`")).toBe(data);
       expect(prompt.includes("sample_stats")).toBe(data);
-      expect(prompt.includes("Flow statistics report measured effects")).toBe(flow);
-      expect(prompt.includes("also for results you did not request")).toBe(flow);
+      expect(prompt.includes("Flow lines report what upstream steps did that row counts do not show")).toBe(flow);
       if (flow) {
         expect(prompt).toContain("cast failures");
-        expect(prompt).toContain("Python functions are not measured");
+        expect(prompt).toContain("values a Python step dropped from a column");
       }
+      // With statistics, one sentence: the sample and its statistics first, `full` for a small table.
+      expect(
+        prompt.includes(
+          "`show result <id>` gives the schema, at most 5 example records and column statistics; ask for `show result <id> full`, every record within 5000 characters, only for a small table whose every row you need."
+        )
+      ).toBe(data);
+      expect(prompt.includes("Look at a result without `full` first")).toBe(!data);
       expect(prompt).toContain("every record within 5000 characters");
       expect(prompt).toContain("Put the definitions, statements, and `show result` of a known computation in one call");
       // The context holds every definition and receipt: lookups are for what it lacks.
@@ -157,8 +163,8 @@ for (const data of [false, true])
       expect(prompt).not.toContain('"actions"');
       expect(prompt).not.toContain("Actions run in order.");
       expect(prompt).not.toContain("Engine receipt:");
-      expect(prompt.includes("plus collected column statistics")).toBe(data);
-      expect(prompt.includes("Flow statistics report measured effects")).toBe(flow);
+      expect(prompt.includes("at most 5 example records and column statistics")).toBe(data);
+      expect(prompt.includes("Flow lines report what upstream steps did")).toBe(flow);
       // Every example call is valid for this session.
       const calls = exampleCalls(prompt);
       expect(calls).toHaveLength(flow ? 4 : 2);
@@ -180,7 +186,9 @@ for (const data of [false, true])
         expect(receipts).toContain("2 of 6 rows");
         expect(receipts).toContain("all: A 4; B 2");
       }
-      expect(receipts.includes("kept=2/4, rejected=2")).toBe(flow);
+      // Kept and rejected counts restate the row counts; the rejected values do not.
+      expect(receipts).not.toContain("kept=2/4, rejected=2");
+      expect(receipts).not.toContain("contract;");
       expect(receipts.includes("10 × 2")).toBe(flow);
       // The answer is a reply without the tool.
       expect(prompt).toContain("Reply, without the tool: `Group A: 60; group B: 70.`");

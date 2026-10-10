@@ -228,9 +228,11 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
 
   // The observed operator shows its body, with its operator semantics intact.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
-  expect(blockFor(messages, "selected")).toContain("- flow: Filter kept=3/5");
-  // Author descriptions stay in definitions; guarantees describe the contract.
-  expect(blockFor(messages, "selected")).toContain("- flow: contract; Filter: stable subset");
+  expect(blockFor(messages, "selected")).toContain(
+    '- scope: filter "selected": input "source" (5 rows); output 3 rows.'
+  );
+  // Author descriptions stay in definitions; flow lines are measurements, not contracts.
+  expect(blockFor(messages, "selected")).not.toContain("contract;");
   expect(blockFor(messages, "selected")).not.toContain("- flow: contract; Filter: Keeps rows above the minimum.");
 
   // The two the agent did not ask for carry a row count and nothing else. An
@@ -253,7 +255,9 @@ test("opBlock: an observed result survives the agent looking elsewhere", async (
   expect(hasBody(blockFor(messages, "final"))).toBe(true);
   // `selected` keeps the body it earned at step A: nothing about it changed.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
-  expect(blockFor(messages, "selected")).toContain("- flow: Filter kept=3/5");
+  expect(blockFor(messages, "selected")).toContain(
+    '- scope: filter "selected": input "source" (5 rows); output 3 rows.'
+  );
   // Still never observed, so still withheld.
   expect(hasBody(blockFor(messages, "source"))).toBe(false);
 

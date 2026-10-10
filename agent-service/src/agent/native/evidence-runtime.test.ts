@@ -29,14 +29,14 @@ import { workflowExecutionPlan } from "./result-versions";
 
 for (const scope of ["prefix", "full"] as const)
   test(`actual Python operators and collector feed version-bound data/flow evidence (${scope} profiles)`, () => {
-  const python = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
-  const amber = fileURLToPath(new URL("../../../../amber/src/main/python", import.meta.url));
-  const runtime = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-  const run = Bun.spawnSync(
-    [
-      python,
-      "-c",
-      `
+    const python = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
+    const amber = fileURLToPath(new URL("../../../../amber/src/main/python", import.meta.url));
+    const runtime = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
+    const run = Bun.spawnSync(
+      [
+        python,
+        "-c",
+        `
 import importlib.util, json, sys, tempfile
 from pathlib import Path
 from core.util.table_profile import ProfileAccumulator
@@ -126,170 +126,176 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     assert metadata['left']['unmatchedRows'] == 2 and metadata['left']['unmatchedExamples'] == []
 print(json.dumps(records, default=str))
 `,
-      runtime,
-      scope,
-    ],
-    { env: { ...process.env, PYTHONPATH: amber } }
-  );
-  expect(run.stderr.toString()).toBe("");
-  expect(run.exitCode).toBe(0);
-  const records: Array<{ spec: any; rows: any[]; profile: string }> = JSON.parse(run.stdout.toString());
-  const operators: OperatorPredicate[] = records.map(({ spec: s }) => ({
-    operatorID: s.id,
-    operatorType: s.inputs.length ? "DataProcessing" : "DataLoading",
-    operatorVersion: "1",
-    operatorProperties: { code: JSON.stringify(s), workers: 1 },
-    inputPorts: [...new Set(s.inputs)].map((_, i) => ({ portID: `${s.id}-in-${i}` })),
-    outputPorts: [{ portID: `${s.id}-out` }],
-    showAdvanced: false,
-    nativeOp: {
-      type: s.type,
-      revision: s.revision,
-      inputs: s.inputs,
-      properties: s.properties,
-      profileCollection: true,
-      ...(scope === "full" ? { profileScope: "full" as const } : {}),
-    },
-  }));
-  const workflow: WorkflowContent = {
-    operators,
-    operatorPositions: {},
-    commentBoxes: [],
-    settings: { dataTransferBatchSize: 400 },
-    links: operators.flatMap(op =>
-      [...new Set(op.nativeOp!.inputs)].map((id, i) => ({
-        linkID: `${op.operatorID}-${i}`,
-        source: { operatorID: id, portID: `${id}-out` },
-        target: { operatorID: op.operatorID, portID: `${op.operatorID}-in-${i}` },
-      }))
-    ),
-  };
-  const raw: Record<string, OperatorInfo> = Object.fromEntries(
-    records
-      .map(({ spec, rows, profile: payload }) => {
-        const profile = JSON.parse(payload);
-        return [
-          spec.id,
-          {
-            state: "Completed",
-            inputTuples: 0,
-            outputTuples: profile.rowCount,
-            resultMode: "table",
-            result: rows,
-            totalRowCount: profile.rowCount,
-            truncated: profile.rowCount > rows.length,
-            numWorkers: 1,
-            resultSchema: profile.schema.map((c: any) => ({
-              name: c.name,
-              type: c.type,
-              encoding: c.type === "int64" ? "number-or-decimal-string" : "string",
-            })),
-            materialization: { outputPort: 0, executionId: "500", cached: false },
-            resultMetadata: { w: payload },
-          },
-        ];
-      })
-      .reverse()
-  );
-  const response = prepareStructuredExecutionResult(
-    {
-      success: true,
-      state: "Completed",
-      executionId: "500",
-      capabilities: ["typed-scalar-v1", "schema-fields-only-v1"],
-      operators: raw,
-    },
-    17,
-    workflowExecutionPlan(workflow)
-  );
-  const storage = new WorkflowSnapshotStorage(
-    () => ["A"],
-    () => 17
-  );
-  storage.createSnapshot("A", workflow);
-  persistOperatorResults(response.operators, (id, info) => storage.setOperatorResult("A", id, info));
-  const facts = new Map<string, string>();
-  for (const op of operators) {
-    const info = storage.getOperatorResult("A", op.operatorID)!;
-    expect(info.resultVersion?.complete).toBe(true);
-    expect({
-      id: op.operatorID,
-      status: info.tableProfile?.status,
-      omissions: info.tableProfile?.omissions,
-    }).toMatchObject({ status: "available" });
-    const context = { op, info, workflow, resolveInput: (id: string) => storage.getOperatorResult("A", id) };
-    const collected = collectNativeEvidence(context);
-    expect({
-      id: op.operatorID,
-      omissions: collected.omissions.filter(x => x.startsWith("invalid_") || x.endsWith("_unavailable")),
-    }).toMatchObject({
-      // Full scope finds duplicate rows by value even where a value is too long to list.
-      omissions: op.operatorID === "long_values" && scope === "prefix" ? ["row_values_unavailable"] : [],
-    });
-    facts.set(op.operatorID, collected.facts.map(f => f.text).join("\n"));
-    for (const data of [true, false])
-      for (const flow of [true, false]) {
-        const observation = selectNativeObservation({ ...context, data, flow, maxChars: 600 });
-        expect(observation.text.length).toBeLessThanOrEqual((1 + Number(data) + Number(flow)) * 600 + 2);
-      }
-  }
-  expect(facts.get("typed")).toContain("conversion failures=1/3");
-  expect(facts.get("typed")).toContain('failed-value examples (not exhaustive): "bad" × 1');
-  expect(facts.get("formatted_cast")).toContain('"1,299" × 2');
-  expect(facts.get("formatted_cast")).toContain('"$5" × 1');
-  expect(facts.get("formatted_cast")).toContain('"NA" × 1');
-  expect(facts.get("formatted_cast")).toContain("other failures=2");
-  const longExamples = JSON.parse(records.find(r => r.spec.id === "long_cast")!.profile).native.operations
-    .conversionFailureExamples.x.examples;
-  expect(longExamples).toHaveLength(2);
-  expect(longExamples.every((x: any) => x.truncated && x.values[0].value.length === 96 && x.count === 1)).toBe(true);
-  expect(facts.get("key_join")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
-  expect(facts.get("key_join")).toContain('right eligible unmatched-key examples (not exhaustive): ["item_A"] × 1');
-  expect(facts.get("key_join")).toContain('left duplicate-key examples (not exhaustive): ["shared"] × 2');
-  expect(facts.get("key_join")).toContain('right duplicate-key examples (not exhaustive): ["shared"] × 3');
-  expect(facts.get("key_join")).not.toContain("[null] ×");
-  expect(facts.get("key_result")).toContain("Flow upstream key_join:");
-  expect(facts.get("key_result")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
-  expect(facts.get("key_join_equal")).toContain("null-key rows=1");
-  expect(facts.get("typed_key_join")).toContain("9007199254740993");
-  expect(facts.get("typed_key_join")).toContain("[null,");
-  expect(facts.get("typed_key_join")).toContain("2024-01-01T00:00:00.000000000+00:00");
-  expect(facts.get("monthly_result")).toContain("Flow upstream monthly_lags:");
-  expect(facts.get("monthly_result")).toContain('"prev1" boundary nulls=1/4');
-  expect(facts.get("monthly_result")).toContain('"prev2" boundary nulls=2/4');
-  expect(facts.get("monthly_result")).toContain('lag("acres", offset=2)');
-  expect(facts.get("filled")).toContain("nulls before=2/3, after=0/3");
-  expect(facts.get("filtered")).toContain("kept=1/3");
-  expect(facts.get("aggregate")).toContain('"mean" nonnull=1/3');
-  expect(facts.get("joined")).toContain("matched contribution=5");
-  expect(facts.get("joined")).toContain("left matched rows=3/3");
-  expect(facts.get("crossed")).toContain("1*3=3");
-  expect(facts.get("unioned")).toContain("sum=6, output=6");
-  expect(facts.get("limited")).toContain("retained=1/6, removed=5");
-  expect(facts.get("empty_groups")).toContain("groups=0 from 0 rows");
-  expect(facts.get("empty_global")).toContain("groups=1 from 0 rows");
-  expect(facts.get("udf")).toContain("row/column correspondence to this output unknown");
-  expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");
-  expect(facts.get("window")).toContain("partitions=3, ties beyond first=0");
-  expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');
-  expect(facts.get("pivot")).toContain("Pivot unique pairs=6, index groups=3, generated columns=2, absent cells=0");
-  expect(facts.get("empty_unpivot")).toContain("output=0*2=0");
-  expect(facts.get("empty_window")).toContain("partitions=0");
-  expect(facts.get("empty_pivot")).toContain("unique pairs=0, index groups=0, generated columns=0");
-  // 1,000 ids: both scopes profile every row; only full scope counts more than 256 distinct values.
-  const many = operators.find(op => op.operatorID === "many_ids")!;
-  const manyInfo = storage.getOperatorResult("A", "many_ids")!;
-  const stats = selectNativeObservation({
-    op: many,
-    info: manyInfo,
-    workflow,
-    resolveInput: (id: string) => storage.getOperatorResult("A", id),
-    data: true,
-    flow: false,
-    maxChars: 2000,
-    view: "sample_stats",
-    maxRows: 5,
-  }).text;
-  expect(stats).toContain("statistics: full table, 1,000 of 1,000 rows, 2 of 2 columns");
-  expect(stats).toContain(scope === "full" ? "| id | int64 | 0 | 1,000 | 0 to 999 |" : "| id | int64 | 0 | unknown | 0 to 999 |");
-});
+        runtime,
+        scope,
+      ],
+      { env: { ...process.env, PYTHONPATH: amber } }
+    );
+    expect(run.stderr.toString()).toBe("");
+    expect(run.exitCode).toBe(0);
+    const records: Array<{ spec: any; rows: any[]; profile: string }> = JSON.parse(run.stdout.toString());
+    const operators: OperatorPredicate[] = records.map(({ spec: s }) => ({
+      operatorID: s.id,
+      operatorType: s.inputs.length ? "DataProcessing" : "DataLoading",
+      operatorVersion: "1",
+      operatorProperties: { code: JSON.stringify(s), workers: 1 },
+      inputPorts: [...new Set(s.inputs)].map((_, i) => ({ portID: `${s.id}-in-${i}` })),
+      outputPorts: [{ portID: `${s.id}-out` }],
+      showAdvanced: false,
+      nativeOp: {
+        type: s.type,
+        revision: s.revision,
+        inputs: s.inputs,
+        properties: s.properties,
+        profileCollection: true,
+        ...(scope === "full" ? { profileScope: "full" as const } : {}),
+      },
+    }));
+    const workflow: WorkflowContent = {
+      operators,
+      operatorPositions: {},
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+      links: operators.flatMap(op =>
+        [...new Set(op.nativeOp!.inputs)].map((id, i) => ({
+          linkID: `${op.operatorID}-${i}`,
+          source: { operatorID: id, portID: `${id}-out` },
+          target: { operatorID: op.operatorID, portID: `${op.operatorID}-in-${i}` },
+        }))
+      ),
+    };
+    const raw: Record<string, OperatorInfo> = Object.fromEntries(
+      records
+        .map(({ spec, rows, profile: payload }) => {
+          const profile = JSON.parse(payload);
+          return [
+            spec.id,
+            {
+              state: "Completed",
+              inputTuples: 0,
+              outputTuples: profile.rowCount,
+              resultMode: "table",
+              result: rows,
+              totalRowCount: profile.rowCount,
+              truncated: profile.rowCount > rows.length,
+              numWorkers: 1,
+              resultSchema: profile.schema.map((c: any) => ({
+                name: c.name,
+                type: c.type,
+                encoding: c.type === "int64" ? "number-or-decimal-string" : "string",
+              })),
+              materialization: { outputPort: 0, executionId: "500", cached: false },
+              resultMetadata: { w: payload },
+            },
+          ];
+        })
+        .reverse()
+    );
+    const response = prepareStructuredExecutionResult(
+      {
+        success: true,
+        state: "Completed",
+        executionId: "500",
+        capabilities: ["typed-scalar-v1", "schema-fields-only-v1"],
+        operators: raw,
+      },
+      17,
+      workflowExecutionPlan(workflow)
+    );
+    const storage = new WorkflowSnapshotStorage(
+      () => ["A"],
+      () => 17
+    );
+    storage.createSnapshot("A", workflow);
+    persistOperatorResults(response.operators, (id, info) => storage.setOperatorResult("A", id, info));
+    const facts = new Map<string, string>();
+    for (const op of operators) {
+      const info = storage.getOperatorResult("A", op.operatorID)!;
+      expect(info.resultVersion?.complete).toBe(true);
+      expect({
+        id: op.operatorID,
+        status: info.tableProfile?.status,
+        omissions: info.tableProfile?.omissions,
+      }).toMatchObject({ status: "available" });
+      const context = { op, info, workflow, resolveInput: (id: string) => storage.getOperatorResult("A", id) };
+      const collected = collectNativeEvidence(context);
+      expect({
+        id: op.operatorID,
+        omissions: collected.omissions.filter(x => x.startsWith("invalid_") || x.endsWith("_unavailable")),
+      }).toMatchObject({
+        // Full scope finds duplicate rows by value even where a value is too long to list.
+        omissions: op.operatorID === "long_values" && scope === "prefix" ? ["row_values_unavailable"] : [],
+      });
+      facts.set(op.operatorID, collected.facts.map(f => f.text).join("\n"));
+      for (const data of [true, false])
+        for (const flow of [true, false]) {
+          const observation = selectNativeObservation({ ...context, data, flow, maxChars: 600 });
+          expect(observation.text.length).toBeLessThanOrEqual((1 + Number(data) + Number(flow)) * 600 + 2);
+        }
+    }
+    expect(facts.get("typed")).toContain("conversion failures=1/3");
+    expect(facts.get("typed")).toContain('failed-value examples (not exhaustive): "bad" × 1');
+    expect(facts.get("formatted_cast")).toContain('"1,299" × 2');
+    expect(facts.get("formatted_cast")).toContain('"$5" × 1');
+    expect(facts.get("formatted_cast")).toContain('"NA" × 1');
+    expect(facts.get("formatted_cast")).toContain("other failures=2");
+    const longExamples = JSON.parse(records.find(r => r.spec.id === "long_cast")!.profile).native.operations
+      .conversionFailureExamples.x.examples;
+    expect(longExamples).toHaveLength(2);
+    expect(longExamples.every((x: any) => x.truncated && x.values[0].value.length === 96 && x.count === 1)).toBe(true);
+    expect(facts.get("key_join")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
+    expect(facts.get("key_join")).toContain('right eligible unmatched-key examples (not exhaustive): ["item_A"] × 1');
+    expect(facts.get("key_join")).toContain('left duplicate-key examples (not exhaustive): ["shared"] × 2');
+    expect(facts.get("key_join")).toContain('right duplicate-key examples (not exhaustive): ["shared"] × 3');
+    expect(facts.get("key_join")).not.toContain("[null] ×");
+    expect(facts.get("key_result")).toContain("Flow upstream key_join:");
+    expect(facts.get("key_result")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
+    expect(facts.get("key_join_equal")).toContain("null-key rows=1");
+    expect(facts.get("typed_key_join")).toContain("9007199254740993");
+    expect(facts.get("typed_key_join")).toContain("[null,");
+    expect(facts.get("typed_key_join")).toContain("2024-01-01T00:00:00.000000000+00:00");
+    expect(facts.get("monthly_result")).toContain("Flow upstream monthly_lags:");
+    expect(facts.get("monthly_result")).toContain('"prev1" boundary nulls=1/4');
+    expect(facts.get("monthly_result")).toContain('"prev2" boundary nulls=2/4');
+    expect(facts.get("monthly_result")).toContain('lag("acres", offset=2)');
+    expect(facts.get("filled")).toContain("nulls before=2/3, after=0/3");
+    // The filter's counters restate the row counts; its nulls and rejected values do not.
+    expect(facts.get("filtered")).not.toContain("kept=1/3");
+    expect(facts.get("filtered")).toContain('predicate column "x": input (full=3 rows) null=2/3');
+    expect(facts.get("filtered")).toContain("among 2 rejected rows, including null-predicate drops: null × 2");
+    expect(facts.get("aggregate")).toContain('"mean" nonnull=1/3');
+    expect(facts.get("joined")).toContain("matched contribution=5");
+    expect(facts.get("joined")).toContain("left matched rows=3/3");
+    // Counts that only restate the input and output row counts are not flow lines.
+    expect(facts.get("crossed") ?? "").not.toContain("Cross join");
+    expect(facts.get("unioned") ?? "").not.toContain("Union input rows");
+    expect(facts.get("limited") ?? "").not.toContain("retained=");
+    expect(facts.get("empty_groups") ?? "").not.toContain("groups=");
+    expect(facts.get("empty_global") ?? "").not.toContain("groups=");
+    expect(facts.get("udf")).toContain("row/column correspondence to this output unknown");
+    expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");
+    expect(facts.get("window")).toContain("partitions=3, ties beyond first=0");
+    expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');
+    expect(facts.get("pivot")).toContain("Pivot unique pairs=6, index groups=3, generated columns=2, absent cells=0");
+    expect(facts.get("empty_unpivot")).toContain("output=0*2=0");
+    expect(facts.get("empty_window")).toContain("partitions=0");
+    expect(facts.get("empty_pivot")).toContain("unique pairs=0, index groups=0, generated columns=0");
+    // 1,000 ids: both scopes profile every row; only full scope counts more than 256 distinct values.
+    const many = operators.find(op => op.operatorID === "many_ids")!;
+    const manyInfo = storage.getOperatorResult("A", "many_ids")!;
+    const stats = selectNativeObservation({
+      op: many,
+      info: manyInfo,
+      workflow,
+      resolveInput: (id: string) => storage.getOperatorResult("A", id),
+      data: true,
+      flow: false,
+      maxChars: 2000,
+      view: "sample_stats",
+      maxRows: 5,
+    }).text;
+    expect(stats).toContain("statistics: full table, 1,000 of 1,000 rows, 2 of 2 columns");
+    expect(stats).toContain(
+      scope === "full" ? "| id | int64 | 0 | 1,000 | 0 to 999 |" : "| id | int64 | 0 | unknown | 0 to 999 |"
+    );
+  });

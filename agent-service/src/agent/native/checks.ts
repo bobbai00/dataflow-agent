@@ -18,9 +18,11 @@
  */
 
 /**
- * `check:` lines. Every operator carries assumptions about the tables it
- * reads: a scan's first row is a header, and the rows a sum adds are distinct
- * records rather than one record listed by several sources. Only assumptions
+ * `check:` lines and scan notes. Every operator carries assumptions about the
+ * tables it reads: a scan's first row is a header, and the rows a sum adds are
+ * distinct records rather than one record listed by several sources. A scan's
+ * findings are notes shown with its result in every setting (scanNoteLines);
+ * the others are `check:` lines when nativeChecks is on. Only assumptions
  * whose violation is unambiguous qualify: a join that drops or repeats rows
  * may be doing exactly what was meant, so joins have no check. The runtime tests the
  * assumptions of the operator that just ran on the full tables and records
@@ -41,6 +43,7 @@ const num = (x: unknown): x is number => typeof x === "number" && Number.isFinit
 const list = (x: unknown): string[] => (Array.isArray(x) ? x.map(v => json(String(v))) : []);
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
+/** What the parse found about each source's header, worded. */
 export function scanLines(operations: Record<string, any>): string[] {
   const lines: string[] = [];
   for (const source of Array.isArray(record(operations.scan).sources) ? record(operations.scan).sources : []) {
@@ -52,16 +55,70 @@ export function scanLines(operations: Record<string, any>): string[] {
     const alternative = num(suggest.skipLines)
       ? `; skip_lines=${suggest.skipLines} gives the header ${list(suggest.header).join(", ")}`
       : "";
+    const headerless = "; a file without a header row needs header=False with names";
     if (Array.isArray(check.dataLike) && check.dataLike.length)
       lines.push(
-        `the header of ${file} reads as data (${list(check.dataLike).join(", ")})${alternative || "; a file without a header row needs header=False with names"}.`
+        `the header of ${file} reads as data (${list(check.dataLike).join(", ")})${alternative || headerless}.`
       );
-    else if (num(check.blank)) lines.push(`${check.blank} header cells of ${file} are blank${alternative}.`);
+    else if (Array.isArray(check.valueLike) && check.valueLike.length) {
+      const cells = list(check.valueLike);
+      lines.push(
+        `header ${cells.length === 1 ? `${cells[0]} of ${file} looks like a value of its column` : `cells ${cells.join(", ")} of ${file} look like values of their columns`}${alternative || headerless}.`
+      );
+    } else if (num(check.blank)) lines.push(`${check.blank} header cells of ${file} are blank${alternative}.`);
     if (num(check.repeats))
       lines.push(
         `the header row of ${file} recurs ${check.repeats} time${check.repeats === 1 ? "" : "s"} among its data rows (stacked tables or repeated headers).`
       );
   }
+  return lines;
+}
+
+const clip = (text: string, limit = 120) => (text.length > limit ? `${text.slice(0, limit - 1)}…` : text);
+
+/** Integer and decimal values of one column combined as decimals. */
+function widenedLine(widened: unknown, where: string): string[] {
+  const columns = Object.keys(record(widened));
+  return columns.length
+    ? [
+        `${columns.length === 1 ? "column" : "columns"} ${list(columns).join(", ")} ${columns.length === 1 ? "is" : "are"} integer in some ${where} and decimal in others; read as decimal (float64).`,
+      ]
+    : [];
+}
+
+/**
+ * How a scan read its sources, worded for every setting: these facts decide
+ * whether the table is the data at all (a header row that is data, lines
+ * before the header, renamed or widened columns, files concatenated without
+ * their names). They are shown with the scan's result whenever it is read.
+ */
+export function scanNoteLines(view: { properties: Record<string, any> }, operations: Record<string, any>): string[] {
+  const scan = record(operations.scan);
+  const sources = Array.isArray(scan.sources) ? scan.sources.map(record) : [];
+  const lines = scanLines(operations).map(line => `note: ${line}`);
+  for (const s of sources) {
+    if (typeof s.path !== "string") continue;
+    const file = `\`${basename(s.path)}\``;
+    const preamble = Array.isArray(s.preamble) ? s.preamble.filter((line: unknown) => typeof line === "string") : [];
+    if (num(s.autoSkipLines) && s.autoSkipLines > 0)
+      lines.push(
+        `note: ${file} has ${s.autoSkipLines} line${s.autoSkipLines === 1 ? "" : "s"} before its header, skipped${preamble.length ? `: ${preamble.map((line: string) => json(clip(line))).join("; ")}` : ""}.`
+      );
+    const renamed = Array.isArray(s.renamedHeaders)
+      ? s.renamedHeaders.filter((pair: unknown) => Array.isArray(pair) && pair.length === 2)
+      : [];
+    if (renamed.length)
+      lines.push(
+        `note: duplicate header names of ${file} renamed: ${renamed.map(([to, from]: [unknown, unknown]) => `${json(String(from))} → ${json(String(to))}`).join(", ")}.`
+      );
+  }
+  lines.push(...widenedLine(scan.widened, "files").map(line => `note: ${line}`));
+  if (scan.preview && num(scan.selectedFiles) && num(scan.omittedFiles) && scan.omittedFiles > 0)
+    lines.push(`note: the preview reads ${scan.selectedFiles} of ${scan.selectedFiles + scan.omittedFiles} files.`);
+  if (!scan.preview && num(scan.selectedFiles) && scan.selectedFiles > 1 && view.properties.fileColumn === undefined)
+    lines.push(
+      `note: ${scan.selectedFiles} files are concatenated into this table, and its rows do not record their source file; file_column='file' adds it.`
+    );
   return lines;
 }
 
@@ -97,9 +154,10 @@ export function nativeCheckLines(op: OperatorPredicate, info: OperatorInfo): str
   const view = op.nativeOp;
   const operations = record(info.tableProfile?.native?.operations);
   if (!view || !Object.keys(operations).length) return [];
+  // A scan's header findings are always shown with its result (scanNoteLines).
   const lines =
     view.type === "Scan"
-      ? scanLines(operations)
+      ? []
       : view.type === "Process"
         ? [...repeatedLine(view.type, operations), ...processLines(operations)]
         : view.type === "Aggregate"
@@ -131,5 +189,18 @@ export function nativeAdjustmentLines(op: OperatorPredicate, info: OperatorInfo)
   const bools = Array.isArray(operations.boolAsInt) ? operations.boolAsInt : [];
   if (bools.length)
     lines.push(`note: boolean column${bools.length === 1 ? "" : "s"} ${list(bools).join(", ")} reduced as 1/0.`);
+  if (op.nativeOp.type === "Union")
+    lines.push(...widenedLine(operations.widened, "inputs").map(line => `note: ${line}`));
+  const normalized = record(operations.normalized);
+  const utc = Array.isArray(normalized.utc) ? normalized.utc : [];
+  if (utc.length)
+    lines.push(
+      `note: datetime column${utc.length === 1 ? "" : "s"} ${list(utc).join(", ")} had no timezone; read as UTC.`
+    );
+  const text = Array.isArray(normalized.text) ? normalized.text : [];
+  if (text.length)
+    lines.push(
+      `note: column${text.length === 1 ? "" : "s"} ${list(text).join(", ")} mixed numbers and text; kept as text.`
+    );
   return lines;
 }

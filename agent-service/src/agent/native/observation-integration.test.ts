@@ -189,7 +189,14 @@ test("show result keeps its target's flow measurement in a frozen receipt", asyn
   const f = fixture();
   const result = prepareDataflowCall({ python: "", statements: "show result source full" }, ["full"]);
   const value = info();
-  Object.assign(value.tableProfile!.native!.operations!.scan!, { resolvedFiles: 9, selectedFiles: 1, omittedFiles: 8 });
+  Object.assign(value.tableProfile!.native!.operations!.scan!, {
+    resolvedFiles: 2,
+    selectedFiles: 2,
+    sources: [
+      { path: "/data/a.csv", outputRows: 20 },
+      { path: "/data/empty.csv", outputRows: 0, sizeBytes: 12 },
+    ],
+  });
   await executeDataflowActionBatch(result, {
     ...f,
     settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "", flowEvidence: true, retrievalViews: ["full"] },
@@ -198,10 +205,35 @@ test("show result keeps its target's flow measurement in a frozen receipt", asyn
   const frozen = JSON.stringify(result);
   const text = renderDataflowActionsResult(result);
   expect(text).toContain("## show result source full");
-  expect(text).toContain("files selected=1/9, omitted=8");
+  expect(text).toContain('- flow: Scan: source "empty.csv" has no data rows (sizeBytes=12).');
+  // How the files were read is a scan note in every setting.
+  expect(text).toContain("- note: 2 files are concatenated into this table");
   expect(text).not.toContain("see action");
   expect(JSON.stringify(result)).toBe(frozen);
   expect(renderDataflowActionsResult(JSON.parse(frozen))).toBe(text);
+});
+
+test("how a scan read its files is shown without flow evidence; the empty-source measurement is flow", async () => {
+  const f = fixture();
+  const result = prepareDataflowCall({ python: "", statements: "show result source full" }, ["full"]);
+  const value = info();
+  Object.assign(value.tableProfile!.native!.operations!.scan!, {
+    resolvedFiles: 2,
+    selectedFiles: 2,
+    sources: [
+      { path: "/data/a.csv", outputRows: 20, autoSkipLines: 2, preamble: ["Missing:-999"] },
+      { path: "/data/empty.csv", outputRows: 0, sizeBytes: 12 },
+    ],
+  });
+  await executeDataflowActionBatch(result, {
+    ...f,
+    settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "", flowEvidence: false, retrievalViews: ["full"] },
+    execute: async () => persist(f.storage, "read", value),
+  });
+  const text = renderDataflowActionsResult(result);
+  expect(text).toContain('- note: `a.csv` has 2 lines before its header, skipped: "Missing:-999".');
+  expect(text).toContain("- note: 2 files are concatenated into this table");
+  expect(text).not.toContain("- flow:");
 });
 
 for (const tableFormat of ["markdown", "tsv"] as const)

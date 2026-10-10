@@ -30,7 +30,6 @@ import {
 import type { OperatorInfo, ResultVersion } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { NATIVE_BY_TYPE } from "./catalog";
-import { scanLines } from "./checks";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
 import { nativeWitnessSchema, type NativeWitness } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
@@ -53,7 +52,7 @@ export interface NativeEvidenceContext {
 export interface NativeEvidenceFact {
   id: string;
   family: "data" | "flow";
-  kind: "guarantee" | "measurement" | "warning";
+  kind: "measurement";
   text: string;
   priority: number;
   columnCount?: NativeColumnCount;
@@ -369,6 +368,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
       Window: `Window partition keys=${json(p.partitionBy ?? [])}, order=${json(p.orderBy ?? [])}`,
+      Process: `Python step ${view.registeredName ?? "process"}`,
     };
     // Continue past nearby projections to find measured conversion losses.
     // The graph walk and the number of displayed summaries stay bounded.
@@ -376,10 +376,14 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
     const losses = local.facts.filter(f => f.id.startsWith("flow.cast.") && f.priority === 100);
     if (losses.length) semantic.Cast = "Cast produced nulls for values it could not convert";
     if (semantic[view.type]) {
+      // A summary without a measurement restates the definition; skip it.
       const measurements = local.facts
         .filter(f => f.family === "flow" && f.kind === "measurement" && f.priority >= 94)
         .sort((a, b) => b.priority - a.priority)
-        .slice(0, view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window", "Filter"].includes(view.type) ? 2 : 1);
+        .slice(
+          0,
+          view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window", "Filter", "Process"].includes(view.type) ? 2 : 1
+        );
       // Keep coverage counters ahead of optional examples. Long compound keys
       // remain available on direct retrieval without crowding ancestor summaries.
       if (view.type === "Join")
@@ -389,20 +393,21 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
             .slice(0, 2)
         );
       const version = info.resultVersion!;
-      summaries.push({
-        id: `flow.upstream.${op.operatorID}.${version.id}`,
-        family: "flow",
-        kind: measurements.length ? "measurement" : view.type === "Process" ? "warning" : "guarantee",
-        text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}${opaque ? " Before custom processing; row/column correspondence to this output unknown." : ""}`,
-        priority: (losses.length ? 101 : 98) - depth / 10,
-        upstream: {
-          operatorId: op.operatorID,
-          resultVersion: version.id,
-          factIds: measurements.map(fact => fact.id),
-          description: semantic[view.type],
-          ...(opaque ? { scope: "Before custom processing; row/column correspondence to this output unknown." } : {}),
-        },
-      });
+      if (measurements.length)
+        summaries.push({
+          id: `flow.upstream.${op.operatorID}.${version.id}`,
+          family: "flow",
+          kind: "measurement",
+          text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}. ${measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ")}${opaque ? " Before custom processing; row/column correspondence to this output unknown." : ""}`,
+          priority: (losses.length ? 101 : 98) - depth / 10,
+          upstream: {
+            operatorId: op.operatorID,
+            resultVersion: version.id,
+            factIds: measurements.map(fact => fact.id),
+            description: semantic[view.type],
+            ...(opaque ? { scope: "Before custom processing; row/column correspondence to this output unknown." } : {}),
+          },
+        });
     }
     if (depth < 8)
       queue.push(
@@ -527,34 +532,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     omissions.push(...profile.omissions);
   }
 
-  const contract: Record<string, string> = {
-    Scan: "source creation; preview is not the full parsed source",
-    Project: `row identities preserved, same order; selection/rename=${json(p)}`,
-    Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
-    Map: `row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
-    Filter: `stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
-    Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
-    Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
-    Union: "concatenation preserves all rows and input-port order; no deduplication",
-    Distinct: `stable retained subset; keys=${p.columns === undefined ? "whole row" : json(p.columns)}; keep=${p.keep ?? "first"}`,
-    Limit: `stable positional slice; offset=${p.offset ?? 0}, n=${p.n}; not a top-k claim without Sort`,
-    Sort: `row identities preserved; stable sort by=${json(p.by ?? [])}; nulls=${p.nulls ?? "last"}`,
-    Window: `row identities preserved, input order restored; partition keys=${json(p.partitionBy ?? [])}; stable order=${json(p.orderBy ?? [])}, nulls last; outputs=${json(p.columns ?? [])}`,
-    Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
-    Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
-  };
-  // Contracts that only restate what the operator name says (a sort keeps
-  // rows, a project keeps order) are not rendered. Author descriptions express
-  // intent and cannot establish a guarantee about the computation.
-  const RESTATES = new Set(["Scan", "Project", "Cast", "Union", "Distinct", "Limit", "Sort"]);
-  if (contract[view.type] && !RESTATES.has(view.type))
-    add(
-      "flow.contract",
-      "flow",
-      view.type === "Process" ? "warning" : "guarantee",
-      `${view.registeredName ?? view.type}: ${contract[view.type]}.`,
-      25
-    );
+  // Operator contracts restate what the operator name and its definition say;
+  // flow lines report only what was measured.
 
   const inputs = view.inputs.map(resolveInput);
   const inputsMatch =
@@ -599,7 +578,15 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         if (context.columns?.length && !context.columns.includes(name)) continue;
         const before = own(input.tableProfile!.columns, name) ? input.tableProfile!.columns[name] : undefined;
         const after = own(profile!.columns, name) ? profile!.columns[name] : undefined;
-        if (before && after && hasColumnObservations(input, before) && hasColumnObservations(info, after))
+        // Without nulls in the input the line restates the row counts; with
+        // them it shows rows dropped because the predicate saw a null.
+        if (
+          before &&
+          after &&
+          before.nullCount > 0 &&
+          hasColumnObservations(input, before) &&
+          hasColumnObservations(info, after)
+        )
           add(
             `flow.filter.column.${name}`,
             "flow",
@@ -618,13 +605,16 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       keptRows + rejectedRows === ns[0] &&
       nullPredicates <= rejectedRows
     ) {
-      add(
-        "flow.filter",
-        "flow",
-        "measurement",
-        `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (a None verdict drops the row).`,
-        96
-      );
+      // Kept and rejected counts restate the row counts unless a None
+      // verdict dropped rows.
+      if (nullPredicates > 0)
+        add(
+          "flow.filter",
+          "flow",
+          "measurement",
+          `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (a None verdict drops the row).`,
+          96
+        );
       const rejected = record(operations.filterRejectedValues);
       if (rejected.rejectedRows === rejectedRows && rejectedRows > 0) {
         const columns = Object.entries(record(rejected.columns)).slice(0, 8);
@@ -667,17 +657,19 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           size.min * out <= ns[0] &&
           size.max * out >= ns[0]))
     ) {
-      add(
-        "flow.aggregate",
-        "flow",
-        "measurement",
-        `Aggregate groups=${out} from ${ns[0]} rows; group size min=${size.min ?? "undefined"}, max=${size.max ?? "undefined"}.`,
-        96
-      );
+      // One group's size is the input row count.
+      if (out > 1)
+        add(
+          "flow.aggregate",
+          "flow",
+          "measurement",
+          `Aggregate groups=${out} from ${ns[0]} rows; group size min=${size.min ?? "undefined"}, max=${size.max ?? "undefined"}.`,
+          96
+        );
       for (const agg of Array.isArray(p.aggregations) ? p.aggregations : []) {
         const a = record(agg),
           denom = record(record(operations.aggregateNonNull)[a.as]);
-        if (
+        const valid =
           typeof a.as === "string" &&
           count(denom.total) &&
           denom.total <= ns[0] &&
@@ -686,8 +678,10 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
               count(denom.max) &&
               denom.min <= denom.max &&
               denom.min * out <= denom.total &&
-              denom.max * out >= denom.total))
-        ) {
+              denom.max * out >= denom.total));
+        if (!valid) omissions.push("aggregate_denominator_unavailable");
+        // A denominator without nulls restates the group sizes.
+        else if (denom.total < ns[0])
           add(
             `flow.aggregate.${a.as}`,
             "flow",
@@ -695,7 +689,6 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             `${json(a.as)} ${a.fn === "count" && a.col === undefined ? "row denominator" : "nonnull"}=${fraction(denom.total, ns[0])}; per-group min=${denom.min ?? "undefined"}, max=${denom.max ?? "undefined"}; reducer=${a.fn}${a.fn === "first" ? " (first includes null)" : ""}.`,
             95
           );
-        } else omissions.push("aggregate_denominator_unavailable");
       }
       aggregateSemantics(context, inputs[0], ns[0], operations).forEach(([id, text]) =>
         add(id, "flow", "measurement", text, 97)
@@ -705,16 +698,18 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     const join = record(operations.join);
     const type = p.type ?? "inner";
     if (type === "cross") {
+      // Valid cross join counters only restate the product of the input rows.
       if (
-        join.type === "cross" &&
-        join.leftRows === ns[0] &&
-        join.rightRows === ns[1] &&
-        count(ns[0] * ns[1]) &&
-        join.matchedOutputRows === out &&
-        out === ns[0] * ns[1]
+        !(
+          join.type === "cross" &&
+          join.leftRows === ns[0] &&
+          join.rightRows === ns[1] &&
+          count(ns[0] * ns[1]) &&
+          join.matchedOutputRows === out &&
+          out === ns[0] * ns[1]
+        )
       )
-        add("flow.join.cross", "flow", "measurement", `Cross join output=${ns[0]}*${ns[1]}=${out} rows.`, 96);
-      else omissions.push("invalid_join_counters");
+        omissions.push("invalid_join_counters");
     } else {
       const sides = [record(join.left), record(join.right)];
       // Semi and anti joins keep left rows once each: the matched or the unmatched ones.
@@ -755,7 +750,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
               (["left", "full"].includes(type as string) ? sides[0].unmatchedRows : 0) +
               (["right", "full"].includes(type as string) ? sides[1].unmatchedRows : 0) ===
             out);
-      if (valid) {
+      // A join where every row matched exactly once reports nothing new.
+      const notable = sides.some(s => s.unmatchedRows > 0 || s.nullKeyRows > 0 || s.maxMultiplicity > 1);
+      if (valid && notable) {
         add(
           "flow.join.output",
           "flow",
@@ -794,18 +791,21 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             );
           }
         });
-      } else omissions.push("invalid_join_counters");
+      } else if (!valid) omissions.push("invalid_join_counters");
     }
   } else if (view.type === "Union") {
     const sum = ns.reduce((a, b) => a + b, 0);
+    const aligned = Array.isArray(operations.alignedMissingColumns) ? operations.alignedMissingColumns : [];
     if (count(sum) && sum === out) {
-      add(
-        "flow.union",
-        "flow",
-        "measurement",
-        `Union input rows=${json(ns)}, sum=${sum}, output=${out}; aligned missing columns by port=${json(operations.alignedMissingColumns ?? "unknown")}.`,
-        94
-      );
+      // Row counts that add up restate the inputs; columns filled with null do not.
+      if (aligned.some((columns: unknown) => Array.isArray(columns) && columns.length))
+        add(
+          "flow.union",
+          "flow",
+          "measurement",
+          `Union input rows=${json(ns)}, sum=${sum}, output=${out}; aligned missing columns by port=${json(operations.alignedMissingColumns ?? "unknown")}.`,
+          94
+        );
     } else omissions.push("invalid_union_counters");
   } else if (view.type === "Window") {
     const window = record(operations.window);
@@ -887,15 +887,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       );
     } else omissions.push("invalid_pivot_counters");
   } else if (["Distinct", "Limit"].includes(view.type)) {
-    if (count(operations.removedRows) && operations.removedRows + out === ns[0])
-      add(
-        "flow.removed",
-        "flow",
-        "measurement",
-        `${view.type} retained=${fraction(out, ns[0])}, removed=${operations.removedRows}.`,
-        94
-      );
-    else omissions.push("invalid_removal_counters");
+    // Retained and removed rows restate the input and output row counts.
+    if (!(count(operations.removedRows) && operations.removedRows + out === ns[0]))
+      omissions.push("invalid_removal_counters");
   } else if (view.type === "Scan") {
     const scan = record(operations.scan);
     if (
@@ -905,25 +899,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       count(scan.omittedFiles) &&
       scan.selectedFiles + scan.omittedFiles === scan.resolvedFiles
     ) {
-      // Only a scan that read less than every resolved file, previewed, or
-      // returned nothing reports coverage; "selected=1/1" was 20–30% of all
-      // flow lines and measured nothing.
-      if (scan.preview || scan.omittedFiles > 0 || out === 0)
-        add(
-          "flow.scan",
-          "flow",
-          "measurement",
-          `Scan ${scan.preview ? "preview only (not full source)" : "parsed selected sources"}; files selected=${scan.selectedFiles}/${scan.resolvedFiles}, omitted=${scan.omittedFiles}; output=${out} rows.`,
-          // Ahead of the per-file lines: with many files, their findings fill
-          // the budget, and the file and row counts must not be what is cut.
-          98
-        );
-      // Per source, only what the parse found: a header row that reads as
-      // data (with the nearby row that reads as a header) and empty sources.
-      // Paths, sizes and mtimes stay in the audit metadata.
-      scanLines(operations).forEach((text, i) =>
-        add(`flow.scan.header.${i}`, "flow", "measurement", `Scan: ${text}`, 97)
-      );
+      // File coverage, previews and header findings are shown with the scan's
+      // result in every setting (result-scope.ts); only empty sources remain.
       for (const [i, source] of (Array.isArray(scan.sources) ? scan.sources : []).entries()) {
         const s = record(source);
         if (typeof s.path === "string" && s.outputRows === 0 && !scan.preview)
@@ -937,8 +914,23 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       }
     } else omissions.push("scan_coverage_unavailable");
   }
-  // A registered function reports no flow line: its input and output row counts
-  // are already in the receipts, and its row mapping is not measured.
+  // A Python step's row mapping is not measured; the runtime reports values of
+  // an input column that its output column no longer contains.
+  if (view.type === "Process")
+    for (const [i, raw] of (Array.isArray(operations.droppedValues) ? operations.droppedValues : []).entries()) {
+      const d = record(raw);
+      const missing = Array.isArray(d.missing) ? d.missing.map(String) : [];
+      if (typeof d.inputColumn !== "string" || typeof d.outputColumn !== "string" || !missing.length) continue;
+      const total = count(d.missingCount) ? d.missingCount : missing.length;
+      const input = view.inputs.length > 1 && count(d.input) ? ` of input ${view.inputs[d.input] ?? d.input}` : "";
+      add(
+        `flow.process.dropped.${i}`,
+        "flow",
+        "measurement",
+        `values of input column ${json(d.inputColumn)}${input} missing from output column ${json(d.outputColumn)}: ${missing.map(value => json(value)).join(", ")}${total > missing.length ? ", …" : ""} (${total} of ${count(d.inputDistinct) ? d.inputDistinct : "?"}).`,
+        95
+      );
+    }
   if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")
       for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
@@ -1159,7 +1151,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     const allText = facts.map(fact => {
       const origin = fact.upstream && (context.displayName?.(fact.upstream.operatorId) ?? fact.upstream.operatorId);
       const text = fact.text.replace(/^Flow upstream [^:]+:\s*/, "").replace(/^Flow \w+:\s*/, "");
-      return `- flow${origin ? ` (${origin})` : ""}: ${fact.kind === "guarantee" ? "contract; " : ""}${text}`;
+      return `- flow${origin ? ` (${origin})` : ""}: ${text}`;
     });
     const needsNotice = allText.join("\n").length > budget;
     for (const [index, fact] of facts.entries()) {

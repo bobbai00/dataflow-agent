@@ -314,6 +314,65 @@ def test_process_rejects_nested_values_before_the_engine_transport_fails():
         )
 
 
+def test_process_naive_datetimes_read_as_utc_and_mixed_scalars_as_text():
+    result = run("Process", pd.DataFrame({"x": [1]}), code="""def process(source):
+    import datetime
+    import pandas as pd
+    return pd.DataFrame({
+        'when': pd.to_datetime(['2024-05-10 12:00', None]),
+        'objects': [datetime.datetime(2024, 5, 10, 12, 0), None],
+        'code': [7, 'A7'],
+        'amount': [1.5, 2.5],
+        'aware': pd.to_datetime(['2024-05-10 12:00', None], utc=True),
+    })
+""")
+    assert str(result["when"].dtype) == "datetime64[ns, UTC]"
+    assert result["when"].iloc[0] == pd.Timestamp("2024-05-10 12:00", tz="UTC")
+    assert result["objects"].iloc[0] == pd.Timestamp("2024-05-10 12:00", tz="UTC")
+    assert result["code"].tolist() == ["7", "A7"]
+    assert result.attrs["native_v2"]["operations"]["normalized"] == {"utc": ["when", "objects"], "text": ["code"]}
+    untouched = run("Process", pd.DataFrame({"x": [1]}), code="def process(source):\n    return source")
+    assert "normalized" not in untouched.attrs["native_v2"]["operations"]
+    # Inputs still meet the contract: a naive timestamp handed to an operator is refused.
+    with pytest.raises(runtime.NativeError, match="INPUT_VALUE_TYPE"):
+        run("Process", pd.DataFrame({"t": pd.to_datetime(["2024-01-01"])}), code="def process(source):\n    return source")
+
+
+def test_python_step_reports_input_values_it_dropped():
+    states = ["Florida", "Georgia", "Nevada"]
+    identity = pd.DataFrame({
+        "State Rankings": [None, "Rank", "1", "2", "3", None, None, "note"],
+        "Unnamed: 1": [None, "State", *states, "District of Columbia", "Puerto Rico", None],
+        "Unnamed: 2": [None, "Reports", "528", "517", "466", "480", "51", None],
+    }).astype("string")
+    code = """def process(source):
+    import pandas as pd
+    out = source.iloc[:, :3].copy()
+    out.columns = ['rank', 'state', 'density']
+    out = out[pd.to_numeric(out['rank'], errors='coerce').notna()].copy()
+    out['density'] = pd.to_numeric(out['density'])
+    return out[['state', 'density']].reset_index(drop=True)
+"""
+    measured = runtime.execute_native({**spec("Process", code=code), "profileCollection": True}, [identity])
+    assert measured["state"].tolist() == states
+    assert measured.attrs["native_v2"]["operations"]["droppedValues"] == [{
+        "input": 0,
+        "inputColumn": "Unnamed: 1",
+        "outputColumn": "state",
+        "missing": ["State", "District of Columbia", "Puerto Rico"],
+        "missingCount": 3,
+        "inputDistinct": 6,
+    }]
+    # Without profile collection nothing is measured; a step that keeps every value reports nothing.
+    plain = runtime.execute_native(spec("Process", code=code), [identity])
+    assert "droppedValues" not in plain.attrs["native_v2"]["operations"]
+    keep = runtime.execute_native(
+        {**spec("Process", code="def process(source):\n    return source.dropna()"), "profileCollection": True},
+        [pd.DataFrame({"state": ["a", "b", None]}).astype("string")],
+    )
+    assert "droppedValues" not in keep.attrs["native_v2"]["operations"]
+
+
 def test_preflight_rejects_project_keep_and_drop_before_execution():
     with pytest.raises(runtime.NativeError, match="PROJECT_OPTIONS"):
         runtime.validate_native(spec("Project", keep=["x"], drop=["y"]))

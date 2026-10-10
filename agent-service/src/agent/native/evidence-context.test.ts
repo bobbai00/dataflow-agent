@@ -128,9 +128,15 @@ function fixture() {
           inputOperators: v.inputs,
           inputRows: inputs,
           outputRows: nums.length,
+          // One None verdict among the rejected rows keeps the filter's counters
+          // a flow line; without one they only restate the row counts.
           operations:
             v.type === "Filter"
-              ? { keptRows: nums.length, rejectedRows: inputs[0] - nums.length, nullPredicates: 0 }
+              ? {
+                  keptRows: nums.length,
+                  rejectedRows: inputs[0] - nums.length,
+                  nullPredicates: inputs[0] > nums.length ? 1 : 0,
+                }
               : {},
         },
         algorithm: {

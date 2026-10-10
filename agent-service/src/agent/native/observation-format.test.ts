@@ -80,6 +80,54 @@ describe("observation value representation", () => {
 });
 
 describe("record views", () => {
+  test("a sample shows one row of each cell pattern before head and tail rows", () => {
+    // legal-hard-23: DC and Puerto Rico are unranked rows just above the footnote. A
+    // head-and-tail sample showed a blank row, the header, Florida, "…" and the source line.
+    const [c0, c1, c2, c3] = ["State Rankings: Identity Theft Reports", "Unnamed: 1", "Unnamed: 2", "Unnamed: 3"];
+    const row = (a: unknown, b: unknown, c: unknown, d: unknown) => ({ [c0]: a, [c1]: b, [c2]: c, [c3]: d });
+    const rows = [
+      row(null, null, null, null),
+      row("Rank", "State", "Reports per 100K Population", "# of Reports"),
+      ...Array.from({ length: 50 }, (_, i) =>
+        row(String(i + 1), i ? `State ${i + 1}` : "Florida", String(528 - i), "1,000")
+      ),
+      row(null, "District of Columbia", "480", "3,225"),
+      row(null, "Puerto Rico", "51", "1,649"),
+      row(null, null, null, null),
+      row("The District of Columbia and Puerto Rico are included in the table but are not ranked.", null, null, null),
+      row(null, null, null, null),
+      row("Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission", null, null, null),
+    ];
+    const sample = renderRecords(info(rows), { view: "sample", maxChars: 2000, maxRows: 5, cellChars: 200 });
+    expect(sample.returnedRows).toBe(5);
+    for (const text of ["Florida", "District of Columbia", "are not ranked", "Reports per 100K Population"])
+      expect(sample.text).toContain(text);
+    expect(sample.text).toContain(
+      "records: sample; 5 of 58 rows, 4 of 4 columns (one row per pattern of missing, numeric and text cells, then first and last retained records; … marks omitted rows)"
+    );
+    // Rows print in table order, with gaps where rows were skipped.
+    const lines = sample.text.split("\n");
+    expect(lines.findIndex(line => line.includes("Florida"))).toBeLessThan(
+      lines.findIndex(line => line.includes("District of Columbia"))
+    );
+    // A table with one pattern keeps the head and tail rows and the plain caption.
+    const plain = renderRecords(info(rows.slice(2, 52)), { view: "sample", maxChars: 2000, maxRows: 2 });
+    expect(plain.text).toContain("(first and last retained records; … marks omitted rows)");
+    expect(plain.text).toContain("Florida");
+    expect(plain.text).toContain("State 50");
+    // The full view is unchanged: rows in table order.
+    const full = renderRecords(info(rows), { view: "full", maxChars: 5000 });
+    expect(full.frozen.rows.map(item => item.index)).toEqual(rows.map((_, i) => i));
+    // A sparse table where every row has its own pattern keeps head and tail rows:
+    // patterns that barely repeat say nothing about the table's shape.
+    const sparse = Array.from({ length: 10 }, (_, i) =>
+      Object.fromEntries(Array.from({ length: 10 }, (_, j) => [`c${j}`, j === i ? null : `r${i}`]))
+    );
+    const ends = renderRecords(info(sparse), { view: "sample", maxChars: 2000, maxRows: 5 });
+    expect(ends.frozen.rows.map(item => item.index)).toEqual([0, 9, 1, 8, 2]);
+    expect(ends.text).toContain("(first and last retained records; … marks omitted rows)");
+  });
+
   for (const tableFormat of ["markdown", "tsv"] as const) {
     test(`${tableFormat}: complete, empty, retained and unknown totals`, () => {
       const result = renderRecords(info([{ region: "east" }, { region: "west" }]), {

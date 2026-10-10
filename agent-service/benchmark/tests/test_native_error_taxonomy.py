@@ -86,14 +86,14 @@ CASES = [
     ),
     (
         "scan",
-        "duplicate header",
+        "names repeat a column name",
         "Scan",
         [],
-        dict(files="__dup__"),
-        "SCAN_HEADER",
+        dict(files="__ok__", header=False, names=["a", "a"]),
+        "SCAN_NAMES",
         "execute",
-        None,
-        ["Duplicate header"],
+        "names",
+        ["unique name"],
     ),
     (
         "scan",
@@ -148,7 +148,7 @@ CASES = [
         "SCAN_FORMAT",
         "validate",
         None,
-        ["process loader"],
+        ["custom Python loader"],
     ),
     (
         "scan",
@@ -1004,10 +1004,10 @@ CASES = [
     ),
     (
         "process",
-        "timezone-naive datetime",
+        "naive and aware datetimes in one column",
         "Process",
         [F],
-        process("pd.DataFrame({'a': [pd.Timestamp('2024-01-01')]})"),
+        process("pd.DataFrame({'a': [pd.Timestamp('2024-01-01'), pd.Timestamp('2024-01-01', tz='UTC')]})"),
         "OUTPUT_VALUE_TYPE",
         "contract",
         None,
@@ -1103,6 +1103,15 @@ LEGAL = [
         process("pd.DataFrame({'a': [pd.Timestamp('2024-01-01', tz='UTC')]})"),
     ),
     ("limit", "offset past the end is an empty table", "Limit", [F], dict(n=2, offset=10)),
+    ("scan", "repeated header names get pandas suffixes", "Scan", [], dict(files="__dup__")),
+    (
+        "process",
+        "timezone-naive datetimes read as UTC",
+        "Process",
+        [F],
+        process("pd.DataFrame({'a': [pd.Timestamp('2024-01-01')]})"),
+    ),
+    ("process", "numbers and text in one column become text", "Process", [F], process("pd.DataFrame({'a': [1, 'x']})")),
 ]
 
 

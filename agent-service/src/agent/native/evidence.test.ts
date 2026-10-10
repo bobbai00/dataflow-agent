@@ -23,7 +23,6 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ProfileColumn } from "./profiles";
 import {
   collectNativeEvidence,
-  FLOW_OMITTED_NOTICE,
   restrictNativeObservation,
   selectNativeObservation,
 } from "./evidence";
@@ -496,7 +495,8 @@ test("explicit column scope excludes other profile values", () => {
   expect(observed.text).not.toContain("private_column");
 });
 
-test("zero input gives undefined retention, not zero percent", () => {
+test("kept and rejected counts show only when a None verdict dropped rows", () => {
+  expect(factText(fixture())).toContain("kept=3/5, rejected=2, null predicates=1");
   const f = fixture();
   f.results.get("left")!.totalRowCount = 0;
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 0;
@@ -505,7 +505,9 @@ test("zero input gives undefined retention, not zero percent", () => {
     outputRows: 0,
     operations: { keptRows: 0, rejectedRows: 0, nullPredicates: 0 },
   });
-  expect(factText(f)).toContain("kept=0/0 (no rows)");
+  // Without null verdicts the counts restate the row counts.
+  expect(factText(f)).not.toContain("kept=");
+  expect(collectNativeEvidence(f).omissions).not.toContain("invalid_filter_counters");
 });
 
 test("partial column profiles do not erase full operator counters or claim full column coverage", () => {
@@ -567,19 +569,22 @@ test("inconsistent operational counts are omitted, not converted into precise cl
   expect(collectNativeEvidence(f).omissions).toContain("invalid_filter_counters");
 });
 
-test("aggregate shows group size and per-reducer nonnull denominators", () => {
+test("an aggregate reports a reducer's nulls, not one group's size", () => {
   const f = fixture("Aggregate", { groupBy: [], aggregations: [{ fn: "mean", col: "x", as: "mean" }] });
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 1;
-  Object.assign(f.info.tableProfile!.native!, {
-    outputRows: 1,
-    operations: {
-      groupCount: 1,
-      groupSizes: { min: 5, max: 5, total: 5 },
-      aggregateNonNull: { mean: { total: 4, min: 4, max: 4 } },
-    },
-  });
-  expect(factText(f)).toContain("groups=1 from 5 rows");
+  const operations = {
+    groupCount: 1,
+    groupSizes: { min: 5, max: 5, total: 5 },
+    aggregateNonNull: { mean: { total: 4, min: 4, max: 4 } },
+  };
+  Object.assign(f.info.tableProfile!.native!, { outputRows: 1, operations });
+  // One group's size is the input row count.
+  expect(factText(f)).not.toContain("groups=1");
   expect(factText(f)).toContain('"mean" nonnull=4/5');
+  // A denominator without nulls restates the group sizes.
+  operations.aggregateNonNull.mean = { total: 5, min: 5, max: 5 };
+  expect(factText(f)).not.toContain('"mean" nonnull');
+  expect(collectNativeEvidence(f).omissions).not.toContain("aggregate_denominator_unavailable");
 });
 
 function joinFixture() {
@@ -652,14 +657,13 @@ test("join witnesses are bounded optional evidence and cannot override counters 
   expect(factText(f)).not.toContain("matched contribution=6");
 });
 
-test("guarantees describe contracts, UDF remains unknown at equal row counts", () => {
-  for (const kind of ["Project", "Map", "Cast", "Sort"]) {
+test("operator contracts are not flow lines, and a UDF's mapping is never claimed", () => {
+  for (const kind of ["Project", "Map", "Cast", "Sort", "Filter", "Aggregate"]) {
     const f = fixture(kind);
     f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
     f.info.tableProfile!.native!.outputRows = 5;
-    const contract = collectNativeEvidence(f).facts.find(x => x.id === "flow.contract");
-    // A project, cast or sort contract only restates the operator's name.
-    expect(contract?.kind).toBe(kind === "Map" ? "guarantee" : undefined);
+    // A contract restates the operator's name and definition.
+    expect(collectNativeEvidence(f).facts.some(x => x.id === "flow.contract")).toBe(false);
   }
   const f = fixture("Process");
   f.info.totalRowCount = 5;
@@ -674,6 +678,30 @@ test("a registered function adds no flow line: its row mapping is not measured",
   expect(text).not.toContain("select_records");
   expect(text).not.toContain("mapping unknown");
   expect(text).not.toContain("Process");
+});
+
+test("a Python step reports values of an input column that its output column lost", () => {
+  // legal-hard-23: a rank filter inside a Python function dropped the unranked District of Columbia.
+  const f = fixture("Process");
+  f.op.nativeOp!.registeredName = "normalize_rankings";
+  f.info.tableProfile!.native!.operations = {
+    droppedValues: [
+      {
+        input: 0,
+        inputColumn: "Unnamed: 1",
+        outputColumn: "state",
+        missing: ["State", "District of Columbia", "Puerto Rico"],
+        missingCount: 3,
+        inputDistinct: 53,
+      },
+    ],
+  };
+  expect(observe(f, { data: false }).text).toContain(
+    '- flow: values of input column "Unnamed: 1" missing from output column "state": "State", "District of Columbia", "Puerto Rico" (3 of 53).'
+  );
+  // A bounded example list says how many values it left out.
+  (f.info.tableProfile!.native!.operations!.droppedValues as any)[0].missingCount = 9;
+  expect(factText(f)).toContain('"Puerto Rico", … (9 of 53).');
 });
 
 test("an author's description is never presented as an engine guarantee", () => {
@@ -977,7 +1005,8 @@ test("observed final count includes bound upstream group grain, not hidden table
   const selection = observe(f, { data: false });
   expect(selection.text).toContain('group keys=["account","region"]');
   expect(selection.text).toContain("groups=5 from 10 rows");
-  expect(selection.text).toContain("row denominator=10/10");
+  // A count without nulls restates the group sizes.
+  expect(selection.text).not.toContain("row denominator");
   expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
   expect(selection.text).not.toContain("statistics:");
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(true);
@@ -1197,7 +1226,7 @@ test("compaction only shortens recorded evidence and never adds new facts", () =
   expect(restrictNativeObservation(recorded, {})).toBe(recorded.text);
 });
 
-test("empty grouped aggregate has zero groups and undefined per-group range", () => {
+test("an empty grouped aggregate reports nothing beyond its empty table", () => {
   const f = fixture("Aggregate", { groupBy: ["x"], aggregations: [{ fn: "count", as: "n" }] });
   f.results.get("left")!.totalRowCount = 0;
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 0;
@@ -1210,8 +1239,10 @@ test("empty grouped aggregate has zero groups and undefined per-group range", ()
       aggregateNonNull: { n: { total: 0, min: null, max: null } },
     },
   });
-  expect(factText(f)).toContain("groups=0 from 0 rows");
-  expect(factText(f)).toContain('"n" row denominator=0/0 (no rows)');
+  expect(factText(f)).not.toContain("groups=0");
+  expect(factText(f)).not.toContain("row denominator");
+  expect(collectNativeEvidence(f).omissions).not.toContain("aggregate_denominator_unavailable");
+  expect(collectNativeEvidence(f).omissions).not.toContain("invalid_aggregate_counters");
 });
 
 test("aggregate semantics: what a distinct count counts, a key that pools entities, an unread flag", () => {
@@ -1268,7 +1299,7 @@ test("aggregate semantics: what a distinct count counts, a key that pools entiti
   expect(factText(f)).not.toContain("was read by no operator");
 });
 
-test("per-file scan findings cannot push the file and row counts out of the flow budget", () => {
+test("scan coverage and per-file header findings are scan notes, not flow lines", () => {
   const f = fixture("Scan", { files: "data/legal/*.csv" });
   const sources = Array.from({ length: 30 }, (_, i) => ({
     path: `/data/legal/2024_CSN_Report_${String(i).padStart(2, "0")}_${"Category".repeat(4)}.csv`,
@@ -1278,12 +1309,15 @@ test("per-file scan findings cannot push the file and row counts out of the flow
     scan: { preview: false, resolvedFiles: 32, selectedFiles: 30, omittedFiles: 2, sources },
   };
   // The execute receipt's selection: flow only, the operator's own facts.
+  // Header findings are shown with the scan's result in every setting.
   const own = observe(f, { data: false, flowMaxChars: 2000, upstream: false });
-  const flow = own.chunks.filter(chunk => chunk.id.startsWith("flow."));
-  expect(flow[0].text).toBe("- flow: Scan parsed selected sources; files selected=30/32, omitted=2; output=3 rows.");
-  expect(flow.at(-1)!.text).toBe(FLOW_OMITTED_NOTICE);
-  expect(own.omitted.some(item => item.reason === "budget" && item.id.startsWith("flow.scan.header."))).toBe(true);
-  expect(own.text.length).toBeLessThanOrEqual(2000 + own.chunks[0].text.length + 1);
+  expect(own.chunks.filter(chunk => chunk.id.startsWith("flow."))).toEqual([]);
+  // An empty source is still a flow measurement.
+  (sources[0] as Record<string, unknown>).outputRows = 0;
+  const empty = observe(f, { data: false, flowMaxChars: 2000, upstream: false });
+  expect(empty.chunks.filter(chunk => chunk.id.startsWith("flow.")).map(chunk => chunk.id)).toEqual([
+    "flow.scan.empty.0",
+  ]);
 });
 
 test("filter rejected-value frequencies are optional, validated and scoped to rejected rows", () => {

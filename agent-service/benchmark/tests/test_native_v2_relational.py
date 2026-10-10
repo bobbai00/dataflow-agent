@@ -222,6 +222,16 @@ def test_union_strict_align_null_columns_and_port_order():
     assert 'schema="align"' in union_message
     with pytest.raises(runtime.NativeError, match="UNION_TYPE"):
         execute("Union", left, right.astype({"a": "string"}))
+    # Whole numbers beside fractions are one numeric column, as in pandas.
+    widened = execute("Union", left, pd.DataFrame({"a": [2.5], "b": ["w"]}))
+    assert str(widened["a"].dtype) == "Float64"
+    assert rows(widened) == [{"a": 1.0, "b": "x"}, {"a": None, "b": "y"}, {"a": 2.5, "b": "w"}]
+    assert widened.attrs["native_v2"]["operations"]["widened"] == {"a": ["float64", "int64"]}
+    assert "widened" not in result.attrs["native_v2"]["operations"]
+    with pytest.raises(runtime.NativeError, match="UNION_TYPE"):
+        execute("Union", pd.DataFrame({"a": [2**53 + 1], "b": ["x"]}), pd.DataFrame({"a": [2.5], "b": ["w"]}))
+    with pytest.raises(runtime.NativeError, match="UNION_TYPE"):
+        execute("Union", pd.DataFrame({"a": [True], "b": ["x"]}), pd.DataFrame({"a": [2.5], "b": ["w"]}))
 
 
 def test_distinct_sort_limit_stable_order_and_empty_schema():

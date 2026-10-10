@@ -175,13 +175,16 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
   const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
   const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+  const fullLimit = options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT;
   return [
     `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
-    first && views.includes("full")
-      ? `\`show result <id>\` gives ${lower(sampleText)}. \`show result <id> full\` gives ${lower(full)} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
-      : first
-        ? `\`show result <id>\` gives ${lower(sampleText)}.`
-        : `\`show result <id> full\` gives ${lower(full)} Check the completeness of every result.`,
+    first === "sample_stats" && views.includes("full")
+      ? `\`show result <id>\` gives the schema, ${rows} and column statistics; ask for \`show result <id> full\`, every record within ${fullLimit} characters, only for a small table whose every row you need.`
+      : first && views.includes("full")
+        ? `\`show result <id>\` gives ${lower(sampleText)}. \`show result <id> full\` gives ${lower(full)} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+        : first
+          ? `\`show result <id>\` gives ${lower(sampleText)}.`
+          : `\`show result <id> full\` gives ${lower(full)} Check the completeness of every result.`,
     "Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.",
   ].join(" ");
 }
@@ -210,7 +213,7 @@ export function buildRegisteredNativeSystemPrompt(
         (views.includes("full") ? " The `full` view does not request table statistics." : "")
       : "",
     FLOW_STATISTICS: options.flowEvidence
-      ? "Flow statistics report measured effects of built-in operators, also for results you did not request: filter kept and rejected rows, join unmatched keys, cast failures, and aggregate denominators. Compare them with the requested population. Python functions are not measured; return diagnostic columns when you need their counts."
+      ? "Flow lines report what upstream steps did that row counts do not show: rejected filter values, unmatched join keys, cast failures, nulls left out of an aggregate, input columns no step used, and values a Python step dropped from a column. Compare them with the requested population."
       : "",
   };
   // The examples already use the actual renderers with the enabled views.

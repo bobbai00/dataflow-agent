@@ -491,6 +491,54 @@ def _frame(spec, value):
     return value
 
 
+def _normalize_output(value, operations):
+    """Accept two common pandas outputs of a Python step instead of refusing them.
+
+    Timezone-naive datetimes are read as UTC: results display instants in UTC,
+    so the shown wall-clock values are the ones the function produced. A
+    column mixing numbers and text keeps every value as text. Both are
+    recorded, so the receipt can say what changed. Anything else (mixed
+    aware/naive datetimes, nested values, infinity) still fails the contract.
+    """
+    if (
+        not isinstance(value, pd.DataFrame)
+        or not value.columns.is_unique
+        or not all(isinstance(name, str) for name in value.columns)
+    ):
+        return value
+    converted, normalized = {}, {"utc": [], "text": []}
+    for name in value.columns:
+        column = value[name]
+        if pd.api.types.is_datetime64_any_dtype(column.dtype):
+            if getattr(column.dt, "tz", None) is None:
+                converted[name] = column.dt.tz_localize("UTC")
+                normalized["utc"].append(name)
+            continue
+        if column.dtype != object:
+            continue
+        present = column.dropna()
+        if not len(present):
+            continue
+        inferred = pd.api.types.infer_dtype(present, skipna=True)
+        if inferred in ("datetime", "datetime64"):
+            if all(
+                isinstance(v, (datetime.datetime, np.datetime64)) and getattr(v, "tzinfo", None) is None
+                for v in present
+            ):
+                converted[name] = pd.to_datetime(column).dt.tz_localize("UTC")
+                normalized["utc"].append(name)
+        elif inferred in ("mixed-integer", "mixed") and all(isinstance(v, (str, numbers.Number)) for v in present):
+            converted[name] = column.map(lambda v: None if _missing(v) else str(v)).astype("string")
+            normalized["text"].append(name)
+    if not converted:
+        return value
+    value = value.copy(deep=False)
+    for name, series in converted.items():
+        value[name] = series
+    operations["normalized"] = {key: names for key, names in normalized.items() if names}
+    return value
+
+
 def _convert(value, dtype, *, cast=False, options=None):
     value = _scalar(value)
     if value is None:
@@ -975,6 +1023,17 @@ def _aligned(frame):
     return True
 
 
+def _float_exact(series):
+    """Every integer of the column survives float64 unchanged (|n| <= 2**53)."""
+    present = series.dropna()
+    if not len(present):
+        return True
+    try:
+        return max(abs(int(present.max())), abs(int(present.min()))) <= 2**53
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def _union(spec, frames, operations):
     mode = spec["properties"].get("schema", "strict")
     names = list(dict.fromkeys(name for frame in frames for name in frame.columns))
@@ -1001,9 +1060,19 @@ def _union(spec, frames, operations):
                 'Project or rename the inputs to match, or use schema="align" to fill absent columns with null.',
                 field="schema",
             )
-    types = {}
+    types, widened = {}, {}
     for name in names:
         kinds = {_logical_dtype(frame[name]) for frame in frames if name in frame.columns} - {None}
+        # Whole numbers in one input and fractions in another are one numeric
+        # column (pandas concatenates them as float64). Widen when no integer
+        # loses precision; every other mix still needs an explicit cast.
+        if kinds == {"int64", "float64"} and all(
+            _float_exact(frame[name])
+            for frame in frames
+            if name in frame.columns and _logical_dtype(frame[name]) == "int64"
+        ):
+            widened[name] = sorted(kinds)
+            kinds = {"float64"}
         if len(kinds) > 1:
             scanning = spec["type"] == "Scan"
             raise _error(
@@ -1023,11 +1092,14 @@ def _union(spec, frames, operations):
         part = pd.DataFrame(index=range(len(frame)))
         for name in names:
             if name in frame.columns and _logical_dtype(frame[name]) is not None:
-                part[name] = _nullable(frame[name]).reset_index(drop=True)
+                column = _nullable(frame[name]).reset_index(drop=True)
+                part[name] = column.astype(DTYPES["float64"]) if name in widened else column
             else:
                 part[name] = _series([None] * len(frame), types[name])
         aligned.append(part)
     operations["alignedMissingColumns"] = [[name for name in names if name not in frame.columns] for frame in frames]
+    if widened:
+        operations["widened"] = widened
     return pd.concat(aligned, ignore_index=True)
 
 
@@ -1199,6 +1271,9 @@ def _scan_header(spec, raw, source_meta):
                 unresolved.append(value)
             names.append(str(value))
         source_meta["unresolvedHeaders"] = unresolved
+        if len(names) != len(set(names)):
+            names, renamed = _deduplicated_headers(names)
+            source_meta["renamedHeaders"] = renamed
         check = _header_check(raw, source_meta.pop("_before", None), props.get("skipLines", 0))
         if check:
             source_meta["headerCheck"] = check
@@ -1220,13 +1295,58 @@ def _scan_header(spec, raw, source_meta):
     if len(names) != len(set(names)):
         raise _error(
             spec,
-            "SCAN_HEADER",
-            f"Duplicate header names across {len(names)} columns. Preview the raw rows, then skip all header rows "
-            f"with skip_lines and use header=False with {len(names)} unique names.",
-            field="header",
+            "SCAN_NAMES",
+            f"names repeats a column name; give header=False one unique name for each of the {len(names)} columns.",
+            field="names",
         )
     output.columns = names
     return _scan_infer(output, props.get("allText", False), infer_text=source_meta["format"] != "excel")
+
+
+_PREAMBLE_WINDOW = 200
+
+
+def _preamble_end(path, encoding, delimiter):
+    """The line where a delimited table starts below a short preamble, or None.
+
+    The header is the first line with the most fields in the opening window.
+    Every line above it has at most half as many (titles and notes, not rows
+    of a ragged table), and the header and most lines below it, at least two,
+    have the full width. Anything else is left to the caller's options.
+    """
+    import csv
+    from itertools import islice
+
+    # One physical line at a time, so the index is the number of lines to skip.
+    with path.open(encoding=encoding, newline="") as stream:
+        widths = [len(next(csv.reader([line], delimiter=delimiter), [])) for line in islice(stream, _PREAMBLE_WINDOW)]
+    if not widths:
+        return None
+    width = max(widths)
+    start = widths.index(width)
+    full = sum(count == width for count in widths[start:])
+    below = sum(1 for count in widths[start:] if count)
+    if width < 2 or start == 0 or full < 2 or full * 2 <= below or any(count * 2 > width for count in widths[:start]):
+        return None
+    return start
+
+
+def _deduplicated_headers(names):
+    """pandas' names for repeated headers ("X", "X.1", "X.2"; read_csv skips a
+    suffix another header already uses), which analyses and reference answers
+    written with pandas use. Returns the names and the [new, original] pairs."""
+    counts, result, renamed = {}, list(names), []
+    for index, original in enumerate(names):
+        name, count = original, counts.get(original, 0)
+        while count > 0:
+            counts[original] = count + 1
+            name = f"{original}.{count}"
+            count = count + 1 if name in result else counts.get(name, 0)
+        result[index] = name
+        counts[name] = count + 1
+        if name != original:
+            renamed.append([name, original])
+    return result, renamed
 
 
 def _html_tables(path, encoding):
@@ -1454,17 +1574,34 @@ def _scan_read(spec, path, fmt, source_meta):
                     with path.open(encoding=encoding, newline="") as head:
                         above = list(csv.reader(islice(head, skip), delimiter=delimiter))[-_HEADER_WINDOW:]
                     source_meta["_before"] = pd.DataFrame(above, dtype=object)
-                raw = pd.read_csv(
-                    stream,
-                    header=None,
-                    sep=r"\s+" if delimiter == "whitespace" else delimiter,
-                    engine="python" if delimiter == "whitespace" else "c",
-                    dtype="string",
-                    comment=props.get("comment"),
-                    keep_default_na=False,
-                    na_values=[""],
-                    on_bad_lines="error",
-                )
+                def read(handle):
+                    return pd.read_csv(
+                        handle,
+                        header=None,
+                        sep=r"\s+" if delimiter == "whitespace" else delimiter,
+                        engine="python" if delimiter == "whitespace" else "c",
+                        dtype="string",
+                        comment=props.get("comment"),
+                        keep_default_na=False,
+                        na_values=[""],
+                        on_bad_lines="error",
+                    )
+
+                try:
+                    raw = read(stream)
+                except pd.errors.ParserError:
+                    # A title or notes above the header ("Title: ...", "Missing: -999")
+                    # give the first rows fewer fields than the table. Without
+                    # an explicit skip_lines, start at the header and keep the
+                    # skipped lines: they may define units or missing codes.
+                    start = None if skip or delimiter == "whitespace" else _preamble_end(path, encoding, delimiter)
+                    if start is None:
+                        raise
+                    with path.open(encoding=encoding, newline="") as rest:
+                        preamble = [rest.readline() for _ in range(start)]
+                        raw = read(rest)
+                    source_meta["autoSkipLines"] = start
+                    source_meta["preamble"] = [line.strip()[:120] for line in preamble if line.strip()][:5]
         except pd.errors.EmptyDataError:
             raw = pd.DataFrame()
         return _scan_header(spec, raw, source_meta)
@@ -1543,10 +1680,11 @@ def _scan(spec, operations):
         parts.append(part)
     # One source already in _union's dtypes is its own result; _union would
     # copy every column of it (twice) for nothing.
+    union = {}
     if len(parts) == 1 and _aligned(parts[0]):
         result = parts[0]
     else:
-        result = _union({**spec, "properties": {"schema": "align"}}, parts, {})
+        result = _union({**spec, "properties": {"schema": "align"}}, parts, union)
     operations["scan"] = {
         "preview": bool(props.get("preview")),
         "complete": not bool(props.get("preview")),
@@ -1554,6 +1692,7 @@ def _scan(spec, operations):
         "selectedFiles": len(parts),
         "omittedFiles": len(resolved) - len(parts),
         "sources": sources,
+        **({"widened": union["widened"]} if "widened" in union else {}),
     }
     return result
 
@@ -2046,6 +2185,45 @@ def _header_score(cells):
     return sum(map(_data_like, named)), len(cells) - len(named), len(set(named)) == len(named)
 
 
+def _shape(text):
+    """Character classes with runs collapsed: "BRD8" -> "A9", "Gene Symbol" -> "Aa Aa"."""
+    import re
+
+    return re.sub(r"[A-Z]+", "A", re.sub(r"[a-z]+", "a", re.sub(r"\d+", "9", text)))
+
+
+_VALUE_LIKE_ROWS = 200
+
+
+def _value_like_header(raw, current):
+    """Header cells that read as values of their own columns, or [].
+
+    Every named cell must match: a text column's cell has the character shape
+    of at least half of its first values and a length within theirs (a gene
+    list headed by its first gene, "BRD8" over "DHX15", "SSB"); a numeric
+    column's cell is itself a number. One real label ("Gene", "Count") rules
+    the header out.
+    """
+    cells = []
+    for index, cell in enumerate(current):
+        if not cell:
+            continue
+        column = raw.iloc[1 : _VALUE_LIKE_ROWS + 1, index]
+        values = [str(value).strip() for value in column if not _missing(value) and str(value).strip()]
+        if len(values) < 3:
+            return []
+        if all(_data_like(value) for value in values):
+            if not _data_like(cell):
+                return []
+        elif not (
+            min(map(len, values)) <= len(cell) <= max(map(len, values))
+            and sum(_shape(value) == _shape(cell) for value in values) * 2 >= len(values)
+        ):
+            return []
+        cells.append(cell)
+    return cells
+
+
 def _header_check(raw, before, skip):
     """Is the first parsed row a header? Also: the best header row nearby."""
     if raw.empty:
@@ -2056,6 +2234,9 @@ def _header_check(raw, before, skip):
     issues = {}
     if data_like:
         issues["dataLike"] = [cell for cell in current if cell and _data_like(cell)][:6]
+    value_like = _value_like_header(raw, current)
+    if value_like and any(not _data_like(cell) for cell in value_like):
+        issues["valueLike"] = value_like[:6]
     if width > 1 and blanks * 2 > width:
         issues["blank"] = blanks
     named = [i for i, cell in enumerate(current) if cell]
@@ -2094,6 +2275,8 @@ def _header_check(raw, before, skip):
                     best = (offset, _header_cells(row, width, strip=False))
         if best:
             result["suggest"] = {"skipLines": skip + best[0], "header": best[1][:8]}
+    if "valueLike" in issues and "suggest" not in result:
+        result["suggest"] = {"header": False}
     return result
 
 
@@ -2394,6 +2577,78 @@ class _ProcessTrace:
         return False
 
 
+_DROP_ROW_LIMIT = 2_000_000
+_DROP_DISTINCT_LIMIT = 50_000
+_DROP_CELL_BUDGET = 10_000_000
+_DROP_ENTRIES = 3
+_DROP_EXAMPLES = 5
+
+
+def _dropped_values(inputs, output):
+    """Input values a Python step did not carry into a text output column.
+
+    Python steps are opaque, so an output column is matched to the input
+    column it came from: one with the same name, else one holding at least
+    90% of its distinct values. The input's other values were dropped (a rank
+    filter that loses unranked "District of Columbia"). Bounded: inputs over
+    2M rows and columns over 50k distinct values are skipped, and at most
+    10M input cells are read in all.
+    """
+    if not len(output) or any(len(frame) > _DROP_ROW_LIMIT for frame in inputs):
+        return []
+    distinct, budget = {}, [_DROP_CELL_BUDGET]
+
+    def values(frame, name):
+        key = (id(frame), name)
+        if key not in distinct:
+            if frame is not output:
+                if budget[0] < len(frame):
+                    return None
+                budget[0] -= len(frame)
+            column = frame[name]
+            present = column.dropna()
+            distinct[key] = (
+                list(pd.unique(present))
+                if _dtype(column) == "str" and present.nunique() <= _DROP_DISTINCT_LIMIT
+                else None
+            )
+        return distinct[key]
+
+    entries, matched = [], set()
+    for name in output.columns:
+        kept = values(output, name)
+        if not kept:
+            continue
+        kept_set = set(kept)
+        candidates = [
+            (index, column)
+            for index, frame in enumerate(inputs)
+            for column in sorted(frame.columns, key=lambda column: column != name)
+        ]
+        for index, column in candidates:
+            source = values(inputs[index], column)
+            if not source or (index, column) in matched:
+                continue
+            present = set(source)
+            if sum(value in present for value in kept_set) * 10 < len(kept_set) * 9:
+                continue
+            missing = [value for value in source if value not in kept_set]
+            if missing:
+                matched.add((index, column))
+                entries.append({
+                    "input": index,
+                    "inputColumn": column,
+                    "outputColumn": name,
+                    "missing": [_scalar(value) for value in missing[:_DROP_EXAMPLES]],
+                    "missingCount": len(missing),
+                    "inputDistinct": len(source),
+                })
+            break
+        if len(entries) == _DROP_ENTRIES:
+            break
+    return entries
+
+
 def _process_input(frame):
     """Give custom pandas code conventional numeric arrays where lossless.
 
@@ -2525,7 +2780,12 @@ def execute_native(spec, inputs):
                 with _ProcessTrace(
                     {f"<definitions:{i + 1}>": i + 1 for i in range(len(props["registered"]["cells"]))}
                 ) as trace:
-                    output = _frame(spec, execute_registered(spec, [_process_input(frame) for frame in inputs]))
+                    output = _frame(
+                        spec,
+                        _normalize_output(
+                            execute_registered(spec, [_process_input(frame) for frame in inputs]), operations
+                        ),
+                    )
                 if trace.reads or trace.events:
                     operations["process"] = trace.snapshot()
             except NativeError:
@@ -2536,11 +2796,17 @@ def execute_native(spec, inputs):
             entry = props.get("entry", "process" if inputs else "load")
             function = _function(spec, props["code"], "code", entry)
             with _ProcessTrace(_filename(spec, "code")) as trace:
-                output = _frame(spec, function(*[_process_input(frame) for frame in inputs]))
+                output = _frame(
+                    spec, _normalize_output(function(*[_process_input(frame) for frame in inputs]), operations)
+                )
             if trace.reads or trace.events:
                 operations["process"] = trace.snapshot()
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
+    if kind == "Process" and spec.get("profileCollection") is True:
+        dropped = _dropped_values(inputs, output)
+        if dropped:
+            operations["droppedValues"] = dropped
     if spec.get("profileCollection") is True:
         # Operator body includes namespace initialization, source I/O and native
         # counters. Exclude the separately timed filter witness pass. Neither

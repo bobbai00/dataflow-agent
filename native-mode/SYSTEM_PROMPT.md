@@ -112,7 +112,7 @@ Definitions are shared and persist; each execution runs in isolation, so tables 
 
 ### Reading results
 
-Enabled views: `sample_stats`, `full`. The default is `sample_stats`. `show result <id>` gives the schema and at most 50 example records, within 2000 characters, plus collected column statistics within a separate 2000-character budget (check their row and column coverage). `show result <id> full` gives every record within 5000 characters; a capped view remains partial. Look at a result without `full` first, and ask for `full` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first. Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.
+Enabled views: `sample_stats`, `full`. The default is `sample_stats`. `show result <id>` gives the schema, at most 50 example records and column statistics; ask for `show result <id> full`, every record within 5000 characters, only for a small table whose every row you need. Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.
 
 For unfamiliar sources, scan the intended data and `show result` before making decisions about its interpretation: actual values settle headers, units, codes, and missing values. Everything you defined and observed is already in your context; ask only for what it lacks: `show schema records` when a receipt cut a wide table's column list (follow `next_offset` with `show schema records from 200`, substituting the returned offset), `show builtin` for a built-in's full contract. Use `scan(..., preview=...)` only when a scan fails or its columns look wrong.
 

@@ -54,16 +54,24 @@ def test_csv_all_text_preserves_codes_and_null_like_literals(tmp_path):
     ]
 
 
-def test_multi_file_type_error_offers_a_scan_repair_that_preserves_rows(tmp_path):
+def test_multi_file_whole_and_fractional_numbers_widen_to_float(tmp_path):
     (tmp_path / "whole.csv").write_text("id,value\n001,2\n")
     (tmp_path / "fraction.csv").write_text("id,value\n002,2.5\n")
     pattern = str(tmp_path / "*.csv")
+    widened = scan(pattern)
+    assert str(widened["value"].dtype) == "Float64"
+    assert sorted(rows(widened), key=lambda row: row["id"]) == [{"id": 1, "value": 2.0}, {"id": 2, "value": 2.5}]
+    assert widened.attrs["native_v2"]["operations"]["scan"]["widened"] == {"value": ["float64", "int64"]}
+    # Integers float64 cannot hold exactly, or text against numbers, still need an explicit choice.
+    (tmp_path / "fraction.csv").write_text("id,value\n002,2.5\n")
+    (tmp_path / "whole.csv").write_text(f"id,value\n001,{2**53 + 1}\n")
     with pytest.raises(runtime.NativeError, match="UNION_TYPE") as error:
         scan(pattern)
     diagnostic = error.value.diagnostic
     assert diagnostic["field"] == "files"
     assert "value" in diagnostic["message"]
     assert "all_text=True" in diagnostic["message"]
+    (tmp_path / "whole.csv").write_text("id,value\n001,2\n")
     loaded = scan(pattern, allText=True)
     result = runtime.execute_native(spec("Cast", columns=[{"column": "value", "dtype": "float64"}]), [loaded])
     assert sorted(rows(result), key=lambda row: row["id"]) == [
@@ -74,13 +82,18 @@ def test_multi_file_type_error_offers_a_scan_repair_that_preserves_rows(tmp_path
 
 def test_csv_duplicate_headers_names_exact_width_and_header_only(tmp_path):
     path = tmp_path / "table.csv"
-    path.write_text("a,a\n1,2\n")
-    with pytest.raises(runtime.NativeError, match="SCAN_HEADER"):
-        scan(path)
+    # Repeated headers get the names pandas.read_csv gives them, and the scan says so.
+    path.write_text("a,a.1,a,a\n1,2,3,4\n")
+    renamed = scan(path)
+    assert rows(renamed) == [{"a": 1, "a.1": 2, "a.2": 3, "a.3": 4}]
+    source = renamed.attrs["native_v2"]["operations"]["scan"]["sources"][0]
+    assert source["renamedHeaders"] == [["a.2", "a"], ["a.3", "a"]]
     path.write_text("1,2\n3,4\n")
     assert rows(scan(path, header=False, names=["x", "y"])) == [{"x": 1, "y": 2}, {"x": 3, "y": 4}]
     with pytest.raises(runtime.NativeError, match="SCAN_NAMES"):
         scan(path, header=False, names=["x"])
+    with pytest.raises(runtime.NativeError, match="SCAN_NAMES"):
+        scan(path, header=False, names=["x", "x"])
     path.write_text("a,b\n")
     empty = scan(path)
     assert empty.empty and list(empty.columns) == ["a", "b"]
@@ -173,8 +186,9 @@ def test_excel_sheets_headers_offsets_and_preview_schema(tmp_path):
     preview = scan(path, preview=1, skipLines=2, sheet="Data")
     assert rows(preview) == [{"sheet": "Data", "row_no": 2, "line": "1 | 2"}]
     assert scan(path, preview=2, skipLines=100).empty
-    with pytest.raises(runtime.NativeError, match="SCAN_HEADER"):
-        scan(path, sheet="Duplicate")
+    duplicate = scan(path, sheet="Duplicate")
+    assert rows(duplicate) == [{"x": 5, "x.1": 6}]
+    assert duplicate.attrs["native_v2"]["operations"]["scan"]["sources"][0]["renamedHeaders"] == [["x.1", "x"]]
 
 
 def test_html_preview_offsets_and_full_header_validation(tmp_path):
@@ -186,8 +200,7 @@ def test_html_preview_offsets_and_full_header_validation(tmp_path):
     assert rows(scan(path, preview=1, skipLines=1)) == [{"table": 0, "row_no": 2, "line": "3 | 4"}]
     assert rows(scan(path, preview=1))[0] == {"table": 0, "row_no": 0, "line": "a | b"}
     path.write_text("<table><tr><th>a</th><th>a</th></tr><tr><td>1</td><td>2</td></tr></table>")
-    with pytest.raises(runtime.NativeError, match="SCAN_HEADER"):
-        scan(path)
+    assert rows(scan(path)) == [{"a": 1, "a.1": 2}]
 
 
 def test_json_parquet_and_binary_previews_do_not_parse_binary_as_text(tmp_path):
@@ -319,3 +332,58 @@ def test_csv_inference_leaves_no_reference_cycles_holding_column_copies(tmp_path
         gc.enable()
     assert held == []
     assert {name: str(dtype) for name, dtype in result.dtypes.items()} == {"a": "string", "b": "Int64", "c": "boolean"}
+
+
+def test_preamble_above_a_csv_header_is_skipped_and_kept(tmp_path):
+    path = tmp_path / "monthly.csv"
+    path.write_text(
+        'Title:U.S. Wildfires December\nMissing:-999\n\nDate,"Acres Burned","Number of Fires"\n'
+        "200001,40757,2796\n200002,-999,5671\n"
+    )
+    result = scan(path)
+    assert rows(result) == [
+        {"Date": 200001, "Acres Burned": 40757, "Number of Fires": 2796},
+        {"Date": 200002, "Acres Burned": -999, "Number of Fires": 5671},
+    ]
+    source = result.attrs["native_v2"]["operations"]["scan"]["sources"][0]
+    assert source["autoSkipLines"] == 3
+    assert source["preamble"] == ["Title:U.S. Wildfires December", "Missing:-999"]
+    # An explicit skip_lines is the caller's choice: no second guess.
+    assert "autoSkipLines" not in operations_of(scan(path, skipLines=3))["scan"]["sources"][0]
+    with pytest.raises(runtime.NativeError, match="SCAN_PARSE"):
+        scan(path, skipLines=1)
+    # Ragged rows inside the table are not a preamble.
+    path.write_text("a,b\n1,2\n3,4,5\n")
+    with pytest.raises(runtime.NativeError, match="SCAN_PARSE"):
+        scan(path)
+
+
+def test_a_header_that_reads_as_one_of_its_values_is_flagged(tmp_path):
+    genes = ["DHX15", "SSB", "FUS", "PARP1", "TRIM33", "JADE3", "CEBPZ", "TBL1XR1",
+             "MYC", "FBXO22", "ZSCAN18", "CDK1", "TOP2A", "H2AFJ", "PMS2"]
+    book = tmp_path / "genes.xlsx"
+    with pd.ExcelWriter(book, engine="openpyxl") as writer:
+        pd.DataFrame([["BRD8"], *[[gene] for gene in genes]]).to_excel(
+            writer, sheet_name="acetyl", header=False, index=False
+        )
+    check = operations_of(scan(book))["scan"]["sources"][0]["headerCheck"]
+    assert check["valueLike"] == ["BRD8"]
+    assert check["suggest"] == {"header": False}
+    assert len(scan(book, header=False, names=["gene"])) == 16
+    path = tmp_path / "labels.csv"
+    for header, values in [
+        ("STATE", ["CA", "NY", "TX", "WA"]),
+        ("Gene Symbol", genes),
+        ("Rank", ["1", "2", "3", "4"]),
+        ("Year", ["2020", "2021", "2022", "2023"]),
+    ]:
+        path.write_text("\n".join([header, *values]) + "\n")
+        assert "headerCheck" not in operations_of(scan(path))["scan"]["sources"][0], header
+    # A label beside a value-like cell rules the header out.
+    path.write_text("BRD8,Count\n" + "\n".join(f"{gene},{i}" for i, gene in enumerate(genes)) + "\n")
+    assert "headerCheck" not in operations_of(scan(path))["scan"]["sources"][0]
+
+
+def operations_of(result):
+    return result.attrs["native_v2"]["operations"]
+

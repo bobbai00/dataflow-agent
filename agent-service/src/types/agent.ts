@@ -284,9 +284,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
   /** Native mode: `check:` lines under every executed operator whose own
-   *  assumptions the engine found violated on the full tables (header rows,
-   *  records repeated across sources, join fan-out, row effects inside a
-   *  process function). Off by default. */
+   *  assumptions the engine found violated on the full tables (records
+   *  repeated across sources, row effects inside a process function). A
+   *  scan's header findings are notes shown in every setting. Off by default. */
   nativeChecks: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
@@ -402,15 +402,16 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxSteps: 100,
   maxOperatorEdits: 0,
   agentMode: AgentMode.NATIVE,
-  // Collected by default so evidence can be switched on without rebuilding
-  // the workflow; exposure stays opt-in below.
+  // Results are read through a sample with full-table column statistics by
+  // default (the matrix of 2026-10-10: equal accuracy at lower cost than the
+  // full view); flow evidence stays opt-in.
   nativeProfileCollection: true,
-  nativeProfileScope: "prefix",
-  dataEvidence: false,
+  nativeProfileScope: "full",
+  dataEvidence: true,
   flowEvidence: false,
   nativeChecks: false,
   resultSelection: "all",
-  // Replay event-owned observations; evidence exposure is explicitly opt-in.
+  // Replay event-owned observations.
   contextMode: ContextMode.DELTA,
   parallelToolCalls: true,
   includeOperatorProperties: true,
