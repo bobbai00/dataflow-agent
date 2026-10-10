@@ -29,6 +29,18 @@ class ConfigurationTests(unittest.TestCase):
                     "nativeProfileScope": "full",
                 })
 
+    def test_full_only_baseline_differs_from_the_data_arms_only_in_the_statistics_view(self):
+        arms = campaign_arms()
+        for flow in [0, 1]:
+            baseline, data = arms[f"evidence_full_flow{flow}"], arms[f"evidence_data1_flow{flow}"]
+            self.assertEqual(baseline, {
+                "retrievalViews": ["full"],
+                "dataEvidence": False,
+                "flowEvidence": bool(flow),
+                "nativeProfileScope": "full",
+            })
+            self.assertEqual({**baseline, "retrievalViews": data["retrievalViews"], "dataEvidence": True}, data)
+
     def test_historical_arms_retain_their_original_meaning(self):
         arms = campaign_arms()
         for view in ["full", "sample", "sample_stats", "adaptive"]:
@@ -42,7 +54,7 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertEqual(arms[f"{view}_flow{flow}_fullstats"], {
                     **expected, "nativeProfileScope": "full",
                 })
-        self.assertEqual(len(arms), 20)
+        self.assertEqual(len(arms), 22)
 
     def test_full_result_cap_accepts_api_bounds_and_smaller_display_budget(self):
         for value in ["128", "5000", "100000"]:

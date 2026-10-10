@@ -276,7 +276,9 @@ export function registeredExamples(options: Options): string {
   );
   const parts = [
     "### Read unfamiliar data, then batch a known computation",
-    "Request: report the total value for every group in alphabetical order. These synthetic receipts use two sample rows and 2,000-character budgets to make the difference between records and evidence visible; your session budgets are listed above.",
+    sample === "full"
+      ? "Request: report the total value for every group in alphabetical order. These synthetic receipts use 2,000-character budgets; your session budgets are listed above."
+      : "Request: report the total value for every group in alphabetical order. These synthetic receipts use two sample rows and 2,000-character budgets to make the difference between records and evidence visible; your session budgets are listed above.",
     "Check the source's columns and values before choosing the grouping:",
     call("", `set records: scan(files='data/example.csv')\n${show("records")}`, true),
     sample === "sample_stats"

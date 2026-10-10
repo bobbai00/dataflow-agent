@@ -38,6 +38,18 @@ def campaign_arms():
         }
         for data in [0, 1] for flow in [0, 1]
     })
+    # A full-only baseline for the same matrix: results are read only in full,
+    # so evidence_data1_flow{0,1} add exactly the statistics view, and the flow
+    # arm adds exactly flow evidence. Collection and profiling stay matched.
+    arms.update({
+        f"evidence_full_flow{flow}": {
+            "retrievalViews": ["full"],
+            "dataEvidence": False,
+            "flowEvidence": bool(flow),
+            "nativeProfileScope": "full",
+        }
+        for flow in [0, 1]
+    })
     return arms
 
 
