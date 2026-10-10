@@ -37,7 +37,7 @@ import { asSchema, generateText, type LanguageModel, type ModelMessage } from "a
 import { MissingAnswerActionError, type DriverRunTurnInput, type DriverRunTurnResult, type LLMDriver } from "./types";
 import type { RetrievalView, TokenUsage } from "../../types/agent";
 import { TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
-import { parseTurn, type ParsedTurn } from "../native/turn-syntax";
+import { parseTurn, RECEIPT_HEADERS, type ParsedTurn } from "../native/turn-syntax";
 
 export interface TextTurnDriverOptions {
   model: LanguageModel;
@@ -57,6 +57,7 @@ export interface TextTurnCallInput {
   statements: ParsedTurn["statements"];
   missingSummary: boolean;
   ignoredProse: number[];
+  wroteReceipt: boolean;
 }
 
 export class TextTurnDriver implements LLMDriver {
@@ -90,6 +91,10 @@ export class TextTurnDriver implements LLMDriver {
         system: input.systemPrompt,
         messages,
         temperature: this.temperature,
+        // The receipt is the engine's message. A model that keeps writing past
+        // its statements starts a receipt of its own (Opus did, then reasoned
+        // from the invented rows); generation stops at any receipt header.
+        stopSequences: [...RECEIPT_HEADERS],
         abortSignal: input.abortSignal,
       });
       const rawText = result.text ?? "";
@@ -125,6 +130,7 @@ export class TextTurnDriver implements LLMDriver {
         statements: parsed.ok ? parsed.turn.statements : [],
         missingSummary: parsed.ok ? parsed.turn.missingSummary : false,
         ignoredProse: parsed.ok ? parsed.turn.ignoredProse : [],
+        wroteReceipt: parsed.ok ? parsed.turn.wroteReceipt : false,
       };
       let output: unknown;
       let isError = false;

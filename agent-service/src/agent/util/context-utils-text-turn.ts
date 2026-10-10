@@ -45,6 +45,7 @@ export function textTurnReceipt(step: ReActStep): string | undefined {
         summary: typeof (input as any).reasoning === "string" ? (input as any).reasoning : "",
         missingSummary: !!input.missingSummary,
         ignoredProse: Array.isArray((input as any).ignoredProse) ? (input as any).ignoredProse : [],
+        wroteReceipt: !!(input as any).wroteReceipt,
         definitions: "",
         changes: "",
         statements: input.statements!,

@@ -66,6 +66,8 @@ export interface ParsedTurn {
   missingSummary: boolean;
   /** Lines of prose after the statements, ignored. */
   ignoredProse: number[];
+  /** The turn went on to write a receipt of its own; the text was cut there. */
+  wroteReceipt: boolean;
   /** Python definitions from every fence, in order. */
   definitions: string;
   /** `set`/`delete` lines at their turn line numbers; other lines blank. */
@@ -82,6 +84,9 @@ export interface TurnParseOptions {
 }
 
 const IDENTIFIER = /^[A-Za-z_]\w*$/;
+/** Section headers of a receipt (native/turn-receipt.ts). A turn never contains
+ * them; text from the first one on is a receipt the model wrote itself. */
+export const RECEIPT_HEADERS = ["## edits applied", "## edits rejected", "## turn rejected", "## execute ", "## show "] as const;
 const KEYWORDS = "summary, set, delete, execute, show, or answer";
 
 function fail(line: number, error: string): TurnParse {
@@ -154,6 +159,14 @@ function unwrapOuterFence(text: string): string {
 }
 
 export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
+  let wroteReceipt = false;
+  for (const header of RECEIPT_HEADERS) {
+    const at = text.indexOf(header);
+    if (at >= 0) {
+      text = text.slice(0, at);
+      wroteReceipt = true;
+    }
+  }
   const lines = unwrapOuterFence(text).replace(/\r\n?/g, "\n").split("\n");
   const changes: string[] = lines.map(() => "");
   const definitions: string[] = [];
@@ -308,6 +321,11 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
         const id = fromMatch[1];
         statement.ids = [id];
         const target = resource === "sheets" ? "source" : resource;
+        if (resource !== "operator") {
+          // Columns and sheets describe a computed result: compute it first.
+          actions.push({ type: "execute", operator_ids: [id] });
+          statement.actionIndexes.push(actions.length);
+        }
         actions.push(
           resource === "operator"
             ? ({ type: "inspect", target: "operator", operator_id: id, include_implementation: true } as DataflowAction)
@@ -369,6 +387,6 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   }
   return {
     ok: true,
-    turn: { summary: summary ?? "", missingSummary, ignoredProse, definitions: definitionsText, changes: changesText, statements, actions },
+    turn: { summary: summary ?? "", missingSummary, ignoredProse, wroteReceipt, definitions: definitionsText, changes: changesText, statements, actions },
   };
 }

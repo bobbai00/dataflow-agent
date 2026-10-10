@@ -142,3 +142,14 @@ test("the system prompt follows the transport setting", () => {
   expect(f.agent.getSystemInfo().systemPrompt).toContain('"type":"edit"');
   expect(f.agent.getSystemInfo().systemPrompt).not.toContain("show result <id> [full]");
 });
+
+test("generation stops at a receipt header; a turn that wrote one is noted", async () => {
+  const f = fixture([{ text: `${DEFINE}\n\n## edits applied\nfunctions: keep_all registered\n\n## show function keep_all\ndef keep_all(table): pass` }, { text: ANSWER }]);
+  const result = await f.agent.sendMessage("Register keep_all.");
+  expect(result.error).toBeUndefined();
+  const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
+  expect((steps[0].toolCalls![0].input as any).wroteReceipt).toBe(true);
+  expect((steps[0].toolResults![0].output as any).actions.map((a: any) => a.status)).toEqual(["ok", "ok"]);
+  const text = (m: any) => (typeof m.content === "string" ? m.content : m.content.map((p: any) => p.text ?? "").join(""));
+  expect(text(f.prompts[1][3])).toContain("read like a receipt and was dropped");
+});

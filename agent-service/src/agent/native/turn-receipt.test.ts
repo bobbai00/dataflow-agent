@@ -189,6 +189,7 @@ test("lookups return their text; a turn rejected before running says so; a missi
 show schema omni
 show builtin join`);
   const result = resultOf(turn, [
+    { status: "ok", output: { operators: [{ id: "omni", status: "ok", state: "cached", rows: 2 }], operator_blocks: [{ ...block("omni", "scan", [], "2 rows × 2 columns"), state: "cached" }] } },
     { status: "ok", output: { text: "Schema for `omni`: 1–2 of 2 columns.\n| index | name | type |\n|---|---|---|\n| 0 | \"a\" | str |" } },
     { status: "ok", output: { text: "join(left, right, on=..., how=\"inner\")\n    Join two tables." } },
   ]);

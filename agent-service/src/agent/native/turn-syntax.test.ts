@@ -79,12 +79,13 @@ show builtin join, scan`);
     { type: "retrieve", operator_ids: ["wide"], view: "sample_stats", columns: ["Beach Name", "Sample Date", "Enterococcus"] },
     { type: "execute", operator_ids: ["a", "b"] },
     { type: "retrieve", operator_ids: ["a", "b"], view: "sample_stats" },
+    { type: "execute", operator_ids: ["omni"] },
     { type: "inspect", target: "schema", operator_id: "omni", offset: 200, limit: 200 },
     { type: "inspect", target: "operator", operator_id: "marine", include_implementation: true },
     { type: "inspect", target: "namespace", names: ["ej_band"], include_implementation: true },
     { type: "inspect", target: "reference", topic: "operators", operator_names: ["join", "scan"] },
   ]);
-  expect(parsed.turn.statements.map(s => s.actionIndexes)).toEqual([[1, 2], [3, 4], [5], [6], [7], [8]]);
+  expect(parsed.turn.statements.map(s => s.actionIndexes)).toEqual([[1, 2], [3, 4], [5, 6], [7], [8], [9]]);
   // Without statistics the default view is the plain sample.
   const sample = parse("summary: Look.\nshow result a", ["sample", "full"]);
   expect(sample.ok && sample.turn.actions[1]).toEqual({ type: "retrieve", operator_ids: ["a"], view: "sample" });
@@ -164,7 +165,7 @@ show result b`);
 
 test("show sheets reads a scanned workbook's retained sheet names; a fenced whole turn is unwrapped", () => {
   const sheets = parse("summary: Sheets.\nshow sheets book");
-  expect(sheets.ok && sheets.turn.actions).toEqual([{ type: "inspect", target: "source", operator_id: "book" }]);
+  expect(sheets.ok && sheets.turn.actions).toEqual([{ type: "execute", operator_ids: ["book"] }, { type: "inspect", target: "source", operator_id: "book" }]);
   const fenced = parse("````turn\nsummary: Wrapped.\nset a: scan(files='x.csv')\nshow result a\n````");
   expect(fenced.ok).toBe(true);
   if (fenced.ok) expect(fenced.turn.statements.map(s => s.line)).toEqual([2, 3]);
@@ -210,4 +211,14 @@ test("a turn fence with a python fence inside, a stray closing fence, and an unc
   const fenceFirst = parse("```python\nimport pandas as pd\n```\nsummary: Fence first.\nset a: scan(files='x.csv')");
   expect(fenceFirst.ok).toBe(true);
   if (fenceFirst.ok) expect(fenceFirst.turn.summary).toBe("Fence first.");
+});
+
+test("text from a receipt header on is dropped: the model wrote the engine's reply itself", () => {
+  const parsed = parse("summary: Scan.\nset data: scan(files='x.csv')\nshow result data\n\nuser## edits applied\noperators: data created (scan)\n\n## show result data\nrecords: 4 of 153 rows");
+  expect(parsed.ok).toBe(true);
+  if (parsed.ok) {
+    expect(parsed.turn.wroteReceipt).toBe(true);
+    expect(parsed.turn.actions.map(a => a.type)).toEqual(["edit", "execute", "retrieve"]);
+    expect(parsed.turn.ignoredProse).toEqual([5]);
+  }
 });

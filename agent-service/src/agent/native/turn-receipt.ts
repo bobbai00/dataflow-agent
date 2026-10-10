@@ -152,6 +152,8 @@ function resultLines(item: ActionItem | undefined, statement: TurnStatement): st
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTurn): string {
   const sections: string[] = [];
   if (turn?.missingSummary) sections.push("note: start each turn with a summary: line.");
+  if (turn?.wroteReceipt)
+    sections.push("note: the text after your statements read like a receipt and was dropped; the receipt is this message, from the engine.");
   if (turn?.ignoredProse?.length)
     sections.push(`note: line${turn.ignoredProse.length > 1 ? "s" : ""} ${turn.ignoredProse.join(", ")} ${turn.ignoredProse.length > 1 ? "are" : "is"} not statements and were ignored; a turn holds statements only.`);
   if (!result.actions.length) {
@@ -186,7 +188,12 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTu
       sections.push([title, ...executionLines(execute, statement.ids ?? [], true), ...resultLines(retrieve, statement)].join("\n"));
       continue;
     }
-    sections.push(lookupLines(items[0], statement).join("\n"));
+    // A lookup of a computed result (schema, sheets) runs an execute first.
+    const lookup = items[items.length - 1];
+    const executed = items.length > 1 ? executionLines(items[0], statement.ids ?? [], false).filter(line => line.startsWith("executed:") || line.startsWith("- ")) : [];
+    const lines = lookupLines(lookup, statement);
+    if (executed.length && lookup.status === "ok") lines.splice(1, 0, ...executed.filter(line => line.startsWith("executed:") && !line.includes("nothing")));
+    sections.push(lines.join("\n"));
   }
   // Actions without a statement (a receipt rendered for a JSON-tool call).
   for (const item of result.actions) {
