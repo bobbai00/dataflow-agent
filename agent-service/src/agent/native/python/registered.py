@@ -79,9 +79,15 @@ def _validate_definition_tree(tree):
 
 
 def _registered_declarations(cells):
+    """Each binding's latest source and cell, and the declared names it uses.
+
+    `references` lets the agent tie an operator to the definitions it reaches,
+    so an unrelated new definition does not re-run it. It over-approximates
+    (a local that shadows a binding still counts), which only re-runs more.
+    """
     import ast
 
-    declarations = {}
+    declarations, nodes = {}, {}
     for index, cell in enumerate(cells):
         tree = ast.parse(cell, filename=f"<definitions:{index + 1}>")
         _validate_definition_tree(tree)
@@ -108,6 +114,10 @@ def _registered_declarations(cells):
                     "name": name, "kind": kind, "source": ast.get_source_segment(cell, node) or "",
                     "cell": index + 1,
                 }
+                nodes[name] = node
+    for name, node in nodes.items():
+        used = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
+        declarations[name]["references"] = sorted(used.intersection(declarations) - {name})
     return declarations
 
 

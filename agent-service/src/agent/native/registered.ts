@@ -31,6 +31,8 @@ export interface RegisteredBinding {
   kind: "function" | "class" | "constant" | "import";
   source: string;
   cell: number;
+  /** Declared names this binding uses (over-approximated). */
+  references?: string[];
 }
 export interface RegisteredNamespace {
   cells: string[];
@@ -71,6 +73,22 @@ function declarationError(statement: { id: string; line: number }, error: unknow
 const retired = new Set(["map", "process"]);
 export const REGISTERED_OPERATOR_NAMES = NATIVE_OPERATORS.filter(d => !retired.has(d.name)).map(d => d.name);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
+
+/** The definitions an operator's function depends on: the sources of its entry
+ * and of every binding it reaches by name, in name order. A new or changed
+ * definition outside this set leaves the fingerprint, and so the operator's
+ * cells, revision and stored result, unchanged. */
+function dependencyRevision(entry: string, declared: Record<string, RegisteredBinding>): string {
+  const reached = new Set<string>();
+  const pending = [entry];
+  while (pending.length) {
+    const name = pending.pop()!;
+    if (reached.has(name) || !Object.hasOwn(declared, name)) continue;
+    reached.add(name);
+    pending.push(...(declared[name].references ?? []));
+  }
+  return hash([...reached].sort().map(name => [name, declared[name].source]));
+}
 
 function literal(value: ParsedValue): unknown {
   if (value.kind === "const") {
@@ -334,10 +352,15 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   for (const [id, view] of Object.entries(operators)) {
     if (!view.properties.registered) continue;
     const registration = view.properties.registered as Record<string, unknown>;
+    const fingerprint = dependencyRevision(String(registration.entry), declared);
+    // An operator whose definitions are unchanged keeps its cells byte for
+    // byte: its result stays current and the engine's cache still matches.
+    // Otherwise a new definition re-ran every Python step, slow loaders too.
+    if (!changedIds.has(id) && registration.namespaceRevision === fingerprint) continue;
     registration.cells = cells;
-    registration.namespaceRevision = hash(cells);
+    registration.namespaceRevision = fingerprint;
     view.revision = nativeRevision(view);
-    if (pythonChanged) changedIds.add(id);
+    changedIds.add(id);
   }
   const checked = (await runNativePython({
     registered: true,

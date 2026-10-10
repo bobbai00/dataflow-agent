@@ -74,6 +74,44 @@ print(json.dumps([a.to_dict('records'),again.to_dict('records'),b.to_dict('recor
   ]);
 });
 
+test("a new definition re-runs only the operators whose definitions it changes", async () => {
+  const first = await stageRegisteredEdit({
+    operators: {},
+    python: `import pandas as pd
+SCALE = 2
+def _helper(value):
+    return value * SCALE
+def load():
+    return pd.DataFrame({'value': [_helper(1)]})
+def keep(row):
+    return row['value'] > 0
+`,
+    changes: "set raw: load()\nset kept: filter(raw, predicate='keep')",
+  });
+  const before = structuredClone(first.operators);
+  // An unrelated function leaves both operators byte for byte: no re-run.
+  const unrelated = await stageRegisteredEdit({
+    ...first,
+    python: "def label(table):\n    return table",
+    changes: "set named: label(kept)",
+  });
+  expect(unrelated.changedIds.sort()).toEqual(["named"]);
+  expect(unrelated.operators.raw).toEqual(before.raw);
+  expect(unrelated.operators.kept).toEqual(before.kept);
+  expect(unrelated.namespace.cells).toHaveLength(2);
+  expect((unrelated.operators.named.properties.registered as { cells: string[] }).cells).toHaveLength(2);
+  // A constant the loader reaches through its helper re-runs the loader only.
+  const rescaled = await stageRegisteredEdit({ ...unrelated, python: "SCALE = 3", changes: "" });
+  expect(rescaled.changedIds.sort()).toEqual(["raw"]);
+  expect(rescaled.operators.raw.revision).not.toBe(before.raw.revision);
+  expect((rescaled.operators.raw.properties.registered as { cells: string[] }).cells).toHaveLength(3);
+  expect(rescaled.operators.kept).toEqual(before.kept);
+  // Resending the last cell unchanged changes nothing.
+  const resent = await stageRegisteredEdit({ ...rescaled, python: "SCALE = 3", changes: "" });
+  expect(resent.changedIds).toEqual([]);
+  expect(resent.operators).toEqual(rescaled.operators);
+});
+
 test("edit rejection is atomic and validates the final graph against function signatures", async () => {
   const before = await stageRegisteredEdit({
     operators: {},
