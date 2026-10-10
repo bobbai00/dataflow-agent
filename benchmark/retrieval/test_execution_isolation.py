@@ -135,6 +135,27 @@ print(json.dumps(out))
                 "engine_reads_warehouse": True, "engine_lists_root": True,
             })
 
+    def test_worker_memory_cap_raises_memory_error_instead_of_taking_the_machine(self):
+        from benchmark.retrieval.native_isolated_python import worker_memory_limit
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NATIVE_WORKER_MEMORY_GB", None)
+            self.assertEqual(worker_memory_limit(), 10 * 1024**3)
+        with mock.patch.dict(os.environ, {"NATIVE_WORKER_MEMORY_GB": "0"}):
+            self.assertIsNone(worker_memory_limit())
+        with mock.patch.dict(os.environ, {"NATIVE_WORKER_MEMORY_GB": "0.5"}):
+            limit = worker_memory_limit()
+        code = (
+            "import resource, sys\n"
+            f"resource.setrlimit(resource.RLIMIT_DATA, ({limit}, {limit}))\n"
+            "small = bytearray(64 * 1024**2)\n"
+            "try:\n"
+            "    bytearray(1024**3)\n"
+            "except MemoryError:\n"
+            "    print('MemoryError')\n"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.stdout.strip(), "MemoryError", result.stderr)
+
     def test_missing_bubblewrap_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp, \
                 mock.patch.object(execution_isolation.shutil, "which", return_value=None):

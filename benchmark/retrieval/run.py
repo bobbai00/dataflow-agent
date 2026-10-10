@@ -43,6 +43,18 @@ MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Sol": "gpt-5.6
                "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5"}
 
 
+JUDGE_FAILURE_PAUSE = 2
+JUDGE_METRICS = ("llm_paraphrase", "f1_approximate")
+
+
+def judge_unavailable(evaluation, answer):
+    """A judged metric is present but empty although the system answered: the
+    LLM judge failed (an outage or an unreadable verdict), not the answer."""
+    text = str((answer or {}).get("answer") or "").strip()
+    answered = bool(text) and not text.startswith("Error:") and text != "No response from agent"
+    return answered and any(key in evaluation and evaluation[key] is None for key in JUDGE_METRICS)
+
+
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -73,8 +85,9 @@ def main():
     parser.add_argument("--tasks", nargs="+", default=["archeology-easy-6", "astronomy-easy-1",
                         "biomedical-hard-3", "environment-hard-9", "legal-easy-25", "legal-hard-30"])
     parser.add_argument("--models", nargs="+", choices=list(MODEL_TYPES), default=["Luna", "Terra"])
-    parser.add_argument("--arms", nargs="+", default=[f"{view}_flow{flow}" for view in
-                        ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]])
+    # The agent's default since the 2026-10-10 evidence matrix: the sample with
+    # column statistics, full on request, no flow evidence.
+    parser.add_argument("--arms", nargs="+", default=["evidence_data1_flow0"])
     args = parser.parse_args()
     if min(args.workers, args.large_workers, args.repetitions, args.timeout) < 1:
         parser.error("Workers, repetitions and timeout must be positive")
@@ -171,6 +184,7 @@ def main():
     pending = ResourceQueue(jobs, large_tasks, args.large_workers)
     lock = threading.Lock()
     launch_lock = threading.Lock()
+    judge = {"failures": 0}
     progress = {"started_at": datetime.now(timezone.utc).isoformat(), "status": "running", "active": {}, "completed": [], "worker_errors": [], "waiting": {}}
     save(output / "progress.json", progress)
     stop_monitor = threading.Event()
@@ -317,12 +331,23 @@ def main():
                 scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
                 row = {**job, "exit_code": proc.returncode, "timeout": timeout, "score": max(scores) if scores else None,
                        "cost_usd": stats.get("cost_usd"), "seconds": time.monotonic() - started}
+                unscored = judge_unavailable(evaluation, read_json("answer.json"))
+                if unscored:
+                    row["unscored"] = True
                 checks = audit_attempt(archive, {**manifest["settings"], **manifest["arms"][job["arm"]]})
                 save(archive / "attempt-audit.json", checks)
                 row["audit"] = checks
                 if checks["violations"]:
                     (output / "PAUSE").write_text(f"Trace integrity check failed: {job}: {checks['violations']}\n")
                 with lock:
+                    # An answer the judge could not grade is not a wrong answer. On
+                    # 2026-10-10 the judge's credit ran out mid-run and four answers
+                    # were silently scored as failures; stop instead.
+                    judge["failures"] = judge["failures"] + 1 if unscored else 0
+                    if judge["failures"] >= JUDGE_FAILURE_PAUSE:
+                        (output / "PAUSE").write_text(
+                            f"Judge unavailable: {judge['failures']} consecutive answers got no verdict "
+                            f"(last {job['task']}); check the judge key, rescore the unscored rows, then remove PAUSE.\n")
                     progress["completed"].append(row)
                     progress["active"].pop(slot, None)
                     save(output / "progress.json", progress)

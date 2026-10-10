@@ -27,6 +27,12 @@ interpreter, the engine's Python sources, read-only task data (at amber/data,
 the workers' relative data path) and the result warehouse it writes. Use only
 on the experiment's own engine.
 
+Each worker's private writable memory is capped (NATIVE_WORKER_MEMORY_GB,
+default 10, 0 disables): over the cap an allocation raises MemoryError inside
+the operator, which the agent sees as an execution error, instead of one
+model-written loader taking the machine's memory (Terra wildfire-hard-19 held
+8.5-16 GB until an outside guard killed the worker).
+
 The agent service reads the same variable for its own interpreter: it runs
 the native runtime script with a JSON request on stdin to parse and validate
 edits (nothing is executed). That one invocation runs sandboxed as well, with
@@ -37,10 +43,17 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from execution_isolation import isolated_command  # noqa: E402
+
+
+def worker_memory_limit():
+    """Bytes of private writable memory (RLIMIT_DATA) a worker may hold, or None."""
+    gigabytes = float(os.environ.get("NATIVE_WORKER_MEMORY_GB", "10"))
+    return int(gigabytes * 1024**3) if gigabytes > 0 else None
 
 
 def main():
@@ -86,6 +99,10 @@ def main():
             "NATIVE_GUARD_DENY_ROOTS": str(warehouse),
         },
     )
+    limit = worker_memory_limit()
+    if limit:
+        # Inherited through exec by the sandbox and the worker it starts.
+        resource.setrlimit(resource.RLIMIT_DATA, (limit, limit))
     os.execv(command[0], command)
 
 

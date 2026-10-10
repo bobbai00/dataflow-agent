@@ -143,6 +143,18 @@ class CampaignTests(unittest.TestCase):
             (path / "react_steps.json").write_text(json.dumps([call, stopped]))
             self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
 
+    def test_an_answer_the_judge_could_not_grade_is_unscored_not_wrong(self):
+        from benchmark.retrieval.run import judge_unavailable
+        answer = {"id": "main-task", "answer": "More aggressive suppression did not end fires faster."}
+        self.assertTrue(judge_unavailable({"llm_paraphrase": None}, answer))
+        self.assertTrue(judge_unavailable({"f1_approximate": None}, answer))
+        self.assertFalse(judge_unavailable({"llm_paraphrase": 0}, answer))
+        self.assertFalse(judge_unavailable({"success": None}, answer))
+        # No answer, an agent error or a missing response is the system's failure.
+        for text in ("", "Error: The turn ended before a final reply.", "No response from agent"):
+            self.assertFalse(judge_unavailable({"llm_paraphrase": None}, {"answer": text}))
+        self.assertFalse(judge_unavailable({"llm_paraphrase": None}, {}))
+
     def test_partial_batch_failure_still_audits_successful_result(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
