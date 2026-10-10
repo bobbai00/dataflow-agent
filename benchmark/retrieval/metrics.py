@@ -27,6 +27,7 @@ def current_price_schedule(model):
         "claude-opus-4.8": ((5, 25, .5, 6.25), "https://platform.claude.com/docs/en/models/opus-4-8/overview"),
         "qwen3.8-27b": ((.425, 2.55, .085, .53125), "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b"),
         "deepseek-v4.1-flash": ((.3, 1.2, .006, None), "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash"),
+        "claude-haiku-5.5": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing"),
     }
     if model not in providers:
         return None
@@ -35,7 +36,9 @@ def current_price_schedule(model):
             "verified_on": "2026-10-08", "source": source,
             "rates": {k: v / 1e6 if v is not None else None for k, v in
                       zip(("input", "output", "cache_read", "cache_creation"), rates)},
-            "long_context_threshold": 272000 if model.startswith("gpt-5.6-") else None,
+            "long_context_threshold": 272000 if model.startswith("gpt-5.6-") else 100000 if model == "claude-haiku-5.5" else None,
+            # Haiku 5.5 bills every token class at 5x once a prompt exceeds 100k tokens.
+            **({"long_context_multiplier": 5} if model == "claude-haiku-5.5" else {}),
             "input_includes_cached": True, "output_includes_reasoning": True}
 
 
@@ -75,7 +78,7 @@ def cost_for_usage(usage, pricing):
         rate = pricing["rates"].get(key)
         if rate is None and count:
             return None
-        multiplier = (1.5 if key == "output" else 2) if long_context else 1
+        multiplier = (pricing.get("long_context_multiplier") or (1.5 if key == "output" else 2)) if long_context else 1
         total += count * (rate or 0) * multiplier
     return total
 

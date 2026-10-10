@@ -143,6 +143,19 @@ class CampaignTests(unittest.TestCase):
             (path / "react_steps.json").write_text(json.dumps([call, stopped]))
             self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
 
+    def test_haiku_55_prices_and_its_long_prompt_rate(self):
+        from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule
+        pricing = current_price_schedule("claude-haiku-5.5")
+        usage = {"input_tokens": 1000, "output_tokens": 100, "cached_tokens": 800, "cache_creation_tokens": 100}
+        # 100 uncached at $0.10, 800 cache reads at $0.01, 100 writes at $0.125, 100 output at $0.50 per million.
+        self.assertAlmostEqual(cost_for_usage(usage, pricing), (100 * .1 + 800 * .01 + 100 * .125 + 100 * .5) / 1e6)
+        long = {**usage, "input_tokens": 100_100}
+        uncached = 100_100 - 800 - 100
+        self.assertAlmostEqual(cost_for_usage(long, pricing), 5 * (uncached * .1 + 800 * .01 + 100 * .125 + 100 * .5) / 1e6)
+        # GPT keeps its own long-context rule.
+        gpt = current_price_schedule("gpt-5.6-luna")
+        self.assertNotIn("long_context_multiplier", gpt)
+
     def test_an_answer_the_judge_could_not_grade_is_unscored_not_wrong(self):
         from benchmark.retrieval.run import judge_unavailable
         answer = {"id": "main-task", "answer": "More aggressive suppression did not end fires faster."}
