@@ -68,13 +68,23 @@ def main():
     amber = root / "amber"
     python_source = amber / "src/main/python"
     warehouse = Path(config["icebergFileStorageDirectoryPath"])
+    # The warehouse holds every attempt's results; the engine writes there, but
+    # model code may not read or list it (sandbox_site/sitecustomize.py), so one
+    # attempt cannot see another's work. Model code also lists only task data.
+    guard = Path(__file__).resolve().parent / "sandbox_site"
+    listable = [amber / "data", root / "data", source_data, Path("/workspace"), Path("/tmp")]
     # The data root is also mounted at its real path, read-only, so absolute
     # paths a receipt showed still open.
     command = isolated_command(
         [python, "-u", *args], python=python, data_roots=[source_data], workspace=workspace,
-        read_only=[(python_source, python_source), (source_data, amber / "data"), (source_data, root / "data")],
+        read_only=[(python_source, python_source), (guard, guard), (source_data, amber / "data"), (source_data, root / "data")],
         read_write=[(warehouse, warehouse)], cwd=amber, network=True,
-        environment={"PYTHONPATH": str(python_source), "HOME": "/workspace"},
+        environment={
+            "PYTHONPATH": os.pathsep.join([str(guard), str(python_source)]),
+            "HOME": "/workspace",
+            "NATIVE_GUARD_LIST_ROOTS": os.pathsep.join(str(path) for path in listable),
+            "NATIVE_GUARD_DENY_ROOTS": str(warehouse),
+        },
     )
     os.execv(command[0], command)
 

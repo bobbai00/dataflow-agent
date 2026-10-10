@@ -87,6 +87,54 @@ print(json.dumps({{'isolated': True}}))
                                                      data_roots=[], workspace=b), capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_guard_limits_model_code_to_task_data_and_keeps_the_warehouse_private(self):
+        guard = Path(__file__).resolve().parent / "sandbox_site"
+        probe_source = """
+import json, os, subprocess, sys
+DATA, WAREHOUSE, ROOT = sys.argv[1:4]
+model = compile(
+    "def list_root(): return os.listdir(ROOT)\\n"
+    "def list_data(): return os.listdir(DATA)\\n"
+    "def read_data(): return open(os.path.join(DATA, 'a.csv')).read()\\n"
+    "def read_warehouse(): return open(os.path.join(WAREHOUSE, 't.parquet')).read()\\n"
+    "def spawn(): return subprocess.run(['true']).returncode\\n"
+    "def imports():\\n"
+    "    import email.mime.text\\n"
+    "    return 'ok'\\n",
+    "<definitions:1>", "exec")
+scope = {"os": os, "subprocess": subprocess, "DATA": DATA, "WAREHOUSE": WAREHOUSE, "ROOT": ROOT}
+exec(model, scope)
+out = {}
+for name in ["list_root", "list_data", "read_data", "read_warehouse", "spawn", "imports"]:
+    try:
+        scope[name]()
+        out[name] = "allowed"
+    except PermissionError:
+        out[name] = "denied"
+out["engine_reads_warehouse"] = open(os.path.join(WAREHOUSE, "t.parquet")).read() == "another attempt"
+out["engine_lists_root"] = bool(os.listdir(ROOT))
+print(json.dumps(out))
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            data, warehouse = root / "data", root / "warehouse"
+            data.mkdir()
+            warehouse.mkdir()
+            (data / "a.csv").write_text("x\n1\n")
+            (warehouse / "t.parquet").write_text("another attempt")
+            probe = root / "probe.py"
+            probe.write_text(probe_source)
+            env = dict(os.environ, PYTHONPATH=str(guard), NATIVE_GUARD_LIST_ROOTS=str(data),
+                       NATIVE_GUARD_DENY_ROOTS=str(warehouse))
+            result = subprocess.run([sys.executable, str(probe), str(data), str(warehouse), str(root)],
+                                    capture_output=True, text=True, env=env, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {
+                "list_root": "denied", "list_data": "allowed", "read_data": "allowed",
+                "read_warehouse": "denied", "spawn": "denied", "imports": "allowed",
+                "engine_reads_warehouse": True, "engine_lists_root": True,
+            })
+
     def test_missing_bubblewrap_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp, \
                 mock.patch.object(execution_isolation.shutil, "which", return_value=None):
