@@ -2,7 +2,7 @@
 
 # Native mode: operators and edits
 
-Twelve built-in operators plus public registered Python functions. Positional arguments are graph inputs; settings are keywords. Every operator returns one table.
+Thirteen built-in operators plus public registered Python functions. Positional arguments are graph inputs; settings are keywords. Every operator returns one table.
 
 ## Edit statements
 
@@ -74,4 +74,4 @@ def adjust(table, *, factor=1):
 set doubled: adjust(records, factor=2)
 ```
 
-The edit confirms function registration or replacement. Replacing a definition conservatively invalidates custom users and their descendants; explicit execute recomputes them. Names filter/map/process are retired as model-facing constructors. Historical parser/runtime adapters remain only for old traces.
+The edit confirms function registration or replacement. Replacing a definition conservatively invalidates custom users, measured filters, and their descendants; execution recomputes them. Filter is a built-in measured operator using a registered predicate. Names map/process are retired as model-facing constructors. Historical parser/runtime adapters remain only for old traces.

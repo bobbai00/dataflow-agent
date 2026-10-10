@@ -11,6 +11,12 @@ Native agents choose a `view` on each `retrieve` action:
 }
 ```
 
+The optional text transport uses `show result joined, checks` for the default
+enabled view, or an explicit suffix such as `show result joined, checks full`.
+It first computes stale targets, then runs the same retrieval action. A JSON-tool
+`retrieve` itself never executes. Text `show schema joined from 200` follows a
+schema page's `next_offset`; the offset is a zero-based column index.
+
 The current registered protocol retrieves a nonempty list of operator IDs.
 The view and optional columns apply to every target; each target has its own
 status and result block, so a missing or stale target does not hide valid reads.
@@ -66,6 +72,12 @@ summaries from the requested operator's producing ancestors. Its
 `flowEvidenceCharLimit` is independent of the record and data-statistics budgets.
 The measurements describe executed operations; they do not certify that the
 calculation answers the task.
+
+Text receipts deduplicate flow facts only after the final renderer actually
+prints them. A target's own measurements appear beside its displayed result;
+omitted upstream blocks cannot cause later facts to become dangling references.
+References name a visible operator earlier in the same receipt. Table statistics
+and flow measurements remain independently enabled and budgeted in both transports.
 
 Traversal follows exact producing input versions, visits at most 32 nodes to
 depth eight, and selects at most three ancestor summaries within the flow

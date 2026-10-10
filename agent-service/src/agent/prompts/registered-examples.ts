@@ -1,0 +1,372 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import type { OperatorInfo } from "../../types/execution";
+import type { RetrievalView } from "../../types/agent";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
+import type { DataflowActionsResult } from "../tools/dataflow-actions";
+import { renderActionObservations } from "../native/action-observations";
+import { selectNativeObservation } from "../native/evidence";
+import { nativeDiagnosticIssue } from "../native/diagnostics";
+import { describeOperator, type ObservationFormatOptions } from "../native/observation-format";
+import type { ProfileColumn, ProfileScalar } from "../native/profiles";
+import { availableRetrievalViews } from "../native/retrieval";
+import { renderTurnReceipt } from "../native/turn-receipt";
+import { parseTurn } from "../native/turn-syntax";
+
+type Row = Record<string, string | number>;
+type Options = ObservationFormatOptions & {
+  transport?: "text" | "tool";
+  retrievalViews?: RetrievalView[];
+  flowEvidence?: boolean;
+};
+
+/** Small complete synthetic materializations. Receipts use the production
+ * evidence and observation renderers; prose never invents a second format. */
+export function exampleTable(id: string, kind: string, rows: Row[], inputs: string[] = [], operations = {}) {
+  const version = (name: string) => name.padEnd(64, "0");
+  const schema = Object.keys(rows[0]).map(name => ({
+    name,
+    type: typeof rows[0][name] === "number" ? ("int64" as const) : ("str" as const),
+  }));
+  const op: OperatorPredicate = {
+    operatorID: id,
+    operatorType: inputs.length ? "DataProcessing" : "DataLoading",
+    operatorVersion: "1",
+    operatorProperties: {},
+    inputPorts: [],
+    outputPorts: [],
+    showAdvanced: false,
+    nativeOp: { type: kind, revision: "example", inputs, properties: {}, profileCollection: true },
+  };
+  const info: OperatorInfo = {
+    state: "Completed",
+    inputTuples: 0,
+    outputTuples: rows.length,
+    resultMode: "table",
+    result: rows,
+    totalRowCount: rows.length,
+    truncated: false,
+    resultSchema: schema.map(field => ({
+      ...field,
+      encoding: field.type === "int64" ? "number-or-decimal-string" : "string",
+    })),
+    resultVersion: {
+      version: 1,
+      id: version(id),
+      workflowId: 1,
+      operatorId: id,
+      operatorRevision: "example",
+      definitionHash: "example",
+      subgraphHash: "example",
+      outputPort: 0,
+      executionId: "1",
+      inputs: inputs.map((name, inputIndex) => ({
+        inputIndex,
+        operatorId: name,
+        outputPort: 0,
+        resultVersion: version(name),
+      })),
+      sourceFingerprints: null,
+      complete: true,
+      omissions: [],
+    },
+    tableProfile: {
+      version: 1,
+      resultVersion: version(id),
+      status: "available",
+      rowCount: rows.length,
+      columnCount: schema.length,
+      schema: schema.map(field => ({ ...field, dtype: field.type })),
+      schemaComplete: true,
+      coverage: { scope: "full", complete: true, expectedWorkers: 1, receivedWorkers: 1, rowsProcessed: rows.length },
+      columns: Object.fromEntries(
+        schema.map(({ name, type }) => {
+          const values = rows.map(row => row[name]);
+          const distinct = [...new Set(values)];
+          const scalar = (value: string | number): ProfileScalar => ({ type, value: String(value) });
+          const column: ProfileColumn = {
+            type,
+            rowsProcessed: rows.length,
+            nullCount: 0,
+            nonnullCount: rows.length,
+            nullRatio: 0,
+            distinctCount: distinct.length,
+            uniquenessRatio: distinct.length / rows.length,
+            min: type === "int64" ? scalar(Math.min(...(values as number[]))) : null,
+            max: type === "int64" ? scalar(Math.max(...(values as number[]))) : null,
+            frequencies: {
+              values: distinct.map(value => ({ value: scalar(value), count: values.filter(x => x === value).length })),
+              otherCount: 0,
+              truncated: false,
+            },
+            omissions: [],
+          };
+          return [name, column];
+        })
+      ),
+      structure: { duplicateRows: null, allNullRows: 0, allNullColumns: [] },
+      native: { operatorType: kind, inputOperators: inputs, outputRows: rows.length, operations },
+      producerIds: ["example"],
+      omissions: [],
+      cost: { collectionMs: 0, cellsProcessed: rows.length * schema.length, payloadBytes: 0 },
+    },
+  };
+  return { op, info };
+}
+
+export function registeredExamples(options: Options): string {
+  const views = availableRetrievalViews(options);
+  const sample = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : "full";
+  const finalView = views.includes("full") ? "full" : sample;
+  const tables = new Map<string, ReturnType<typeof exampleTable>>();
+  const completed = new Set<string>();
+  const add = (table: ReturnType<typeof exampleTable>) => tables.set(table.op.operatorID, table);
+  const show = (ids: string, final = false) =>
+    `show result ${ids} ${(final ? finalView : sample) === "full" ? "full" : ""}`.trim();
+  const block = (text: string) => `\`\`\`text\n${text}\n\`\`\``;
+  const turn = (text: string, receipt = false): string => {
+    const parsed = parseTurn(text, { views });
+    if (!parsed.ok) throw new Error(`Invalid teaching example: ${parsed.error}`);
+    const { actions, summary } = parsed.turn;
+    const authored =
+      options.transport === "text"
+        ? `\`\`\`\`turn\n${text}\n\`\`\`\``
+        : `\`\`\`json\n${JSON.stringify({ reasoning: summary || "The checked result answers the request.", actions })}\n\`\`\``;
+    if (!receipt) return authored;
+    const workflow: WorkflowContent = {
+      operators: [...tables.values()].map(t => t.op),
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    };
+    const observe = (id: string, view: RetrievalView, upstream = true) => {
+      const table = tables.get(id)!;
+      return selectNativeObservation({
+        ...options,
+        ...table,
+        workflow,
+        resolveInput: name => tables.get(name)?.info,
+        view,
+        data: upstream && view === "sample_stats",
+        flow: !!options.flowEvidence,
+        upstream,
+        maxChars: 2000,
+        maxRows: 2,
+        dataMaxChars: 2000,
+        flowMaxChars: 2000,
+      });
+    };
+    const rendered = (id: string, execution = false) => {
+      const table = tables.get(id)!;
+      const flow = observe(id, "full", false);
+      const chunks = flow.chunks.filter(chunk => chunk.id.startsWith("flow."));
+      return {
+        ...describeOperator(table.op, table.info),
+        ...(execution
+          ? {
+              state: completed.has(id) ? "cached" : "executed",
+              flow_observation: { resultVersion: flow.resultVersion, chunks },
+            }
+          : {}),
+        issues: execution ? chunks.map(chunk => chunk.text) : [],
+      };
+    };
+    const result: DataflowActionsResult = {
+      kind: "dataflow-actions",
+      protocol: "registered-python-v1",
+      status: "completed",
+      operators: [],
+      observe: [],
+      observationErrors: [],
+      actions: actions.map((action, i) => {
+        let output: unknown;
+        if (action.type === "edit")
+          output = {
+            registrations: [...(action.python ?? "").matchAll(/^def (\w+)\(/gm)].map(m => ({
+              name: m[1],
+              kind: "registered",
+            })),
+            changes: [...action.changes.matchAll(/^set (\w+): (\w+)\(/gm)].map(m => ({
+              change: "operator",
+              operator_id: m[1],
+              operator: m[2],
+              action: "created",
+            })),
+          };
+        else if (action.type === "execute") {
+          const ids = new Set<string>();
+          const visit = (id: string) => {
+            if (ids.has(id)) return;
+            tables.get(id)?.op.nativeOp?.inputs.forEach(visit);
+            ids.add(id);
+          };
+          action.operator_ids?.forEach(visit);
+          output = {
+            operator_blocks: [...ids].map(id => rendered(id, true)),
+            operators: [...ids].map(id => ({ id, state: completed.has(id) ? "cached" : "executed", status: "ok" })),
+          };
+          ids.forEach(id => completed.add(id));
+        } else if (action.type === "retrieve")
+          output = {
+            results: ("operator_ids" in action ? action.operator_ids : [action.operator_id]).map(id => {
+              const observation = observe(id, action.view);
+              return {
+                operator_id: id,
+                status: "ok",
+                operator_blocks: [rendered(id)],
+                observation,
+                text: observation.text,
+              };
+            }),
+          };
+        else output = action.type === "answer" && "content" in action ? action.content : {};
+        return { index: i + 1, action, status: "ok" as const, output };
+      }),
+    };
+    return `${authored}\n\nEngine receipt:\n\n${block(options.transport === "text" ? renderTurnReceipt(result, parsed.turn) : renderActionObservations(result))}`;
+  };
+
+  add(
+    exampleTable("records", "Scan", [
+      { group: "A", value: 10 },
+      { group: "A", value: 20 },
+      { group: "B", value: 30 },
+      { group: "B", value: 40 },
+      { group: "A", value: 10 },
+      { group: "A", value: 20 },
+    ])
+  );
+  add(
+    exampleTable(
+      "totals",
+      "Aggregate",
+      [
+        { group: "A", total: 60 },
+        { group: "B", total: 70 },
+      ],
+      ["records"]
+    )
+  );
+  tables.get("totals")!.op.nativeOp!.properties.groupBy = ["group"];
+  add(
+    exampleTable(
+      "report",
+      "Sort",
+      [
+        { group: "A", total: 60 },
+        { group: "B", total: 70 },
+      ],
+      ["totals"]
+    )
+  );
+  const parts = [
+    "### Read unfamiliar data, then batch a known computation",
+    "Request: report the total value for every group in alphabetical order. These synthetic receipts use two sample rows and 2,000-character budgets to make the difference between records and evidence visible; your session budgets are listed above.",
+    turn(
+      `summary: Check the source's columns and values before choosing the grouping.\nset records: scan(files='data/example.csv')\n${show("records")}`,
+      true
+    ),
+    sample === "sample_stats"
+      ? "Both displayed rows belong to A, but the full-table statistics also contain B. A sample does not define the population; aggregate the whole source."
+      : sample === "sample"
+        ? "Both displayed rows belong to A. They do not establish which groups exist; aggregate the whole source."
+        : "The complete source contains groups A and B. Aggregate the whole source.",
+    turn(
+      `summary: Sum each group across all source rows and order the groups alphabetically.\nset totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\n${show("report", true)}`,
+      true
+    ),
+    turn("answer: Group A: 60; group B: 70."),
+  ];
+
+  if (options.flowEvidence) {
+    const source = exampleTable("readings", "Scan", [{ value: 10 }, { value: 10 }, { value: 20 }, { value: 20 }]);
+    const kept = exampleTable("kept", "Filter", [{ value: 20 }, { value: 20 }], ["readings"], {
+      keptRows: 2,
+      rejectedRows: 2,
+      nullPredicates: 0,
+      predicateColumns: ["value"],
+      filterRejectedValues: {
+        rejectedRows: 2,
+        columns: {
+          value: {
+            examples: [{ values: [{ type: "int64", value: "10" }], count: 2, truncated: false }],
+            otherCount: 0,
+          },
+        },
+      },
+    });
+    kept.info.tableProfile!.native!.inputRows = [4];
+    add(source);
+    add(kept);
+    add(exampleTable("total", "Aggregate", [{ total: 40 }], ["kept"]));
+    parts.push(
+      "### Use upstream measurements to repair a condition",
+      "Request: sum readings at least 10. Suppose the first predicate mistakenly uses a strict comparison:",
+      turn(
+        `summary: Sum qualifying readings.\n\`\`\`python\ndef eligible(row, *, minimum=10):\n    """Select readings above the threshold."""\n    return row['value'] > minimum\n\`\`\`\nset readings: scan(files='data/readings.csv')\nset kept: filter(readings, predicate='eligible', settings={'minimum': 10})\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
+        true
+      ),
+      "The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the predicate; the existing graph keeps its connections:",
+      turn(
+        `summary: Include readings equal to 10, as the request specifies.\n\`\`\`python\ndef eligible(row, *, minimum=10):\n    """Select readings at or above the threshold."""\n    return row['value'] >= minimum\n\`\`\`\n${show("total", true)}`
+      ),
+      "The new result is total=60. Check the returned result before ending the task.",
+      turn("answer: 60")
+    );
+  }
+
+  const parseDefinition = `import pandas as pd\n\ndef parse_amounts(table):\n    """Convert source amounts to numeric values."""\n    return table.assign(amount=pd.to_numeric(table['amount'], errors='raise'))`;
+  parts.push(
+    "### Repair a function, then combine two input tables",
+    "Request: convert comma-grouped amounts and multiply by each category's rate and a scale of 2. The source has amount='1,200', category='A'; the rates table has category='A', rate=0.5.",
+    turn(
+      `summary: Read the inputs and parse amounts before combining them.\n\`\`\`python\n${parseDefinition}\n\`\`\`\nset amounts: scan(files='data/amounts.csv', all_text=True)\nset rates: scan(files='data/rates.csv')\nset parsed: parse_amounts(amounts)\n${show("parsed")}`
+    ),
+    "Execution reports that parsed failed. Its diagnostic includes:",
+    block(
+      nativeDiagnosticIssue({
+        version: 1,
+        operatorId: "parsed",
+        operatorRevision: "example",
+        code: "CALLBACK_RUNTIME",
+        stage: "execute",
+        message: 'ValueError: Unable to parse string "1,200" at position 0',
+        source: {
+          entry: "parse_amounts",
+          line: 5,
+          excerpt: "return table.assign(amount=pd.to_numeric(table['amount'], errors='raise'))",
+        },
+      })
+    ),
+    "Read the relevant input before deciding how to repair it:",
+    turn(`summary: Verify the failing values and the matching rate keys.\n${show("amounts, rates")}`),
+    "The records confirm that commas group thousands, so remove those separators explicitly. Replace parse_amounts and register a function with two ordered inputs and a keyword setting in the same turn:",
+    turn(
+      `summary: Normalize thousands separators; match each amount to one rate and apply scale 2.\n\`\`\`python\nimport pandas as pd\n\ndef parse_amounts(table):\n    """Parse comma-grouped amounts; reject other malformed values."""\n    values = table['amount'].astype('string').str.replace(',', '', regex=False)\n    return table.assign(amount=pd.to_numeric(values, errors='raise'))\n\ndef apply_rates(amounts, rates, *, scale=1):\n    """Match each amount to its category rate and compute the scaled amount."""\n    joined = amounts.merge(rates, on='category', how='left', validate='many_to_one')\n    if joined['rate'].isna().any():\n        raise ValueError('Every amount needs a rate')\n    return joined.assign(adjusted=joined['amount'] * joined['rate'] * scale)\n\`\`\`\nset adjusted: apply_rates(parsed, rates, scale=2)\n${show("adjusted", true)}`
+    ),
+    "The receipt confirms function replacement/registration and the new operator, then returns adjusted=1200. Function definitions are shared; each invocation has its own variables and receives tables only through its edges.",
+    turn("answer: 1200"),
+    options.transport === "text"
+      ? "If the user explicitly requests the label Final Answer:, put that label inside the answer content, for example `answer: Final Answer: 1200`. It is a formatting choice, never a replacement for the answer command."
+      : "If the user explicitly requests the label Final Answer:, include it in the answer action's content. Otherwise use the requested answer format without adding that label."
+  );
+  return parts.join("\n\n");
+}

@@ -21,17 +21,17 @@
  * Context for the text transport: an append-only chat transcript.
  *
  *   user:      the request (and any feedback the agent inserted)
- *   assistant: the model's turn, verbatim
+ *   assistant: the model's turn, with fabricated receipts removed
  *   user:      the receipt of that turn (native/turn-receipt.ts)
  *
- * Replaying the turn text unchanged keeps the provider's prefix cache valid
- * and shows the model its own statements as it wrote them.
+ * Each frozen replay preserves the provider prefix across later steps. Raw
+ * model text remains in the recorded call input for auditing.
  */
 import type { ModelMessage } from "ai";
 import type { ReActStep } from "../../types/agent";
 import { asDataflowActionsResult } from "../tools/dataflow-actions";
 import { renderTurnReceipt } from "../native/turn-receipt";
-import type { ParsedTurn } from "../native/turn-syntax";
+import { sanitizeTurnReplay, type ParsedTurn } from "../native/turn-syntax";
 
 /** The receipt text of one recorded step, or undefined for a step without a call. */
 export function textTurnReceipt(step: ReActStep): string | undefined {
@@ -46,7 +46,6 @@ export function textTurnReceipt(step: ReActStep): string | undefined {
         missingSummary: !!input.missingSummary,
         ignoredProse: Array.isArray((input as any).ignoredProse) ? (input as any).ignoredProse : [],
         wroteReceipt: !!(input as any).wroteReceipt,
-        bareAnswer: !!(input as any).bareAnswer,
         definitions: "",
         changes: "",
         statements: input.statements!,
@@ -70,7 +69,15 @@ export function assembleTextTurnContext(visibleSteps: ReActStep[]): ModelMessage
     }
     const call = step.toolCalls?.[0];
     if (call?.toolName === "initialize") continue;
-    const turn = typeof (call?.input as any)?.turn === "string" ? ((call!.input as any).turn as string) : undefined;
+    const input = call?.input as { turn?: string; replayText?: string } | undefined;
+    const raw = typeof input?.turn === "string" ? input.turn : undefined;
+    // Older saved traces lack replayText; sanitize those with the same rules.
+    const turn =
+      typeof input?.replayText === "string"
+        ? input.replayText
+        : raw !== undefined
+          ? sanitizeTurnReplay(raw).replayText
+          : undefined;
     // An empty reply is replayed as a marker: providers reject empty content.
     if (turn !== undefined) push("assistant", turn.trim() ? turn : "(empty reply)");
     else if (step.content && !step.isEnd) push("assistant", step.content);

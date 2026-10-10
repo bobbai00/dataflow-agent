@@ -76,7 +76,7 @@ export function renderOperators(): string {
   return (
     HEADER(
       "Native mode: operators and edits",
-      "Twelve built-in operators plus public registered Python functions. Positional arguments are graph inputs; settings are keywords. Every operator returns one table."
+      "Thirteen built-in operators plus public registered Python functions. Positional arguments are graph inputs; settings are keywords. Every operator returns one table."
     ) +
     "## Edit statements\n\nAn edit has python and changes strings; an unused string is empty. Both cannot be empty.\n\n```text\nset records: scan(files='data/example.csv')\nset summary: aggregate(records, outputs={'rows': count()})\n```\n\n" +
     "A set replaces the complete definition, inputs, settings, and explicit doc override. Consumers remain connected to its ID. Use `delete id` to remove an existing node. Write each ID once; resolve references against the final acyclic graph. Delete or rewire consumers in the same edit as their deleted input. All built-ins accept doc metadata.\n\n" +
@@ -85,7 +85,7 @@ export function renderOperators(): string {
     "\n```\n\n" +
     "## Registered Python\n\nPublic synchronous functions become operator types. A function accepts one DataFrame per ordered input edge and keyword settings, and returns one DataFrame. Zero-input functions load custom data. Imports, helpers, constants, classes, and functions accumulate as ordered definition cells. Each invocation reconstructs its own namespace; execution mutations never become session definitions. Normal Python default binding follows cell order.\n\n" +
     '```python\nimport pandas as pd\n\ndef adjust(table, *, factor=1):\n    """Scale the numeric value column."""\n    return table.assign(value=table[\'value\'] * factor)\n```\n\n```text\nset doubled: adjust(records, factor=2)\n```\n\n' +
-    "The edit confirms function registration or replacement. Replacing a definition conservatively invalidates custom users and their descendants; explicit execute recomputes them. Names filter/map/process are retired as model-facing constructors. Historical parser/runtime adapters remain only for old traces.\n"
+    "The edit confirms function registration or replacement. Replacing a definition conservatively invalidates custom users, measured filters, and their descendants; execution recomputes them. Filter is a built-in measured operator using a registered predicate. Names map/process are retired as model-facing constructors. Historical parser/runtime adapters remain only for old traces.\n"
   );
 }
 

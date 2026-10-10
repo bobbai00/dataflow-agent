@@ -61,6 +61,8 @@ FLOW_LINE = re.compile(r"^\s*-\s*flow(?: \([^\n]*\))?:", re.MULTILINE)
 DATA_LINE = re.compile(r"^\s*(?:-\s*)?statistics:", re.MULTILINE)
 DATA_TABLE = re.compile(r"^\s*statistics: (?:full table|partial profile), [\d,]+ of ", re.MULTILINE)
 ACTION_HEADING = re.compile(r"^### \d+\. (inspect|edit|execute|retrieve|answer)\b", re.MULTILINE)
+TEXT_HEADING = re.compile(r"^## (edits (?:applied|rejected)|execute\b[^\n]*|show (?:result|schema|operator|function|builtin)\b[^\n]*|turn rejected|answer)\s*$", re.MULTILINE)
+TEXT_RETRIEVAL_VIEW = re.compile(r"^[ \t]*show[ \t]+result[ \t]+[A-Za-z_]\w*[^\n]*[ \t]+(full|sample_stats|sample)[ \t]*$", re.MULTILINE)
 FULL_STATISTICS = re.compile(r"statistics: full table, ([\d,]+) of ([\d,]+) rows, ([\d,]+) of ([\d,]+) columns")
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
@@ -68,6 +70,8 @@ COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 def audit_attempt(path, settings):
     path = Path(path)
     views = settings.get("retrievalViews", [])
+    config = read(path / "config.json", {})
+    text_transport = settings.get("nativeTransport") == "text" or settings.get("driver", config.get("driver")) == "text-turn"
     data_enabled, flow_enabled = "sample_stats" in views, bool(settings.get("flowEvidence"))
     violations, warnings, details = set(), set(), []
     counters = {key: Counter() for key in ("observations", "retrievals", "execution", "profiles")}
@@ -85,6 +89,10 @@ def audit_attempt(path, settings):
             issue("data_markdown_leak", location)
         if any(key in text for key in ("execution_runs", "compilationDurationMs", "runtimeStartAttempted")):
             issue("internal_telemetry_in_observation", location)
+        for match in FULL_STATISTICS.finditer(text):
+            rows, total, columns, total_columns = [int(value.replace(",", "")) for value in match.groups()]
+            if rows != total or columns > total_columns:
+                issue("false_full_statistics_caption", location)
 
     requests = sorted((path / "wire").glob("*-request.json"))
     previous = tools_hash = system_hash = None
@@ -105,11 +113,14 @@ def audit_attempt(path, settings):
             issue("tool_schema_changed", location)
         tools_hash = current_tools
         enums = list(retrieval_enums(request.get("tools", [])))
-        if not enums:
+        if text_transport:
+            if request.get("tools"):
+                issue("tools_in_text_transport", location)
+        elif not enums:
             issue("missing_retrieval_schema", location)
         elif any(enum != views for enum in enums):
             issue("retrieval_schema_mismatch", location)
-        if request.get("parallel_tool_calls") is not False:
+        if not text_transport and request.get("parallel_tool_calls") is not False:
             issue("parallel_tool_calls_not_disabled", location)
         # OpenAI-compatible gateways may encode the same application system
         # prompt as a developer message. Audit both high-priority wire roles.
@@ -119,25 +130,37 @@ def audit_attempt(path, settings):
         if system_hash is not None and current_system != system_hash:
             issue("system_prompt_changed", location)
         system_hash = current_system
-        if "Python functions you can register" not in system or "Every operator execution has its own isolated environment" not in system:
+        if not (re.search(r"Python functions you (?:can )?register", system) and
+                re.search(r"(?:isolated environment|execution runs in isolation)", system)):
             issue("registered_prompt_missing", location)
-        if ("Column statistics are collected separately" in system) != data_enabled:
+        if text_transport and "summary:" not in system and "Each message you send is one turn" not in system:
+            issue("text_prompt_missing", location)
+        if bool(re.search(r"Column statistics (?:are collected|in `sample_stats`)", system)) != data_enabled:
             issue("data_prompt_mismatch", location)
-        if ("Flow statistics describe measured" in system) != flow_enabled:
+        if bool(re.search(r"Flow statistics (?:describe measured|report measured)", system)) != flow_enabled:
             issue("flow_prompt_mismatch", location)
-        if not data_enabled and re.search(r'"view"\s*:\s*"sample_stats"', system):
+        example_views = re.findall(r'"view"\s*:\s*"(full|sample_stats|sample)"', system)
+        if text_transport:
+            example_views.extend(TEXT_RETRIEVAL_VIEW.findall(system))
+        if any(view not in views for view in example_views):
             issue("disabled_view_in_prompt_example", location)
-        for message in messages:
-            if message.get("role") != "tool":
-                continue
+        for index, message in enumerate(messages):
+            role = message.get("role")
             text = content_text(message.get("content"))
+            # Text receipts follow an assistant turn; a task containing a quoted
+            # receipt is not itself an environment observation. Adjacent feedback
+            # messages are left out. Position is stable in the append-only wire log.
+            text_receipt = (text_transport and role == "user" and index > 0 and
+                            messages[index - 1].get("role") == "assistant" and TEXT_HEADING.search(text))
+            if role != "tool" and not text_receipt:
+                continue
             # The same tool receipt is replayed on every later model request.
-            identity = (message.get("tool_call_id"), text)
+            identity = (index if text_receipt else message.get("tool_call_id"), text)
             if identity in seen_observations:
                 continue
             seen_observations.add(identity)
             counts = counters["observations"]
-            counts["tool_messages"] += 1
+            counts["text_receipts" if text_receipt else "tool_messages"] += 1
             counts["characters"] += len(text)
             counts["max_characters"] = max(counts["max_characters"], len(text))
             counts["with_flow"] += bool(FLOW_LINE.search(text))
@@ -145,7 +168,11 @@ def audit_attempt(path, settings):
             counts["with_table_statistics"] += bool(DATA_TABLE.search(text))
             for action in ACTION_HEADING.findall(text):
                 counts[f"{action}_blocks"] += 1
-            display(text, f"{location}:tool:{message.get('tool_call_id', '?')}")
+            if text_receipt:
+                for heading in TEXT_HEADING.findall(text):
+                    action = "edit" if heading.startswith("edits ") else "retrieve" if heading.startswith("show result") else "inspect" if heading.startswith("show ") else heading.split()[0]
+                    counts[f"{action}_blocks"] += 1
+            display(text, f"{location}:{role}:{index if text_receipt else message.get('tool_call_id', '?')}")
     if not requests:
         issue("missing_wire_requests", "wire", warning=True)
 
@@ -308,6 +335,8 @@ def audit_matrix(directory):
         path = directory / "system_scratch" / job["sut"] / job["task"]
         present = (path / "react_steps.json").exists()
         settings = {**manifest.get("settings", {}), **manifest.get("arms", {}).get(job["arm"], {})}
+        if manifest.get("driver"):
+            settings["driver"] = manifest["driver"]
         row = {**job, "audit": audit_attempt(path, settings) if present else None,
                "official_evaluation": read(path / "evaluation.json")}
         rows.append(row)

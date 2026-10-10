@@ -25,7 +25,12 @@ import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { planGraphEdit } from "../tools/graph-edits";
 import { executeDataflowActionBatch } from "../tools/dataflow-action-runtime";
-import { prepareDataflowActions, renderDataflowActionsResult, dataflowActionsSchema } from "../tools/dataflow-actions";
+import {
+  prepareDataflowActions,
+  prepareRegisteredDataflowActions,
+  renderDataflowActionsResult,
+  dataflowActionsSchema,
+} from "../tools/dataflow-actions";
 import { buildNativeModeSystemPrompt } from "../prompts";
 import { TexeraAgent } from "../texera-agent";
 import { columnEntries, describeOperator, operatorBlock } from "./observation-format";
@@ -33,6 +38,8 @@ import { taskLedger } from "../state-ledger";
 import { splitOperators, buildNativeFrames } from "../context/summarize/native-frames";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
+import { parseTurn } from "./turn-syntax";
+import { renderTurnReceipt } from "./turn-receipt";
 
 const metadata = new WorkflowSystemMetadata();
 metadata.seedCodeModeDefaults();
@@ -184,6 +191,32 @@ function fixture() {
     },
   };
 }
+
+test("text execution and retrieval do not lose a target's flow measurement to an invisible action reference", async () => {
+  const f = fixture();
+  const parsed = parseTurn("summary: Inspect selected source files.\nshow result source full", { views: ["full"] });
+  if (!parsed.ok) throw new Error(parsed.error);
+  const result = prepareRegisteredDataflowActions({ reasoning: parsed.turn.summary, actions: parsed.turn.actions });
+  const value = info();
+  Object.assign(value.tableProfile!.native!.operations!.scan!, { resolvedFiles: 9, selectedFiles: 1, omittedFiles: 8 });
+  await executeDataflowActionBatch(result, {
+    ...f,
+    settings: {
+      ...DEFAULT_AGENT_SETTINGS,
+      systemPrompt: "",
+      nativeTransport: "text",
+      flowEvidence: true,
+      retrievalViews: ["full"],
+    },
+    execute: async () => persist(f.storage, "read", value),
+  });
+  const frozen = JSON.stringify(result);
+  const text = renderTurnReceipt(result, parsed.turn);
+  expect(text).toContain("files selected=1/9, omitted=8");
+  expect(text).not.toContain("see action");
+  expect(JSON.stringify(result)).toBe(frozen);
+  expect(renderTurnReceipt(JSON.parse(frozen), parsed.turn)).toBe(text);
+});
 
 for (const tableFormat of ["markdown", "tsv"] as const)
   for (const wide of [false, true])

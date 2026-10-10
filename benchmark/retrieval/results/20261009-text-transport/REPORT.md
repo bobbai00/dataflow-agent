@@ -5,6 +5,17 @@ turn of statements instead of a JSON tool call. This report records why, what ea
 with it, what changed in response, and the end-to-end results on Luna, Opus 4.8 and DeepSeek
 V4.1 Flash in all four evidence settings.
 
+**Audit qualification (2026-10-09):** These are historical smoke results, not a
+controlled estimate of the transport's effect. The text aggregates combine four
+evidence settings, while the JSON reference uses stats+flow only. The final Luna
+row uses matrix 4; Opus and DeepSeek use matrix 3, with different parser behavior.
+The raw run directories and the referenced registered-Python campaign report are
+not present in this checkout, so the aggregate figures below have not been
+independently recomputed. Treat them as reported observations, not proof of
+accuracy parity, a causal cost reduction, or the absence of protocol failures.
+Sections 2–4 describe the implementation used for those runs; the unit-tested
+follow-up at the end describes the current implementation.
+
 ## 1. Why
 
 The 2026-10-09 campaign and its analysis (`results/20261009-registered-python-campaign/`) put
@@ -74,7 +85,9 @@ Luna rerun. Each matrix found behaviour the grammar had not allowed for.
   "Final Answer: Unable to determine"). 18 of 20 attempts in the final rerun still opened with
   a refusal, then proceeded after the rejection receipt.
 - Sometimes returns no visible text at all (reasoning only).
-- Otherwise writes clean turns; its two failing tasks are the ones every model misses.
+- Otherwise writes clean turns; the reported recurring errors concern case selection
+  and percentage units. The aggregate results do not establish that every model misses
+  those tasks.
 
 ## 4. What changed in response (commits on the branch)
 
@@ -102,7 +115,7 @@ stats+flow setting, one run.
 | Run | Pass | $/task | Calls | Input tokens (cached) | Output | Hidden reasoning | Wall | Rejected turns/task |
 |---|---|---|---|---|---|---|---|---|
 | Luna, text (final, 4 settings) | 12/20 | $0.0023 | 5.5 | 26.1k (87%) | 833 | 336 | 31 s | 0.95 |
-| Luna, JSON tool | 3/5 per setting | $0.0025 | 4.0 | 21.0k (77%) | 978 | 263 | 28 s | 0 |
+| Luna, JSON tool (stats+flow) | 3/5 | $0.0025 | 4.0 | 21.0k (77%) | 978 | 263 | 28 s | 0 |
 | Opus, text (final, 4 settings) | 19/20 | $0.070 | 4.6 | 33.0k (84%) | 933 | 0 | 33 s | 0 |
 | Opus, JSON tool | 5/5 | $0.063 | 3.4 | 27.3k (83%) | 930 | 0 | 26 s | 0 |
 | DeepSeek, text (final, 4 settings) | 14/20 | $0.0055 | 6.2 | 39.6k (81%) | 2,561 | 1,441 | 51 s | 0.30 |
@@ -117,10 +130,12 @@ Per evidence setting (final matrices; pass of 5):
 | flow | 3 | 4 | 3 |
 | stats+flow | 3 | 5 | 3 |
 
-Every failure in the final matrices is one of two tasks that all models miss in both
-transports: biomedical-easy-2 (68.1 for 68.5: the mean includes excluded cases) and
-environment-hard-7 (0.11 for 10.87: a fraction instead of percentage points). No failure
-is caused by the protocol.
+The earlier analysis attributed recurring failures to biomedical-easy-2 (68.1
+instead of 68.5, including excluded cases) and environment-hard-7 (0.11 instead
+of 10.87, a fraction instead of percentage points). The table itself contradicts
+the earlier claim that all models miss both tasks: Opus's JSON reference passes
+5/5. Without the corresponding raw traces, neither universal task failure nor
+the absence of protocol-caused errors is established.
 
 How the matrices progressed, showing the effect of the parser work:
 
@@ -137,16 +152,20 @@ guard.
 
 ## 6. What this says
 
-- The transport works on all three model families and all four evidence settings, at parity
-  with the JSON tool on Luna and Opus, and at a third of the cost on DeepSeek because it reasons
-  less per call.
+- The recorded smoke runs demonstrate successful text turns in all three model
+  families and all four evidence settings. The reported DeepSeek text aggregate
+  costs less and uses fewer reasoning tokens than the JSON reference, but the
+  unmatched evidence settings and revisions prevent attributing that difference
+  to the transport. Opus's 19/20 and 5/5 are not evidence of established parity.
 - The savings the campaign analysis predicted for Opus (about 13% from framing) do not show at
   this sample size: Opus's text turns are as long as its JSON calls were (933 vs 930 output
-  tokens per task), and it makes one more call per task. Twenty tasks cannot separate a few
-  percent either way; the 104-task run would.
-- The protocol's real risk is not syntax but the loss of the forced tool call: a model may
-  answer from memory, refuse, or write the engine's reply itself. Each has a guard now; the
-  stop sequence at the receipt headers is the one that protects answers.
+  tokens per task), and it makes one more call per task. These are twenty attempts
+  over five tasks, not twenty distinct tasks. A comparison needs matched settings,
+  pinned revisions, task-level outcomes and repetitions before estimating a benefit.
+- The protocol also permits refusal, unsupported answers and invented receipts.
+  Syntax acceptance alone does not establish answer correctness. The historical
+  safeguards below were revised during the follow-up audit; an explicit terminal
+  command makes completion unambiguous but does not prove the answer is grounded.
 
 ## 7. Open items
 
@@ -162,8 +181,9 @@ guard.
 
 The smoke matrices ran against an agent-service of this branch on the `texera-registered-python`
 stack (`/var/tmp/texera-registered-python/profile.sh`) with `MODEL_RETRIES_PER_TURN=2`; the
-JSON-tool reference rows ran the same way, so the two transports are comparable with each other
-but not with the campaign's cost table, which ran with 0 retries.
+JSON-tool reference rows ran with the same retry setting. That removes one
+difference, but does not control the evidence settings or parser revisions. The
+campaign cost table used 0 retries and is a separate comparison.
 
 ```bash
 # agent-service of this branch, text transport chosen per run by the runner
@@ -179,3 +199,26 @@ Run directories (gitignored, on the branch's worktree under `benchmark/retrieval
 matrix 1 `20261009-textturn-smoke-{luna4,opus48,deepseek}` (`smoke-luna`, `-luna2`, `-luna3`
 are aborted partial starts of the same matrix), matrix 2 `20261009-textturn-smoke2-{luna,opus48,deepseek}`,
 matrix 3 `20261009-textturn-smoke3-{luna,opus48,deepseek}`, matrix 4 `20261009-textturn-smoke4-luna`.
+
+## 9. Unit-tested audit follow-up
+
+No model or end-to-end runs were performed for this follow-up; the tables above
+remain historical and do not measure these fixes.
+
+- Text completion requires `answer:`. The content follows the user's requested
+  format; KramaBench no longer adds a mandatory `Final Answer:` instruction.
+- Empty completions are recorded as individual turns with their own usage.
+  There is no unrecorded driver retry, and truncated turns cannot execute.
+- Receipt stripping respects Python fences and answer content, retaining the raw
+  completion for audit and only replaying the parsed assistant turn.
+- Flow facts are deduplicated when they actually appear in the final receipt.
+  Target measurements, schema execution details and evidence from successful
+  executions survive result failures and upstream display limits.
+- Transport settings are checked against the driver and context assembler.
+  Wire audits cover the text transport's user-role receipts as well as tool-role
+  receipts, and campaign audits include those checks when wire logs are present.
+- Prompt examples use the actual renderers and cover enabled retrieval views,
+  separate data and flow evidence, multi-input Python functions, and repairs.
+
+These regressions establish the local contracts exercised by the tests. A future
+matched model comparison is still needed to evaluate behavior, cost and accuracy.

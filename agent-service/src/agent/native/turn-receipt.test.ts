@@ -31,12 +31,20 @@ function turnOf(text: string): ParsedTurn {
 }
 
 /** A result whose actions carry the given outputs, in the turn's action order. */
-function resultOf(turn: ParsedTurn, outputs: Array<{ status: "ok" | "error" | "skipped"; output: unknown }>): DataflowActionsResult {
+function resultOf(
+  turn: ParsedTurn,
+  outputs: Array<{ status: "ok" | "error" | "skipped"; output: unknown }>
+): DataflowActionsResult {
   return {
     kind: "dataflow-actions",
     protocol: "registered-python-v1",
     status: outputs.some(o => o.status === "error") ? "error" : "completed",
-    actions: turn.actions.map((action, i) => ({ index: i + 1, action, status: outputs[i].status, output: outputs[i].output })),
+    actions: turn.actions.map((action, i) => ({
+      index: i + 1,
+      action,
+      status: outputs[i].status,
+      output: outputs[i].output,
+    })),
     operators: [],
     observe: [],
     observationErrors: [],
@@ -90,7 +98,9 @@ show result rates full`);
         ],
         operator_blocks: [
           { ...block("water", "scan", [], "3,310 rows × 10 columns"), state: "cached" },
-          block("marine", "filter", ["water"], "1,204 rows × 10 columns", ["- flow: filter kept=1204/3310, rejected=2106; rejected values: 'Freshwater' × 2098, null × 8"]),
+          block("marine", "filter", ["water"], "1,204 rows × 10 columns", [
+            "- flow: filter kept=1204/3310, rejected=2106; rejected values: 'Freshwater' × 2098, null × 8",
+          ]),
           block("bands", "ej_band", ["marine"], "611 rows × 9 columns"),
           block("rates", "aggregate", ["bands"], "2 rows × 3 columns"),
         ],
@@ -139,7 +149,10 @@ set records: scan(files='data/a.csv')
 set totals: aggregate(records, outputs={'n': avg('value')})
 show result totals`);
   const result = resultOf(turn, [
-    { status: "error", output: "ValueError: Changes line 3: unknown reducer 'avg'; use mean. No changes were applied." },
+    {
+      status: "error",
+      output: "ValueError: Changes line 3: unknown reducer 'avg'; use mean. No changes were applied.",
+    },
     { status: "skipped", output: "Not run because an earlier action failed." },
     { status: "skipped", output: "Not run because an earlier action failed." },
   ]);
@@ -158,19 +171,34 @@ show result rates`);
   const failedExecute = {
     operators: [
       { id: "marine", status: "ok", state: "executed", rows: 1204 },
-      { id: "bands", status: "error", state: "failed", message: "- error CALLBACK_RUNTIME: KeyError: 'Violation'\n  - at: ej_band line 6" },
+      {
+        id: "bands",
+        status: "error",
+        state: "failed",
+        message: "- error CALLBACK_RUNTIME: KeyError: 'Violation'\n  - at: ej_band line 6",
+      },
       { id: "rates", status: "error", state: "not run", cause: "upstream `bands` failed" },
     ],
     operator_blocks: [
       block("marine", "filter", ["water"], "1,204 rows × 10 columns"),
-      { ...block("bands", "ej_band", ["marine"], ""), state: "failed", issues: ["- error CALLBACK_RUNTIME: KeyError: 'Violation'", "  - at: ej_band line 6"] },
-      { ...block("rates", "aggregate", ["bands"], ""), state: "not run" },
+      {
+        ...block("bands", "ej_band", ["marine"], ""),
+        state: "failed",
+        issues: ["- error CALLBACK_RUNTIME: KeyError: 'Violation'", "  - at: ej_band line 6"],
+      },
     ],
   };
   const result = resultOf(turn, [
     { status: "error", output: failedExecute },
     { status: "error", output: failedExecute },
-    { status: "error", output: { results: [{ operator_id: "rates", status: "error", error: "RESULT_FAILED: the last execution of `rates` failed." }] } },
+    {
+      status: "error",
+      output: {
+        results: [
+          { operator_id: "rates", status: "error", error: "RESULT_FAILED: the last execution of `rates` failed." },
+        ],
+      },
+    },
   ]);
   const text = renderTurnReceipt(result, turn);
   expect(text).toContain(`## execute rates
@@ -189,9 +217,20 @@ test("lookups return their text; a turn rejected before running says so; a missi
 show schema omni
 show builtin join`);
   const result = resultOf(turn, [
-    { status: "ok", output: { operators: [{ id: "omni", status: "ok", state: "cached", rows: 2 }], operator_blocks: [{ ...block("omni", "scan", [], "2 rows × 2 columns"), state: "cached" }] } },
-    { status: "ok", output: { text: "Schema for `omni`: 1–2 of 2 columns.\n| index | name | type |\n|---|---|---|\n| 0 | \"a\" | str |" } },
-    { status: "ok", output: { text: "join(left, right, on=..., how=\"inner\")\n    Join two tables." } },
+    {
+      status: "ok",
+      output: {
+        operators: [{ id: "omni", status: "ok", state: "cached", rows: 2 }],
+        operator_blocks: [{ ...block("omni", "scan", [], "2 rows × 2 columns"), state: "cached" }],
+      },
+    },
+    {
+      status: "ok",
+      output: {
+        text: 'Schema for `omni`: 1–2 of 2 columns.\n| index | name | type |\n|---|---|---|\n| 0 | "a" | str |',
+      },
+    },
+    { status: "ok", output: { text: 'join(left, right, on=..., how="inner")\n    Join two tables.' } },
   ]);
   expect(renderTurnReceipt(result, turn)).toBe(`note: start each turn with a summary: line.
 
@@ -212,14 +251,154 @@ join(left, right, on=..., how="inner")
     operators: [],
     observe: [],
     observationErrors: [],
-    error: "line 3: not a statement; a line starts with summary, set, delete, execute, show, or answer. No actions ran.",
+    error:
+      "line 3: not a statement; a line starts with summary, set, delete, execute, show, or answer. No actions ran.",
   };
-  expect(renderTurnReceipt(rejected)).toBe("## turn rejected\nline 3: not a statement; a line starts with summary, set, delete, execute, show, or answer.");
+  expect(renderTurnReceipt(rejected)).toBe(
+    "## turn rejected\nline 3: not a statement; a line starts with summary, set, delete, execute, show, or answer."
+  );
 });
 
 test("an answer turn records the answer; a refused answer shows the reason", () => {
   const turn = turnOf("summary: Done.\nanswer: 27");
   expect(renderTurnReceipt(resultOf(turn, [{ status: "ok", output: "27" }]), turn)).toBe("answer recorded");
-  const refused = resultOf(turn, [{ status: "error", output: "answer not accepted: this request asks for the line **Final Answer: <value>**, and the answer has none." }]);
+  const refused = resultOf(turn, [
+    {
+      status: "error",
+      output: "answer not accepted: this request asks for the line **Final Answer: <value>**, and the answer has none.",
+    },
+  ]);
   expect(renderTurnReceipt(refused, turn)).toContain("## answer\n- error ANSWER_REFUSED: answer not accepted");
+});
+
+const castFlow =
+  "- flow: cast conversion failures=73/100; column value had 73 invalid non-null values converted to null.";
+const flowObservation = (id: string, text = castFlow) => ({
+  resultVersion: `${id}-v1`,
+  chunks: [{ id: "flow.cast.counts", text }],
+});
+
+test("show result retains its target's own execution measurements beside the result", () => {
+  const turn = turnOf("summary: Check conversions.\nshow result typed full");
+  const typed = {
+    ...block("typed", "cast", ["raw"], "100 rows × 1 columns", ["- note: check normalized values.", castFlow]),
+    flow_observation: flowObservation("typed"),
+  };
+  const result = resultOf(turn, [
+    { status: "ok", output: { operator_blocks: [typed] } },
+    {
+      status: "ok",
+      output: {
+        results: [
+          {
+            operator_id: "typed",
+            status: "ok",
+            operator_blocks: [block("typed", "cast", ["raw"], "100 rows × 1 columns")],
+            text: castFlow,
+            observation: flowObservation("typed"),
+          },
+        ],
+      },
+    },
+  ]);
+  const text = renderTurnReceipt(result, turn);
+  expect(text).toContain(
+    `result typed (cast of raw): 100 rows × 1 columns\n- note: check normalized values.\n${castFlow}`
+  );
+  expect(text.match(/conversion failures=73\/100/g)).toHaveLength(1);
+  expect(text).not.toContain("see action");
+  expect(JSON.stringify(result)).toContain(castFlow);
+});
+
+test("a failed retrieval retains the successful target's execution measurements", () => {
+  const turn = turnOf("summary: Check conversions.\nshow result typed full");
+  const result = resultOf(turn, [
+    {
+      status: "ok",
+      output: {
+        operator_blocks: [
+          {
+            ...block("typed", "cast", ["raw"], "100 rows × 1 columns", [castFlow]),
+            flow_observation: flowObservation("typed"),
+          },
+        ],
+      },
+    },
+    {
+      status: "error",
+      output: { results: [{ operator_id: "typed", status: "error", error: "The requested columns are unavailable." }] },
+    },
+  ]);
+  const text = renderTurnReceipt(result, turn);
+  expect(text).toContain(castFlow);
+  expect(text).toContain("result typed: unavailable");
+});
+
+test("a capped upstream execution list never marks an unseen measurement as shown", () => {
+  const turn = turnOf("summary: Check output.\nshow result output full");
+  const blocks = Array.from({ length: 9 }, (_, i) => ({
+    ...block(`typed${i}`, "cast", ["raw"], "100 rows × 1 columns", [castFlow]),
+    flow_observation: flowObservation(`typed${i}`),
+  }));
+  const upstreamText = `- flow (typed8): ${castFlow.slice(8)} Before output processing.`;
+  const observation = {
+    resultVersion: "output-v1",
+    chunks: [
+      {
+        id: "flow.upstream.typed8",
+        text: upstreamText,
+        upstream: { operatorId: "typed8", resultVersion: "typed8-v1", factIds: ["flow.cast.counts"] },
+      },
+    ],
+  };
+  const result = resultOf(turn, [
+    {
+      status: "ok",
+      output: { operator_blocks: [...blocks, block("output", "project", ["typed8"], "100 rows × 1 columns")] },
+    },
+    {
+      status: "ok",
+      output: {
+        results: [
+          {
+            operator_id: "output",
+            status: "ok",
+            operator_blocks: [block("output", "project", ["typed8"], "100 rows × 1 columns")],
+            text: upstreamText,
+            observation,
+          },
+        ],
+      },
+    },
+  ]);
+  const text = renderTurnReceipt(result, turn);
+  expect(text).toContain("+1 more executed");
+  expect(text).toContain(upstreamText);
+  expect(text).not.toContain("see action");
+  expect(text).not.toContain("- typed8 (cast");
+});
+
+test("show schema retains execution evidence and attributed errors even if lookup fails", () => {
+  const turn = turnOf("summary: Check types.\nshow schema typed");
+  const failure = "- error CALLBACK_RUNTIME: invalid column";
+  const result = resultOf(turn, [
+    {
+      status: "error",
+      output: {
+        operator_blocks: [
+          {
+            ...block("upstream", "cast", ["raw"], "100 rows × 1 columns", [castFlow]),
+            flow_observation: flowObservation("upstream"),
+          },
+          { ...block("typed", "custom", ["upstream"], "", [failure]), state: "failed" },
+        ],
+      },
+    },
+    { status: "error", output: { error: "No completed schema." } },
+  ]);
+  const text = renderTurnReceipt(result, turn);
+  expect(text).toContain(castFlow);
+  expect(text).toContain("- typed (custom of upstream): failed");
+  expect(text).toContain(failure);
+  expect(text).toContain("No completed schema.");
 });

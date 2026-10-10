@@ -100,7 +100,12 @@ import {
   createNativeTools,
   TOOL_NAME_DATAFLOW,
 } from "./tools/native-batch-tools";
-import { NativeCatalogSettingsError, validateNativeSettings, validateTaskContextSettings } from "./native/settings";
+import {
+  NativeCatalogSettingsError,
+  validateNativeSettings,
+  validateTaskContextSettings,
+  validateNativeTransport,
+} from "./native/settings";
 import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
 import { planSeedSources, registeredSeedStatement } from "./native/seed-sources";
 import { formatNativeDiagnostic } from "./native/diagnostics";
@@ -412,6 +417,7 @@ export class TexeraAgent {
 
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
+      nativeTransport: this.driver.nativeTransport ?? DEFAULT_AGENT_SETTINGS.nativeTransport,
       systemPrompt: this.systemPrompt,
       parallelToolCalls: DEFAULT_AGENT_SETTINGS.agentMode !== AgentMode.NATIVE,
     };
@@ -1576,6 +1582,11 @@ export class TexeraAgent {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
+    if (this.driver.nativeTransport)
+      validateNativeTransport(this.driver.nativeTransport, {
+        ...this.settings,
+        ...Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined)),
+      });
     validateTaskContextSettings({ ...this.settings, ...updates });
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
@@ -2092,7 +2103,8 @@ export class TexeraAgent {
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
             // Stop before another request, after the failed step is fully saved.
-            if (lastFailure && failureStreak >= REPEATED_FAILURE_LIMIT) throw new Error(repeatedFailureError(lastFailure));
+            if (lastFailure && failureStreak >= REPEATED_FAILURE_LIMIT)
+              throw new Error(repeatedFailureError(lastFailure));
             const preparing = Date.now();
             this.log.info({ messageId, stepNumber }, "preparing step");
             const remaining =
@@ -2210,7 +2222,8 @@ export class TexeraAgent {
             const formattedToolCalls = toolCalls
               ?.filter(tc => {
                 const input = tc.input as { actions?: unknown } | null | undefined;
-                const decision = tc.toolName === TOOL_NAME_DATAFLOW && input?.actions !== undefined ? input.actions : input;
+                const decision =
+                  tc.toolName === TOOL_NAME_DATAFLOW && input?.actions !== undefined ? input.actions : input;
                 const key = `${tc.toolName}\u0000${JSON.stringify(decision ?? null)}`;
                 if (seenInputs.has(key)) return false;
                 seenInputs.add(key);
@@ -2223,7 +2236,8 @@ export class TexeraAgent {
                 input: tc.input,
               }));
             const duplicateCalls = (toolCalls?.length ?? 0) - (formattedToolCalls?.length ?? 0);
-            if (duplicateCalls > 0) this.log.info({ messageId, stepIndex, duplicateCalls }, "dropped duplicate tool calls");
+            if (duplicateCalls > 0)
+              this.log.info({ messageId, stepIndex, duplicateCalls }, "dropped duplicate tool calls");
 
             // Driver pre-computes isError using the `[ERROR] …` prefix + the
             // structured `{ error: … }` shape — passthrough is enough here.
@@ -2282,7 +2296,8 @@ export class TexeraAgent {
               this.settings.agentMode === AgentMode.NATIVE
                 ? repeatedFailure(agentStep, this.workflowState.getWorkflowContent())
                 : undefined;
-            failureStreak = failure && failure.signature === lastFailure?.signature ? failureStreak + 1 : failure ? 1 : 0;
+            failureStreak =
+              failure && failure.signature === lastFailure?.signature ? failureStreak + 1 : failure ? 1 : 0;
             lastFailure = failure;
             if (failure && failureStreak === REPEATED_FAILURE_WARNING) {
               const feedbackId = this.generateStepId();
@@ -2338,14 +2353,15 @@ export class TexeraAgent {
               !this.abortController?.signal.aborted
             ) {
               partials.push(error.partial);
-              const feedback = this.settings.nativeTransport === "text"
-                ? "No turn was found in your reply. Write a turn: a summary: line, then statements (set, execute, show); finish with answer: alone in a turn once show result has displayed what the answer rests on."
-                : "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
-                JSON.stringify({
-                  reasoning: "Submit the supported result.",
-                  actions: [{ type: "answer", content: "<answer in the user's required format>" }],
-                }) +
-                ". Put the final response in answer.content; Answer must be the sole action. Use other actions if more work is needed.";
+              const feedback =
+                this.settings.nativeTransport === "text"
+                  ? "No turn was found in your reply. Write a turn: a summary: line, then statements (set, execute, show); finish with answer: alone in a turn once show result has displayed what the answer rests on."
+                  : "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
+                    JSON.stringify({
+                      reasoning: "Submit the supported result.",
+                      actions: [{ type: "answer", content: "<answer in the user's required format>" }],
+                    }) +
+                    ". Put the final response in answer.content; Answer must be the sole action. Use other actions if more work is needed.";
               const feedbackId = this.generateStepId();
               this.addStep({
                 id: feedbackId,
@@ -3123,7 +3139,8 @@ export class TexeraAgent {
       // work into two or more calls) run in the order given, each with its own
       // receipt, as if their action lists had been sent as one call. Calls
       // after an answer are not run: the task ended there.
-      if (actions.length > 1) this.log.info({ stepId, calls: actions.length }, "running several dataflow calls from one response in order");
+      if (actions.length > 1)
+        this.log.info({ stepId, calls: actions.length }, "running several dataflow calls from one response in order");
       let answered = false;
       for (const result of actions) {
         if (answered) {

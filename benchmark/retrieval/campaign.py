@@ -16,9 +16,11 @@ import threading
 try:
     from .metrics import retrieval_results, tool_error_counts
     from .answer_diagnostics import diagnose_answer
+    from .matrix_audit import audit_attempt as audit_wire_attempt
 except ImportError:
     from metrics import retrieval_results, tool_error_counts
     from answer_diagnostics import diagnose_answer
+    from matrix_audit import audit_attempt as audit_wire_attempt
 
 
 def install_provider_prices(cost_module, models):
@@ -173,6 +175,16 @@ def audit_attempt(path, settings):
         (path / "prompt.txt").read_text() if (path / "prompt.txt").exists() else "",
         (path / "response.txt").read_text() if (path / "response.txt").exists() else "",
         steps, read("snapshot.json", {}))
-    return {"answer_diagnostics": diagnostics, "violations": sorted(set(violations)), "warnings": warnings, "prefix_checks": prefix_checks,
+    wire_audit = None
+    if any((path / "wire").glob("*-request.json")):
+        try:
+            wire_audit = audit_wire_attempt(path, settings)
+        except ValueError:
+            warnings.append("unreadable_wire_audit_artifact")
+        else:
+            violations.extend(wire_audit["violations"])
+            warnings.extend(wire_audit["warnings"])
+    return {"answer_diagnostics": diagnostics, "wire_audit": wire_audit,
+            "violations": sorted(set(violations)), "warnings": sorted(set(warnings)), "prefix_checks": prefix_checks,
             "action_errors": action_errors, "tool_errors": tool_errors, "envelope_errors": envelope_errors,
             "text_replies": text_replies, "retrievals": reads, "profiles": profiles, "columns": columns}

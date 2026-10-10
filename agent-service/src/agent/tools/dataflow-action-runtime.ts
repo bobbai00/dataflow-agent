@@ -150,6 +150,9 @@ export async function executeDataflowActionBatch(
   };
   const retrieved = new Map<string, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
   const flowReceipt = new FlowReceiptMemo();
+  // Text receipts reorder/filter execution blocks. Keep their facts complete
+  // here; only the final renderer knows which measurements have been seen.
+  const textReceipt = settings.nativeTransport === "text";
   const savedReads = new Set<string>();
   const forkReads = new Map<string, { operatorId: string; info: OperatorInfo }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
@@ -802,24 +805,26 @@ export async function executeDataflowActionBatch(
               // The operator's own measurements; its contract is not repeated
               // here. Say so when the budget cut one of them.
               const own = (id: string) => id.startsWith("flow.") && id !== "flow.contract" && id !== "flow.omitted";
-              const flow = observation
-                ? [
-                    ...flowReceipt
-                      .render(
-                        {
-                          ...observation,
-                          chunks: observation.chunks.filter(chunk => own(chunk.id) && !chunk.upstream),
-                        },
-                        op.operatorID,
-                        `action ${index} / ${op.operatorID}`
+              const ownFlow = observation
+                ? {
+                    resultVersion: observation.resultVersion,
+                    chunks: observation.chunks.filter(chunk => own(chunk.id) && !chunk.upstream),
+                  }
+                : undefined;
+              const flow =
+                observation && ownFlow
+                  ? [
+                      ...(textReceipt
+                        ? ownFlow.chunks.map(chunk => chunk.text).join("\n")
+                        : flowReceipt.render(ownFlow, op.operatorID, `action ${index} / ${op.operatorID}`)
                       )
-                      .split("\n")
-                      .filter(Boolean),
-                    ...(observation.omitted.some(item => item.reason === "budget" && own(item.id))
-                      ? [FLOW_OMITTED_NOTICE]
-                      : []),
-                  ]
-                : [];
+                        .split("\n")
+                        .filter(Boolean),
+                      ...(observation.omitted.some(item => item.reason === "budget" && own(item.id))
+                        ? [FLOW_OMITTED_NOTICE]
+                        : []),
+                    ]
+                  : [];
               const issues = [
                 ...("message" in outcome ? [outcome.message!] : []),
                 ...("checks" in outcome ? (outcome.checks ?? []) : []).map(line =>
@@ -827,14 +832,17 @@ export async function executeDataflowActionBatch(
                 ),
                 ...flow,
               ];
-              return block(op, {
-                state: outcome.state,
-                definition: false,
-                issues,
-                // Each executed selection reports its own facts once; reads
-                // and edits expose ancestry without repeating it on every node.
-                scope: resultScope(op, workflow, current, undefined, false),
-              });
+              return {
+                ...block(op, {
+                  state: outcome.state,
+                  definition: false,
+                  issues,
+                  // Each executed selection reports its own facts once; reads
+                  // and edits expose ancestry without repeating it on every node.
+                  scope: resultScope(op, workflow, current, undefined, false),
+                }),
+                ...(textReceipt && ownFlow ? { flow_observation: ownFlow } : {}),
+              };
             }),
           ...(failure ? { error: failure } : {}),
         },
@@ -937,7 +945,10 @@ export async function executeDataflowActionBatch(
             table: observation.table,
             evidence: observation.selected.filter(id => id.startsWith("data.") || id.startsWith("flow.")),
             ...(historical ? { historical_state: historical } : {}),
-            text: flowReceipt.render(observation, action.operator_id, `action ${index} / ${action.operator_id}`),
+            text: textReceipt
+              ? observation.text
+              : flowReceipt.render(observation, action.operator_id, `action ${index} / ${action.operator_id}`),
+            ...(textReceipt ? { observation } : {}),
           },
         };
       };

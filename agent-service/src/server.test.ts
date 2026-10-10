@@ -139,6 +139,50 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("transport follows the driver and incompatible updates are atomic", async () => {
+    for (const driver of ["text-turn", "vercel-tool-use"] as const) {
+      const transport = driver === "text-turn" ? "text" : "tool";
+      const opposite = transport === "text" ? "tool" : "text";
+      const created = await readJson<any>(await createAgent({ driver }));
+      expect(created.settings.nativeTransport).toBe(transport);
+      const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+      const response = await patchJson(`${API}/agents/${created.id}/settings`, {
+        nativeTransport: opposite,
+        maxSteps: 7,
+      });
+      expect(response.status).toBe(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+      expect((await createAgent({ driver, settings: { nativeTransport: opposite } })).status).toBe(400);
+    }
+  });
+
+  test("text transport rejects unsupported modes before creating an agent", async () => {
+    for (const settings of [{ agentMode: "code" }, { contextMode: "latest" }, { messageLayout: "opSplit" }]) {
+      expect((await createAgent({ driver: "text-turn", settings })).status).toBe(400);
+      expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(0);
+    }
+  });
+
+  test("text transport rejects context policies and tools its transcript cannot use", async () => {
+    const created = await readJson<any>(await createAgent({ driver: "text-turn" }));
+    const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+    for (const settings of [
+      { taskContext: "dependencies", stateHistory: true },
+      { contextWindowTokens: 2000 },
+      { stateLedger: true },
+      { enableRecallTool: true },
+      { enableResumeTool: true },
+      { enableCompactTool: true },
+      { turnHistory: "index" },
+      { sessionTurns: true },
+      { versionedMode: true },
+    ]) {
+      expect((await createAgent({ driver: "text-turn", settings })).status).toBe(400);
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, settings)).status).toBe(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+    }
+  });
+
   test("explicit message layout is echoed in create, info and settings", async () => {
     const response = await createAgent({ settings: { messageLayout: "native" } });
     const created = await readJson<any>(response);

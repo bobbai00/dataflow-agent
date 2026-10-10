@@ -24,9 +24,12 @@ import { asSchema } from "ai";
 import { ContextMode, type RetrievalView } from "../../types/agent";
 import { createRegisteredDataflowTool, prepareRegisteredDataflowActions } from "../tools/dataflow-actions";
 import { TexeraAgent } from "../texera-agent";
+import { compileNativeOp, nativePython } from "./codegen";
+import { stageRegisteredEdit, type RegisteredStageInput } from "./registered";
+import { spawnSync } from "node:child_process";
 
 test("registered prompt examples obey the active tool envelope and enabled views", () => {
-  for (const retrievalViews of [["full"], ["sample"], ["sample_stats", "full"]] as const) {
+  for (const retrievalViews of [["full"], ["sample"], ["sample_stats"], ["sample_stats", "full"]] as const) {
     const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: [...retrievalViews] });
     const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
     expect(calls.length).toBeGreaterThanOrEqual(2);
@@ -39,6 +42,23 @@ test("registered prompt examples obey the active tool envelope and enabled views
     if (!retrievalViews.includes("sample_stats" as never)) expect(prompt).not.toContain("statistics: full table");
   }
 });
+
+for (const view of ["full", "sample", "sample_stats"] as const)
+  test(`text teaching examples respect a ${view}-only session`, () => {
+    const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+      transport: "text",
+      retrievalViews: [view],
+      flowEvidence: true,
+    });
+    for (const [, text] of prompt.matchAll(/````turn\n([\s\S]*?)\n````/g)) {
+      const parsed = parseTurn(text, { views: [view] });
+      expect(parsed.ok).toBe(true);
+    }
+    expect(prompt).toContain("show schema <id> [from <index>]");
+    expect(prompt).toContain("docstring");
+    expect(prompt).toContain("two input tables");
+    expect(prompt).not.toContain("statistics on every column");
+  });
 
 test("reference and initial prompt expose only retained built-ins with registered mappings", () => {
   const prompt = buildRegisteredNativeSystemPrompt();
@@ -134,11 +154,11 @@ for (const data of [false, true])
       });
       expect(prompt).not.toContain("{{");
       expect(prompt).toContain("Each message you send is one turn");
-      expect(prompt).toContain("show result <id> [full]");
+      expect(prompt).toContain("show result <id>, ... [view]");
       expect(prompt).toContain("Everything you defined and observed is already in your context");
       expect(prompt).not.toContain("```json");
       expect(prompt).not.toContain("Actions run in order.");
-      expect(prompt.includes("plus statistics on every column")).toBe(data);
+      expect(prompt.includes("plus collected column statistics")).toBe(data);
       expect(prompt.includes("Flow statistics report measured effects")).toBe(flow);
       // Every example turn parses and passes the registered validator.
       const turns = [...prompt.matchAll(/````turn\n([\s\S]*?)\n````/g)].map(match => match[1]);
@@ -149,11 +169,84 @@ for (const data of [false, true])
         if (!parsed.ok) continue;
         expect(parsed.turn.missingSummary).toBe(false);
         // The answer turn carries no summary; the driver sends a placeholder as the reasoning.
-        expect(prepareRegisteredDataflowActions({ reasoning: parsed.turn.summary || "(no summary)", actions: parsed.turn.actions }, retrievalViews).status).toBe("pending");
+        expect(
+          prepareRegisteredDataflowActions(
+            { reasoning: parsed.turn.summary || "(no summary)", actions: parsed.turn.actions },
+            retrievalViews
+          ).status
+        ).toBe("pending");
       }
       // The example receipt is real renderer output; statistics lines appear only with data on.
       const receipts = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
       expect(receipts).toContain("## edits applied");
       expect(receipts).toContain("## show result report full");
       expect(receipts.includes("statistics:")).toBe(data);
+      expect(receipts).not.toContain(": not run");
+      const fullReport = receipts.split("## show result report full")[1].split("````")[0];
+      expect(fullReport).not.toContain("statistics: full table");
+      if (data) {
+        expect(receipts).toContain("2 of 6 rows");
+        expect(receipts).toContain("all: A 4; B 2");
+      }
+      if (flow) {
+        expect(receipts).toContain("kept=2/4, rejected=2");
+        expect(receipts).toContain("10 × 2");
+      }
     });
+
+test("synthetic teaching edits compile and their calculations and repair run in isolated Python operators", async () => {
+  const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { flowEvidence: true });
+  const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
+  let stage: RegisteredStageInput = { operators: {}, python: "", changes: "" };
+  const compiled: Record<string, string> = {};
+  for (const call of calls) {
+    for (const action of call.actions) {
+      if (action.type !== "edit") continue;
+      stage = { ...(await stageRegisteredEdit({ ...stage, ...action })), python: "", changes: "" };
+      for (const id of ["totals", "report", "kept", "total", "parsed", "adjusted"]) {
+        const op = stage.operators[id];
+        if (!op) continue;
+        const key =
+          id === "kept" || id === "total" || id === "parsed"
+            ? `${id}_${action.python?.includes(" >= ") || action.python?.includes("str.replace") ? "fixed" : "first"}`
+            : id;
+        compiled[key] ??= compileNativeOp(op, id).code;
+      }
+    }
+  }
+  const run = spawnSync(
+    nativePython(),
+    [
+      "-c",
+      `import json,sys,pandas as pd
+code=json.load(sys.stdin)
+def invoke(name,*tables):
+    scope={}
+    exec(code[name],scope)
+    return scope['process'](*tables)
+records=pd.DataFrame({'group':['A','A','B','B','A','A'],'value':[10,20,30,40,10,20]})
+assert invoke('report',invoke('totals',records)).to_dict('records') == [{'group':'A','total':60},{'group':'B','total':70}]
+readings=pd.DataFrame({'value':[10,10,20,20]})
+first=invoke('kept_first',readings)
+fixed=invoke('kept_fixed',readings)
+assert len(first)==2 and len(fixed)==4
+assert invoke('total_first',first)['total'].iloc[0]==40
+assert invoke('total_fixed',fixed)['total'].iloc[0]==60
+amounts=pd.DataFrame({'category':['A'],'amount':['1,200']})
+try:
+    invoke('parsed_first',amounts)
+    raise AssertionError('the example must fail before the repair')
+except ValueError:
+    pass
+parsed=invoke('parsed_fixed',amounts)
+rates=pd.DataFrame({'category':['A'],'rate':[0.5]})
+assert invoke('adjusted',parsed,rates)['adjusted'].iloc[0]==1200
+assert invoke('adjusted',parsed,rates)['adjusted'].iloc[0]==1200
+assert amounts['amount'].iloc[0]=='1,200'
+print('verified')`,
+    ],
+    { input: JSON.stringify(compiled), encoding: "utf8" }
+  );
+  expect(run.status, run.stderr).toBe(0);
+  expect(run.stdout.trim()).toBe("verified");
+}, 30_000);

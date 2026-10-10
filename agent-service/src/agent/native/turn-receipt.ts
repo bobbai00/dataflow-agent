@@ -33,6 +33,7 @@
 import type { DataflowActionsResult } from "../tools/dataflow-actions";
 import type { GraphChangeReceipt } from "../tools/graph-edits";
 import { issueText } from "./action-observations";
+import { FlowReceiptMemo } from "./evidence-compaction";
 import type { OperatorBlock } from "./observation-format";
 import type { ParsedTurn, TurnStatement } from "./turn-syntax";
 
@@ -43,29 +44,53 @@ function inputsOf(block: OperatorBlock): string {
   return inputs.length ? ` of ${inputs.join(", ")}` : "";
 }
 
+/** Share measurements only while emitting the block that contains them. */
+function blockIssues(block: OperatorBlock, memo: FlowReceiptMemo): string[] {
+  if (!block.flow_observation) return [...(block.issues ?? [])];
+  const flowLines = new Set(block.flow_observation.chunks.flatMap(chunk => chunk.text.split("\n")));
+  return [
+    ...(block.issues ?? []).filter(line => !flowLines.has(line)),
+    ...memo.render(block.flow_observation, block.id, `\`${block.id}\` above`).split("\n").filter(Boolean),
+  ];
+}
+
 /** `- id (kind of inputs): result`, then the operator's measured lines. */
-function operatorLine(block: OperatorBlock, failed = false): string[] {
+function operatorLine(block: OperatorBlock, memo: FlowReceiptMemo): string[] {
   const state = block.state === "failed" ? "failed" : block.state === "not run" ? "not run" : undefined;
   const head = `- ${block.id} (${block.kind}${inputsOf(block)}): ${state ?? block.result ?? "no result"}`;
-  const issues = (block.issues ?? []).map(line => (line.startsWith("  ") ? line : `  ${line.startsWith("- ") ? line : `- ${line}`}`));
-  return failed && !issues.length ? [head] : [head, ...issues];
+  const issues = blockIssues(block, memo).map(line =>
+    line.startsWith("  ") ? line : `  ${line.startsWith("- ") ? line : `- ${line}`}`
+  );
+  return [head, ...issues];
 }
 
 function executeBlocks(item: ActionItem | undefined): OperatorBlock[] {
   const output = item?.output as any;
   if (!output || typeof output !== "object") return [];
-  if (Array.isArray(output.operator_blocks)) return output.operator_blocks as OperatorBlock[];
-  return ((output.operators ?? []) as any[]).map(op => ({
-    id: op.id,
-    kind: op.type ?? op.op ?? "operator",
-    state: op.state ?? (op.status === "ok" ? "executed" : op.status === "error" ? "failed" : "not run"),
-    result: op.status === "ok" ? `${op.rows ?? "unknown"} rows` : undefined,
-    issues: op.message ? [op.status === "error" ? issueText(op.message, "EXECUTION_FAILED") : `- note: ${op.message}`] : [],
-  }));
+  const blocks = (output.operator_blocks ?? []) as OperatorBlock[];
+  return [
+    ...blocks,
+    ...((output.operators ?? []) as any[])
+      .filter(op => !blocks.some(block => block.id === op.id))
+      .map(op => ({
+        id: op.id,
+        kind: op.type ?? op.op ?? "operator",
+        state: op.state ?? (op.status === "ok" ? "executed" : op.status === "error" ? "failed" : "not run"),
+        result: op.status === "ok" ? `${op.rows ?? "unknown"} rows` : undefined,
+        issues: op.message
+          ? [op.status === "error" ? issueText(op.message, "EXECUTION_FAILED") : `- note: ${op.message}`]
+          : [],
+      })),
+  ];
 }
 
 /** The execution part shared by `execute` and `show result`. */
-function executionLines(item: ActionItem | undefined, targets: string[], upstreamOnly: boolean): string[] {
+function executionLines(
+  item: ActionItem | undefined,
+  targets: string[],
+  upstreamOnly: boolean,
+  memo: FlowReceiptMemo
+): string[] {
   if (!item) return [];
   const output = item.output as any;
   const blocks = executeBlocks(item);
@@ -74,7 +99,12 @@ function executionLines(item: ActionItem | undefined, targets: string[], upstrea
   const notRun = blocks.filter(block => block.state === "not run");
   const lines: string[] = [];
   if (item.status === "error" && !blocks.length) {
-    lines.push(issueText(String(typeof output === "string" ? output : (output?.error ?? "Execution failed.")), "EXECUTION_FAILED"));
+    lines.push(
+      issueText(
+        String(typeof output === "string" ? output : (output?.error ?? "Execution failed.")),
+        "EXECUTION_FAILED"
+      )
+    );
     return lines;
   }
   const names = (list: OperatorBlock[]) => list.map(block => block.id).join(", ");
@@ -85,10 +115,10 @@ function executionLines(item: ActionItem | undefined, targets: string[], upstrea
   if (listed.length) {
     if (upstreamOnly) lines.push("upstream:");
     const shown = listed.slice(0, 8);
-    for (const block of shown) lines.push(...operatorLine(block));
+    for (const block of shown) lines.push(...operatorLine(block, memo));
     if (listed.length > shown.length) lines.push(`- +${listed.length - shown.length} more executed`);
   }
-  for (const block of failed) lines.push(...operatorLine(block, true));
+  for (const block of failed) lines.push(...operatorLine(block, memo));
   if (notRun.length) lines.push(`not run: ${names(notRun)}.`);
   if (output?.error && !failed.length) lines.push(issueText(String(output.error), "EXECUTION_FAILED"));
   return lines;
@@ -101,14 +131,23 @@ function editLines(item: ActionItem): string[] {
       /\s*No changes were applied\.(?=\n|$)/,
       ""
     );
-    return ["## edits rejected", issueText(message, "EDIT_REJECTED").replace(/^- error EDIT_REJECTED: /, ""), "No edit applied; resend the corrected turn."];
+    return [
+      "## edits rejected",
+      issueText(message, "EDIT_REJECTED").replace(/^- error EDIT_REJECTED: /, ""),
+      "No edit applied; resend the corrected turn.",
+    ];
   }
   const lines = ["## edits applied"];
-  const functions = ((output?.registrations ?? []) as Array<{ name: string; kind: string }>).map(r => `${r.name} ${r.kind}`);
+  const functions = ((output?.registrations ?? []) as Array<{ name: string; kind: string }>).map(
+    r => `${r.name} ${r.kind}`
+  );
   if (functions.length) lines.push(`functions: ${functions.join(", ")}`);
   const operators = ((output?.changes ?? []) as GraphChangeReceipt[])
     .filter(change => change.change === "operator")
-    .map(change => `${change.operator_id} ${change.action}${change.action === "created" || change.action === "updated" ? ` (${change.operator})` : ""}`);
+    .map(
+      change =>
+        `${change.operator_id} ${change.action}${change.action === "created" || change.action === "updated" ? ` (${change.operator})` : ""}`
+    );
   if (operators.length) lines.push(`operators: ${operators.join(", ")}`);
   if (!functions.length && !operators.length) lines.push("nothing changed");
   if (output?.invalidated_results?.length) lines.push(`stale until executed: ${output.invalidated_results.join(", ")}`);
@@ -121,28 +160,55 @@ function lookupLines(item: ActionItem, statement: TurnStatement): string[] {
   const output = item.output as any;
   const title = `## ${statement.text}`;
   if (item.status === "skipped") return [`${title}: not run`];
-  if (item.status !== "ok") return [title, issueText(String(typeof output === "string" ? output : (output?.error ?? "Lookup failed.")), "ACTION_FAILED")];
+  if (item.status !== "ok")
+    return [
+      title,
+      issueText(String(typeof output === "string" ? output : (output?.error ?? "Lookup failed.")), "ACTION_FAILED"),
+    ];
   const text = typeof output?.text === "string" ? output.text : undefined;
   return [title, text ?? "No retained metadata."];
 }
 
-function resultLines(item: ActionItem | undefined, statement: TurnStatement): string[] {
+function resultLines(item: ActionItem | undefined, memo: FlowReceiptMemo, execution?: ActionItem): string[] {
   if (!item) return [];
   const output = item.output as any;
-  if (item.status === "skipped") return [`not shown: ${String(output)}`];
+  const targetBlocks = new Map(executeBlocks(execution).map(block => [block.id, block]));
+  const readyTarget = (id: string) => {
+    const block = targetBlocks.get(id);
+    return block && block.state === "executed" ? operatorLine(block, memo) : [];
+  };
+  const requested = "operator_ids" in item.action ? (item.action.operator_ids ?? []) : [];
+  if (item.status === "skipped") return [...requested.flatMap(readyTarget), `not shown: ${String(output)}`];
   if (!Array.isArray(output?.results))
-    return [issueText(String(typeof output === "string" ? output : (output?.error ?? "Retrieval failed.")), "RESULT_UNAVAILABLE")];
+    return [
+      ...requested.flatMap(readyTarget),
+      issueText(
+        String(typeof output === "string" ? output : (output?.error ?? "Retrieval failed.")),
+        "RESULT_UNAVAILABLE"
+      ),
+    ];
   const lines: string[] = [];
   for (const entry of output.results as any[]) {
     if (entry.status === "error") {
-      lines.push(`result ${entry.operator_id}: unavailable`, issueText(String(entry.error), "RESULT_UNAVAILABLE"));
+      lines.push(
+        ...readyTarget(entry.operator_id),
+        `result ${entry.operator_id}: unavailable`,
+        issueText(String(entry.error), "RESULT_UNAVAILABLE")
+      );
       continue;
     }
     const block = (entry.operator_blocks ?? [])[0] as OperatorBlock | undefined;
-    const head = block ? `result ${block.id} (${block.kind}${inputsOf(block)}): ${block.result ?? "no result"}` : `result ${entry.operator_id}`;
+    const head = block
+      ? `result ${block.id} (${block.kind}${inputsOf(block)}): ${block.result ?? "no result"}`
+      : `result ${entry.operator_id}`;
     lines.push(head);
-    for (const issue of block?.issues ?? []) lines.push(issue.startsWith("- ") ? issue : `- ${issue}`);
-    if (typeof entry.text === "string" && entry.text) lines.push(entry.text);
+    const executed = targetBlocks.get(entry.operator_id);
+    const issues = [...(executed ? blockIssues(executed, memo) : []), ...(block ? blockIssues(block, memo) : [])];
+    for (const issue of new Set(issues)) lines.push(issue.startsWith("- ") ? issue : `- ${issue}`);
+    const text = entry.observation
+      ? memo.render(entry.observation, entry.operator_id, `\`${entry.operator_id}\` above`)
+      : entry.text;
+    if (typeof text === "string" && text) lines.push(text);
     if (entry.superseded_in_call) lines.push("note: this result was superseded later in the turn.");
   }
   return lines;
@@ -151,11 +217,16 @@ function resultLines(item: ActionItem | undefined, statement: TurnStatement): st
 /** Render the receipt of a text turn from the executed action list. */
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTurn): string {
   const sections: string[] = [];
+  const flowMemo = new FlowReceiptMemo();
   if (turn?.missingSummary) sections.push("note: start each turn with a summary: line.");
   if (turn?.wroteReceipt)
-    sections.push("note: the text after your statements read like a receipt and was dropped; the receipt is this message, from the engine.");
+    sections.push(
+      "note: the text after your statements read like a receipt and was dropped; the receipt is this message, from the engine."
+    );
   if (turn?.ignoredProse?.length)
-    sections.push(`note: line${turn.ignoredProse.length > 1 ? "s" : ""} ${turn.ignoredProse.join(", ")} ${turn.ignoredProse.length > 1 ? "are" : "is"} not statements and were ignored; a turn holds statements only.`);
+    sections.push(
+      `note: line${turn.ignoredProse.length > 1 ? "s" : ""} ${turn.ignoredProse.join(", ")} ${turn.ignoredProse.length > 1 ? "are" : "is"} not statements and were ignored; a turn holds statements only.`
+    );
   if (!result.actions.length) {
     const message = String(result.error ?? "No actions ran.").replace(/\s*No actions ran\.$/, "");
     return [...sections, "## turn rejected", message].join("\n");
@@ -180,30 +251,52 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: ParsedTu
       continue;
     }
     if (statement.kind === "execute") {
-      sections.push([title, ...executionLines(items[0], statement.ids ?? [], false)].join("\n"));
+      sections.push([title, ...executionLines(items[0], statement.ids ?? [], false, flowMemo)].join("\n"));
       continue;
     }
     if (statement.resource === "result") {
       const [execute, retrieve] = items;
-      sections.push([title, ...executionLines(execute, statement.ids ?? [], true), ...resultLines(retrieve, statement)].join("\n"));
+      sections.push(
+        [
+          title,
+          ...executionLines(execute, statement.ids ?? [], true, flowMemo),
+          ...resultLines(retrieve, flowMemo, execute),
+        ].join("\n")
+      );
       continue;
     }
     // A lookup of a computed result (schema) runs an execute first.
     const lookup = items[items.length - 1];
-    const executed = items.length > 1 ? executionLines(items[0], statement.ids ?? [], false).filter(line => line.startsWith("executed:") || line.startsWith("- ")) : [];
+    const executed = items.length > 1 ? executionLines(items[0], statement.ids ?? [], false, flowMemo) : [];
     const lines = lookupLines(lookup, statement);
-    if (executed.length && lookup.status === "ok") lines.splice(1, 0, ...executed.filter(line => line.startsWith("executed:") && !line.includes("nothing")));
+    if (executed.length)
+      lines.splice(1, 0, ...executed.filter(line => line !== "executed: nothing (results were current)"));
     sections.push(lines.join("\n"));
   }
   // Actions without a statement (a receipt rendered for a JSON-tool call).
   for (const item of result.actions) {
     if (covered.has(item.index) || item.action.type === "answer") continue;
-    const statement: TurnStatement = { line: 0, text: `${item.action.type}`, kind: item.action.type === "execute" ? "execute" : "show", actionIndexes: [item.index] };
-    if (item.action.type === "execute") sections.push([`## execute`, ...executionLines(item, [], false)].join("\n"));
-    else if (item.action.type === "retrieve") sections.push([`## show result`, ...resultLines(item, statement)].join("\n"));
+    const statement: TurnStatement = {
+      line: 0,
+      text: `${item.action.type}`,
+      kind: item.action.type === "execute" ? "execute" : "show",
+      actionIndexes: [item.index],
+    };
+    if (item.action.type === "execute")
+      sections.push([`## execute`, ...executionLines(item, [], false, flowMemo)].join("\n"));
+    else if (item.action.type === "retrieve")
+      sections.push([`## show result`, ...resultLines(item, flowMemo)].join("\n"));
     else sections.push(lookupLines(item, statement).join("\n"));
   }
   const answer = result.actions.find(item => item.action.type === "answer");
-  if (answer) sections.push(answer.status === "ok" ? "answer recorded" : ["## answer", issueText(String((answer.output as any)?.error ?? answer.output ?? "Answer refused."), "ANSWER_REFUSED")].join("\n"));
+  if (answer)
+    sections.push(
+      answer.status === "ok"
+        ? "answer recorded"
+        : [
+            "## answer",
+            issueText(String((answer.output as any)?.error ?? answer.output ?? "Answer refused."), "ANSWER_REFUSED"),
+          ].join("\n")
+    );
   return sections.join("\n\n");
 }

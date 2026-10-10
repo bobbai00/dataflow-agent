@@ -19,9 +19,10 @@
 
 # Registered Python Dataflows
 
-The active native protocol is `registered-python-v1`. It uses one
-`dataflow(reasoning, actions)` tool, explicit execution, persistent authored
-Python definitions, and isolated operator invocations. This document records
+The active native protocol is `registered-python-v1`. It uses persistent authored
+Python definitions and isolated operator invocations. The default transport is
+one `dataflow(reasoning, actions)` tool; the optional text transport parses
+statements into the same actions. This document records
 the implemented contract; end-to-end campaign results are recorded separately.
 The previous planning document is retained in
 [the archive](archived/native-registered-python-design-before-implementation-20261008.md)
@@ -159,8 +160,12 @@ summary, may place environment summaries in user-role messages.
 
 ## Text transport
 
-The protocol can travel without tool calls (`--driver text-turn`, agent
-setting `nativeTransport: "text"`). The model's message is one turn:
+The protocol can travel without tool calls (`--driver text-turn`). The driver
+sets `nativeTransport: "text"`; that setting cannot switch an existing agent's
+driver. Text transport uses native mode and the full DELTA transcript. It rejects
+other layouts, context reduction policies, historical-state modes and optional
+recall/resume/compaction tools, which its command syntax cannot use. The model's
+message is one turn:
 
 ```text
 summary: <one line: the population, definitions, and formula this turn assumes>
@@ -168,8 +173,10 @@ summary: <one line: the population, definitions, and formula this turn assumes>
 set <id>: <op>(<inputs>, <key>=<value>, ...)
 delete <id>
 execute <id>, ...
-show result <id>[<col>, ...] [full]
-show schema | sheets | operator | function | builtin <name>
+show result <id>, ... [view]
+show result <id>[<col>, ...] [view]
+show schema <id> [from <index>]
+show operator | function | builtin <name>
 answer: <text to the end of the turn>
 ```
 
@@ -177,20 +184,41 @@ answer: <text to the end of the turn>
 (one edit holding every fence and `set`/`delete` line at its turn line number,
 then the requests in order; `show result` is an execute of the target followed
 by a retrieve), so execution, receipts, traces and the audit are shared with the
-tool transport. `agent/llm-drivers/text-turn-driver.ts` runs the loop, records
-each turn as one synthesized `dataflow` call whose input carries the turn text,
-and treats a prose-only reply as the missing-action case (one correction). A
-reply cut off at the output limit is a rejected turn naming the cause.
+tool transport. `show schema` executes the target if needed, then reads a schema
+page; follow its `next_offset` using `from`. `view` must be enabled for the session;
+omission prefers `sample_stats`, then `sample`, then `full`.
+`agent/llm-drivers/text-turn-driver.ts` runs the loop, records
+each turn as one synthesized `dataflow` call whose input carries the turn text.
+Prose-only and empty replies receive rejection receipts and consume ordinary
+steps; there is no silent driver retry. A reply cut off at the output limit is
+rejected without executing its commands. Every completion retains its own
+reported usage, and its own finish reason is checked before commands can run.
 `agent/util/context-utils-text-turn.ts` replays the transcript as plain chat
-messages: the turn verbatim as the assistant message, its receipt
+messages: the submitted statements as the assistant message, their receipt
 (`agent/native/turn-receipt.ts`) as the next user message. The receipt has one
 section per statement: `## edits applied` or `## edits rejected` with the line,
 `## execute …`/`## show result …` with the operators that ran and their measured
-effects under `upstream:`, then the result's shape, records and statistics.
+effects under `upstream:`, then the result's shape, records and enabled statistics.
+Invented receipt text after submitted statements is excluded from context replay;
+the raw response remains in the trace. Receipt-like headings inside Python source
+or an explicit answer are ordinary content.
+
+Only `answer:` ends a text turn. Its content can span lines and must follow the
+user's requested format. `Final Answer:` is not a protocol requirement and is not
+accepted as an alternative command. If the task explicitly requests that label,
+use `answer: Final Answer: ...`. For data answers the prompt requires successfully
+displayed supporting results; a requested or failed retrieval is not evidence.
+An explicit answer can also explain that execution could not establish a result.
+This is a grounding instruction, not a claim that the runtime proves an answer's
+semantic correctness.
 
 The prompt's syntax and example sections switch on the transport
 (`{{#text}}`/`{{^text}}` in `prompts/native-registered.md`); the built-in
-contracts, Python rules and analysis principles are shared.
+contracts, Python rules and analysis principles are shared. Command guidance is
+present with every evidence configuration. Examples select only enabled views;
+their receipts are generated by the production evidence and observation renderers.
+The default standalone prompt is the JSON-tool version; the text version is
+[SYSTEM_PROMPT_TEXT_TURN.txt](../native-mode/SYSTEM_PROMPT_TEXT_TURN.txt).
 
 ## Built-ins and source reading
 
@@ -319,7 +347,10 @@ benchmark stacks rely on the bubblewrap sandbox instead of that scan.
 
 Validation includes parser/binding and namespace-isolation tests, atomic edit and
 snapshot tests, mixed-success retrieval, documentation-only cache preservation,
-valid tool envelopes for prompt examples, and generated-reference drift checks.
+valid tool envelopes and text turns for all single-view/evidence configurations,
+and generated-reference drift checks. Synthetic example edits also compile and
+run through the isolated local Python operator wrapper: grouping, filter repair,
+numeric parsing failure/replacement, and two-table calculations with settings.
 The end-to-end pilot uses the same repository launcher and KramaBench harness,
 with raw traces retained and model-specific pricing explicitly sourced or marked
 unknown. A small pilot establishes integration behavior, not benchmark-wide quality.
@@ -372,7 +403,7 @@ not a claim that they have been committed or deployed.
   the protocol; do not count transport retries as new model decisions.
 - [ ] Unregistered function names still need a one-call repair path; measure their
   frequency in the full run before adding guidance.
-- [ ] Teach recovery from parsing/conversion failures: inspect the relevant input
+- [x] Teach recovery from parsing/conversion failures: inspect the relevant input
   and test normalization before retrying. Avoid repeated coercion or row dropping
   that merely hides the original data problem.
 
@@ -408,13 +439,13 @@ not a claim that they have been committed or deployed.
 
 ### P1 — Guide operator choice and documentation
 
-- [ ] Prefer built-ins for equivalent supported operations and compose known
+- [x] Prefer built-ins for equivalent supported operations and compose known
   chains in one edit/execute/retrieve batch. Use Python for specialized loading,
   parsing, or calculations; do not force extra operators just to increase the
   built-in share. Preserve ties, null handling, cardinality, and numeric semantics.
-- [ ] Retrieve multiple needed outputs together. Reserve a new model call for
+- [x] Retrieve multiple needed outputs together. Reserve a new model call for
   decisions that actually depend on those outputs.
-- [ ] Request concise docstrings for registered functions/predicates and optional
+- [x] Request concise docstrings for registered functions/predicates and optional
   node `doc` for task-specific meaning, including specialized built-ins. Omit
   boilerplate for obvious operators; missing prose alone should not reject an edit.
 - [ ] Keep precedence explicit: node `doc`, current function docstring, then
@@ -437,12 +468,12 @@ not a claim that they have been committed or deployed.
 
 ### P2 — Align the prompt and measure the benefit
 
-- [ ] Apply the chosen guidance to the
+- [x] Apply the chosen guidance to the
   [prompt source](../agent-service/src/agent/prompts/native-registered.md), then
   regenerate the [rendered prompt](native-registered-python-system-prompt.txt)
   and native references. Fix stale built-in counts and retired-operator wording
   in reference generation.
-- [ ] Use general synthetic examples for custom loading, one/multiple table
+- [x] Use general synthetic examples for custom loading, one/multiple table
   inputs, settings, isolated invocations, function replacement, and error repair.
   Keep examples independent of benchmark tasks and validate their tool envelopes.
 - [ ] Add focused regression coverage for message roles/call IDs, error identity

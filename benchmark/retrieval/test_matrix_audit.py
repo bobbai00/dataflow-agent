@@ -56,6 +56,82 @@ class MatrixAuditTests(unittest.TestCase):
     def findings(self):
         return audit_attempt(self.path, self.settings)
 
+    def text_request(self, receipt, data=False, flow=False):
+        self.settings.update(nativeTransport="text", retrievalViews=["sample_stats" if data else "sample", "full"], flowEvidence=flow)
+        prompt = "You have Python functions you register. Each execution runs in isolation. Each message you send is one turn."
+        if data:
+            prompt += " Column statistics in `sample_stats` describe the requested result."
+        if flow:
+            prompt += " Flow statistics report measured effects."
+        request = {"messages": [{"role": "system", "content": prompt}, {"role": "user", "content": "task"},
+                                {"role": "assistant", "content": "summary: Read.\nshow result data"},
+                                {"role": "user", "content": receipt}]}
+        self.write("wire/000001-request.json", request)
+        return request
+
+    def test_text_receipts_are_audited_in_all_four_arms_without_tool_schema(self):
+        for data in (False, True):
+            for flow in (False, True):
+                with self.subTest(data=data, flow=flow):
+                    receipt = "## show result data\nrecords: sample; 1 of 3 rows, 1 of 1 columns (incomplete)"
+                    if data:
+                        receipt += "\nstatistics: full table, 3 of 3 rows, 1 of 1 columns"
+                    if flow:
+                        receipt += "\n- flow: measured rows=3"
+                    self.text_request(receipt, data, flow)
+                    result = self.findings()
+                    self.assertEqual(result["violations"], [])
+                    self.assertEqual(result["observations"]["text_receipts"], 1)
+                    self.assertEqual(result["observations"]["with_flow"], int(flow))
+                    self.assertEqual(result["observations"]["with_table_statistics"], int(data))
+
+    def test_text_receipt_leaks_are_detected_but_user_tasks_are_not_observations(self):
+        receipt = "## show result data\n- flow: leaked\nstatistics: full table, 3 of 3 rows, 1 of 1 columns"
+        request = self.text_request(receipt)
+        result = self.findings()
+        self.assertIn("data_markdown_leak", result["violations"])
+        self.assertIn("flow_markdown_leak", result["violations"])
+        request["messages"] = request["messages"][:2]
+        request["messages"][1]["content"] = receipt
+        self.write("wire/000001-request.json", request)
+        self.assertEqual(self.findings()["violations"], [])
+
+    def test_text_transport_rejects_tools_on_wire_and_false_complete_profile(self):
+        request = self.text_request("## show result data\nstatistics: full table, 2 of 3 rows, 1 of 1 columns", data=True)
+        request["tools"] = [{"type": "function", "function": {"name": "dataflow"}}]
+        self.write("wire/000001-request.json", request)
+        result = self.findings()
+        self.assertIn("tools_in_text_transport", result["violations"])
+        self.assertIn("false_full_statistics_caption", result["violations"])
+
+    def test_unavailable_explicit_views_in_text_examples_are_rejected(self):
+        cases = [
+            (["sample", "full"], "show result data sample_stats", False),
+            (["sample_stats"], "show result data full", True),
+            (["sample_stats", "full"], "show result data[value, label] sample", True),
+            (["sample"], "show result first, second full", False),
+        ]
+        for views, command, data in cases:
+            with self.subTest(views=views, command=command):
+                request = self.text_request("## show result data", data=data)
+                self.settings["retrievalViews"] = views
+                request["messages"][0]["content"] += f"\n```text\n{command}\n```"
+                self.write("wire/000001-request.json", request)
+                self.assertIn("disabled_view_in_prompt_example", self.findings()["violations"])
+
+    def test_enabled_or_implicit_text_views_are_not_reported_as_unavailable(self):
+        request = self.text_request("## show result data")
+        request["messages"][0]["content"] += "\n```text\nshow result data\nshow result data sample\nshow result first, second full\n```"
+        self.write("wire/000001-request.json", request)
+        self.assertEqual(self.findings()["violations"], [])
+
+    def test_wire_statistics_cannot_claim_more_columns_than_the_result(self):
+        self.text_request("## show result data\nstatistics: full table, 3 of 3 rows, 8 of 2 columns", data=True)
+        self.assertIn("false_full_statistics_caption", self.findings()["violations"])
+        # Full-table statistics may still cover a bounded subset of columns.
+        self.text_request("## show result data\nstatistics: full table, 3 of 3 rows, 2 of 8 columns", data=True)
+        self.assertEqual(self.findings()["violations"], [])
+
     def test_wire_text_catches_execute_flow_leak_without_retrieval_evidence(self):
         self.request()
         self.request(2, [{"role": "tool", "tool_call_id": "t1", "content":

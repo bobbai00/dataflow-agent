@@ -168,5 +168,7 @@ export class MissingAnswerActionError extends Error {
  * every emitted assistant turn.
  */
 export interface LLMDriver {
+  /** Fixed protocol paired with this driver's parser and context assembler. */
+  readonly nativeTransport?: "tool" | "text";
   runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult>;
 }

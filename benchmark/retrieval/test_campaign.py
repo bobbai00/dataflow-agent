@@ -97,6 +97,24 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(findings["violations"], [])
             self.assertEqual(findings["action_errors"], 1)
 
+    def test_campaign_audits_text_receipts_on_the_wire(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"nativeTransport": "text", "retrievalViews": ["sample"], "flowEvidence": False}
+            (path / "settings.json").write_text(json.dumps(settings))
+            (path / "react_steps.json").write_text("[]")
+            (path / "wire").mkdir()
+            request = {"messages": [
+                {"role": "system", "content": "Python functions you register. Each execution runs in isolation. Each message you send is one turn."},
+                {"role": "user", "content": "task"},
+                {"role": "assistant", "content": "summary: Inspect rows.\nshow result rows"},
+                {"role": "user", "content": "## show result rows\n- flow: 10 → 4 rows"},
+            ]}
+            (path / "wire/0001-request.json").write_text(json.dumps(request))
+            findings = audit_attempt(path, settings)
+            self.assertIn("flow_markdown_leak", findings["violations"])
+            self.assertEqual(findings["wire_audit"]["observations"]["text_receipts"], 1)
+
     def test_partial_batch_failure_still_audits_successful_result(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)

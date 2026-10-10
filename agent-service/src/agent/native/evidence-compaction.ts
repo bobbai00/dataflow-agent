@@ -137,10 +137,12 @@ export function shareNativeObservation(
 
 /** A memo is confined to one action batch. Frozen observations stay complete;
  * only the receipt uses references to facts actually printed earlier here. */
+export type FlowReceiptObservation = Pick<NativeObservation, "resultVersion" | "chunks">;
+
 export class FlowReceiptMemo {
   private readonly shown = new Map<string, string>();
 
-  render(observation: NativeObservation, operatorId: string, location: string): string {
+  render(observation: FlowReceiptObservation, operatorId: string, location: string): string {
     const key = (id: string, version: string, fact: string) => JSON.stringify([id, version, fact]);
     const references = new Set<string>();
     return observation.chunks
@@ -153,6 +155,7 @@ export class FlowReceiptMemo {
         const facts = origin?.factIds?.length ? origin.factIds : [chunk.id];
         const prior = facts.map(fact => this.shown.get(key(id, version, fact)));
         if (prior.every(Boolean)) {
+          if (!origin && prior.every(place => place === location)) return "";
           const places = [...new Set(prior)].join(", ");
           const reference = `- flow (${id}): ${origin?.description ? origin.description + "; " : ""}see ${places}.${origin?.scope ? " " + origin.scope : ""}`;
           // Preserve new scope qualifiers and do not expand short measurements.

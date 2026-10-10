@@ -20,6 +20,50 @@
 /** A rejected setting is a client error, not a server failure. */
 export class NativeCatalogSettingsError extends Error {}
 
+/** Transport is a driver capability, not a mutable prompt preference. */
+export function validateNativeTransport(transport: "tool" | "text", input: object): void {
+  const settings = input as Record<string, unknown>;
+  if (settings.nativeTransport !== undefined && settings.nativeTransport !== transport)
+    throw new NativeCatalogSettingsError(
+      `nativeTransport is fixed to ${transport} by the driver; create a new agent to change transport`
+    );
+  if (
+    transport === "text" &&
+    ((settings.agentMode !== undefined && settings.agentMode !== "native") ||
+      (settings.contextMode !== undefined && settings.contextMode !== "delta") ||
+      (settings.messageLayout !== undefined && settings.messageLayout !== "native"))
+  )
+    throw new NativeCatalogSettingsError(
+      "The text-turn driver requires native mode, delta context, and its native transcript layout"
+    );
+  if (transport === "text") {
+    const unsupported = [
+      "stateHistory",
+      "stateLedger",
+      "versionedMode",
+      "sessionTurns",
+      "contextWindowTokens",
+      "enableCompactTool",
+      "enableRecallTool",
+      "enableResumeTool",
+      "staticCompaction",
+      "summarizeParams",
+      "selectorConfig",
+      "learnedConfig",
+      "tunerConfig",
+      "frontierDecayConfig",
+      "probeRetirementConfig",
+      "rolePolicyConfig",
+      "foldResolvedRevisionsConfig",
+      "enableRenderPrefs",
+    ].find(key => settings[key]);
+    if (unsupported || settings.taskContext === "dependencies" || settings.turnHistory === "index")
+      throw new NativeCatalogSettingsError(
+        `The text-turn driver uses a full transcript and does not support ${unsupported ?? (settings.taskContext === "dependencies" ? "taskContext dependencies" : "turnHistory index")}`
+      );
+  }
+}
+
 /** Settings that no longer exist. They are refused rather than mapped so an
  * old experiment configuration never silently becomes a new arm. */
 const REMOVED_SETTINGS = [

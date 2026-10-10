@@ -67,8 +67,6 @@ export interface ParsedTurn {
   ignoredProse: number[];
   /** The turn went on to write a receipt of its own; the text was cut there. */
   wroteReceipt: boolean;
-  /** The answer came from a bare `Final Answer:` line, not an `answer:` statement. */
-  bareAnswer: boolean;
   /** Python definitions from every fence, in order. */
   definitions: string;
   /** `set`/`delete` lines at their turn line numbers; other lines blank. */
@@ -85,9 +83,9 @@ export interface TurnParseOptions {
 }
 
 const IDENTIFIER = /^[A-Za-z_]\w*$/;
-/** Section headers of a receipt (native/turn-receipt.ts). A turn never contains
- * them; text from the first one on is a receipt the model wrote itself. */
-export const RECEIPT_HEADERS = ["## edits applied", "## edits rejected", "## turn rejected", "## execute ", "## show "] as const;
+/** Receipt headers only mark engine text outside definitions and answer bodies. */
+const RECEIPT_HEADER =
+  /^(?:user\s*:?\s*)?## (?:edits applied|edits rejected|turn rejected|execute(?:\s|$)|show(?:\s|$))/;
 const KEYWORDS = "summary, set, delete, execute, show, or answer";
 
 function fail(line: number, error: string): TurnParse {
@@ -127,23 +125,37 @@ function columnList(text: string, line: number): string[] | TurnParse {
   return columns;
 }
 
-/** Parentheses still open at the end of a statement line, ignoring quoted text. */
-function openParentheses(text: string, depth: number): number {
-  let quote: string | undefined;
+interface DeclarationScan {
+  depth: number;
+  quote?: string;
+}
+
+/** Track multiline declarations without treating literal parentheses or receipt
+ * headings as syntax. Only triple quotes and escaped newlines continue strings. */
+function scanDeclaration(text: string, state: DeclarationScan): void {
   let escaped = false;
-  for (const char of text) {
-    if (quote) {
+  const line = text.replace(/\r?\n$/, "");
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (state.quote) {
       if (escaped) escaped = false;
       else if (char === "\\") escaped = true;
-      else if (char === quote) quote = undefined;
+      else if (line.startsWith(state.quote, i)) {
+        i += state.quote.length - 1;
+        state.quote = undefined;
+      }
       continue;
     }
     if (char === "#") break;
-    if (char === '"' || char === "'") quote = char;
-    else if (char === "(" || char === "[" || char === "{") depth++;
-    else if (char === ")" || char === "]" || char === "}") depth = Math.max(0, depth - 1);
+    if (char === '"' || char === "'") {
+      state.quote = line.startsWith(char.repeat(3), i) ? char.repeat(3) : char;
+      i += state.quote.length - 1;
+    } else if (char === "(" || char === "[" || char === "{") state.depth++;
+    else if (char === ")" || char === "]" || char === "}") state.depth = Math.max(0, state.depth - 1);
   }
-  return depth;
+  // An invalid single-line string must not shield a fabricated receipt on
+  // the next line. The declaration validator still rejects the original text.
+  if (state.quote?.length === 1 && !escaped) state.quote = undefined;
 }
 
 /** A turn wrapped whole in a fence (a model copying the example's framing) is unwrapped. */
@@ -159,15 +171,74 @@ function unwrapOuterFence(text: string): string {
   return text;
 }
 
-export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
-  let wroteReceipt = false;
-  for (const header of RECEIPT_HEADERS) {
-    const at = text.indexOf(header);
-    if (at >= 0) {
-      text = text.slice(0, at);
-      wroteReceipt = true;
+/** The same recovery boundary is used by parsing and replay sanitization. */
+function resumesAfterUnclosedFence(lines: string[], index: number, marker: string): boolean {
+  const line = lines[index];
+  return (
+    !/^\s/.test(line) &&
+    /^(set\s+[A-Za-z_]\w*\s*:|delete\s+[A-Za-z_]\w*\b|execute\b|show\s+\w+|answer:)/.test(line.trim()) &&
+    !lines.slice(index + 1).some(rest => rest.trim() === marker)
+  );
+}
+
+/** Remove a fabricated engine reply before parsing or replay. This scan is
+ * deliberately independent of validation: even a malformed command must not
+ * carry a fabricated result into the next model request. */
+export function sanitizeTurnReplay(text: string): { replayText: string; wroteReceipt: boolean } {
+  const lines = text.split(/(?<=\n)/);
+  let pythonFence: string | undefined;
+  const declaration: DeclarationScan = { depth: 0 };
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (pythonFence) {
+      if (trimmed === pythonFence) {
+        pythonFence = undefined;
+        offset += line.length;
+        continue;
+      }
+      if (resumesAfterUnclosedFence(lines, i, pythonFence)) pythonFence = undefined;
+      else {
+        offset += line.length;
+        continue;
+      }
     }
+    if (!declaration.quote && RECEIPT_HEADER.test(trimmed))
+      return { replayText: text.slice(0, offset), wroteReceipt: true };
+    if (declaration.depth > 0 || declaration.quote) {
+      scanDeclaration(line, declaration);
+    } else {
+      // Everything after the explicit answer command is user-facing content.
+      if (/^answer:/i.test(trimmed)) break;
+      const fence = /^(`{3,})(\w*)$/.exec(trimmed);
+      if (fence) {
+        const language = fence[2].toLowerCase();
+        const next = lines.slice(i + 1).find(candidate => candidate.trim());
+        if (
+          ["python", "py"].includes(language) ||
+          (!language && next && /^\s*(def |import |from |class |[A-Z_][A-Z0-9_]* *=)/.test(next))
+        ) {
+          pythonFence = fence[1];
+        }
+      } else if (/^set\s+[A-Za-z_]\w*\s*:/.test(trimmed)) {
+        scanDeclaration(line, declaration);
+      }
+    }
+    offset += line.length;
   }
+  return { replayText: text, wroteReceipt: false };
+}
+
+export function parseTurn(
+  text: string,
+  options: TurnParseOptions
+): TurnParse & { replayText: string; wroteReceipt: boolean } {
+  const replay = sanitizeTurnReplay(text);
+  return { ...parseStatements(replay.replayText, options, replay.wroteReceipt), ...replay };
+}
+
+function parseStatements(text: string, options: TurnParseOptions, wroteReceipt: boolean): TurnParse {
   const lines = unwrapOuterFence(text).replace(/\r\n?/g, "\n").split("\n");
   const changes: string[] = lines.map(() => "");
   const definitions: string[] = [];
@@ -178,12 +249,12 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   const ignoredProse: number[] = [];
   let answer: string | undefined;
   let answerLine = 0;
-  let bareAnswer = false;
   let fenceStart: number | undefined;
+  let fenceMarker = "```";
   let fenceBody: string[] = [];
   /** The backticks of a `text`/`turn` fence whose lines are read as the turn. */
   let turnFence: string | undefined;
-  let pendingSet: { line: number; depth: number } | undefined;
+  let pendingSet: { line: number; scan: DeclarationScan } | undefined;
   const defaultView: RetrievalView = options.views.includes("sample_stats")
     ? "sample_stats"
     : options.views.includes("sample")
@@ -196,7 +267,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
     const trimmed = line.trim();
 
     if (fenceStart !== undefined) {
-      if (/^\s*```\s*$/.test(line)) {
+      if (trimmed === fenceMarker) {
         definitions.push(fenceBody.join("\n"));
         fenceBody = [];
         fenceStart = undefined;
@@ -204,7 +275,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       }
       // A fence left open runs until the first statement line: the model
       // forgot the closing mark, not the statements.
-      if (!/^\s/.test(line) && /^(set\s+[A-Za-z_]\w*\s*:|delete\s+[A-Za-z_]\w*\b|execute\b|show\s+\w+|answer:)/.test(line.trim()) && !lines.slice(i + 1).some(rest => /^\s*```\s*$/.test(rest))) {
+      if (resumesAfterUnclosedFence(lines, i, fenceMarker)) {
         definitions.push(fenceBody.join("\n"));
         fenceBody = [];
         fenceStart = undefined;
@@ -215,8 +286,8 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
     }
     if (pendingSet) {
       changes[i] = line;
-      pendingSet.depth = openParentheses(line, pendingSet.depth);
-      if (pendingSet.depth === 0) pendingSet = undefined;
+      scanDeclaration(line, pendingSet.scan);
+      if (pendingSet.scan.depth === 0 && !pendingSet.scan.quote) pendingSet = undefined;
       continue;
     }
     const fence = /^\s*(`{3,})(\w*)\s*$/.exec(line);
@@ -228,6 +299,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       }
       if (["python", "py"].includes(language)) {
         fenceStart = number;
+        fenceMarker = fence[1];
         continue;
       }
       const next = lines.slice(i + 1).find(candidate => candidate.trim());
@@ -238,6 +310,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       // statements, which are read in place.
       if (!language && next && /^\s*(def |import |from |class |[A-Z_][A-Z0-9_]* *=)/.test(next)) {
         fenceStart = number;
+        fenceMarker = fence[1];
         continue;
       }
       if (!turnFence && (!language || ["text", "turn", "markdown", "md"].includes(language))) {
@@ -255,14 +328,15 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       summary = summaryMatch[1].trim();
       continue;
     }
-    const explicit = /^answer:\s*(.*)$/is.exec(trimmed);
-    const answerMatch = explicit ?? (!statements.length ? /^(\**\s*Final Answer:.*)$/is.exec(trimmed) : null);
+    const answerMatch = /^answer:\s*(.*)$/is.exec(trimmed);
     if (answerMatch) {
-      bareAnswer = !explicit;
       let rest = lines.slice(i + 1);
       if (turnFence) {
-        const close = rest.findIndex(candidate => new RegExp(`^\\s*${turnFence}\\s*$`).test(candidate));
-        if (close >= 0) {
+        let close = rest.length - 1;
+        while (close >= 0 && !rest[close].trim()) close--;
+        // Only the final framing fence ends a wrapped answer. An earlier
+        // matching fence may close a code example in the answer itself.
+        if (close >= 0 && rest[close].trim() === turnFence) {
           rest = rest.slice(0, close);
           turnFence = undefined;
         }
@@ -271,13 +345,25 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       answerLine = number;
       break;
     }
+    if (/^\**\s*Final Answer:/i.test(trimmed))
+      return fail(
+        number,
+        "Final Answer: is answer content, not a command. Use answer: followed by the requested answer format in its own turn."
+      );
     const setMatch = /^(set\s+([A-Za-z_]\w*)\s*:|delete\s+([A-Za-z_]\w*))(.*)$/s.exec(trimmed);
     if (setMatch) {
       changes[i] = line;
-      statements.push({ line: number, text: trimmed, kind: "edit", ids: [setMatch[2] ?? setMatch[3]], actionIndexes: [] });
+      statements.push({
+        line: number,
+        text: trimmed,
+        kind: "edit",
+        ids: [setMatch[2] ?? setMatch[3]],
+        actionIndexes: [],
+      });
       if (setMatch[1].startsWith("set")) {
-        const depth = openParentheses(setMatch[4], 0);
-        if (depth > 0) pendingSet = { line: number, depth };
+        const scan: DeclarationScan = { depth: 0 };
+        scanDeclaration(setMatch[4], scan);
+        if (scan.depth > 0 || scan.quote) pendingSet = { line: number, scan };
       }
       continue;
     }
@@ -325,7 +411,11 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
         statement.columns = columns;
         actions.push({ type: "execute", operator_ids: ids });
         statement.actionIndexes.push(actions.length);
-        actions.push(columns ? { type: "retrieve", operator_ids: ids, view, columns } : { type: "retrieve", operator_ids: ids, view });
+        actions.push(
+          columns
+            ? { type: "retrieve", operator_ids: ids, view, columns }
+            : { type: "retrieve", operator_ids: ids, view }
+        );
         statement.actionIndexes.push(actions.length);
       } else if (resource === "schema" || resource === "operator") {
         const fromMatch = /^([A-Za-z_]\w*)(?:\s+from\s+(\d+))?$/.exec(rest);
@@ -348,7 +438,13 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
           resource === "operator"
             ? ({ type: "inspect", target: "operator", operator_id: id, include_implementation: true } as DataflowAction)
             : fromMatch[2] !== undefined
-              ? ({ type: "inspect", target, operator_id: id, offset: Number(fromMatch[2]), limit: 200 } as DataflowAction)
+              ? ({
+                  type: "inspect",
+                  target,
+                  operator_id: id,
+                  offset: Number(fromMatch[2]),
+                  limit: 200,
+                } as DataflowAction)
               : ({ type: "inspect", target, operator_id: id } as DataflowAction)
         );
         statement.actionIndexes.push(actions.length);
@@ -356,13 +452,23 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
         const ids = identifiers(rest, number, "show function");
         if (!Array.isArray(ids)) return ids;
         statement.ids = ids;
-        actions.push({ type: "inspect", target: "namespace", names: ids, include_implementation: true } as DataflowAction);
+        actions.push({
+          type: "inspect",
+          target: "namespace",
+          names: ids,
+          include_implementation: true,
+        } as DataflowAction);
         statement.actionIndexes.push(actions.length);
       } else if (resource === "builtin") {
         const ids = identifiers(rest, number, "show builtin");
         if (!Array.isArray(ids)) return ids;
         statement.ids = ids;
-        actions.push({ type: "inspect", target: "reference", topic: "operators", operator_names: ids } as DataflowAction);
+        actions.push({
+          type: "inspect",
+          target: "reference",
+          topic: "operators",
+          operator_names: ids,
+        } as DataflowAction);
         statement.actionIndexes.push(actions.length);
       } else return fail(number, `show takes a resource: result, schema, operator, function, or builtin.`);
       statements.push(statement);
@@ -391,7 +497,10 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   const definitionsText = definitions.join("\n\n").trim();
   if (answer !== undefined) {
     if (statements.length || definitionsText)
-      return fail(answerLine, "answer must be the only statement of its turn; show the result first, then answer in the next turn.");
+      return fail(
+        answerLine,
+        "answer must be the only statement of its turn; show the result first, then answer in the next turn."
+      );
     if (!answer) return fail(answerLine, "answer: needs the answer text.");
     actions.push({ type: "answer", content: answer });
     statements.push({ line: answerLine, text: "answer:", kind: "answer", actionIndexes: [actions.length] });
@@ -406,6 +515,15 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   }
   return {
     ok: true,
-    turn: { summary: summary ?? "", missingSummary, ignoredProse, wroteReceipt, bareAnswer, definitions: definitionsText, changes: changesText, statements, actions },
+    turn: {
+      summary: summary ?? "",
+      missingSummary,
+      ignoredProse,
+      wroteReceipt,
+      definitions: definitionsText,
+      changes: changesText,
+      statements,
+      actions,
+    },
   };
 }

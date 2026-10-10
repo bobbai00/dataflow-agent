@@ -26,7 +26,12 @@ import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { withRequiredToolChoice } from "./agent/llm-drivers/required-tool-choice";
 import { TexeraAgent } from "./agent/texera-agent";
-import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import {
+  NativeCatalogSettingsError,
+  validateNativeSettings,
+  validateEvidenceSettings,
+  validateNativeTransport,
+} from "./agent/native/settings";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -891,6 +896,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       }
 
       validateNativeSettings(settings);
+      validateNativeTransport(resolveDriverKind(modelType, driver) === "text-turn" ? "text" : "tool", settings ?? {});
 
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
@@ -937,7 +943,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
             nativePromptDetail: settings.nativePromptDetail,
-        nativeTransport: settings.nativeTransport,
+            nativeTransport: settings.nativeTransport,
             nativeChecks: settings.nativeChecks,
             stateHistory: settings.stateHistory,
             stateLedger: settings.stateLedger,
@@ -1548,7 +1554,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
         nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
-            nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text")])),
+        nativeTransport: t.Optional(t.Union([t.Literal("tool"), t.Literal("text")])),
         nativeChecks: t.Optional(t.Boolean()),
         stateHistory: t.Optional(t.Boolean()),
         stateLedger: t.Optional(t.Boolean()),

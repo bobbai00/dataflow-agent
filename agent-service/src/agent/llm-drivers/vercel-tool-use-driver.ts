@@ -46,6 +46,7 @@ export interface VercelToolUseDriverOptions {
 }
 
 export class VercelToolUseDriver implements LLMDriver {
+  readonly nativeTransport = "tool" as const;
   private readonly model: LanguageModel;
   private readonly temperature: number;
   private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;

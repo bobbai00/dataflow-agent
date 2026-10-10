@@ -37,7 +37,7 @@ import { asSchema, generateText, type LanguageModel, type ModelMessage } from "a
 import { MissingAnswerActionError, type DriverRunTurnInput, type DriverRunTurnResult, type LLMDriver } from "./types";
 import type { RetrievalView, TokenUsage } from "../../types/agent";
 import { TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
-import { parseTurn, RECEIPT_HEADERS, type ParsedTurn } from "../native/turn-syntax";
+import { parseTurn, type ParsedTurn } from "../native/turn-syntax";
 
 export interface TextTurnDriverOptions {
   model: LanguageModel;
@@ -52,16 +52,18 @@ export interface TextTurnDriverOptions {
 export interface TextTurnCallInput {
   reasoning: string;
   actions: ParsedTurn["actions"];
-  /** The model's message, verbatim; replayed as its assistant message. */
+  /** The model's original message, kept verbatim for audit. */
   turn: string;
+  /** Stable assistant replay with any fabricated engine receipt removed. */
+  replayText: string;
   statements: ParsedTurn["statements"];
   missingSummary: boolean;
   ignoredProse: number[];
   wroteReceipt: boolean;
-  bareAnswer: boolean;
 }
 
 export class TextTurnDriver implements LLMDriver {
+  readonly nativeTransport = "text" as const;
   private readonly model: LanguageModel;
   private readonly temperature: number;
   private readonly requestLimits: { maxOutputTokens?: number; maxRetries?: number };
@@ -82,10 +84,6 @@ export class TextTurnDriver implements LLMDriver {
     const tool = input.tools[TOOL_NAME_DATAFLOW];
     if (!tool || typeof tool.execute !== "function") throw new Error("The text transport needs the dataflow tool.");
     const views = this.views?.() ?? viewsFromTool(tool);
-    // A bare "Final Answer:" line counts as the answer only once a result has
-    // been displayed; before that it is a guess, and is rejected like prose.
-    let shownResult = false;
-
     for (let stepNumber = 1; stepNumber <= input.maxSteps; stepNumber++) {
       const prepared = await input.prepareStep({ stepNumber, messages });
       messages = prepared.messages;
@@ -95,38 +93,18 @@ export class TextTurnDriver implements LLMDriver {
         system: input.systemPrompt,
         messages,
         temperature: this.temperature,
-        // The receipt is the engine's message. A model that keeps writing past
-        // its statements starts a receipt of its own (Opus did, then reasoned
-        // from the invented rows); generation stops at any receipt header.
-        stopSequences: [...RECEIPT_HEADERS],
         abortSignal: input.abortSignal,
       });
-      let rawText = result.text ?? "";
-      if (!rawText.trim() && result.finishReason !== "length" && !input.abortSignal?.aborted) {
-        // GPT reasoning models sometimes return no visible text. One silent
-        // retry before the empty reply enters the transcript.
-        const again = await generateText({
-          model: this.model,
-          ...this.requestLimits,
-          system: input.systemPrompt,
-          messages,
-          temperature: this.temperature,
-          stopSequences: [...RECEIPT_HEADERS],
-          abortSignal: input.abortSignal,
-        });
-        rawText = again.text ?? "";
-        if (again.usage) {
-          const u = again.usage as any;
-          for (const [key, value] of [["inputTokens", u.inputTokens], ["outputTokens", u.outputTokens], ["totalTokens", u.totalTokens], ["reasoningTokens", u.reasoningTokens], ["cachedInputTokens", u.cachedInputTokens]] as const)
-            if (value !== undefined) aggregated[key] = (aggregated[key] ?? 0) + (value ?? 0);
-        }
-      }
+      // Every completion, including an empty one, consumes and records one
+      // step. A hidden retry would lose its finish reason, usage, and budget.
+      const rawText = result.text ?? "";
       lastText = rawText;
       const body = (result.response as any)?.body?.usage;
       const cacheCreation = Number(
         body?.prompt_tokens_details?.cache_write_tokens ??
           body?.prompt_tokens_details?.cache_creation_tokens ??
           body?.cache_creation_input_tokens ??
+          result.usage?.inputTokenDetails?.cacheWriteTokens ??
           0
       );
       const usage: TokenUsage | undefined = result.usage
@@ -134,12 +112,19 @@ export class TextTurnDriver implements LLMDriver {
             inputTokens: result.usage.inputTokens,
             outputTokens: result.usage.outputTokens,
             totalTokens: result.usage.totalTokens,
-            reasoningTokens: (result.usage as any).reasoningTokens,
-            cachedInputTokens: (result.usage as any).cachedInputTokens,
+            reasoningTokens: result.usage.outputTokenDetails?.reasoningTokens ?? result.usage.reasoningTokens,
+            cachedInputTokens: result.usage.inputTokenDetails?.cacheReadTokens ?? result.usage.cachedInputTokens,
             cacheCreationInputTokens: cacheCreation,
           }
         : undefined;
-      for (const key of ["inputTokens", "outputTokens", "totalTokens", "reasoningTokens", "cachedInputTokens", "cacheCreationInputTokens"] as const)
+      for (const key of [
+        "inputTokens",
+        "outputTokens",
+        "totalTokens",
+        "reasoningTokens",
+        "cachedInputTokens",
+        "cacheCreationInputTokens",
+      ] as const)
         if (usage?.[key] !== undefined) aggregated[key] = (aggregated[key] ?? 0) + (usage[key] ?? 0);
 
       const parsed = parseTurn(rawText, { views });
@@ -150,11 +135,11 @@ export class TextTurnDriver implements LLMDriver {
         reasoning: summary,
         actions: parsed.ok ? parsed.turn.actions : [],
         turn: rawText,
+        replayText: parsed.replayText,
         statements: parsed.ok ? parsed.turn.statements : [],
         missingSummary: parsed.ok ? parsed.turn.missingSummary : false,
         ignoredProse: parsed.ok ? parsed.turn.ignoredProse : [],
-        wroteReceipt: parsed.ok ? parsed.turn.wroteReceipt : false,
-        bareAnswer: parsed.ok ? parsed.turn.bareAnswer : false,
+        wroteReceipt: parsed.wroteReceipt,
       };
       let output: unknown;
       let isError = false;
@@ -164,19 +149,13 @@ export class TextTurnDriver implements LLMDriver {
         );
         isError = true;
       } else if (!rawText.trim()) {
-        // GPT reasoning models sometimes return no visible text; a rejected
-        // turn keeps the task going without spending the one correction.
+        // The next normal step can repair the reply within the step budget.
         output = rejected("the reply was empty. Write a turn: a summary: line, then statements (set, execute, show).");
-        isError = true;
-      } else if (parsed.ok && parsed.turn.bareAnswer && !shownResult) {
-        output = rejected(
-          "a final answer comes after the computation: nothing has been computed or displayed yet. You do not open files yourself: the engine reads them. Begin like this, with the task's own paths:\nsummary: Read the first file.\nset data: scan(files='data/<folder>/input/<file>')\nshow result data\nThen compute in further turns, and give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
-        );
         isError = true;
       } else if (!parsed.ok) {
         output = rejected(
           parsed.line === undefined
-            ? "this message is not a turn, so nothing was computed. You do not open files yourself: the engine reads them. Begin like this, with the task's own paths:\nsummary: Read the first file.\nset data: scan(files='data/<folder>/input/<file>')\nshow result data\nThen compute in further turns, and give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
+            ? "this message is not a turn, so nothing was computed. Write summary: followed by statements such as set, execute, or show. For a data answer, compute and display the relevant result first. To finish, write answer: followed by the answer, clarification, or failure explanation in the user's requested format; answer must be the only statement."
             : parsed.error
         );
         isError = true;
@@ -187,7 +166,6 @@ export class TextTurnDriver implements LLMDriver {
           output = rejected(error instanceof Error ? error.message : String(error));
         }
         isError = !!(output as any)?.error;
-        if (parsed.turn.actions.some(action => action.type === "retrieve")) shownResult = true;
       }
       await input.onStepFinish({
         text: "",
@@ -198,7 +176,8 @@ export class TextTurnDriver implements LLMDriver {
       if (input.getFinalAnswer?.() !== undefined) break;
     }
     const completed: DriverRunTurnResult = { text: input.getFinalAnswer?.() ?? lastText, messages, usage: aggregated };
-    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) throw new MissingAnswerActionError(completed, false);
+    if (input.requireToolCall && input.getFinalAnswer?.() === undefined)
+      throw new MissingAnswerActionError(completed, false);
     return completed;
   }
 }

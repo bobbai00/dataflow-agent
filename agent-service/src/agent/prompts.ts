@@ -40,6 +40,7 @@ import { observationFormat, type ObservationFormatOptions } from "./native/obser
 import { catalogText, catalogIndexText } from "./native/catalog";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
+import { registeredExamples } from "./prompts/registered-examples";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -372,13 +373,14 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sample = `The schema and ${rows}, within ${sampleLimit} characters`;
   const descriptions = {
     sample: `${sample}.`,
-    sample_stats: `${views.includes("sample") ? "The sample" : sample}, plus statistics on every column within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget.`,
+    sample_stats: `${views.includes("sample") ? "The sample" : sample}, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget. Collection and display are bounded; check the reported row and column coverage.`,
     full: `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`,
   };
   const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
   if (options.transport === "text") {
-    const sampleText = `${sample}${views.includes("sample_stats") ? `, plus statistics on every column within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget` : ""}`;
+    const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
     return [
+      `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
       first && views.includes("full")
         ? `\`show result <id>\` gives ${sampleText.charAt(0).toLowerCase() + sampleText.slice(1)}. \`show result <id> full\` gives ${descriptions.full.charAt(0).toLowerCase() + descriptions.full.slice(1)} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
         : first
@@ -539,13 +541,15 @@ export function buildRegisteredNativeSystemPrompt(
         ? " Earlier tasks share the current graph and registered definitions. Reuse relevant operators; earlier observations remain historical evidence, not current results."
         : ""),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
+    EXAMPLES: registeredExamples(options),
     RETRIEVAL: nativeRetrievalText(options),
     RECORD_LAYOUT:
       format.keyValueColumns > 0
         ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
         : `Records use ${table} at any width.`,
     DATA_STATISTICS: flags.data
-      ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Use them to check missing values, codes, and populations; compute exact answer quantities in the graph, not from rounded statistics."
+      ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Use them to check missing values, codes, and populations; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics." +
+        (views.includes("full") ? " The `full` view does not request table statistics." : "")
       : "",
     FLOW_STATISTICS: flags.flow
       ? "Flow statistics report measured effects of built-in operators, also for results you did not request: filter kept and rejected rows, join unmatched keys, cast failures, and aggregate denominators. Compare them with the requested population. Python functions are not measured; return diagnostic columns when you need their counts."
@@ -555,13 +559,9 @@ export function buildRegisteredNativeSystemPrompt(
     if (!(key in fields)) throw new Error(`Unknown registered prompt field ${key}`);
     return fields[key];
   });
-  // Both prompt detail settings use the same short built-in contracts. The
-  // on-demand variant once omitted a longer worked repair; the prompt no
-  // longer carries one, so the two currently render alike.
-  if (options.nativePromptDetail === "on_demand") {
-    prompt = prompt.replace(/### Repair a function and refine its downstream summary[\s\S]*?(?=\{\{#data\}\}|$)/, "");
-  }
-  prompt = adaptReceipts(applySections(prompt, flags), options, flags);
+  // Registered examples already use the actual renderers with enabled views.
+  // Rewriting their receipts would disconnect the illustration from execution.
+  prompt = applySections(prompt, flags);
   prompt = prompt.replace(/"view"\s*:\s*"sample_stats"/g, `"view": "${view}"`);
   if (!views.includes("full")) prompt = prompt.replace(/"view"\s*:\s*"full"/g, `"view": "${view}"`);
   return prompt.replace(/\n{3,}/g, "\n\n").trim();

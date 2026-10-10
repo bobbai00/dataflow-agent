@@ -66,6 +66,7 @@ export interface LocalReactTextDriverOptions {
 }
 
 export class LocalReactTextDriver implements LLMDriver {
+  readonly nativeTransport = "tool" as const;
   private readonly model: LanguageModel;
   private readonly temperature: number;
   /** Increments every parsed action; used to mint stable per-call IDs the
