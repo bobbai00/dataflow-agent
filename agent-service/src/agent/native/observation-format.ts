@@ -589,7 +589,8 @@ export function describeOperator(
   }));
   let definition = view ? nativeAssignmentText(op.operatorID, view) : undefined;
   if (definition && options.definitionLimit && config.definitionChars > 0 && definition.length > config.definitionChars)
-    definition = definition.slice(0, config.definitionChars) + "… (definition clipped; inspect for full text)";
+    definition =
+      definition.slice(0, config.definitionChars) + "… (definition clipped; show operator gives the full text)";
   const predicate =
     view?.type === "Filter" ? (view.properties.registered as { entry?: unknown } | undefined)?.entry : undefined;
   const registeredName = view?.registeredName ?? (typeof predicate === "string" ? predicate : undefined);

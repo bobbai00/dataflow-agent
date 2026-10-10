@@ -25,7 +25,6 @@ from campaign import install_provider_prices
 sys.path.insert(0, str(Path.cwd()))
 import systems
 from systems import cost_utils
-from systems import native_expression_system
 from systems.native_expression_system import _NativeExpressionBase
 
 manifest = json.loads(Path(os.environ["RETRIEVAL_MANIFEST"]).read_text())
@@ -39,12 +38,6 @@ if pricing:
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
-
-
-# The driver kind is a creation parameter of the protocol dict the base class
-# spreads into its constructor; override it there rather than as a kwarg.
-if manifest.get("driver"):
-    native_expression_system._PROTOCOL["driver"] = manifest["driver"]
 
 
 class RetrievalSystem(_NativeExpressionBase):
@@ -83,15 +76,10 @@ class RetrievalSystem(_NativeExpressionBase):
         assert all(recorded[k] == value for k, value in settings.items()), "Settings drift"
         info = json.loads((base / "system-info.json").read_text())
         tool = next(t for t in info["tools"] if t["name"] == "dataflow")
+        # The tool carries statements; their views are checked by the parser
+        # against the recorded settings, which the drift check covers.
         properties = tool["inputSchema"]["properties"]
-        if "actions" in properties:
-            retrieval = next(a for a in properties["actions"]["items"]["anyOf"]
-                             if a["properties"]["type"]["const"] == "retrieve")
-            assert retrieval["properties"]["view"]["enum"] == arm["retrievalViews"]
-        else:
-            # The turn tool carries statements; its views are checked by the
-            # parser against the recorded settings, which the drift check covers.
-            assert set(properties) == {"summary", "python", "statements"}, sorted(properties)
+        assert set(properties) == {"python", "statements"}, sorted(properties)
 
     def serve_query(self, query, query_id="default-0", subset_files=None):
         answer = super().serve_query(query, query_id, subset_files)

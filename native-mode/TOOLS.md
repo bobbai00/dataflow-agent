@@ -2,258 +2,35 @@
 
 # Native mode: tool definition
 
-One static dataflow tool; registered-python-v1. All examples use the currently exposed schema.
+One static dataflow tool with two strings. The model answers by replying without the tool after a result has been shown.
 
 ## dataflow
 
-Build, execute, read and answer from a Dataflow with an ordered list of actions.
+Edit, compute and read the Dataflow. Reply without this tool only to give the final answer.
 
 ```json
 {
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "reasoning": {
+    "python": {
       "type": "string",
-      "minLength": 1,
-      "pattern": "^[\\s\\S]*\\S[\\s\\S]*$",
-      "description": "One brief sentence stating the next objective."
+      "description": "Python definitions to register or replace, or \"\" when the call defines none."
     },
-    "actions": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 32,
-      "description": "Run in order; decide on new results in the next call.",
-      "items": {
-        "anyOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "edit"
-              },
-              "python": {
-                "type": "string",
-                "description": "Function definitions and imports, or \"\"."
-              },
-              "changes": {
-                "type": "string",
-                "description": "One statement per line: set id: type(inputs, setting=value), or delete id. Or \"\"."
-              }
-            },
-            "required": [
-              "type",
-              "python",
-              "changes"
-            ],
-            "description": "Commit Python definitions and graph statements; does not run the graph."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "execute"
-              },
-              "operator_ids": {
-                "anyOf": [
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                    },
-                    "minItems": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "operator_ids"
-            ],
-            "description": "Compute the listed operators and their ancestors; null runs the whole graph."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "retrieve"
-              },
-              "operator_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                },
-                "minItems": 1
-              },
-              "view": {
-                "type": "string",
-                "enum": [
-                  "sample_stats",
-                  "full"
-                ]
-              },
-              "columns": {
-                "anyOf": [
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                    },
-                    "minItems": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "operator_ids",
-              "view",
-              "columns"
-            ],
-            "description": "Read current results of the listed operators; never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "inspect"
-              },
-              "target": {
-                "type": "string",
-                "enum": [
-                  "schema",
-                  "source",
-                  "reference"
-                ]
-              },
-              "operator_id": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1,
-                    "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "operator_names": {
-                "anyOf": [
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "scan",
-                        "project",
-                        "cast",
-                        "filter",
-                        "aggregate",
-                        "join",
-                        "union",
-                        "distinct",
-                        "sort",
-                        "limit",
-                        "window",
-                        "unpivot",
-                        "pivot"
-                      ]
-                    },
-                    "minItems": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "offset": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "limit": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 200
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "target",
-              "operator_id",
-              "operator_names",
-              "offset",
-              "limit"
-            ],
-            "description": "Read what the context lacks: schema (column names of a result), source (sheet names of a scanned workbook), or reference (a built-in's full contract). Never executes."
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "answer"
-              },
-              "content": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
-              }
-            },
-            "required": [
-              "type",
-              "content"
-            ],
-            "description": "Return the final response; must be the only action."
-          }
-        ]
-      }
+    "statements": {
+      "type": "string",
+      "description": "Statements, one per line: set <id>: <op>(...), delete <id>, execute <id>, show result|schema|operator|function|builtin ...; \"\" when the call only defines functions."
     }
   },
   "required": [
-    "reasoning",
-    "actions"
+    "python",
+    "statements"
   ]
 }
 ```
 
 Strict input: true. Local validation remains authoritative.
 
-Actions run in order. Each edit stages Python definitions and the final graph atomically. A later error does not undo earlier edits. Only execute computes results. After execution failure, inspect/retrieve may read independent completed results. Batch retrieval reports each target separately. Answer takes content and must be the sole action.
+Definitions in `python` register before any statement runs, and the call's `set` and `delete` lines apply together or not at all. Then `execute` and `show` lines run in order. After a failed execution, later `show` lines still read the results that completed. A `show result` over several operators reports each one separately.
 
-Inspect graph/operator reads current definitions and result metadata. Inspect namespace reads registered source and signatures, never runtime variables. Inspect reference reads selected built-in contracts. The current tool does not expose the historical task/state restoration grammar.
+`show operator` reads an operator's statement, inputs and status. `show function` reads registered source, never runtime variables. `show builtin` reads a built-in's full contract. `show schema` pages exact column names and types.

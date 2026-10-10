@@ -1,32 +1,21 @@
 #!/usr/bin/env bash
 #
-# bench.sh — one entry point for both benchmarks against the dataflow agent.
+# bench.sh — one entry point for the KramaBench runs against the dataflow agent.
 #
 #   KramaBench  (benchmark/Kramabench, git submodule, branch `stable`)
 #       104 single-question data-science tasks over 6 domain data lakes,
 #       scored by the repo's own evaluate.py harness. Driven through kb.py.
-#
-#   LongDS-Bench  (benchmark/longds, part of this repo)
-#       68 tasks / 2,225 turns of long-horizon multi-turn analysis
-#       (zjunlp/DataMind). One agent + one workflow per task; judged by an
-#       LLM with upstream's own judge prompt.
 #
 # The full Texera stack must be running first:  bin/local-dev.sh up
 # (see docs/local-dev-with-agent.md — remember GUI copilot + LITELLM env).
 #
 # Usage:
 #   bin/bench.sh setup [--copy-from PATH]     one-time: venv, .env, data,
-#                                                   symlinks, DataMind clone,
-#                                                   LongDS sample task
+#                                                   symlinks
 #   bin/bench.sh kb <kb.py args...>           any kb.py command, e.g.:
 #       bin/bench.sh kb systems
 #       bin/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids "legal-easy-1"
 #       bin/bench.sh kb scores --sut DataflowSystemStableHaiku
-#   bin/bench.sh longds prepare [--task d/ds/t]
-#   bin/bench.sh longds run --task <key> [--arm haiku-delta-1k] [--turn-limit N]
-#   bin/bench.sh longds judge --sut <SUT> [--judge-model MODEL]
-#   bin/bench.sh longds analyze --sut <SUT> --task <key>
-#   bin/bench.sh longds download --task <domain/dataset/task>   fetch one more task from HF
 #   bin/bench.sh retrieval run|analyze <args...>  matched native campaigns and reports
 #
 set -euo pipefail
@@ -35,7 +24,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BENCH_DIR="$REPO_ROOT/benchmark"
 KB="$BENCH_DIR/Kramabench"
-LONGDS="$BENCH_DIR/longds"
 PY="$KB/.venv/bin/python"
 
 # Root .env: OPENAI_API_KEY (KramaBench scoring + gpt models), ANTHROPIC key,
@@ -83,7 +71,7 @@ cmd_setup() {
         echo "[bench] creating Kramabench venv"
         ( cd "$KB" && uv venv -q .venv && uv pip install -q -r requirements.txt --python .venv/bin/python )
         # uv venvs ship no pip binary — install through uv against the venv.
-        uv pip install -q huggingface_hub kagglehub --python "$PY"
+        uv pip install -q kagglehub --python "$PY"
     fi
 
     # KramaBench's evaluate.py does not load the root .env, so the scoring
@@ -102,15 +90,9 @@ cmd_setup() {
 
     echo "[bench] symlinks"
     ln -sfn benchmark/Kramabench/data "$REPO_ROOT/data"
-    ln -sfn ../../longds/DataMind/longds/dataset/data/longds "$KB/data/longds"
     # bin/local-dev.sh launches computing-unit-master with cwd=amber/, and the
     # Python UDF workers inherit it — this makes `data/...` resolve there too.
     ln -sfn ../data "$REPO_ROOT/amber/data"
-
-    if [[ ! -d "$LONGDS/DataMind" ]]; then
-        echo "[bench] cloning zjunlp/DataMind (judge prompt + dataset home)"
-        git clone -q --depth 1 https://github.com/zjunlp/DataMind.git "$LONGDS/DataMind"
-    fi
 
     echo "[bench] KramaBench data check (fetches wildfire's Kaggle csv if absent)"
     # Run kb.py through the venv interpreter, NOT ./kb.py — its shebang is
@@ -119,44 +101,8 @@ cmd_setup() {
     # "FATAL: pip install kagglehub".
     ( cd "$KB" && "$PY" kb.py setup-data ${copy_from:+--copy-from "$copy_from"} ) || true
 
-    if [[ ! -f "$LONGDS/DataMind/longds/dataset/task/longds/task_list.json" ]]; then
-        echo "[bench] downloading LongDS sample task (nfl task1) from HF"
-        cmd_longds_download --task sports/nfl_big_data_bowl_2023/task1
-    fi
-
-    echo "[bench] preparing LongDS sample task"
-    "$PY" "$LONGDS/prepare.py" --task sports/nfl_big_data_bowl_2023/task1 || true
-
     echo "[bench] setup done. Next:"
     echo "  bin/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids \"legal-easy-1\""
-    echo "  bin/bench.sh longds run --task sports__nfl_big_data_bowl_2023__task1 --turn-limit 3"
-}
-
-cmd_longds_download() {
-    local task=""
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --task) task="$2"; shift 2 ;;
-            *) die "unknown download flag: $1" ;;
-        esac
-    done
-    [[ -n "$task" ]] || die "longds download needs --task domain/dataset/task"
-    need_venv
-    TASK="$task" DATASET_DIR="$LONGDS/DataMind/longds/dataset" "$PY" - <<'EOF'
-import os
-from huggingface_hub import snapshot_download
-task = os.environ["TASK"].strip("/")
-snapshot_download(
-    repo_id="zjunlp/LongDS", repo_type="dataset",
-    local_dir=os.environ["DATASET_DIR"],
-    allow_patterns=[
-        "task/longds/task_list.json",
-        f"task/longds/{task}/*",
-        f"data/longds/{task}/*",
-    ],
-)
-print(f"downloaded {task} into {os.environ['DATASET_DIR']}")
-EOF
 }
 
 cmd_kb() {
@@ -167,20 +113,6 @@ cmd_kb() {
     # against the system python and failed with a misleading
     # "pip install kagglehub".
     ( cd "$KB" && "$PY" kb.py "$@" )
-}
-
-cmd_longds() {
-    need_venv
-    local sub="${1:-}"; shift || true
-    case "$sub" in
-        prepare)  "$PY" "$LONGDS/prepare.py" "$@" ;;
-        run)      "$PY" -u "$LONGDS/run_longds.py" "$@" ;;
-        judge)    "$PY" "$LONGDS/judge_longds.py" "$@" ;;
-        analyze)  "$PY" "$LONGDS/analyze_run.py" "$@" ;;
-        download) cmd_longds_download "$@" ;;
-        gate)     "$PY" "$LONGDS/numeric_gate.py" "$@" ;;
-        *) die "longds subcommand must be one of: prepare run judge analyze download gate" ;;
-    esac
 }
 
 cmd_retrieval() {
@@ -198,10 +130,9 @@ cmd_retrieval() {
 case "${1:-}" in
     setup)  shift; cmd_setup "$@" ;;
     kb)     shift; cmd_kb "$@" ;;
-    longds) shift; cmd_longds "$@" ;;
     retrieval) shift; cmd_retrieval "$@" ;;
     *)
-        sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
         exit 1
         ;;
 esac

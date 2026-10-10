@@ -20,9 +20,8 @@
 # Registered Python Dataflows
 
 The active native protocol is `registered-python-v1`. It uses persistent authored
-Python definitions and isolated operator invocations. The default transport is
-one `dataflow(reasoning, actions)` tool; the optional text transport parses
-statements into the same actions. This document records
+Python definitions and isolated operator invocations, driven through one
+`dataflow(python, statements)` tool. This document records
 the implemented contract; end-to-end campaign results are recorded separately.
 The previous planning document is retained in
 [the archive](archived/native-registered-python-design-before-implementation-20261008.md)
@@ -31,33 +30,60 @@ and is superseded, including its automatic-refresh and answer-from proposals.
 The [follow-up checklist](#follow-up-checklist-2026-10-08) records pending changes
 and experiments separately from the implemented contract below.
 
-## Actions
+## The dataflow tool
 
-| Action | Contract |
+One tool, two strings (`agent/tools/turn-tool.ts`):
+
+```text
+dataflow({ python, statements })
+```
+
+`python` holds definitions to register or replace, or `""`. `statements` holds
+one statement per line, or `""` when the call only defines functions:
+
+| Statement | Contract |
 |---|---|
-| inspect | Read the current graph, operator instance, registered namespace, exact result schema, retained source metadata, or selected built-in reference. Never execute. |
-| edit | Stage `python` and `changes` strings together; unused strings are empty. Validate definitions, binding, and the final DAG before committing either. |
-| execute | Compute selected `operator_ids` and their ancestors; omission selects the whole graph. Reuse valid results. |
-| retrieve | Read a nonempty `operator_ids` list using one enabled view and optional shared columns. Report each target separately; never execute. |
-| answer | Return `content` as the call's only action and finish the turn. |
+| `set <id>: <op>(<inputs>, <key>=<value>, ...)` | Create or fully replace an operator. |
+| `delete <id>` | Remove an operator. |
+| `execute <id>, ...` | Compute the operators and their ancestors; reuse valid results. |
+| `show result <id>, ...[<col>, ...] [view]` | Compute what is stale, then display each result in one enabled view, optionally with selected columns. |
+| `show schema <id> [from <index>]` | Compute if needed, then page exact column names and types. |
+| `show operator <id>` | An operator's statement, inputs, and status. |
+| `show function <name>` | A registered function's source. |
+| `show builtin <name>` | A built-in's full contract. |
 
-The action list is ordered, not transactional. Each edit is atomic: one invalid
-declaration rejects that edit's Python and graph changes together and skips later
-actions. Earlier completed edits remain. After an execution failure, subsequent
-requested executions, inspection, and retrieval can continue, retaining completed
-results. Later edits are skipped; once an edit is skipped, subsequent executions
-are also skipped so they cannot silently use the old graph. Repair definitions in
-the next call. Independent execution groups continue after a sibling fails;
-branches sharing an engine controller may need a separate requested execution.
-Stale results are never silently current.
+`agent/native/turn-syntax.ts` turns a call into an ordered action list: one edit
+holding the definitions and every `set`/`delete` line, then the requests in order
+(`show result` is an execute of the targets followed by a read). Definitions
+register before any statement runs, and the edit is atomic: one rejected line
+rejects the whole edit, names the line (line numbers count the lines of
+`statements`), and skips the rest of the call. After an execution failure, later
+reads still report the results that completed; reads report each target
+separately. Repair definitions in the next call. Independent execution groups
+continue after a sibling fails; branches sharing an engine controller may need a
+separate requested execution. Stale results are never silently current.
+
+The parser is lenient where models are predictable: a fenced field is unwrapped,
+a ```python block or an unfenced `def`/`import` block inside `statements` moves
+to the definitions, and other prose lines are ignored and noted in the receipt.
+`answer:` and `Final Answer:` lines in `statements` are rejected: there is no
+answer statement.
+
+Tool choice is always `auto`, so a model's extended reasoning stays available.
+A reply without a tool call is the final answer, returned verbatim, once a
+`show result` of the task has succeeded. Before that, a reply without a tool
+call is a lapse: the agent appends one correction naming a first call to make,
+with a file path taken from the request, and allows at most two corrections per
+task. The model's visible text next to a call is kept in the context with the
+call and its receipt.
 
 A model call whose dataflow calls all fail the same way as the previous call's,
 against an unchanged graph and namespace, is a repeated failure. The second
 receives one correction naming the error, the current operators (or that the
-graph is empty), the registered functions, and the Answer alternative; the fourth
-ends the turn with `REPEATED_FAILURE_LOOP` and no answer. A successful call, a
-different failure, a graph change, or a new user turn resets the count. Failed
-and stopped turns retain the token usage reported by their recorded model steps.
+graph is empty), and the registered functions; the fourth ends the turn with
+`REPEATED_FAILURE_LOOP` and no answer. A successful call, a different failure, a
+graph change, or a new user turn resets the count. Failed and stopped turns
+retain the token usage reported by their recorded model steps.
 
 ## Graph declarations
 
@@ -139,110 +165,27 @@ purpose when needed. Description precedence is explicit doc, current function
 docstring, then generated built-in summary. `doc` is metadata, never forwarded as
 a function argument. Avoid redundant descriptions for routine scans/sorts.
 
-Observations use Markdown, grouped by action number and status. Successful edits
-name registered or updated functions, changed operators and their types, and added
-or removed edges. After a change, affected results are named with an instruction
-to execute before retrieving. Execution reports completed results, failures, and
-operators that did not run. `Completed` means a current result is available; engine
-reuse counts and cache states remain internal telemetry. Retrieval returns one
-block per operator ID with coverage captions and enabled statistics. Errors name
-the action and relevant operator, declaration line, or Python source location;
-an edit failure explicitly confirms that none of that edit was applied.
-Documentation states intent; it does not prove measured correctness.
+The receipt (`agent/native/turn-receipt.ts`) is the tool result, in Markdown,
+with one section per statement: `## edits applied` (or `## edits rejected`, with
+the line) names registered or updated functions and changed operators;
+`## execute …` and `## show result …` name the operators that ran and their
+measured effects under `upstream:`, then the result's shape, records with
+coverage captions, and enabled statistics; `## show schema|operator|function|builtin …`
+returns what was asked. A flow fact already shown for an unchanged result is not
+repeated. `Completed` means a current result is available; engine reuse counts
+and cache states remain internal telemetry. Errors name the statement and the
+relevant operator, declaration line, or Python source location; an edit failure
+explicitly confirms that none of that edit was applied. Documentation states
+intent; it does not prove measured correctness.
 
 On this branch, default native DELTA context preserves model-message roles: user
 requests use `user`, model calls use `assistant`, and tool observations use `tool`
 with the matching call ID. The internal trace groups calls and results in an
 `agent` step; that is a storage label, not a model-message role. Vercel AI SDK
 handles native tool calling while our context assembler reconstructs history and
-formats observations before each request. Other layouts, such as LATEST's state
+formats receipts before each request: the model's text, its one `dataflow` call
+with both fields, then the receipt. Other layouts, such as LATEST's state
 summary, may place environment summaries in user-role messages.
-
-## Text transport
-
-The protocol can travel without tool calls (`--driver text-turn`). The driver
-sets `nativeTransport: "text"`; that setting cannot switch an existing agent's
-driver. Text transport uses native mode and the full DELTA transcript. It rejects
-other layouts, context reduction policies, historical-state modes and optional
-recall/resume/compaction tools, which its command syntax cannot use. The model's
-message is one turn:
-
-```text
-summary: <one line: the population, definitions, and formula this turn assumes>
-<python definitions in a ```python fence, when needed>
-set <id>: <op>(<inputs>, <key>=<value>, ...)
-delete <id>
-execute <id>, ...
-show result <id>, ... [view]
-show result <id>[<col>, ...] [view]
-show schema <id> [from <index>]
-show operator | function | builtin <name>
-answer: <text to the end of the turn>
-```
-
-`agent/native/turn-syntax.ts` parses a turn into the JSON tool's action list
-(one edit holding every fence and `set`/`delete` line at its turn line number,
-then the requests in order; `show result` is an execute of the target followed
-by a retrieve), so execution, receipts, traces and the audit are shared with the
-tool transport. `show schema` executes the target if needed, then reads a schema
-page; follow its `next_offset` using `from`. `view` must be enabled for the session;
-omission prefers `sample_stats`, then `sample`, then `full`.
-`agent/llm-drivers/text-turn-driver.ts` runs the loop, records
-each turn as one synthesized `dataflow` call whose input carries the turn text.
-Prose-only and empty replies receive rejection receipts and consume ordinary
-steps; there is no silent driver retry. A reply cut off at the output limit is
-rejected without executing its commands. Every completion retains its own
-reported usage, and its own finish reason is checked before commands can run.
-`agent/util/context-utils-text-turn.ts` replays the transcript as plain chat
-messages: the submitted statements as the assistant message, their receipt
-(`agent/native/turn-receipt.ts`) as the next user message. The receipt has one
-section per statement: `## edits applied` or `## edits rejected` with the line,
-`## execute …`/`## show result …` with the operators that ran and their measured
-effects under `upstream:`, then the result's shape, records and enabled statistics.
-Invented receipt text after submitted statements is excluded from context replay;
-the raw response remains in the trace. Receipt-like headings inside Python source
-or an explicit answer are ordinary content.
-
-Only `answer:` ends a text turn. Its content can span lines and must follow the
-user's requested format. `Final Answer:` is not a protocol requirement and is not
-accepted as an alternative command. If the task explicitly requests that label,
-use `answer: Final Answer: ...`. For data answers the prompt requires successfully
-displayed supporting results; a requested or failed retrieval is not evidence.
-An explicit answer can also explain that execution could not establish a result.
-This is a grounding instruction, not a claim that the runtime proves an answer's
-semantic correctness.
-
-The prompt's syntax and example sections switch on the transport
-(`{{#text}}`/`{{^text}}` in `prompts/native-registered.md`); the built-in
-contracts, Python rules and analysis principles are shared. Command guidance is
-present with every evidence configuration. Examples select only enabled views;
-their receipts are generated by the production evidence and observation renderers.
-The default standalone prompt is the JSON-tool version; the text version is
-[SYSTEM_PROMPT_TEXT_TURN.txt](../native-mode/SYSTEM_PROMPT_TEXT_TURN.txt).
-
-## Turn tool transport
-
-The turn transport (`--driver turn-tool`, agent setting `nativeTransport: "turn"`)
-keeps the text transport's statements but sends them as the three string fields
-of one tool call, `dataflow({ summary, python, statements })`
-(`agent/tools/turn-tool.ts`). The fields become the same action list the JSON
-tool takes (`parseTurnFields` in `agent/native/turn-syntax.ts`: `python` is the
-definitions, `statements` holds `set`/`delete`/`execute`/`show` lines; line
-numbers in errors count the lines of `statements`), so execution, traces and the
-audit are shared. The receipt is rendered by statement (`renderTurnReceipt`)
-and travels as the tool result; `renderDataflowActionsResult` dispatches on the
-result's `turn` descriptor.
-
-There is no answer statement. Tool choice is always `auto` (so a model's
-extended reasoning stays available), and a reply without a tool call is the
-final answer, returned verbatim, once a `show result` of the task has succeeded.
-Before that, a reply without a tool call is a lapse: the agent appends one
-correction naming the first call to make, with a file path taken from the
-request, and allows at most two such corrections per task. The driver is the
-ordinary `VercelToolUseDriver` with `transport: "turn"`; the context assembler
-is the tool transport's (assistant tool call, tool-role receipt), so the
-provider prefix cache and the wire audit work unchanged. The standalone prompt
-is [SYSTEM_PROMPT_TURN_TOOL.txt](../native-mode/SYSTEM_PROMPT_TURN_TOOL.txt).
 
 ## Built-ins and source reading
 
@@ -258,7 +201,7 @@ contracts. The prompt includes a short signature and description per built-in;
 reference inspection supplies rarer options. Existing reader parameters remain
 supported rather than silently changing data interpretation.
 
-A normal scan loads the source; retrieve bounds what is shown to the model.
+A normal scan loads the source; `show result` bounds what is shown to the model.
 `preview` is optional layout diagnosis before parsing, not an ordinary data sample.
 Text previews show raw lines, Excel/HTML previews show sheet/table rows, and
 Parquet/specialized binary previews show metadata. A preview cannot stand in for
@@ -305,33 +248,27 @@ opaque to this filtering contract.
 
 ## Inspection
 
-| Target | Output |
+| Statement | Output |
 |---|---|
-| graph | Compact operator IDs, types, ordered inputs, and freshness; optionally select IDs. |
-| operator | Complete instance definition, description, consumers, and a compact current result schema/status; optionally authored implementation. |
-| schema | Exact column names and types from a current completed result, independent of sample/profile column limits; paginated. |
-| source | Retained scan source paths, workbook sheet names, and first raw preview rows where available; never reads files. |
-| namespace | Registered definitions, including unused functions and helpers; select names to request source. No runtime locals or arbitrary object evaluation. |
-| reference | Selected built-in contracts, defaults, reader options, and restrictions. |
+| `show operator <id>` | Complete instance definition, description, consumers, and a compact current result schema/status. |
+| `show schema <id> [from <index>]` | Exact column names and types from a current completed result, independent of sample/profile column limits; paginated. |
+| `show function <name>` | Registered definitions, including unused functions and helpers. No runtime locals or arbitrary object evaluation. |
+| `show builtin <name>` | Selected built-in contracts, defaults, reader options, and restrictions. |
 
 Inspection reads stored current metadata without invoking authored functions.
-Schemas come only from current materialized results. A function's direct graph
-users are navigation metadata, not a complete static Python dependency graph.
-The current registered tool does not expose historical task/state restoration
-syntax; old parser/tool helpers remain for recorded fixtures and replay.
+Schemas come only from current materialized results; `show schema` computes the
+result first when needed. A function's direct graph users are navigation
+metadata, not a complete static Python dependency graph.
 
-For a wide table, use `{"type":"inspect","target":"schema","operator_id":"records"}`.
-The default page contains up to 200 columns; pass `offset` and `limit` (1–200)
-and follow `next_offset` for more. Names are exact JSON strings, including spaces.
-A 20,000-character page budget may reduce the count; individual names are never
-split. Missing, failed, and stale results report their status rather than an old
-schema.
+For a wide table, use `show schema records`. A page contains up to 200 columns;
+follow `next_offset` with `show schema records from 200`. Names are exact
+strings, including spaces. A 20,000-character page budget may reduce the count;
+individual names are never split. Missing, failed, and stale results report
+their status rather than an old schema.
 
-For workbook discovery, batch `scan(files=..., preview=1)`, execute, then inspect
-`target:"source"` in one call. Source inspection has the same pagination
-parameters and labels known-only sheet lists and clipped/missing raw rows.
-Raw rows are layout hints, not parsed schemas. Execute a normal scan of the
-selected sheet, then inspect its schema for exact names and types.
+For workbook discovery, run `scan(files=..., preview=1)` and `show result`: the
+receipt lists the workbook's sheet names, and `scan(..., sheet='name')` reads
+one. Raw preview rows are layout hints, not parsed schemas.
 
 ## Execution measurements
 
@@ -371,7 +308,7 @@ benchmark stacks rely on the bubblewrap sandbox instead of that scan.
 
 Validation includes parser/binding and namespace-isolation tests, atomic edit and
 snapshot tests, mixed-success retrieval, documentation-only cache preservation,
-valid tool envelopes and text turns for all single-view/evidence configurations,
+valid tool calls for all single-view/evidence configurations,
 and generated-reference drift checks. Synthetic example edits also compile and
 run through the isolated local Python operator wrapper: grouping, filter repair,
 numeric parsing failure/replacement, and two-table calculations with settings.

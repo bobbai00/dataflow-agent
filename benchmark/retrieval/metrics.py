@@ -92,6 +92,14 @@ def retrieval_results(item):
     return [{**output, "operator_id": action.get("operator_id"), "status": item.get("status")}]
 
 
+def final_reply(steps):
+    """The answer: the last agent step ends the task with text and no tool call."""
+    agents = [step for step in steps if step.get("role") == "agent"]
+    final = agents[-1] if agents else None
+    return bool(final and final.get("isEnd") and not final.get("toolCalls") and final.get("content")
+                and not str(final["content"]).startswith("Error:"))
+
+
 def tool_error_counts(result):
     """Count failed calls, including validation failures before any action runs."""
     output = result.get("output")

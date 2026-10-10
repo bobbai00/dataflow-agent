@@ -18,8 +18,8 @@
  */
 
 /**
- * The receipt of a text turn: one Markdown message, one section per
- * statement, in turn order.
+ * The receipt of a `dataflow` call: one Markdown message, one section per
+ * statement, in the order written.
  *
  *   ## edits applied            (or ## edits rejected, with the line)
  *   ## execute a, b             executed operators with their evidence
@@ -27,17 +27,60 @@
  *                               shape, records (full or sample), statistics
  *   ## show schema | operator | function | builtin
  *
- * The underlying action outputs are the ones the JSON tool produces; this
- * renderer only groups them by statement.
+ * The underlying action outputs come from tools/dataflow-action-runtime.ts;
+ * this renderer groups them by statement.
  */
 import type { DataflowActionsResult } from "../tools/dataflow-actions";
 import type { GraphChangeReceipt } from "../tools/graph-edits";
-import { issueText } from "./action-observations";
+import { nativeDiagnosticIssue, parseNativeDiagnostic } from "./diagnostics";
 import { FlowReceiptMemo } from "./evidence-compaction";
-import type { OperatorBlock } from "./observation-format";
+import { operatorBlock, type OperatorBlock } from "./observation-format";
 import type { TurnReceiptInfo, TurnStatement } from "./turn-syntax";
 
 type ActionItem = DataflowActionsResult["actions"][number];
+
+/** A fallback for validation and pre-execution errors. Structured native
+ * diagnostics are rendered by the owner before entering this function. */
+export function issueText(message: string, fallback = "ACTION_FAILED"): string {
+  const diagnostic = parseNativeDiagnostic(message);
+  if (diagnostic) return nativeDiagnosticIssue(diagnostic);
+  if (message.startsWith("- error ") || message.startsWith("- not run:")) return message;
+  const code =
+    /\b(?:MISSING_COLUMN|INVALID_ARGUMENTS|PYTHON_SYNTAX|EXECUTION_TIMEOUT|EDIT_REJECTED|UNKNOWN_OPERATOR|UNKNOWN_COLUMN|UNKNOWN_TARGET|UNCONNECTED_INPUTS|RESULT_STALE|RESULT_NOT_RUN|RESULT_FAILED|EMPTY_DATAFLOW)\b/.exec(
+      message
+    )?.[0] ??
+    (/does not exist|no table `/.test(message)
+      ? "UNKNOWN_OPERATOR"
+      : /Unconnected required/.test(message)
+        ? "UNCONNECTED_INPUTS"
+        : /dataflow is empty/.test(message)
+          ? "EMPTY_DATAFLOW"
+          : /Unknown or disabled execution/.test(message)
+            ? "UNKNOWN_TARGET"
+            : fallback);
+  const [first, ...rest] = message
+    .replace(/^\[ERROR\]\s*/, "")
+    .replace(/\[([A-Z_]+);[^\]]+\]/g, "$1")
+    .replace(/^Diagnostic:.*\n?/gm, "")
+    .replace(new RegExp(`^${code}:\\s*`), "")
+    .trim()
+    .split("\n");
+  // Continuation lines (a nested diagnostic, a hint) become sub-items.
+  return [
+    `- error ${code}: ${first}`,
+    ...rest
+      .filter(line => line.trim())
+      .map(line => {
+        const text = line.trim();
+        if (text.startsWith("- ")) return `  ${text}`;
+        const hint = /^Hint:\s*(.*)$/.exec(text);
+        if (hint) return `  - fix: ${hint[1]}`;
+        const field = /^Field:\s*(.*)$/.exec(text);
+        if (field) return `  - at: ${field[1]}`;
+        return `  - ${text}`;
+      }),
+  ].join("\n");
+}
 
 function inputsOf(block: OperatorBlock): string {
   const inputs = (block.inputs ?? []).map(input => input.id).filter(id => id && id !== "unconnected");
@@ -54,11 +97,17 @@ function blockIssues(block: OperatorBlock, memo: FlowReceiptMemo): string[] {
   ];
 }
 
+/** A scan's own facts: workbook sheet names and preview budgets. Ancestry
+ * facts of other operators repeat the shapes the receipt already lists. */
+function scanScope(block: OperatorBlock): string[] {
+  return block.kind === "scan" ? (block.scope ?? []).filter(line => !line.startsWith("Further input")) : [];
+}
+
 /** `- id (kind of inputs): result`, then the operator's measured lines. */
 function operatorLine(block: OperatorBlock, memo: FlowReceiptMemo): string[] {
   const state = block.state === "failed" ? "failed" : block.state === "not run" ? "not run" : undefined;
   const head = `- ${block.id} (${block.kind}${inputsOf(block)}): ${state ?? block.result ?? "no result"}`;
-  const issues = blockIssues(block, memo).map(line =>
+  const issues = [...scanScope(block), ...blockIssues(block, memo)].map(line =>
     line.startsWith("  ") ? line : `  ${line.startsWith("- ") ? line : `- ${line}`}`
   );
   return [head, ...issues];
@@ -108,7 +157,13 @@ function executionLines(
     return lines;
   }
   const names = (list: OperatorBlock[]) => list.map(block => block.id).join(", ");
-  const parts = [executed.length ? `executed: ${names(executed)}` : "executed: nothing (results were current)"];
+  const parts = [
+    executed.length
+      ? `executed: ${names(executed)}`
+      : item.status === "ok"
+        ? "executed: nothing (results were current)"
+        : "executed: nothing",
+  ];
   if (failed.length) parts.push(`failed: ${names(failed)}`);
   lines.push(parts.join("; "));
   const listed = upstreamOnly ? executed.filter(block => !targets.includes(block.id)) : executed;
@@ -134,7 +189,7 @@ function editLines(item: ActionItem): string[] {
     return [
       "## edits rejected",
       issueText(message, "EDIT_REJECTED").replace(/^- error EDIT_REJECTED: /, ""),
-      "No edit applied; resend the corrected turn.",
+      "No edit applied; resend the corrected call.",
     ];
   }
   const lines = ["## edits applied"];
@@ -165,8 +220,10 @@ function lookupLines(item: ActionItem, statement: TurnStatement): string[] {
       title,
       issueText(String(typeof output === "string" ? output : (output?.error ?? "Lookup failed.")), "ACTION_FAILED"),
     ];
-  const text = typeof output?.text === "string" ? output.text : undefined;
-  return [title, text ?? "No retained metadata."];
+  if (typeof output?.text === "string") return [title, output.text];
+  // `show operator` returns the operator's block rather than text.
+  const blocks = Array.isArray(output?.operator_blocks) ? (output.operator_blocks as OperatorBlock[]) : [];
+  return blocks.length ? [title, ...blocks.map(operatorBlock)] : [title, "No retained metadata."];
 }
 
 function resultLines(item: ActionItem | undefined, memo: FlowReceiptMemo, execution?: ActionItem): string[] {
@@ -203,38 +260,34 @@ function resultLines(item: ActionItem | undefined, memo: FlowReceiptMemo, execut
       : `result ${entry.operator_id}`;
     lines.push(head);
     const executed = targetBlocks.get(entry.operator_id);
-    const issues = [...(executed ? blockIssues(executed, memo) : []), ...(block ? blockIssues(block, memo) : [])];
+    const issues = [
+      ...(block ? scanScope(block) : []),
+      ...(executed ? blockIssues(executed, memo) : []),
+      ...(block ? blockIssues(block, memo) : []),
+    ];
     for (const issue of new Set(issues)) lines.push(issue.startsWith("- ") ? issue : `- ${issue}`);
     const text = entry.observation
       ? memo.render(entry.observation, entry.operator_id, `\`${entry.operator_id}\` above`)
       : entry.text;
     if (typeof text === "string" && text) lines.push(text);
-    if (entry.superseded_in_call) lines.push("note: this result was superseded later in the turn.");
+    if (entry.superseded_in_call) lines.push("note: this result was superseded later in the call.");
   }
   return lines;
 }
 
-/** Render the receipt of a text turn from the executed action list. */
+/** Render the receipt of a `dataflow` call from the executed action list. */
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {
   const sections: string[] = [];
   const flowMemo = new FlowReceiptMemo();
-  if (turn?.missingSummary)
-    sections.push(
-      turn.fields
-        ? "note: the summary field was empty; state the population, definitions and formula the call assumes."
-        : "note: start each turn with a summary: line."
-    );
-  if (turn?.wroteReceipt)
-    sections.push(
-      "note: the text after your statements read like a receipt and was dropped; the receipt is this message, from the engine."
-    );
   if (turn?.ignoredProse?.length)
     sections.push(
-      `note: line${turn.ignoredProse.length > 1 ? "s" : ""} ${turn.ignoredProse.join(", ")} ${turn.ignoredProse.length > 1 ? "are" : "is"} not statements and were ignored; a turn holds statements only.`
+      turn.ignoredProse.length > 1
+        ? `note: lines ${turn.ignoredProse.join(", ")} of statements are not statements and were ignored.`
+        : `note: line ${turn.ignoredProse[0]} of statements is not a statement and was ignored.`
     );
   if (!result.actions.length) {
     const message = String(result.error ?? "No actions ran.").replace(/\s*No actions ran\.$/, "");
-    return [...sections, "## turn rejected", message].join("\n");
+    return [...sections, "## call rejected", message].join("\n");
   }
   const byIndex = new Map(result.actions.map(item => [item.index, item]));
   const statements = turn?.statements ?? [];
@@ -250,7 +303,6 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnRece
     for (const item of items) covered.add(item.index);
     if (!items.length) continue;
     const title = `## ${statement.text}`;
-    if (statement.kind === "answer") continue;
     if (items.every(item => item.status === "skipped")) {
       sections.push(`${title}: not run (an earlier statement failed)`);
       continue;
@@ -278,9 +330,9 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnRece
       lines.splice(1, 0, ...executed.filter(line => line !== "executed: nothing (results were current)"));
     sections.push(lines.join("\n"));
   }
-  // Actions without a statement (a receipt rendered for a JSON-tool call).
+  // Actions without a statement (a result recorded without its turn).
   for (const item of result.actions) {
-    if (covered.has(item.index) || item.action.type === "answer") continue;
+    if (covered.has(item.index)) continue;
     const statement: TurnStatement = {
       line: 0,
       text: `${item.action.type}`,
@@ -293,15 +345,5 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnRece
       sections.push([`## show result`, ...resultLines(item, flowMemo)].join("\n"));
     else sections.push(lookupLines(item, statement).join("\n"));
   }
-  const answer = result.actions.find(item => item.action.type === "answer");
-  if (answer)
-    sections.push(
-      answer.status === "ok"
-        ? "answer recorded"
-        : [
-            "## answer",
-            issueText(String((answer.output as any)?.error ?? answer.output ?? "Answer refused."), "ANSWER_REFUSED"),
-          ].join("\n")
-    );
   return sections.join("\n\n");
 }

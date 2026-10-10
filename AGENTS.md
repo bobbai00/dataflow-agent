@@ -27,20 +27,21 @@ building, executing, and iterating on Texera dataflow operators. The fork adds
 three things on top of the upstream platform:
 
 1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
-   two modes — **native** (default: the model edits a graph with
-   `set id: type(inputs, settings)` and `delete id` declarations over thirteen
-   built-ins and registered Python table functions; see
+   two modes — **native** (default: one `dataflow(python, statements)` tool;
+   the model edits a graph with `set id: type(inputs, settings)` and
+   `delete id` statements over thirteen built-ins and registered Python table
+   functions, then runs and reads it with `execute` and `show`; see
    [docs/native-registered-python-design.md](docs/native-registered-python-design.md)) and
    **code** (every operator a free Python function) — plus a heavily
    instrumented context-assembly layer (DELTA/LATEST modes, sampling budgets,
-   evidence, turn indexing — every knob is a runtime setting).
+   evidence — every knob is a runtime setting).
 2. **Engine extensions in `amber/`** — result/column-stats telemetry, UDF
    error reporting that points at user code, operator port-result caching,
    dynamic output schemas: the engine-side features the agent's context
    depends on.
-3. **`benchmark/`** — the evaluation harnesses: KramaBench (single-question
-   tasks over domain data lakes, as a git submodule) and LongDS-Bench
-   (long-horizon multi-turn analysis, in-repo).
+3. **`benchmark/`** — the evaluation harness: KramaBench (single-question
+   tasks over domain data lakes, as a git submodule) and the native campaign
+   runner in `benchmark/retrieval`.
 
 The active branch is **`stable`**. Historical planning documents from earlier
 research phases live in [`docs/archived/`](docs/archived/) — **everything in
@@ -137,15 +138,18 @@ REST surface on `:3001` under `/api/agents` — full curl walkthrough in
 | control | `POST /:id/stop` · `/:id/clear` · `/:id/checkout` · `DELETE /:id` |
 | stream | `WS /:id/react` — per-step frames (what the frontend uses) |
 
-Multi-turn sessions: keep POSTing `/message` to the same agent — operators,
-results, and history carry (LongDS-Bench drives it exactly this way).
+Later messages to the same agent continue on the same dataflow: operators,
+results, and history carry over.
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
-Tools per mode: native exposes one tool, `dataflow(reasoning, actions)`;
-code exposes `createOrModifyOperator` and `deleteOperator`. `recallState`,
-`resumeFrom` and `compactContext` are opt-in in either mode.
-The rendered native system prompt, tool definitions and operator reference
+Tools per mode: native exposes one tool, `dataflow(python, statements)`.
+`python` holds definitions; `statements` holds `set`, `delete`, `execute` and
+`show` lines, one per line. The model answers by replying without the tool
+once `show result` has displayed what the answer rests on; tool choice is
+never forced, so models can think before calling. Code exposes
+`createOrModifyOperator` and `deleteOperator`.
+The rendered native system prompt, tool definition and operator reference
 live in [native-mode/](native-mode/), generated from the code by
 `bun run render:native-reference` (a test fails when they drift).
 
@@ -159,11 +163,10 @@ commands; `code` is the other mode), **`contextMode: delta`**,
 exposure; `flowEvidence` independently adds flow metadata. Collection is
 compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
-(K=10). Native mode forces provider parallel tool calls off (the action list is
-the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
-"index"` all off). Optional recall, resume, and compaction tools are off;
-graph inspection is built into `dataflow`. See [README.md §2](README.md) for
-the full table.
+(K=10). Native mode forces provider parallel tool calls off (one call carries
+the whole step). Graph inspection is built into `dataflow` (`show operator`,
+`show function`, `show builtin`, `show schema`). See [README.md §2](README.md)
+for the full table.
 
 Measured `filter(t, predicate="name", settings={})` calls a registered predicate
 with a read-only row mapping and keyword settings. Boolean/null verdicts keep or
@@ -172,13 +175,14 @@ order and collects bounded rejected-value frequencies. General table functions
 do not acquire filter/join/cast semantics automatically. Python edits invalidate
 both custom table operators and measured filters plus their descendants.
 
-`inspect target="schema"` reads exact column names/types from current completed
-results; `target="source"` reads retained scan/workbook discovery metadata.
-Both accept `operator_id` and optional `offset`/`limit` pages (limit 1–200), return
-`next_offset`, and never execute or open files. Use scan preview=1, execute, then
-source inspection for workbook layout; parsed schema requires a normal scan.
+`show schema <id> [from <index>]` pages exact column names/types of the
+current result (computing it first if needed) and returns `next_offset`. A
+scanned workbook's receipt lists its sheet names; `scan(..., sheet='name')`
+reads one.
 
-Native Retrieve requires `operator_ids` and a `view`: `full`, `sample`, or `sample_stats`. Session
+`show result <id>, ...[<col>, ...] [view]` computes what is stale and displays
+each result in `full`, `sample`, or `sample_stats`; omitting the view selects
+the session default. Session
 `retrievalViews` controls the available choices independently of `dataEvidence`.
 Both omitted views and current default settings select `["sample_stats", "full"]`;
 explicitly select `["sample", "full"]` to disable native data statistics.
@@ -192,31 +196,30 @@ bounded result for every arm; switching views never executes. See
 [docs/retrieval-views.md](docs/retrieval-views.md).
 
 Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
-`allowedOperatorTypes`, and the old level/statistics overlays) produce an
-error, not a compatibility mapping. Schema and samples fill one result budget;
-each enabled evidence kind appends within its own budget, so evidence never
-displaces rows; a complete small table suppresses redundant data facts.
-`dataflowReasoning` is retained for archived settings and normalized to true
-in native mode. Every call requires a brief rationale and an ordered list of
-`inspect`, `edit`, `execute`, `retrieve`, or `answer` actions. Edits do not
-execute; retrieval never executes; Answer must be the sole action and ends
-the loop. Each Edit atomically stages Python definitions and graph declarations;
-it never executes. Functions share authored definitions, while every operator
-invocation has fresh execution variables. A failed edit skips later actions while earlier completed edits remain. After
-an execution failure, subsequent requested executions and inspect/retrieve may continue. Edits are skipped;
-a skipped edit also blocks later executions from silently using the old graph.
-`inspectResult` is never exposed. See
+`allowedOperatorTypes`, the old level/statistics overlays, and the protocol
+and multi-task settings removed with the JSON action tool and the text
+transport, such as `nativeTransport`, `dataflowReasoning`, `multiTask` and
+`stateHistory`) produce an error, not a compatibility mapping. Schema and
+samples fill one result budget; each enabled evidence kind appends within its
+own budget, so evidence never displaces rows; a complete small table
+suppresses redundant data facts. Definitions in `python` register before any
+statement runs, and a call's `set` and `delete` lines apply together or not at
+all; a rejected line skips the rest of the call. Then `execute` and `show`
+lines run in order; after a failed execution, later `show` lines still read
+the results that completed. Functions share authored definitions, while every
+operator invocation has fresh execution variables. `inspectResult` is never
+exposed. See
 [docs/native-registered-python-design.md](docs/native-registered-python-design.md) and
 [docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark
 arms must run their recorded revisions; do not reinterpret old labels.
 
 Benchmark arms override these per experiment (`Kramabench/systems/dataflow_system.py`,
-`benchmark/longds/arms.py`), so an arm's configuration and the service default
+`benchmark/retrieval/run.py`), so an arm's configuration and the service default
 are independent — read the arm, not the default, when interpreting a result.
 
 ## 5. Benchmarking
 
-One driver for both benchmarks, run from the repo root
+One driver, run from the repo root
 ([benchmark/README.md](benchmark/README.md) for details):
 
 ```bash
@@ -243,20 +246,10 @@ results are kept; campaign reports with the numbers live in
 `mini_star/FINAL_REPORT.md` (gpt-5-mini vs gpt-5.2 knob star), and
 `mini_star/GPT56_CAMPAIGN_REPORT.md`.
 
-**LongDS-Bench** (agent benchmark — 68 tasks / 2,225 turns of multi-turn
-analysis where turn N+1 depends on state built in 1..N; `benchmark/longds`,
-part of this repo):
-
-```bash
-bin/bench.sh longds download --task sports/nfl_big_data_bowl_2023/task1
-bin/bench.sh longds prepare  --task sports/nfl_big_data_bowl_2023/task1
-bin/bench.sh longds run      --task sports__nfl_big_data_bowl_2023__task1 --arm haiku-delta-1k
-bin/bench.sh longds judge    --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
-```
-
-Arms live in `benchmark/longds/arms.py`. Run artifacts (per-turn prompt,
-response, ReAct trace, workflow JSON, cost) land under each harness's
-`system_scratch/<SUT>/<task>/`.
+Run artifacts (per-task prompt, response, ReAct trace, workflow JSON, cost)
+land under `benchmark/Kramabench/system_scratch/<SUT>/<task>/`. Native
+campaigns (tasks × models × evidence settings) run through
+`bin/bench.sh retrieval run`; see [benchmark/retrieval](benchmark/retrieval).
 
 ## 6. Agent-service e2e suites
 
@@ -280,7 +273,6 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 |---|---|
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | LiteLLM container — only the providers you call |
 | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` | optional: swap the local proxy for an external OpenAI-compatible gateway |
-| `JUDGE_BASE_URL`, `JUDGE_API_KEY` | optional: LongDS judge endpoint (defaults to the local proxy) |
 | `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-5-mini directly — a dummy key silently zeroes paraphrase metrics |
 | `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
 
@@ -321,7 +313,7 @@ output, logs are all gitignored — keep it that way.
 |---|---|
 | Quick start, agent REST API | [README.md](README.md) |
 | Stack launcher deep dive + troubleshooting | [docs/local-dev-with-agent.md](docs/local-dev-with-agent.md) |
-| Benchmarks (setup, running, scoring) | [benchmark/README.md](benchmark/README.md), [benchmark/longds/README.md](benchmark/longds/README.md) |
+| Benchmarks (setup, running, scoring) | [benchmark/README.md](benchmark/README.md) |
 | KramaBench result reports | `benchmark/Kramabench/judgment_runs/` |
 | LiteLLM model list | [bin/litellm-config.yaml](bin/litellm-config.yaml), [bin/single-node/litellm-config.yaml](bin/single-node/litellm-config.yaml) |
 | Contribution / PR / lint / format | [CONTRIBUTING.md](CONTRIBUTING.md) |

@@ -943,30 +943,6 @@ export function nativeOperatorName(type: string): string {
   return NATIVE_BY_TYPE.get(type)?.name ?? type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
-/** The operator reference for the system prompt: signature + contract, one block per operator. */
-export function nativeCatalogText(compact = false): string {
-  return NATIVE_OPERATORS.map(
-    d => `${d.inputs === 0 ? "T" : "T2"} = ${d.signature}\n    ${compact ? d.brief : d.doc}`
-  ).join("\n\n");
-}
-
-/** The prompt's operator reference: each signature (input tables first) and its contract. */
-export function catalogText(names?: readonly string[]): string {
-  const selected = names
-    ? names.map(name => {
-        const def = NATIVE_BY_NAME.get(name);
-        if (!def) throw new Error(`Unknown operator: ${name}`);
-        return def;
-      })
-    : NATIVE_OPERATORS;
-  return selected.map(def => `${def.signature}\n    ${def.brief}`).join("\n\n");
-}
-
-/** Signatures stay visible when contracts are retrieved on demand. */
-export function catalogIndexText(): string {
-  return NATIVE_OPERATORS.map(def => def.signature).join("\n");
-}
-
 /** A definition as the model writes it, `id = operator(inputs, ...)`, with its
  * current inputs; an unconnected input shows as `?`. Stored sources omit the
  * inputs because edges own them. */

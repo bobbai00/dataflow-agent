@@ -15,9 +15,10 @@
  * under the License.
  */
 
-/** Deterministic registered-Python protocol probe through the live agent and
- * Amber engine. No model request is made. Run from agent-service:
- * bun benchmark/e2e/registered-python-run.ts
+/** Live check that a registered loader may read a file with open(). The
+ * engine's static UDF scan rejects open() unless UDF_PYTHON_ALLOW_FILE_IO=true.
+ * No model request is made. Run from agent-service:
+ * bun benchmark/e2e/file-io-probe.ts
  * Requires bin/local-dev.sh services from this checkout. Artifacts go to /tmp.
  */
 import { strict as assert } from "node:assert";
@@ -28,23 +29,20 @@ import { createAgent, deleteAgent, getReActSteps, getSnapshot } from "../../src/
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { env } from "../../src/config/env";
 import { WorkflowState } from "../../src/agent/workflow-state";
-import {
-  renderDataflowActionsResult,
-  type DataflowAction,
-  type DataflowActionsResult,
-} from "../../src/agent/tools/dataflow-actions";
+import type { RetrievalView } from "../../src/types/agent";
+import { renderDataflowActionsResult, type DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
 import { assertNativeCleanupSafe } from "./native-cleanup";
+import { dataflowDebugInput } from "./native-debug-input";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3001";
-const directory = mkdtempSync(join(tmpdir(), "registered-python-live-"));
+const directory = mkdtempSync(join(tmpdir(), "file-io-probe-"));
 const save = (name: string, value: unknown) =>
   writeFileSync(join(directory, name), JSON.stringify(value, null, 2) + "\n");
 const log = (message: string) => console.log(`[file-io-probe] ${message}`);
-const checks: Array<{ name: string; newExecutions: number }> = [];
+const views: RetrievalView[] = ["full", "sample_stats"];
 let token: string;
 let cuid: number | undefined;
 let resource: { agentId: string; wid: number; cuid: number } | undefined;
-let probe = 0;
 
 async function json(url: string, authenticated = false): Promise<any> {
   const response = await fetch(url, authenticated ? { headers: { Authorization: `Bearer ${token}` } } : {});
@@ -53,7 +51,8 @@ async function json(url: string, authenticated = false): Promise<any> {
 }
 const history = () => json(`${env.TEXERA_DASHBOARD_SERVICE_ENDPOINT}/api/executions/${resource!.wid}`, true);
 
-async function debug(actions: DataflowAction[]): Promise<string> {
+async function debug(python: string, statements: string): Promise<string> {
+  const content = dataflowDebugInput(python, statements, views);
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${resource!.agentId}/react`);
     let sent = false,
@@ -67,20 +66,14 @@ async function debug(actions: DataflowAction[]): Promise<string> {
       reject(new Error(message));
     };
     const timer = setTimeout(
-      () => fail("Debug action timed out; resources require terminal-state checks before cleanup."),
+      () => fail("Debug call timed out; resources require terminal-state checks before cleanup."),
       240_000
     );
     ws.onmessage = event => {
       const frame = JSON.parse(String(event.data));
       if (frame.type === "init" && !sent) {
         sent = true;
-        const args = { reasoning: "Verify registered Python execution and observations.", actions };
-        ws.send(
-          JSON.stringify({
-            type: "debug",
-            content: `Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify(args))})`,
-          })
-        );
+        ws.send(JSON.stringify({ type: "debug", content }));
       } else if (frame.type === "complete" || frame.type === "error") completed = true;
       else if (frame.type === "nextContext" && completed) {
         settled = true;
@@ -96,71 +89,22 @@ async function debug(actions: DataflowAction[]): Promise<string> {
   });
 }
 
-const edit = (python: string, changes = ""): DataflowAction => ({ type: "edit", python, changes });
-const retrieve = (operator_ids: string[]): DataflowAction => ({ type: "retrieve", operator_ids, view: "full" });
-const execute = (operator_ids: string[]): DataflowAction => ({ type: "execute", operator_ids });
-
-async function run(name: string, actions: DataflowAction[], statuses: string[], computes: boolean) {
-  const before = await history();
-  const context = await debug(actions);
-  const trace = await getReActSteps(resource!.agentId, baseUrl);
-  const result = trace.steps.flatMap(step => step.toolResults ?? []).at(-1)?.output as DataflowActionsResult;
-  const snapshot = await getSnapshot(resource!.agentId, "head", baseUrl);
-  const after = await history();
-  const newExecutions = after.length - before.length;
-  const index = ++probe;
-  save(`probe-${index}.json`, { name, actions, result, snapshot, before, after });
-  writeFileSync(join(directory, `probe-${index}-observations.md`), renderDataflowActionsResult(result));
-  writeFileSync(join(directory, `probe-${index}-context.txt`), context);
-  assert.equal(
-    result.protocol,
-    "registered-python-v1",
-    "The live service must run this checkout's registered protocol."
-  );
-  assert.deepEqual(
-    result.actions.map(action => action.status),
-    statuses,
-    name
-  );
-  assert.ok(
-    computes ? newExecutions > 0 : newExecutions === 0,
-    `${name}: unexpected backend execution count ${newExecutions}`
-  );
-  checks.push({ name, newExecutions });
-  log(`PASS ${name}: ${newExecutions} backend executions`);
-  return { result, snapshot };
-}
-const rows = (snapshot: Awaited<ReturnType<typeof getSnapshot>>, id: string): Array<Record<string, any>> =>
-  (snapshot.results[id] as any)?.sampleRecords ?? [];
-
-const definitions = `import pandas as pd
-COUNTER = 0
-def _adjust(value):
-    return value + 1
-def load_values(*, start=1):
-    """Create two synthetic records with a per-invocation counter."""
-    global COUNTER
-    COUNTER += 1
-    return pd.DataFrame({'id': [1, 2], 'value': [start, start + 1], 'invocations': [COUNTER, COUNTER]})
-def scale_values(table, *, factor=1):
-    """Adjust and scale values without changing input rows."""
-    result = table.copy()
-    result['value'] = result['value'].apply(_adjust) * factor
-    return result
-def combine_values(left, right, *, multiplier=1):
-    """Combine the value sums of two input tables."""
-    return pd.DataFrame({'value': [(left['value'].sum() + right['value'].sum()) * multiplier]})
+const loaders = `import pandas as pd
+def load_with_open(*, path):
+    """Read a CSV through the builtin open()."""
+    with open(path, encoding='utf-8') as source:
+        return pd.read_csv(source)
 `;
 
 try {
   log(`Artifacts: ${directory}`);
   token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
-  const unit = await createComputingUnit(token, `registered-python-${Date.now()}`, {
+  const unit = await createComputingUnit(token, `file-io-probe-${Date.now()}`, {
     unitType: "local",
     uri: process.env.TEXERA_LOCAL_CU_URI ?? env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
   });
   cuid = unit.computingUnit.cuid;
-  const wid = await createWorkflow(token, `registered-python-${Date.now()}`, new WorkflowState().getWorkflowContent());
+  const wid = await createWorkflow(token, `file-io-probe-${Date.now()}`, new WorkflowState().getWorkflowContent());
   resource = { agentId: "", wid, cuid };
   const agent = await createAgent({
     baseUrl,
@@ -172,7 +116,7 @@ try {
       agentMode: "native",
       contextMode: "delta",
       messageLayout: "native",
-      retrievalViews: ["full", "sample_stats"],
+      retrievalViews: views,
       nativeProfileCollection: true,
       dataEvidence: true,
       flowEvidence: true,
@@ -181,28 +125,32 @@ try {
   });
   resource.agentId = agent.id;
   save("resource.json", resource);
-  save("system-info.json", await json(`${baseUrl}/api/agents/${agent.id}/system-info`));
   const sourcePath = join(directory, "records.csv");
   writeFileSync(sourcePath, "id,value\n1,10\n2,20\n");
 
-  const loaders = `import pandas as pd
-def load_with_open(*, path):
-    """Read a CSV through the builtin open(); the engine's static UDF scan rejects this unless UDF_PYTHON_ALLOW_FILE_IO=true."""
-    with open(path, encoding='utf-8') as source:
-        return pd.read_csv(source)
-`;
-  const fileIo = await run(
-    "a registered loader may call open()",
-    [edit(loaders, `set rows: load_with_open(path=${JSON.stringify(sourcePath)})`), execute(["rows"]), retrieve(["rows"])],
-    ["ok", "ok", "ok"],
-    true
+  const before = await history();
+  const context = await debug(
+    loaders,
+    `set rows: load_with_open(path=${JSON.stringify(sourcePath)})\nshow result rows full`
   );
-  assert.equal(rows(fileIo.snapshot, "rows").length, 2, "the loader read both records through open()");
-  save("trace.json", (await getReActSteps(agent.id, baseUrl)).steps);
-  save("summary.json", { passed: true, checks });
-  log(`All checks passed. Artifacts: ${directory}`);
+  const trace = await getReActSteps(agent.id, baseUrl);
+  const result = trace.steps.flatMap(step => step.toolResults ?? []).at(-1)?.output as DataflowActionsResult;
+  const snapshot = await getSnapshot(agent.id, "head", baseUrl);
+  save("probe.json", { result, snapshot, before, after: await history() });
+  writeFileSync(join(directory, "probe-receipt.md"), renderDataflowActionsResult(result));
+  writeFileSync(join(directory, "probe-context.txt"), context);
+  assert.equal(result.protocol, "registered-python-v1", "The live service must run this checkout's protocol.");
+  assert.deepEqual(
+    result.actions.map(action => action.status),
+    ["ok", "ok", "ok"],
+    renderDataflowActionsResult(result)
+  );
+  assert.equal(((snapshot.results.rows as any)?.sampleRecords ?? []).length, 2, "the loader read both records");
+  save("trace.json", trace.steps);
+  save("summary.json", { passed: true });
+  log(`PASS a registered loader may call open(). Artifacts: ${directory}`);
 } catch (error) {
-  save("summary.json", { passed: false, checks, error: error instanceof Error ? error.message : String(error) });
+  save("summary.json", { passed: false, error: error instanceof Error ? error.message : String(error) });
   throw error;
 } finally {
   let safe = true;

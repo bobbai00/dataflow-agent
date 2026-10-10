@@ -43,14 +43,9 @@ export interface VercelToolUseDriverOptions {
   temperature?: number;
   maxOutputTokens?: number;
   maxRetries?: number;
-  /** `turn`: the dataflow tool takes a turn of statements (tools/turn-tool.ts),
-   *  tool choice stays `auto` so extended reasoning remains available, and a
-   *  reply without a tool call is the final answer once a result was shown. */
-  transport?: "tool" | "turn";
 }
 
 export class VercelToolUseDriver implements LLMDriver {
-  readonly nativeTransport: "tool" | "turn";
   private readonly model: LanguageModel;
   private readonly temperature: number;
   private readonly requestLimits: Pick<VercelToolUseDriverOptions, "maxOutputTokens" | "maxRetries">;
@@ -59,17 +54,9 @@ export class VercelToolUseDriver implements LLMDriver {
     this.model = opts.model;
     this.temperature = opts.temperature ?? 0.2;
     this.requestLimits = { maxOutputTokens: opts.maxOutputTokens, maxRetries: opts.maxRetries };
-    this.nativeTransport = opts.transport ?? "tool";
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
-    // Sonnet 5.5 rejects forced tool use. The native Answer contract is still
-    // enforced below, including the bounded correction for a text-only reply.
-    // The turn transport never forces a call: its answer is a plain reply.
-    const modelId = typeof this.model === "string" ? this.model : this.model.modelId;
-    const supportsForcedTools =
-      this.nativeTransport !== "turn" &&
-      !["claude-sonnet-5.5", "claude-sonnet-5-5"].includes(modelId.split("/").at(-1)!);
     // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
@@ -81,8 +68,10 @@ export class VercelToolUseDriver implements LLMDriver {
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
-      toolChoice: input.requireToolCall && supportsForcedTools ? "required" : "auto",
+      stopWhen: stepCountIs(input.maxSteps),
+      // Never forced: a native answer is a reply without a tool call, and a
+      // forced call would also rule out the model's extended reasoning.
+      toolChoice: "auto",
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -160,7 +149,7 @@ export class VercelToolUseDriver implements LLMDriver {
       cacheCreationInputTokens: cacheCreationTotal,
     };
     const completed: DriverRunTurnResult = {
-      text: input.getFinalAnswer?.() ?? result.text,
+      text: result.text,
       messages: result.response.messages.map(message =>
         message.role !== "tool"
           ? message
@@ -181,11 +170,11 @@ export class VercelToolUseDriver implements LLMDriver {
       ),
       usage,
     };
-    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
+    if (input.requireShownResult) {
       const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
-      // The turn transport answers by replying without a tool call; before a
-      // result has been shown that reply is a lapse, corrected by the agent.
-      if (this.nativeTransport === "turn" && textOnly && result.text.trim() && input.resultShown?.()) return completed;
+      // The answer is a reply without a tool call once a result was shown;
+      // before that the reply computed nothing, and the agent corrects it.
+      if (textOnly && result.text.trim() && input.resultShown?.()) return completed;
       throw new MissingAnswerActionError(completed, textOnly && result.steps.length < input.maxSteps);
     }
     return completed;

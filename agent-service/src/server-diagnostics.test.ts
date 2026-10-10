@@ -21,7 +21,6 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { buildApp, _resetAgentStoreForTests } from "./server";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
-import { createNativeTools } from "./agent/tools/native-batch-tools";
 import { TexeraAgent } from "./agent/texera-agent";
 
 const app = buildApp(),
@@ -128,18 +127,19 @@ test("diagnostic endpoint fails closed on missing credentials, forged signatures
 
 test("authorized diagnostic inspection is pinned, bounded and read-only; ordinary snapshots omit private records", async () => {
   const id = await create();
-  // Archived assignment-based traces retain revision-pinned attempt diagnostics.
-  const legacy = createdAgent as any;
-  legacy.tools = createNativeTools(legacy.workflowState, {
-    metadataStore: legacy.metadataStore,
-    settings: legacy.settings,
-  });
-  const args = {
-    edits: 'def load_answer(*ORIGINAL_FAILURE):\n    return None\nanswer = process(fn=load_answer, doc="probe")',
-  };
+  const args = { python: "", statements: "set answer: scan(files='data/answer.csv')" };
   await createdAgent.handleDebugInput(`Function(name='dataflow', arguments=${JSON.stringify(JSON.stringify(args))})`);
-  const step = createdAgent.getAllSteps().find(item => item.id === createdAgent.getHead())!;
-  expect((step.toolResults![0].output as any).operators[0].message).toContain("CALLBACK_SIGNATURE");
+  const head = createdAgent.getHead()!;
+  const step = createdAgent.getAllSteps().find(item => item.id === head)!;
+  expect((step.toolResults![0].output as any).actions.map((item: any) => item.status)).toEqual(["ok"]);
+  // An execution failure of the operator is recorded as a pinned diagnostic.
+  createdAgent.getSnapshotStorage().setOperatorResult(head, "answer", {
+    state: "Failed",
+    inputTuples: 0,
+    outputTuples: 0,
+    resultMode: "table",
+    error: "ORIGINAL_FAILURE: the source could not be parsed",
+  });
   requests = [];
   const response = await post(`/${id}/inspect-error`, { operatorId: "answer" }, token());
   expect(response.status).toBe(200);
@@ -147,7 +147,7 @@ test("authorized diagnostic inspection is pinned, bounded and read-only; ordinar
   expect(body.found).toBe(true);
   expect(body.text).toContain("ORIGINAL_FAILURE");
   expect(body.text.length).toBeLessThan(4500);
-  expect(body.summary.phase).toBe("attempt");
+  expect(body.summary.phase).toBe("execution");
   expect(body.traceback).toBeUndefined();
   expect(body.submittedSource).toBeUndefined();
   expect(requests.length).toBe(1); // Permission check only; no engine, LLM or persistence call.

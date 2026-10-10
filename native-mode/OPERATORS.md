@@ -6,14 +6,14 @@ Thirteen built-in operators plus public registered Python functions. Positional 
 
 ## Edit statements
 
-An edit has python and changes strings; an unused string is empty. Both cannot be empty.
+A call has `python` and `statements` strings; an unused string is empty. Both cannot be empty.
 
 ```text
 set records: scan(files='data/example.csv')
 set summary: aggregate(records, outputs={'rows': count()})
 ```
 
-A set replaces the complete definition, inputs, settings, and explicit doc override. Consumers remain connected to its ID. Use `delete id` to remove an existing node. Write each ID once; resolve references against the final acyclic graph. Delete or rewire consumers in the same edit as their deleted input. All built-ins accept doc metadata.
+A set replaces the complete definition, inputs, settings, and explicit doc override. Consumers remain connected to its ID. Use `delete id` to remove an existing node. Write each ID once; resolve references against the final acyclic graph. Delete or rewire consumers in the same call as their deleted input. All built-ins accept doc metadata.
 
 ## Built-in contracts
 
@@ -74,4 +74,4 @@ def adjust(table, *, factor=1):
 set doubled: adjust(records, factor=2)
 ```
 
-The edit confirms function registration or replacement. Replacing a definition conservatively invalidates custom users, measured filters, and their descendants; execution recomputes them. Filter is a built-in measured operator using a registered predicate. Names map/process are retired as model-facing constructors. Historical parser/runtime adapters remain only for old traces.
+The receipt confirms function registration or replacement. Replacing a definition conservatively invalidates custom users, measured filters, and their descendants; execution recomputes them. Filter is a built-in measured operator using a registered predicate.

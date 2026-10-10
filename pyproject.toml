@@ -26,10 +26,8 @@ dependencies = [
     "cdflib==1.3.1",
     "pyarrow==21.0.0",
     "scikit-learn==1.5.0",
-    # LongDS tasks name model families the UDF venv must actually provide —
-    # bi__task1 t24 asks for five INCLUDING XGBoost, so that turn was
-    # unwinnable for every arm ever run (195 `No module named 'xgboost'`).
-    # macOS also needs the OpenMP runtime: `brew install libomp`.
+    # Model families tasks may name; the UDF venv must actually provide them.
+    # XGBoost on macOS also needs the OpenMP runtime: `brew install libomp`.
     "xgboost>=3.0",
     "duckdb>=1.0",
     "scikit-image==0.25.2",

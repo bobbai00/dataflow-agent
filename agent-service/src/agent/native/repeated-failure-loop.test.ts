@@ -23,32 +23,44 @@ import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
 import { assembleContext } from "../util/context-utils";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 
-const execute = { type: "execute" };
-const executeMissing = { type: "execute", operator_ids: ["missing"] };
-const inspect = { type: "inspect", target: "graph" };
-const answer = { type: "answer", content: "No result is available." };
+/** A model reply: the statements of one dataflow call, or a text reply. */
+type Reply = { statements: string } | { text: string };
+const execute: Reply = { statements: "execute\nexecute\nexecute" };
+const executeMissing: Reply = { statements: "execute missing" };
+const lookup: Reply = { statements: "show builtin scan" };
+const scan: Reply = { statements: "set raw: scan(files='data/x/input/a.csv')\nshow result raw" };
+const answer: Reply = { text: "The value is 42." };
 
 /** The loop corrections only; budget reminders are feedback steps too. */
 const corrections = (agent: TexeraAgent) =>
   agent.getVisibleReActSteps().filter(s => s.messageSource === "feedback" && s.content.includes("failed the same way"));
 
-function fixture(actionsAt: (call: number) => unknown[]) {
+function fixture(replyAt: (call: number) => Reply) {
+  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
   const prompts: unknown[][] = [];
   const model = new MockLanguageModelV3({
     doGenerate: async options => {
       prompts.push(structuredClone(options.prompt));
+      const reply = replyAt(++calls);
       return {
-        content: [
-          {
-            type: "tool-call",
-            toolCallId: `loop-${++calls}`,
-            toolName: "dataflow",
-            input: JSON.stringify({ reasoning: "Check the graph.", actions: actionsAt(calls) }),
-          },
-        ],
-        finishReason: { unified: "tool-calls", raw: "tool_calls" },
+        content:
+          "text" in reply
+            ? [{ type: "text" as const, text: reply.text }]
+            : [
+                {
+                  type: "tool-call" as const,
+                  toolCallId: `loop-${calls}`,
+                  toolName: "dataflow",
+                  input: JSON.stringify({ python: "", statements: reply.statements }),
+                },
+              ],
+        finishReason:
+          "text" in reply
+            ? { unified: "stop" as const, raw: "stop" }
+            : { unified: "tool-calls" as const, raw: "tool_calls" },
         usage: {
           inputTokens: { total: 10, noCache: 8, cacheRead: 2, cacheWrite: 0 },
           outputTokens: { total: 5, text: 4, reasoning: 1 },
@@ -69,11 +81,24 @@ function fixture(actionsAt: (call: number) => unknown[]) {
       }),
   });
   agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 25, thoughtReplay: false });
+  // No engine in a unit test: every operator "executes" to one row.
+  (agent as any).executePostStepChanges = async () => {
+    for (const op of agent.getWorkflowState().getAllOperators())
+      agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, op.operatorID, {
+        state: "Completed",
+        inputTuples: 0,
+        outputTuples: 1,
+        totalRowCount: 1,
+        resultMode: "table",
+        result: [{ value: 42 }],
+        resultSchema: [{ name: "value", type: "int64", encoding: "" }],
+      });
+  };
   return { agent, prompts, calls: () => calls };
 }
 
 test("four identical failures end the turn after one correction, retaining usage and receipts", async () => {
-  const f = fixture(() => [execute, execute, execute]);
+  const f = fixture(() => execute);
   const result = await f.agent.sendMessage("Analyze the supplied file.");
   expect(f.calls()).toBe(4);
   expect(result.error).toContain("REPEATED_FAILURE_LOOP");
@@ -84,12 +109,12 @@ test("four identical failures end the turn after one correction, retaining usage
   const feedback = corrections(f.agent);
   expect(feedback).toHaveLength(1);
   expect(feedback[0].content).toContain("The graph is empty");
-  expect(feedback[0].content).toContain("edit");
-  expect(feedback[0].content).toContain("Answer");
+  expect(feedback[0].content).toContain("Two more identical failures end this turn.");
   // The correction is seen by the third call; every prompt extends the previous one.
   expect(JSON.stringify(f.prompts[2])).toContain(feedback[0].content);
   expect(JSON.stringify(f.prompts[1])).not.toContain(feedback[0].content);
-  for (let i = 1; i < f.prompts.length; i++) expect(f.prompts[i].slice(0, f.prompts[i - 1].length)).toEqual(f.prompts[i - 1]);
+  for (let i = 1; i < f.prompts.length; i++)
+    expect(f.prompts[i].slice(0, f.prompts[i - 1].length)).toEqual(f.prompts[i - 1]);
   const receipts = f.agent.getVisibleReActSteps().flatMap(s => s.toolResults ?? []);
   expect(receipts).toHaveLength(4);
   expect(receipts.flatMap(r => (r.output as any).actions)).toHaveLength(12);
@@ -97,20 +122,21 @@ test("four identical failures end the turn after one correction, retaining usage
   expect(f.agent.getVisibleReActSteps().at(-1)?.isEnd).toBe(true);
 });
 
-test("the model can answer after the correction instead of being stopped", async () => {
-  const f = fixture(call => (call <= 2 ? [execute] : [answer]));
-  const result = await f.agent.sendMessage("Analyze the file.");
+test("the model can still finish after the correction instead of being stopped", async () => {
+  const f = fixture(call => (call <= 2 ? execute : call === 3 ? scan : answer));
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
   expect(result.error).toBeUndefined();
-  expect(result.response).toBe(answer.content);
-  expect(f.calls()).toBe(3);
+  expect(result.response).toBe("The value is 42.");
+  expect(f.calls()).toBe(4);
+  expect(corrections(f.agent)).toHaveLength(1);
 });
 
 test("a successful call resets the streak; an unknown target repeated is its own loop", async () => {
-  const f = fixture(call => (call === 3 ? [inspect] : call === 6 ? [answer] : [execute]));
-  expect((await f.agent.sendMessage("Inspect before correcting.")).error).toBeUndefined();
-  expect(f.calls()).toBe(6);
+  const f = fixture(call => (call === 3 ? lookup : call === 6 ? scan : call === 7 ? answer : execute));
+  expect((await f.agent.sendMessage("Read data/x/input/a.csv and report the value.")).error).toBeUndefined();
+  expect(f.calls()).toBe(7);
   expect(corrections(f.agent)).toHaveLength(2);
-  const unknown = fixture(() => [executeMissing]);
+  const unknown = fixture(() => executeMissing);
   const result = await unknown.agent.sendMessage("Check the requested target.");
   expect(result.error).toContain("REPEATED_FAILURE_LOOP");
   expect(result.error).toContain("Unknown or disabled execution targets: missing");
@@ -118,7 +144,7 @@ test("a successful call resets the streak; an unknown target repeated is its own
 });
 
 test("a different failure does not continue the streak", async () => {
-  const f = fixture(call => (call % 2 ? [execute] : [executeMissing]));
+  const f = fixture(call => (call % 2 ? execute : executeMissing));
   f.agent.updateSettings({ maxSteps: 6 });
   const result = await f.agent.sendMessage("Alternate failures.");
   expect(result.error ?? "").not.toContain("REPEATED_FAILURE_LOOP");
@@ -126,7 +152,7 @@ test("a different failure does not continue the streak", async () => {
 });
 
 test("the protection resets at the next user turn", async () => {
-  const f = fixture(() => [execute]);
+  const f = fixture(() => execute);
   for (let turn = 0; turn < 2; turn++) {
     expect((await f.agent.sendMessage("Try a new task.")).error).toContain("REPEATED_FAILURE_LOOP");
     expect(f.calls()).toBe((turn + 1) * 4);

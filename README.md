@@ -22,8 +22,8 @@
 A fork of [Apache Texera](https://texera.apache.org/) (human-AI collaborative
 data science using visual workflows) extended with a **dataflow agent**: an LLM
 agent that answers data-science questions by building, executing, and iterating
-on Texera dataflow operators — plus the benchmarking harnesses
-(KramaBench, LongDS-Bench) used to evaluate it.
+on Texera dataflow operators — plus the KramaBench harness used to evaluate
+it.
 
 ```
 ┌──────────┐   REST/WS    ┌───────────────┐   proxied LLM calls   ┌─────────┐
@@ -120,23 +120,21 @@ curl -s -X DELETE $BASE/agents/$AGENT
 
 ### Modes and tools
 
-`agentMode` selects how the model builds the dataflow. Native mode uses an
-ordered action list with explicit execution and retrieval. Code mode executes
+`agentMode` selects how the model builds the dataflow. Native mode uses one
+tool with explicit execution and retrieval statements. Code mode executes
 automatically after operator edits.
 
 | Mode | Tools the model sees | What one call does |
 |---|---|---|
-| `native` (default) | `dataflow` | Ordered `inspect`, `edit`, `execute`, `retrieve`, and `answer` actions. Atomic edits register Python definitions and declare operators with `set id: type(inputs, settings)` or `delete id`. Thirteen built-ins and registered table functions share this graph. Execution is explicit; retrieval reads several stored results; Answer ends the turn. |
+| `native` (default) | `dataflow(python, statements)` | `python` registers definitions; `statements` declares operators with `set id: type(inputs, settings)` or `delete id`, then runs and reads them with `execute` and `show` lines. A call's edits apply together or not at all. Thirteen built-ins and registered table functions share this graph. The model answers by replying without the tool after `show result` has displayed what the answer rests on. |
 | `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
 
-Optional pull tools in either mode, all off by default: `recallState`
-(`enableRecallTool`), `resumeFrom` (`enableResumeTool`), `compactContext`
-(`enableCompactTool`). Native mode forces provider parallel tool calls off;
-the action list is the batch. Completed edits remain after failure; inspection
-and retrieval may still read independent results after an execution error.
+Native mode forces provider parallel tool calls off and never forces a tool
+call, so models can think before calling and answer with a plain reply. After
+an execution error, later `show` lines still read the results that completed.
 Decisions based on returned results belong in the next call. See
 [Registered Python Dataflows](docs/native-registered-python-design.md) for
-declarations, namespace isolation, actions, and inspection, and
+declarations, namespace isolation, statements, and inspection, and
 [native-mode/](native-mode/) for the complete system prompt, the exact tool
 definitions and the operator reference as the model receives them (generated
 from the code; `bun run render:native-reference` in `agent-service/`).
@@ -144,10 +142,8 @@ from the code; `bun run render:native-reference` in `agent-service/`).
 For measured filtering, declare `filter(rows, predicate="keep", settings={...})`
 with a registered row predicate; its boolean/null verdicts produce retained,
 rejected, and null counts plus bounded rejected-value frequencies. Custom table
-functions remain available for general pandas work. Inspect `target:"schema"`
-for exact parsed column names, or `target:"source"` for retained workbook discovery
-metadata after executing a one-row scan preview. Both inspect targets paginate
-without executing or reading files.
+functions remain available for general pandas work. `show schema <id>` pages
+exact parsed column names; a scanned workbook's receipt lists its sheet names.
 
 ### Default configuration
 
@@ -156,12 +152,11 @@ An agent created with no `settings` uses
 
 | Setting | Default | What it gives the model |
 |---|---|---|
-| `agentMode` | `native` | the operator expressions above; `code` is the other mode |
+| `agentMode` | `native` | the `dataflow` tool above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `false` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
-| `dataflowReasoning` | `true` | retained for archived settings; native action calls always require a brief rationale and normalize this setting to true |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
@@ -169,13 +164,9 @@ An agent created with no `settings` uses
 | `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
 | `maxOperatorResultCellCharLimit` | `2000` | sample cells are clipped and marked; native full retrieval preserves retained cell contents |
 | `maxSteps` | `100` | per-turn step budget |
-| `stateHistory` | `false` | retained for historical configurations; the registered tool exposes current graph, operator, namespace, schema, source, and reference inspection |
-| `taskContext` | `"trajectory"` | earlier task trajectories remain visible; historical `"dependencies"` layouts do not add task-restoration actions to the registered tool |
-| `nativePromptDetail` | `"full"` | `"on_demand"` omits the longer repair example; both variants show concise built-in signatures and can inspect complete operator contracts |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
-| layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
 
 Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
 Increasing a retrieval budget does not recover records absent from an earlier
@@ -203,15 +194,15 @@ Key endpoints (all under `/api/agents`):
 | DELETE | `/:id` | delete agent |
 | WS | `/:id/react` | streaming protocol (per-step frames) — what the frontend uses |
 
-Multi-turn sessions: keep POSTing `/message` to the same agent — operators,
-results, and history carry over (this is exactly how LongDS-Bench drives it).
+Later messages to the same agent continue on the same dataflow: operators,
+results, and history carry over.
 Programmatic clients: TypeScript helpers in
 `agent-service/src/api/agent-service-api.ts`, Python in
 `benchmark/Kramabench/dataflow_agent.py`.
 
 ## 3. Benchmarks
 
-Both benchmarks run through one driver, from the repo root:
+KramaBench runs through one driver, from the repo root:
 
 ```bash
 bin/bench.sh setup            # one-time: submodule, venv, data, symlinks
@@ -222,15 +213,10 @@ bin/bench.sh kb tasks --sut DataflowSystemGPT52LatestSchemaConverge \
     --ids "legal-easy-3 wildfire-easy-1" --parallel
 bin/bench.sh kb scores --sut DataflowSystemGPT52LatestSchemaConverge
 bin/bench.sh kb systems       # every runnable SUT configuration
-
-# LongDS-Bench (long-horizon multi-turn; benchmark/longds)
-bin/bench.sh longds run --task sports__nfl_big_data_bowl_2023__task1 --arm haiku-delta-1k
-bin/bench.sh longds judge --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
 ```
 
 Run artifacts (per-task prompt, response, ReAct trace, workflow JSON, token
-and cost stats) land in `benchmark/Kramabench/system_scratch/<SUT>/<task>/`
-and `benchmark/longds/system_scratch/<SUT>/<task>/t<NN>/`.
+and cost stats) land in `benchmark/Kramabench/system_scratch/<SUT>/<task>/`.
 
 Full benchmark docs: [benchmark/README.md](benchmark/README.md).
 
@@ -245,7 +231,7 @@ Full benchmark docs: [benchmark/README.md](benchmark/README.md).
 | `bin/local-dev.sh` | full-stack launcher |
 | `bin/bench.sh` | benchmark driver |
 | `bin/single-node/litellm-config.yaml` | LiteLLM model list |
-| `benchmark/` | KramaBench submodule + LongDS harness |
+| `benchmark/` | KramaBench submodule + native campaign harness (`benchmark/retrieval`) |
 | `docs/local-dev-with-agent.md` | launcher deep dive + troubleshooting |
 
 ## 5. Upstream

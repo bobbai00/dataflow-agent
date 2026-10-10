@@ -26,29 +26,48 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
 import { TexeraAgent } from "../texera-agent";
-import { createNativeTools } from "../tools/native-batch-tools";
-import { dataflowInput, type LegacySpec } from "./test-support";
+import { planRegisteredGraphEdit } from "../tools/graph-edits";
+import { prepareDataflowCall } from "../tools/turn-tool";
 import { formatOperatorResult } from "../tools/result-formatting";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
+/**
+ * Evidence captured for the operators a call showed: what LATEST renders from
+ * the captured observations, what capture freezes, and who owns a capture.
+ * (DELTA renders each call's receipt instead; turn-receipt tests cover it.)
+ */
 function fixture() {
   const state = new WorkflowState();
-  const metadata = new WorkflowSystemMetadata();
-  metadata.seedCodeModeDefaults();
-  const tools = createNativeTools(state, {
-    metadataStore: metadata,
-    settings: { nativeProfileCollection: true },
-  } as any);
+  const metadataStore = new WorkflowSystemMetadata();
+  metadataStore.seedCodeModeDefaults();
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(
     id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id),
     () => 17
   );
-  const record = async (id: string, operators: Record<string, unknown>[], observe: string[] = []) => {
-    const input = dataflowInput({ operators: operators as LegacySpec[], observe });
-    const output = await tools.dataflow.execute(input);
-    expect(output.observe).toEqual(observe);
+  /** A completed `dataflow` call: its edit lands, its `show result` targets are observed. */
+  const record = async (id: string, python: string, statements: string, observe: string[] = []) => {
+    const input = { python, statements };
+    const output = prepareDataflowCall(input);
+    for (const item of output.actions) {
+      if (item.action.type === "edit") {
+        const plan = await planRegisteredGraphEdit(
+          state.getWorkflowContent(),
+          item.action.python,
+          item.action.changes,
+          {
+            metadataStore,
+            settings: { nativeProfileCollection: true },
+          }
+        );
+        state.setWorkflowContent(plan.workflow);
+        output.operators.push(...plan.operators);
+      }
+      item.status = "ok";
+    }
+    output.status = "completed";
+    output.observe = observe;
     steps.push({
       id,
       parentId: steps.at(-1)?.id,
@@ -162,268 +181,207 @@ function fixture() {
   return { state, steps, storage, record, persist, capture };
 }
 
-const source = { op: "scan", id: "source", files: "data/test.csv" };
-const filter = {
-  op: "filter",
-  id: "selected",
-  input: "source",
-  columns: ["x"],
-  func: "def apply(row):\n    return row['x'] > 0",
-};
+const predicate = "def positive(row, *, minimum=0):\n    return row['x'] > minimum";
+const source = "set source: scan(files='data/test.csv')";
+const selected = (minimum = 0) =>
+  `set selected: filter(source, predicate='positive', settings={'minimum': ${minimum}})`;
+const graph = (...lines: string[]) => [source, selected(), ...lines].join("\n");
 
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-  test(`shared flow ${mode}: dedup only visible outputs in this frame`, async () => {
-    const f = fixture();
-    const render = () =>
-      assembleContext(f.steps, f.state, f.storage, mode, {
-        agentMode: AgentMode.NATIVE,
-        messageLayout: "native",
-        dataEvidence: true,
-        flowEvidence: true,
-        maxOperatorResultCharLimit: 2000,
-      });
-    await f.record(
-      "A",
-      [
-        source,
-        filter,
-        { op: "project", id: "first", input: "selected", keep: ["x"] },
-        { op: "project", id: "second", input: "selected", keep: ["x"] },
-      ],
-      ["first", "second"]
-    );
-    f.persist("A", {
-      source: [-100, 0, 10, 20, 30],
-      selected: [10, 20, 30],
-      first: [10, 20, 30],
-      second: [10, 20, 30],
-    });
-    f.capture("A", ["first", "second"]);
-    const before = render();
-    const text = JSON.stringify(before);
-    expect(text.match(/- flow \(selected\):/g)?.length).toBe(1);
-    expect(text).toContain("- flow: see");
-    expect(text).not.toContain("Sample record: -100");
-    expect(text.match(/records: sample; 1 of 3 rows/g)?.length).toBe(2);
-    const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
-    await f.record("B", [], ["second"]);
-    f.capture("B", ["second"]);
-    const after = render();
-    const later = JSON.stringify(after);
-    if (mode === ContextMode.LATEST) {
-      expect(later.match(/- flow \(selected\):/g)?.length).toBe(1);
-      expect(later).not.toContain("- flow: see");
-    } else {
-      expect(later.match(/- flow \(selected\):/g)?.length).toBe(2);
-      expect(after.slice(0, before.length - 1)).toEqual(before.slice(0, -1));
-    }
-    expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
-  });
-}
-
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-  for (const dataEvidence of [false, true])
-    for (const flowEvidence of [false, true]) {
-      test(`production ${mode}: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {
-        const f = fixture();
-        await f.record("A", [filter, source], ["selected"]);
-        f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
-        const info = f.storage.getOperatorResult("A", "selected")!;
-        f.storage.setOperatorResult("A", "selected", {
-          ...info,
-          columnStats: { x: "LEGACY_STATS_SENTINEL", __table_hints__: "LEGACY_HINT_SENTINEL" },
-        });
-        f.capture("A", ["selected"], dataEvidence, flowEvidence);
-        const assembler = buildContextAssembler("vercel-tool-use", {} as never);
-        const input = {
-          visibleSteps: f.steps,
-          workflowState: f.state,
-          snapshotStorage: f.storage,
-          compilationResult: null,
-          settings: {
-            ...DEFAULT_AGENT_SETTINGS,
-            agentMode: AgentMode.NATIVE,
-            contextMode: mode,
-            dataEvidence,
-            flowEvidence,
-          },
-        };
-        const expected = await assembler(input as any);
-        const text = JSON.stringify(expected);
-        expect(text.includes("statistics:")).toBe(dataEvidence);
-        expect(text.includes("- flow:")).toBe(flowEvidence);
-        expect(text).not.toContain("LEGACY_");
-        for (const level of [0, 1, 2, 3]) {
-          expect(
-            await assembler({
-              ...input,
-              settings: {
-                ...input.settings,
-                flowLevel: level,
-                dataLevel: level,
-                columnStats: true,
-                valueFormat: true,
-                dataHints: true,
-                coercionTelemetry: true,
-                rowLineage: true,
-              },
-            } as any)
-          ).toEqual(expected);
-        }
-      });
-    }
-}
-
-test("DELTA error observations stay append-only without a moving legacy error suffix", async () => {
+test("shared flow LATEST: dedup only visible outputs in this frame", async () => {
   const f = fixture();
-  await f.record("A", [filter, source], []);
-  f.persist("A", { source: [-1, 1], selected: [1] });
-  f.storage.setOperatorResult("A", "selected", {
-    state: "Failed",
-    inputTuples: 2,
-    outputTuples: 0,
-    resultMode: "table",
-    error: "a unique callback failure",
-  });
-  f.capture("A", [], false, false);
   const render = () =>
-    assembleContext(f.steps, f.state, f.storage, ContextMode.DELTA, {
+    assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
       agentMode: AgentMode.NATIVE,
       messageLayout: "native",
-      dataEvidence: false,
-      flowEvidence: false,
+      dataEvidence: true,
+      flowEvidence: true,
+      maxOperatorResultCharLimit: 2000,
     });
-  const before = render();
-  expect(JSON.stringify(before)).toContain("a unique callback failure");
-  expect(JSON.stringify(before)).not.toContain("Operators needing attention");
-  await f.record("B", [], ["source"]);
-  f.capture("B", ["source"], false, false);
-  const after = render();
-  // The final continuation directive is not a saved event.
-  expect(after.slice(0, before.length - 1)).toEqual(before.slice(0, -1));
-  expect(JSON.stringify(after).match(/a unique callback failure/g)?.length).toBe(1);
+  await f.record(
+    "A",
+    predicate,
+    graph(
+      "set first: project(selected, keep=['x'])",
+      "set second: project(selected, keep=['x'])",
+      "show result first, second"
+    ),
+    ["first", "second"]
+  );
+  f.persist("A", {
+    source: [-100, 0, 10, 20, 30],
+    selected: [10, 20, 30],
+    first: [10, 20, 30],
+    second: [10, 20, 30],
+  });
+  f.capture("A", ["first", "second"]);
+  const text = JSON.stringify(render());
+  expect(text.match(/- flow \(selected\):/g)?.length).toBe(1);
+  expect(text).toContain("- flow: see");
+  expect(text).not.toContain("Sample record: -100");
+  expect(text.match(/records: sample; 1 of 3 rows/g)?.length).toBe(2);
+  const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
+  await f.record("B", "", "show result second", ["second"]);
+  f.capture("B", ["second"]);
+  const later = JSON.stringify(render());
+  expect(later.match(/- flow \(selected\):/g)?.length).toBe(1);
+  expect(later).not.toContain("- flow: see");
+  expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
 });
 
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-  test(`upstream summaries ${mode}: observe pins hidden calculation, revisions do not leak`, async () => {
-    const f = fixture();
-    const render = () =>
-      JSON.stringify(
-        assembleContext(f.steps, f.state, f.storage, mode, {
-          agentMode: AgentMode.NATIVE,
-          dataEvidence: false,
-          flowEvidence: true,
-          maxOperatorResultCharLimit: 2000,
-        })
-      );
-    await f.record("A", [{ op: "project", id: "final", input: "selected", keep: ["x"] }, filter, source], ["final"]);
-    f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
-    f.capture("A", ["final"], false, true);
-    const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations!.final);
-    expect(frozen.text).toContain("- flow (selected):");
-    expect(frozen.text).toContain("kept=3/5");
-    expect(frozen.text).not.toContain("-100");
-    expect(render()).toContain("kept=3/5");
-    await f.record("B", [{ ...filter, func: "def apply(row):\n    return row['x'] > 10" }]);
-    f.persist("B", { selected: [20, 30], final: [20, 30] }, "101");
-    f.capture("B", [], false, true);
-    expect(render()).not.toContain("kept=2/5");
-    expect(render().includes("kept=3/5")).toBe(mode === ContextMode.DELTA);
-    await f.record("C", [], ["final"]);
-    f.capture("C", ["final"], false, true);
-    expect(render()).toContain("kept=2/5");
-    expect(f.storage.getAssociatedSnapshot("A").nativeObservations!.final).toEqual(frozen);
-  });
-}
-
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
-  for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const) {
-    test(`V2 evidence ${mode}/${messageLayout ?? "default"}: explicit observe, revision, error, cached read`, async () => {
+for (const dataEvidence of [false, true])
+  for (const flowEvidence of [false, true]) {
+    test(`production LATEST: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {
       const f = fixture();
-      let dataEvidence: boolean = true,
-        flowEvidence: boolean = true;
-      const render = () =>
-        JSON.stringify(
-          assembleContext(f.steps, f.state, f.storage, mode, {
-            agentMode: AgentMode.NATIVE,
-            messageLayout,
-            dataEvidence,
-            flowEvidence,
-            maxOperatorResultCharLimit: 2000,
-          })
-        );
-      await f.record("A", [filter, source], ["selected"]);
-      f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30] });
-      f.capture("A", ["selected"]);
-      expect(f.storage.getOperatorResult("A", "selected")?.tableProfile?.status).toBe("available");
-      const frame = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
-      expect(frame?.text).toContain("kept=3/5");
-      expect(frame?.text).not.toContain("-100"); // downstream facts do not dump upstream samples
-      expect(render()).toContain("kept=3/5");
-      expect(render()).toContain("statistics:");
-      const first = render();
-
-      await f.record("B", [{ ...filter, func: "def apply(row):\n    return row['x'] > 10" }]);
-      f.persist("B", { selected: [20, 30] }, "101");
-      f.capture("B", []);
-      expect(render()).not.toContain("kept=2/5");
-      expect(render()).toContain("result not requested");
-      expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toEqual({});
-      expect(render().includes("kept=3/5")).toBe(mode === ContextMode.DELTA);
-
-      await f.record("C", [], ["selected"]);
-      f.capture("C", ["selected"]);
-      expect(render()).toContain("kept=2/5");
-      expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
-      expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
-      dataEvidence = flowEvidence = false;
-      if (mode === ContextMode.DELTA) {
-        expect(render()).toContain("kept=3/5");
-        expect(render()).toContain("kept=2/5");
-        expect(render()).toContain("statistics:");
-      } else {
-        expect(render()).not.toContain("- flow:");
-        expect(render()).not.toContain("statistics:");
-      }
-      expect(first).toContain("kept=3/5");
-
-      await f.record("D", [{ ...filter, func: "def apply(row):\n    return 'bad'" }]);
-      f.storage.setOperatorResult("D", "selected", {
-        state: "Failed",
-        inputTuples: 0,
-        outputTuples: 0,
-        resultMode: "error",
-        error: "CALLBACK_RETURN_TYPE: expected bool",
+      await f.record("A", predicate, graph("show result selected"), ["selected"]);
+      f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
+      const info = f.storage.getOperatorResult("A", "selected")!;
+      f.storage.setOperatorResult("A", "selected", {
+        ...info,
+        columnStats: { x: "LEGACY_STATS_SENTINEL", __table_hints__: "LEGACY_HINT_SENTINEL" },
       });
-      f.capture("D", []);
-      expect(render()).toContain("CALLBACK_RETURN_TYPE");
-      expect(f.storage.getOperatorResult("D", "selected")?.tableProfile).toBeUndefined();
+      f.capture("A", ["selected"], dataEvidence, flowEvidence);
+      const assembler = buildContextAssembler("vercel-tool-use", {} as never);
+      const input = {
+        visibleSteps: f.steps,
+        workflowState: f.state,
+        snapshotStorage: f.storage,
+        compilationResult: null,
+        settings: {
+          ...DEFAULT_AGENT_SETTINGS,
+          agentMode: AgentMode.NATIVE,
+          contextMode: ContextMode.LATEST,
+          dataEvidence,
+          flowEvidence,
+        },
+      };
+      const expected = await assembler(input as any);
+      const text = JSON.stringify(expected);
+      expect(text.includes("statistics:")).toBe(dataEvidence);
+      expect(text.includes("- flow:")).toBe(flowEvidence);
+      expect(text).not.toContain("LEGACY_");
+      for (const level of [0, 1, 2, 3]) {
+        expect(
+          await assembler({
+            ...input,
+            settings: {
+              ...input.settings,
+              flowLevel: level,
+              dataLevel: level,
+              columnStats: true,
+              valueFormat: true,
+              dataHints: true,
+              coercionTelemetry: true,
+              rowLineage: true,
+            },
+          } as any)
+        ).toEqual(expected);
+      }
     });
   }
 
-test("DELTA never retroactively adds evidence when it was off at observation time", async () => {
+test("upstream summaries LATEST: a shown result pins its hidden calculation, revisions do not leak", async () => {
   const f = fixture();
-  await f.record("A", [filter, source], ["selected"]);
-  f.persist("A", { source: [-1, 0, 10], selected: [10] });
-  f.capture("A", ["selected"], false, false);
   const render = () =>
     JSON.stringify(
-      assembleContext(f.steps, f.state, f.storage, ContextMode.DELTA, {
+      assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
         agentMode: AgentMode.NATIVE,
-        dataEvidence: true,
+        dataEvidence: false,
         flowEvidence: true,
+        maxOperatorResultCharLimit: 2000,
       })
     );
-  expect(render()).not.toContain("- flow:");
-  // Re-capture cannot rewrite a finalized event with new settings.
+  await f.record("A", predicate, graph("set final: project(selected, keep=['x'])", "show result final"), ["final"]);
+  f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
+  f.capture("A", ["final"], false, true);
+  const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations!.final);
+  expect(frozen.text).toContain("- flow (selected):");
+  expect(frozen.text).toContain("kept=3/5");
+  expect(frozen.text).not.toContain("-100");
+  expect(render()).toContain("kept=3/5");
+  await f.record("B", "", selected(10));
+  f.persist("B", { selected: [20, 30], final: [20, 30] }, "101");
+  f.capture("B", [], false, true);
+  expect(render()).not.toContain("kept=2/5");
+  expect(render()).not.toContain("kept=3/5");
+  await f.record("C", "", "show result final", ["final"]);
+  f.capture("C", ["final"], false, true);
+  expect(render()).toContain("kept=2/5");
+  expect(f.storage.getAssociatedSnapshot("A").nativeObservations!.final).toEqual(frozen);
+});
+
+for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const) {
+  test(`V2 evidence LATEST/${messageLayout ?? "default"}: shown result, revision, error, cached read`, async () => {
+    const f = fixture();
+    let dataEvidence: boolean = true,
+      flowEvidence: boolean = true;
+    const render = () =>
+      JSON.stringify(
+        assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
+          agentMode: AgentMode.NATIVE,
+          messageLayout,
+          dataEvidence,
+          flowEvidence,
+          maxOperatorResultCharLimit: 2000,
+        })
+      );
+    await f.record("A", predicate, graph("show result selected"), ["selected"]);
+    f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30] });
+    f.capture("A", ["selected"]);
+    expect(f.storage.getOperatorResult("A", "selected")?.tableProfile?.status).toBe("available");
+    const frame = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
+    expect(frame?.text).toContain("kept=3/5");
+    expect(frame?.text).not.toContain("-100"); // downstream facts do not dump upstream samples
+    expect(render()).toContain("kept=3/5");
+    expect(render()).toContain("statistics:");
+
+    await f.record("B", "", selected(10));
+    f.persist("B", { selected: [20, 30] }, "101");
+    f.capture("B", []);
+    expect(render()).not.toContain("kept=2/5");
+    expect(render()).toContain("result not requested");
+    expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toEqual({});
+    expect(render()).not.toContain("kept=3/5");
+
+    await f.record("C", "", "show result selected", ["selected"]);
+    f.capture("C", ["selected"]);
+    expect(render()).toContain("kept=2/5");
+    expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
+    expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
+    dataEvidence = flowEvidence = false;
+    expect(render()).not.toContain("- flow:");
+    expect(render()).not.toContain("statistics:");
+
+    await f.record("D", "", selected(20));
+    f.storage.setOperatorResult("D", "selected", {
+      state: "Failed",
+      inputTuples: 0,
+      outputTuples: 0,
+      resultMode: "error",
+      error: "CALLBACK_RETURN_TYPE: expected bool",
+    });
+    f.capture("D", []);
+    expect(render()).toContain("CALLBACK_RETURN_TYPE");
+    expect(f.storage.getOperatorResult("D", "selected")?.tableProfile).toBeUndefined();
+  });
+}
+
+test("a captured observation is frozen; capturing again cannot rewrite it with new settings", async () => {
+  const f = fixture();
+  await f.record("A", predicate, graph("show result selected"), ["selected"]);
+  f.persist("A", { source: [-1, 0, 10], selected: [10] });
+  f.capture("A", ["selected"], false, false);
+  const first = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
+  expect(first?.text).not.toContain("- flow:");
   f.capture("A", ["selected"], true, true);
-  expect(render()).not.toContain("- flow:");
-  expect(Object.isFrozen(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected)).toBe(true);
+  const again = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
+  expect(again).toEqual(first);
+  expect(again?.text).not.toContain("- flow:");
+  expect(Object.isFrozen(again)).toBe(true);
 });
 
 test("V2 formatting shares one budget and does not call legacy reserved-column/viz rendering", async () => {
   const f = fixture();
-  await f.record("A", [source], ["source"]);
+  await f.record("A", "", `${source}\nshow result source`, ["source"]);
   f.persist("A", { source: [1, 2, 3] });
   const snap = f.storage.getAssociatedSnapshot("A");
   const info = snap.results.get("source")!.info;
@@ -444,89 +402,40 @@ test("V2 formatting shares one budget and does not call legacy reserved-column/v
   }
 });
 
-test("production post-step hook records cached observations without running the engine", async () => {
-  const f = fixture();
-  await f.record("A", [filter, source], ["selected"]);
-  f.persist("A", { source: [-1, 0, 10], selected: [10] });
-  const agent = new TexeraAgent({
-    agentId: "evidence-capture",
-    modelType: "test",
-    driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
-    contextAssembler: () => [],
-  }) as any;
-  agent.snapshotStorage = f.storage;
-  agent.workflowState = f.state;
-  agent.head = "A";
-  agent.delegateConfig = { userToken: "test", workflowId: 17 };
-  agent.settings.agentMode = AgentMode.NATIVE;
-  agent.settings.dataEvidence = true;
-  agent.settings.flowEvidence = true;
-  agent.settings.maxOperatorResultCharLimit = 700;
-  const result = await createNativeTools(f.state, {
-    settings: { nativeProfileCollection: true },
-  } as any).dataflow.execute({
-    edits: "",
-    observe: ["selected"],
-  });
-  let executions = 0;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = Object.assign(
-    async () => {
-      executions++;
-      throw new Error("cached observe must not fetch");
-    },
-    { preconnect: originalFetch.preconnect }
-  );
-  try {
-    await agent.runPostStepExecution(
-      [{ toolName: "dataflow", toolCallId: "observe", input: { edits: "", observe: ["selected"] } }],
-      [{ toolCallId: "observe", output: result }]
-    );
-    const observed = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
-    expect(observed?.text).toContain("kept=1/3");
-    expect(observed?.text.length).toBeLessThanOrEqual(700);
-    expect(executions).toBe(0);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-  for (const data of [false, true]) {
-    for (const flow of [false, true]) {
-      test(`cached observe respects ${mode} data=${data} flow=${flow} and the shared budget`, async () => {
-        const f = fixture();
-        await f.record("A", [filter, source], []);
-        f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
-        f.capture("A", [], data, flow, 2000);
-        await f.record("B", [], ["selected"]);
-        f.capture("B", ["selected"], data, flow, 2000);
-        const output = f.storage.getAssociatedSnapshot("B").nativeObservations!.selected.text;
-        expect(output.includes("statistics:")).toBe(data);
-        expect(output.includes("- flow:")).toBe(flow);
-        expect(output.length).toBeLessThanOrEqual(2000);
-        const rendered = JSON.stringify(
-          assembleContext(f.steps, f.state, f.storage, mode, {
-            agentMode: AgentMode.NATIVE,
-            dataEvidence: data,
-            flowEvidence: flow,
-            maxOperatorResultCharLimit: 2000,
-          })
-        );
-        expect(rendered.includes("statistics:")).toBe(data);
-        expect(rendered.includes("- flow:")).toBe(flow);
-        expect(rendered).not.toContain("Column Schema and stats");
-        expect(f.storage.getOperatorResult("B", "selected")).toEqual(f.storage.getOperatorResult("A", "selected"));
-        expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual({});
-      });
-    }
+for (const data of [false, true]) {
+  for (const flow of [false, true]) {
+    test(`a cached read captures data=${data} flow=${flow} within the shared budget`, async () => {
+      const f = fixture();
+      await f.record("A", predicate, graph());
+      f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
+      f.capture("A", [], data, flow, 2000);
+      await f.record("B", "", "show result selected", ["selected"]);
+      f.capture("B", ["selected"], data, flow, 2000);
+      const output = f.storage.getAssociatedSnapshot("B").nativeObservations!.selected.text;
+      expect(output.includes("statistics:")).toBe(data);
+      expect(output.includes("- flow:")).toBe(flow);
+      expect(output.length).toBeLessThanOrEqual(2000);
+      const rendered = JSON.stringify(
+        assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
+          agentMode: AgentMode.NATIVE,
+          dataEvidence: data,
+          flowEvidence: flow,
+          maxOperatorResultCharLimit: 2000,
+        })
+      );
+      expect(rendered.includes("statistics:")).toBe(data);
+      expect(rendered.includes("- flow:")).toBe(flow);
+      expect(rendered).not.toContain("Column Schema and stats");
+      expect(f.storage.getOperatorResult("B", "selected")).toEqual(f.storage.getOperatorResult("A", "selected"));
+      expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual({});
+    });
   }
 }
 
 for (const scenario of ["settings", "checkout", "abort"] as const) {
-  test(`post-step evidence capture preserves ownership across ${scenario}`, async () => {
+  test(`a dataflow call's evidence capture keeps its owner across ${scenario}`, async () => {
     const f = fixture();
-    await f.record("A", [filter, source], ["selected"]);
+    await f.record("A", predicate, graph());
     f.persist("A", { source: [-1, 0, 10], selected: [10] });
     const agent = new TexeraAgent({
       agentId: `evidence-${scenario}`,
@@ -546,89 +455,34 @@ for (const scenario of ["settings", "checkout", "abort"] as const) {
       new Promise<void>(resolve => {
         finish = resolve;
       });
-    const pending = agent.runPostStepExecution(f.steps[0].toolCalls, f.steps[0].toolResults);
+    const input = { python: "", statements: "show result selected" };
+    const output = prepareDataflowCall(input);
+    const pending = agent.runPostStepExecution(
+      [{ toolName: "dataflow", toolCallId: "show", input }],
+      [{ toolCallId: "show", output }]
+    );
+    await Promise.resolve();
     if (scenario === "settings") {
       agent.settings.flowEvidence = false;
       agent.settings.dataEvidence = false;
-      agent.settings.columnStats = false;
       agent.settings.maxOperatorResultCharLimit = 50;
     } else if (scenario === "checkout") {
-      await f.record("B", [], []);
+      await f.record("B", "", "show function positive");
       agent.head = "B";
     } else agent.abortController.abort();
     finish();
-    await pending;
+    const outcome = await pending.then(
+      () => "completed",
+      (error: Error) => error.name
+    );
     const captured = f.storage.getAssociatedSnapshot("A").nativeObservations;
-    if (scenario === "settings") expect(captured?.selected.text).toContain("kept=1/3");
-    else expect(captured).toBeUndefined();
+    if (scenario === "settings") {
+      expect(outcome).toBe("completed");
+      expect(captured?.selected.text).toContain("kept=1/3");
+    } else {
+      expect(outcome).toBe("AbortError");
+      expect(captured).toBeUndefined();
+    }
     if (scenario === "checkout") expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toBeUndefined();
   });
-}
-
-test("DELTA compaction cannot reveal a previously unobserved successful table", async () => {
-  const f = fixture();
-  f.steps.push({
-    id: "user",
-    messageId: "m",
-    stepId: 1,
-    timestamp: 1,
-    role: "user",
-    content: "Inspect the selected table.",
-    isBegin: true,
-    isEnd: false,
-  });
-  await f.record("A", [filter, source], ["selected"]);
-  f.persist("A", { source: [-918273, 0, 10], selected: [10] });
-  f.capture("A", ["selected"]);
-  for (const id of ["B", "C", "D"]) {
-    await f.record(id, [], ["selected"]);
-    f.capture(id, ["selected"]);
-  }
-  const text = JSON.stringify(
-    assembleContext(f.steps, f.state, f.storage, ContextMode.DELTA, {
-      agentMode: AgentMode.NATIVE,
-      dataEvidence: true,
-      flowEvidence: true,
-      contextWindowTokens: 40,
-      compactionStrategy: "compress",
-    })
-  );
-  expect(text).toContain("compacted");
-  expect(text).not.toContain("-918273");
-});
-
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-  for (const layout of [{ sessionTurns: true }, { versionedCatalog: true }, { turnHistoryIndex: true }]) {
-    test(`V2 ${mode}/${Object.keys(layout)[0]} keeps evidence behind observe`, async () => {
-      const f = fixture();
-      f.steps.push({
-        id: "user",
-        messageId: "m",
-        stepId: 1,
-        timestamp: 1,
-        role: "user",
-        content: "Inspect the selected table.",
-        isBegin: true,
-        isEnd: false,
-      });
-      await f.record("A", [filter, source], ["selected"]);
-      f.persist("A", { source: [-918273, 0, 10], selected: [10] });
-      f.capture("A", ["selected"]);
-      const render = () =>
-        JSON.stringify(
-          assembleContext(f.steps, f.state, f.storage, mode, {
-            agentMode: AgentMode.NATIVE,
-            dataEvidence: true,
-            flowEvidence: true,
-            ...layout,
-          })
-        );
-      expect(render()).toContain("kept=1/3");
-      expect(render()).not.toContain("-918273");
-      await f.record("B", [], []);
-      f.capture("B", []);
-      expect(render()).not.toContain("-918273");
-      if (mode === ContextMode.LATEST) expect(render()).not.toContain("- flow::");
-    });
-  }
 }

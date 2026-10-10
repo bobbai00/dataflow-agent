@@ -23,36 +23,30 @@ import type { OperatorInfo } from "../../types/execution";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
-import { planGraphEdit } from "../tools/graph-edits";
+import { planRegisteredGraphEdit } from "../tools/graph-edits";
 import { executeDataflowActionBatch } from "../tools/dataflow-action-runtime";
-import {
-  prepareDataflowActions,
-  prepareRegisteredDataflowActions,
-  renderDataflowActionsResult,
-  dataflowActionsSchema,
-} from "../tools/dataflow-actions";
-import { buildNativeModeSystemPrompt } from "../prompts";
+import { prepareActions, renderDataflowActionsResult } from "../tools/dataflow-actions";
+import { prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
 import { columnEntries, describeOperator, operatorBlock } from "./observation-format";
-import { taskLedger } from "../state-ledger";
 import { splitOperators, buildNativeFrames } from "../context/summarize/native-frames";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
-import { parseTurn } from "./turn-syntax";
-import { renderTurnReceipt } from "./turn-receipt";
 
 const metadata = new WorkflowSystemMetadata();
 metadata.seedCodeModeDefaults();
 let workflow: ReturnType<WorkflowState["getWorkflowContent"]>;
 beforeAll(async () => {
   workflow = (
-    await planGraphEdit(
+    await planRegisteredGraphEdit(
       new WorkflowState().getWorkflowContent(),
-      'source = scan("data/test.csv")\noutput = project(source, keep=["id"])',
+      "",
+      "set source: scan(files='data/test.csv')\nset output: project(source, keep=['id'])",
       { metadataStore: metadata, settings: { nativeProfileCollection: true } }
     )
   ).workflow;
 });
+const sourceOp = () => workflow.operators.find(op => op.operatorID === "source")!;
 function info(wide = false): OperatorInfo {
   const schema = [
     { name: "id", type: "int64", encoding: "number-or-decimal-string" },
@@ -61,7 +55,7 @@ function info(wide = false): OperatorInfo {
       ? Array.from({ length: 12 }, (_, i) => ({ name: `f${i}`, type: "int64", encoding: "number-or-decimal-string" }))
       : []),
   ];
-  const op = workflow.operators[0];
+  const op = sourceOp();
   const resultVersion = {
     version: 1 as const,
     id: "v1",
@@ -149,7 +143,7 @@ function persist(storage: WorkflowSnapshotStorage, step: string, value: Operator
     workerId: "w",
     producerId: "a".repeat(32),
     operatorId: "source",
-    operatorRevision: workflow.operators[0].nativeOp!.revision,
+    operatorRevision: sourceOp().nativeOp!.revision,
     coverage: { scope: "worker", complete: true, rowsProcessed: 20, yields: 1 },
   };
   const response = prepareStructuredExecutionResult(
@@ -184,7 +178,6 @@ function fixture() {
     storage,
     stepId: "read",
     context: { metadataStore: metadata },
-    edited: () => {},
     isCurrent: () => true,
     execute: async () => {
       throw new Error("A read must never execute");
@@ -192,30 +185,23 @@ function fixture() {
   };
 }
 
-test("text execution and retrieval do not lose a target's flow measurement to an invisible action reference", async () => {
+test("show result keeps its target's flow measurement in a frozen receipt", async () => {
   const f = fixture();
-  const parsed = parseTurn("summary: Inspect selected source files.\nshow result source full", { views: ["full"] });
-  if (!parsed.ok) throw new Error(parsed.error);
-  const result = prepareRegisteredDataflowActions({ reasoning: parsed.turn.summary, actions: parsed.turn.actions });
+  const result = prepareDataflowCall({ python: "", statements: "show result source full" }, ["full"]);
   const value = info();
   Object.assign(value.tableProfile!.native!.operations!.scan!, { resolvedFiles: 9, selectedFiles: 1, omittedFiles: 8 });
   await executeDataflowActionBatch(result, {
     ...f,
-    settings: {
-      ...DEFAULT_AGENT_SETTINGS,
-      systemPrompt: "",
-      nativeTransport: "text",
-      flowEvidence: true,
-      retrievalViews: ["full"],
-    },
+    settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "", flowEvidence: true, retrievalViews: ["full"] },
     execute: async () => persist(f.storage, "read", value),
   });
   const frozen = JSON.stringify(result);
-  const text = renderTurnReceipt(result, parsed.turn);
+  const text = renderDataflowActionsResult(result);
+  expect(text).toContain("## show result source full");
   expect(text).toContain("files selected=1/9, omitted=8");
   expect(text).not.toContain("see action");
   expect(JSON.stringify(result)).toBe(frozen);
-  expect(renderTurnReceipt(JSON.parse(frozen), parsed.turn)).toBe(text);
+  expect(renderDataflowActionsResult(JSON.parse(frozen))).toBe(text);
 });
 
 for (const tableFormat of ["markdown", "tsv"] as const)
@@ -225,10 +211,9 @@ for (const tableFormat of ["markdown", "tsv"] as const)
         test(`${tableFormat}, wide=${wide}, flow=${flow}, ${view}: readable frozen receipt and no hidden execution`, async () => {
           const f = fixture();
           persist(f.storage, "read", info(wide));
-          const result = prepareDataflowActions({
-            reasoning: "Read the executed result.",
-            actions: [{ type: "retrieve", operator_id: "source", view }],
-          });
+          // A bare read of a completed result: `show result` would also execute first.
+          const views = ["full", "sample", "sample_stats"] as const;
+          const result = prepareActions([{ type: "retrieve", operator_ids: ["source"], view }], views);
           await executeDataflowActionBatch(result, {
             ...f,
             settings: {
@@ -236,12 +221,12 @@ for (const tableFormat of ["markdown", "tsv"] as const)
               systemPrompt: "",
               tableFormat,
               flowEvidence: flow,
-              retrievalViews: ["full", "sample", "sample_stats"],
+              retrievalViews: [...views],
             },
           });
           expect(result.status).toBe("completed");
           const text = renderDataflowActionsResult(result);
-          expect(text).toContain(`### 1. retrieve source: ok`);
+          expect(text).toStartWith("## show result\nresult source (scan): 20 rows × ");
           expect(text).toContain(`records: ${view}; 2 of 20 rows`);
           expect(text).toContain("9007199254740993");
           expect(text).toContain('"null"');
@@ -256,51 +241,6 @@ for (const tableFormat of ["markdown", "tsv"] as const)
           expect(JSON.stringify(saved)).not.toContain("NATIVE_ERROR_V2");
         });
       }
-
-test("every prompt capability combination matches its schema and keeps the common core first", () => {
-  for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
-    for (const data of [false, true])
-      for (const flow of [false, true])
-        for (const history of [false, true])
-          for (const tableFormat of ["markdown", "tsv"] as const) {
-            const views = data ? (["sample_stats", "full"] as const) : (["sample", "full"] as const);
-            const prompt = buildNativeModeSystemPrompt(mode, {
-              retrievalViews: [...views],
-              flowEvidence: flow,
-              stateHistory: history,
-              tableFormat,
-            });
-            // Role and actions, then solving a task, then examples.
-            const order = [
-              "## Role and objective",
-              "## Actions and their effects",
-              "### Understanding observations",
-              "## Solving a task",
-              "## Examples",
-            ];
-            expect(prompt.startsWith(order[0])).toBe(true);
-            for (let i = 1; i < order.length; i++)
-              expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
-            expect(prompt.includes("#### Data statistics")).toBe(data);
-            expect(prompt.includes("#### Flow statistics")).toBe(flow);
-            expect(prompt.includes("### Earlier tasks in the session")).toBe(history);
-            expect(prompt.includes("### Example: compare with an earlier task and go back")).toBe(history);
-            expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
-            // Every fence closes, and example receipts carry only enabled statistics and this table syntax.
-            expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
-            const receipts = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(m => m[1]).join("\n");
-            expect(/^\s*- flow\b/m.test(receipts)).toBe(flow);
-            expect(/^statistics: full table/m.test(receipts)).toBe(data);
-            expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
-            // As in the renderer, an execute receipt's blocks all have something to report.
-            for (const section of receipts.split(/^(?=### )/m).filter(text => /^### \d+\. execute\b/.test(text)))
-              for (const block of section.split(/^(?=- \*\*)/m).slice(1))
-                expect(block).toMatch(/^ {2}- (error|note|check|flow|scope)\b/m);
-            for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
-              expect(prepareDataflowActions(JSON.parse(json), views, history).status).toBe("pending");
-            expect(JSON.stringify(dataflowActionsSchema(history))).not.toContain('"const":"fork"');
-          }
-});
 
 test("format settings validate atomically, rebuild the prompt and preserve zero limits", () => {
   const agent = new TexeraAgent({
@@ -322,7 +262,6 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
   }
   agent.updateSettings({
     agentMode: AgentMode.NATIVE,
-    multiTask: true,
     tableFormat: "tsv",
     keyValueColumns: 0,
     columnsShown: 0,
@@ -335,7 +274,9 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
   const settings = agent.getSettings();
   expect(settings.tableFormat).toBe("tsv");
   expect(settings.keyValueColumns).toBe(0);
-  expect(settings.systemPrompt).toContain("Earlier tasks share the current graph and registered definitions.");
+  // The example receipts in the rebuilt prompt use the new table syntax.
+  expect(settings.systemPrompt).toContain("group\tvalue");
+  expect(settings.systemPrompt).not.toContain("| group | value |");
 });
 
 test("column runs retain type boundaries, leading zeros and physical omitted counts", () => {
@@ -358,36 +299,9 @@ test("column runs retain type boundaries, leading zeros and physical omitted cou
   ]);
 });
 
-test("catalog includes unchanged definitions whose output version changed and keeps frozen displayed records", () => {
-  const f = fixture();
-  const original = info();
-  persist(f.storage, "base", original);
-  persist(f.storage, "read", original, "2");
-  const before = taskLedger(
-    { storage: f.storage, baseStepId: "base", currentStepId: "read", historicalTasks: [] },
-    workflow,
-    id => f.storage.getOperatorResult("read", id),
-    2
-  );
-  expect(before).toContain("**source** (scan, recomputed)");
-  expect(before).not.toContain("9007199254740993");
-  f.storage.captureNativeObservations("read", ["source"], { data: false, flow: false, maxChars: 2000, view: "sample" });
-  const ctx = {
-    storage: f.storage,
-    baseStepId: "base",
-    currentStepId: "read",
-    historicalTasks: [],
-    settings: { catalogRecords: 1 },
-  };
-  const withRecords = taskLedger(ctx, workflow, id => f.storage.getOperatorResult("read", id), 2);
-  expect(withRecords).toContain("records: sample; 1 of 20 rows");
-  expect(withRecords).toContain("9007199254740993");
-  persist(f.storage, "read", original, "3");
-  const replaced = taskLedger(ctx, workflow, id => f.storage.getOperatorResult("read", id), 2);
-  expect(replaced).not.toContain("records:");
-  const source = workflow.operators[0];
-  const block = operatorBlock(describeOperator(source, original, { definitionChars: 5, definitionLimit: true }));
-  expect(block).toContain("definition clipped; inspect for full text");
+test("operator blocks clip long definitions and never show revisions", () => {
+  const block = operatorBlock(describeOperator(sourceOp(), info(), { definitionChars: 5, definitionLimit: true }));
+  expect(block).toContain("definition clipped; show operator gives the full text");
   expect(block).not.toContain("revision");
 });
 
@@ -405,16 +319,16 @@ test("new operator blocks split into independent messages and new receipts stay 
       {
         toolCallId: "c",
         toolName: "dataflow",
-        input: { reasoning: "Read.", actions: [{ type: "inspect", target: "graph" }] },
+        input: { python: "", statements: "show operator a" },
       },
     ],
     toolResults: [],
   } as any;
   const frames = buildNativeFrames(
-    "## Agent Event 1\nThought: Read.\nObservation:\n### 1. inspect graph: ok\nThe dataflow is empty.",
+    "## Agent Event 1\nThought: Read.\nObservation:\n## show operator a\n- **a** (scan, executed)",
     new Map([[1, step]])
   );
   const result = JSON.stringify(frames);
-  expect(result).toContain("### 1. inspect graph: ok");
+  expect(result).toContain("## show operator a");
   expect(result).not.toContain("Observation:");
 });

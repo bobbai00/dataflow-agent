@@ -18,39 +18,34 @@
  */
 
 /**
- * The turn tool: the registered protocol as one tool call with three strings.
+ * The `dataflow` tool: one call per step, two strings.
  *
- *   dataflow({ summary, python, statements })
+ *   dataflow({ python, statements })
  *
- * `statements` holds the turn's `set`, `delete`, `execute` and `show` lines
- * (native/turn-syntax.ts); `python` holds definitions. The call becomes the
- * same action list the JSON tool takes, so execution and traces are shared;
- * the receipt is rendered by statement (native/turn-receipt.ts). There is no
- * answer statement: the model answers by replying without a tool call.
+ * `python` holds definitions; `statements` holds `set`, `delete`, `execute`
+ * and `show` lines (native/turn-syntax.ts). The call becomes an action list
+ * (tools/dataflow-actions.ts) and its receipt is rendered by statement
+ * (native/turn-receipt.ts). There is no answer field: the model answers by
+ * replying without a tool call.
  */
 import { jsonSchema, tool } from "ai";
 import type { RetrievalView } from "../../types/agent";
 import { availableRetrievalViews, RETRIEVAL_VIEWS } from "../native/retrieval";
-import { parseTurnFields, type TurnReceiptInfo } from "../native/turn-syntax";
-import { prepareRegisteredDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
+import { parseTurn } from "../native/turn-syntax";
+import { prepareActions, rejectedActions, type DataflowActionsResult } from "./dataflow-actions";
 
-export interface TurnToolInput {
-  summary: string;
+export interface DataflowToolInput {
   python: string;
   statements: string;
 }
 
-export const TURN_TOOL_DESCRIPTION =
-  "Edit, compute and read the Dataflow with one turn of statements. Reply without this tool only to give the final answer.";
+export const DATAFLOW_TOOL_DESCRIPTION =
+  "Edit, compute and read the Dataflow. Reply without this tool only to give the final answer.";
 
-export const TURN_TOOL_SCHEMA = {
+export const DATAFLOW_TOOL_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    summary: {
-      type: "string",
-      description: "One line: the population, definitions and formula this call assumes.",
-    },
     python: {
       type: "string",
       description: 'Python definitions to register or replace, or "" when the call defines none.',
@@ -61,33 +56,11 @@ export const TURN_TOOL_SCHEMA = {
         'Statements, one per line: set <id>: <op>(...), delete <id>, execute <id>, show result|schema|operator|function|builtin ...; "" when the call only defines functions.',
     },
   },
-  required: ["summary", "python", "statements"],
+  required: ["python", "statements"],
 } as const;
 
-const EMPTY_INFO: TurnReceiptInfo = {
-  statements: [],
-  missingSummary: false,
-  ignoredProse: [],
-  wroteReceipt: false,
-  fields: true,
-};
-
-function rejected(message: string): DataflowActionsResult {
-  return {
-    kind: "dataflow-actions",
-    protocol: "registered-python-v1",
-    status: "error",
-    actions: [],
-    operators: [],
-    observe: [],
-    observationErrors: [],
-    error: `${message} No actions ran.`,
-    turn: EMPTY_INFO,
-  };
-}
-
-/** A provider that sends the arguments as text, or a model that nests them, still yields the fields. */
-function turnFields(input: unknown): Record<string, unknown> | undefined {
+/** A provider that sends the arguments as text still yields the fields. */
+function toolFields(input: unknown): Record<string, unknown> | undefined {
   let value = input;
   if (typeof value === "string") {
     try {
@@ -98,40 +71,29 @@ function turnFields(input: unknown): Record<string, unknown> | undefined {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["summary", "python", "statements"])
+  for (const key of ["python", "statements"])
     if (record[key] !== undefined && typeof record[key] !== "string") return undefined;
   return record;
 }
 
-/** Parse the fields into the action list the agent runs; a rejected call runs nothing. */
-export function prepareTurnToolActions(
+/** Parse a call into the action list the agent runs; a rejected call runs nothing. */
+export function prepareDataflowCall(
   input: unknown,
   views: readonly RetrievalView[] = RETRIEVAL_VIEWS
 ): DataflowActionsResult {
-  const fields = turnFields(input);
-  if (!fields) return rejected("dataflow takes an object with the strings summary, python and statements.");
-  const parsed = parseTurnFields(fields, { views });
-  if (!parsed.ok) return rejected(parsed.error);
-  const { turn } = parsed;
-  const result = prepareRegisteredDataflowActions(
-    { reasoning: turn.summary || "(no summary)", actions: turn.actions },
-    views
-  );
-  result.turn = {
-    statements: turn.statements,
-    missingSummary: turn.missingSummary,
-    ignoredProse: turn.ignoredProse,
-    wroteReceipt: false,
-    fields: true,
-  };
-  return result;
+  const fields = toolFields(input);
+  if (!fields) return rejectedActions("dataflow takes an object with the strings python and statements.");
+  const parsed = parseTurn(fields, { views });
+  if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
+  const { statements, ignoredProse, actions } = parsed.turn;
+  return prepareActions(actions, views, { statements, ignoredProse });
 }
 
-export function createTurnTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
+export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
   return tool({
-    description: TURN_TOOL_DESCRIPTION,
+    description: DATAFLOW_TOOL_DESCRIPTION,
     strict: true,
-    inputSchema: jsonSchema<TurnToolInput>(structuredClone(TURN_TOOL_SCHEMA) as any),
-    execute: async input => prepareTurnToolActions(input, views),
+    inputSchema: jsonSchema<DataflowToolInput>(structuredClone(DATAFLOW_TOOL_SCHEMA) as any),
+    execute: async input => prepareDataflowCall(input, views),
   });
 }

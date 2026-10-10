@@ -45,28 +45,43 @@ import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { createNativeTools } from "../tools/native-batch-tools";
-import { dataflowInput, type LegacySpec } from "./test-support";
+import { planRegisteredGraphEdit } from "../tools/graph-edits";
+import { prepareDataflowCall } from "../tools/turn-tool";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
 function fixture() {
   const state = new WorkflowState();
-  const metadata = new WorkflowSystemMetadata();
-  metadata.seedCodeModeDefaults();
-  const tools = createNativeTools(state, {
-    metadataStore: metadata,
-    settings: { nativeProfileCollection: true },
-  } as any);
+  const metadataStore = new WorkflowSystemMetadata();
+  metadataStore.seedCodeModeDefaults();
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(
     id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id),
     () => 17
   );
 
-  const record = async (id: string, operators: Record<string, unknown>[], observe: string[]) => {
-    const input = dataflowInput({ operators: operators as LegacySpec[], observe });
-    const output = await tools.dataflow.execute(input);
+  /** A completed `dataflow` call: its edit lands, its `show result` targets are observed. */
+  const record = async (id: string, python: string, statements: string, observe: string[]) => {
+    const input = { python, statements };
+    const output = prepareDataflowCall(input);
+    for (const item of output.actions) {
+      if (item.action.type === "edit") {
+        const plan = await planRegisteredGraphEdit(
+          state.getWorkflowContent(),
+          item.action.python,
+          item.action.changes,
+          {
+            metadataStore,
+            settings: { nativeProfileCollection: true },
+          }
+        );
+        state.setWorkflowContent(plan.workflow);
+        output.operators.push(...plan.operators);
+      }
+      item.status = "ok";
+    }
+    output.status = "completed";
+    output.observe = observe;
     steps.push({
       id,
       parentId: steps.at(-1)?.id,
@@ -193,19 +208,15 @@ function fixture() {
 const blockFor = (messages: string[], id: string) => messages.find(m => m.includes(`**${id}**`)) ?? "";
 const hasBody = (block: string) => block.includes("records:");
 
-const source = { op: "scan", id: "source", files: "data/test.csv" };
-const selected = {
-  op: "filter",
-  id: "selected",
-  input: "source",
-  columns: ["x"],
-  func: "def apply(row):\n    return row['x'] > 0",
-};
-const final = { op: "project", id: "final", input: "selected", keep: ["x"] };
+const predicate = "def positive(row, *, minimum=0):\n    return row['x'] > minimum";
+const source = (file = "data/test.csv") => `set source: scan(files='${file}')`;
+const selected = (minimum = 0) =>
+  `set selected: filter(source, predicate='positive', settings={'minimum': ${minimum}}, doc='Keeps rows above the minimum.')`;
+const final = "set final: project(selected, keep=['x'])";
 
 async function threeOperatorGraph() {
   const f = fixture();
-  await f.record("A", [source, selected, final], ["selected"]);
+  await f.record("A", predicate, [source(), selected(), final, "show result selected"].join("\n"), ["selected"]);
   f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] }, "100");
   f.storage.captureNativeObservations("A", ["selected"], { data: true, flow: true, maxChars: 2000 });
   return f;
@@ -220,7 +231,7 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
   expect(blockFor(messages, "selected")).toContain("- flow: Filter kept=3/5");
   // Author descriptions stay in definitions; guarantees describe the contract.
   expect(blockFor(messages, "selected")).toContain("- flow: contract; Filter: stable subset");
-  expect(blockFor(messages, "selected")).not.toContain("- flow: contract; Filter: legacy fixture");
+  expect(blockFor(messages, "selected")).not.toContain("- flow: contract; Filter: Keeps rows above the minimum.");
 
   // The two the agent did not ask for carry a row count and nothing else. An
   // unobserved table is not leaked just because the layout retains bodies.
@@ -235,7 +246,7 @@ test("opBlock: an observed result survives the agent looking elsewhere", async (
   const f = await threeOperatorGraph();
 
   // A cached read of a different operator. No operator is edited or re-run.
-  await f.record("B", [], ["final"]);
+  await f.record("B", "", "show result final", ["final"]);
   f.storage.captureNativeObservations("B", ["final"], { data: true, flow: true, maxChars: 2000 });
   const messages = f.render("opBlock");
 
@@ -256,14 +267,14 @@ test("opBlock: a redefined operator shows the result its NEW definition produced
   const f = await threeOperatorGraph();
 
   // Same id, new predicate, re-executed: a new revision and a new result.
-  await f.record("B", [{ ...selected, func: "def apply(row):\n    return row['x'] > 15" }], []);
+  await f.record("B", "", selected(15), []);
   f.persist("B", { selected: [20, 30], final: [20, 30] }, "101");
   const messages = f.render("opBlock");
 
   // The block still carries a result — and it is the CURRENT one.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
   expect(blockFor(messages, "selected")).toContain("result: 2 rows");
-  expect(blockFor(messages, "selected")).toContain("row['x'] > 15");
+  expect(blockFor(messages, "selected")).toContain("'minimum': 15");
   // The measurement from the superseded revision is gone, not merely moved.
   expect(messages.join("\n")).not.toContain("- flow: Filter kept=3/5");
   expect(blockFor(messages, "selected")).not.toContain("result: 3 rows");
@@ -272,14 +283,14 @@ test("opBlock: a redefined operator shows the result its NEW definition produced
 test("opBlock: an upstream change refreshes every downstream result the agent watches", async () => {
   const f = await threeOperatorGraph();
   // `final` is observed too, so both downstream blocks are subscribed.
-  await f.record("B", [], ["final"]);
+  await f.record("B", "", "show result final", ["final"]);
   f.storage.captureNativeObservations("B", ["final"], { data: true, flow: true, maxChars: 2000 });
   expect(blockFor(f.render("opBlock"), "final")).toContain("result: 3 rows");
 
   // Now only the SOURCE changes. `selected` and `final` are untouched
   // definitions, but their data moves underneath them — which is precisely the
   // case LATEST exists for. Neither may keep showing the 3-row tables.
-  await f.record("C", [{ ...source, files: "data/other.csv" }], []);
+  await f.record("C", "", source("data/other.csv"), []);
   f.persist("C", { source: [-1, 0, 50], selected: [50], final: [50] }, "102");
   const messages = f.render("opBlock");
 
@@ -298,40 +309,36 @@ test("opBlock: observing a new operator subscribes it from then on", async () =>
   // `final` has never been observed, so it shows its shape only.
   expect(hasBody(blockFor(f.render("opBlock"), "final"))).toBe(false);
 
-  await f.record("B", [], ["final"]);
+  await f.record("B", "", "show result final", ["final"]);
   f.storage.captureNativeObservations("B", ["final"], { data: true, flow: true, maxChars: 2000 });
   expect(hasBody(blockFor(f.render("opBlock"), "final"))).toBe(true);
 
   // And it stays, once the agent moves on again.
-  await f.record("C", [], ["selected"]);
+  await f.record("C", "", "show result selected", ["selected"]);
   f.storage.captureNativeObservations("C", ["selected"], { data: true, flow: true, maxChars: 2000 });
   expect(hasBody(blockFor(f.render("opBlock"), "final"))).toBe(true);
 });
 
-test("opBlock: definitions and process code do not depend on the observe list", async () => {
+test("opBlock: definitions do not depend on the observe list, and function bodies stay in the namespace", async () => {
   const f = fixture();
-  const udf = {
-    op: "udf",
-    id: "scored",
-    inputs: ["source"],
-    code: "def process(source):\n    return source.assign(y=source['x'] * 2)",
-  };
-  await f.record("A", [source, udf], ["scored"]);
+  await f.record(
+    "A",
+    "def doubled(source):\n    return source.assign(y=source['x'] * 2)",
+    [source(), "set scored: doubled(source)", "show result scored"].join("\n"),
+    ["scored"]
+  );
   f.persist("A", { source: [1, 2, 3], scored: [1, 2, 3] }, "100");
   f.storage.captureNativeObservations("A", ["scored"], { data: true, flow: true, maxChars: 2000 });
 
-  const observedBlock = blockFor(f.render("opBlock"), "scored");
-  // opBlock shows the process function body in every block, observed or not;
-  // opSplit keeps only the statement so the body is never in the snapshot.
-  expect(observedBlock).toContain("def scored_fn(source)");
-  expect(observedBlock).toContain('scored = process(source, fn=scored_fn, doc="legacy fixture")');
-  expect(blockFor(f.render("opSplit"), "scored")).not.toContain("def scored_fn(source)");
-  expect(blockFor(f.render("opSplit"), "scored")).toContain(
-    'scored = process(source, fn=scored_fn, doc="legacy fixture")'
-  );
-
-  // Every block carries its definition as written, whatever the observe list.
-  for (const id of ["source", "scored"]) expect(blockFor(f.render("opBlock"), id)).toContain("definition:");
+  // Each block carries its statement as written, observed or not. A registered
+  // function's body lives in the namespace (`show function`), in no block.
+  for (const layout of ["opBlock", "opSplit"] as const) {
+    const block = blockFor(f.render(layout), "scored");
+    expect(block).toContain("definition: `set scored: doubled(source)`");
+    expect(block).not.toContain("source.assign");
+  }
+  expect(blockFor(f.render("opBlock"), "source")).toContain("definition: `set source: scan(files='data/test.csv')`");
+  expect(hasBody(blockFor(f.render("opBlock"), "source"))).toBe(false);
 });
 
 test("opBlock: the volatile tail sections get their own messages", async () => {

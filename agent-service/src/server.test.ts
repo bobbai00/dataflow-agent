@@ -139,39 +139,23 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
-  test("transport follows the driver and incompatible updates are atomic", async () => {
-    const transports = { "text-turn": "text", "vercel-tool-use": "tool", "turn-tool": "turn" } as const;
-    for (const driver of ["text-turn", "vercel-tool-use", "turn-tool"] as const) {
-      const transport = transports[driver];
-      const created = await readJson<any>(await createAgent({ driver }));
-      expect(created.settings.nativeTransport).toBe(transport);
-      expect(created.driver).toBe(driver);
-      const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
-      for (const opposite of Object.values(transports).filter(value => value !== transport)) {
-        const response = await patchJson(`${API}/agents/${created.id}/settings`, {
-          nativeTransport: opposite,
-          maxSteps: 7,
-        });
-        expect(response.status).toBe(400);
-        expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
-        expect((await createAgent({ driver, settings: { nativeTransport: opposite } })).status).toBe(400);
-      }
-    }
-  });
-
-  test("text transport rejects unsupported modes before creating an agent", async () => {
-    for (const settings of [{ agentMode: "code" }, { contextMode: "latest" }, { messageLayout: "opSplit" }]) {
-      expect((await createAgent({ driver: "text-turn", settings })).status).toBe(400);
+  test("the removed text and turn-tool drivers are refused before an agent is created", async () => {
+    for (const body of [{ driver: "text-turn" }, { driver: "turn-tool" }]) {
+      expect((await createAgent(body)).status).toBe(400);
       expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(0);
     }
+    const created = await readJson<any>(await createAgent({ driver: "vercel-tool-use" }));
+    expect(created.driver).toBe("vercel-tool-use");
   });
 
-  test("text transport rejects context policies and tools its transcript cannot use", async () => {
-    const created = await readJson<any>(await createAgent({ driver: "text-turn" }));
+  test("removed protocol and multi-task settings are refused on create and patch, leaving settings unchanged", async () => {
+    const created = await readJson<any>(await createAgent({ settings: { agentMode: "native" } }));
     const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
     for (const settings of [
-      { taskContext: "dependencies", stateHistory: true },
-      { contextWindowTokens: 2000 },
+      { nativeTransport: "turn" },
+      { taskContext: "dependencies" },
+      { multiTask: true },
+      { stateHistory: true },
       { stateLedger: true },
       { enableRecallTool: true },
       { enableResumeTool: true },
@@ -180,10 +164,12 @@ describe(`POST ${API}/agents`, () => {
       { sessionTurns: true },
       { versionedMode: true },
     ]) {
-      expect((await createAgent({ driver: "text-turn", settings })).status).toBe(400);
-      expect((await patchJson(`${API}/agents/${created.id}/settings`, settings)).status).toBe(400);
+      const response = await createAgent({ settings: { agentMode: "native", ...settings } });
+      expect(response.status).toBe(400);
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, { ...settings, maxSteps: 7 })).status).toBe(400);
       expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
     }
+    expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(1);
   });
 
   test("explicit message layout is echoed in create, info and settings", async () => {

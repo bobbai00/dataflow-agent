@@ -104,13 +104,6 @@ export interface ReActStep {
    *  step-record time (see `computeOperatorAccess`). Absent on steps with
    *  no tool calls. */
   operatorAccess?: Record<number, ToolOperatorAccess>;
-  /** Set on steps the service performed itself, with no model request behind
-   *  them. `"seed"`: the seeded source roots recorded before the first model
-   *  call of a turn (see `seedSources`). `"state"`: tables loaded as the state
-   *  in force before a session's first request (`seedState`); the step keeps
-   *  its snapshot and results but is never rendered into the model's context
-   *  and does not count as a task. Usage is zero by construction. */
-  synthetic?: "seed" | "state";
 }
 
 export enum OperatorResultSerializationMode {
@@ -164,10 +157,6 @@ export enum ContextMode {
 export type CompactionStrategy = "sliding" | "compress";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
-  /** Earlier tasks replayed in full, or indexed with versioned dependencies. */
-  taskContext?: "trajectory" | "dependencies";
-  /** Include the persistent-session instructions from the first request. */
-  multiTask: boolean;
   systemPrompt: string;
   disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
@@ -294,29 +283,11 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   dataEvidence: boolean;
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
-  /** Retained for archived configurations. Native action calls always require
-   *  reasoning; native settings normalize this field to true. */
-  dataflowReasoning: boolean;
   /** Native mode: `check:` lines under every executed operator whose own
    *  assumptions the engine found violated on the full tables (header rows,
    *  records repeated across sources, join fan-out, row effects inside a
    *  process function). Off by default. */
   nativeChecks: boolean;
-  /** Initial native reference material; omitted/full retains the complete prompt. */
-  nativePromptDetail?: "full" | "on_demand";
-  /** How the registered protocol travels: `tool` (one JSON tool call of
-   *  actions per model step), `turn` (one tool call carrying a turn of
-   *  statements; a reply without a tool call is the answer) or `text` (the
-   *  model's message is the turn; see native/turn-syntax.ts). Set from the
-   *  driver kind at creation. */
-  nativeTransport?: "tool" | "text" | "turn";
-  /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
-  stateHistory: boolean;
-  /** System-verified reuse of earlier state in native mode: a ledger of each
-   *  sealed task's tables in the Answer receipt, provenance cards for inputs
-   *  taken from earlier state in edit receipts, and execution notes for empty,
-   *  limited or subset inputs. Off by default. */
-  stateLedger: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -396,141 +367,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * request closest to the generation point, which is where recency helps.
    */
   userTaskPlacement: "top" | "bottom";
-  /**
-   * How PRIOR turns of a multi-turn session are rendered (DELTA only; LATEST
-   * never rendered prior turns at all).
-   *
-   * - "full" (default, legacy): every event of every turn, verbatim and forever.
-   * - "index": prior turns collapse into a compact `# Prior Turns` catalogue —
-   *   one line per turn with its request, the operators it touched and the answer
-   *   it gave — while the CURRENT turn keeps its events raw. Details are then
-   *   pulled on demand with `recallState` (see enableRecallTool). This is the
-   *   turn-boundary reorganization: context is rebuilt once per turn (where the
-   *   cache boundary already falls) instead of growing without bound.
-   */
-  turnHistory: "full" | "index";
-  /**
-   * Expose the read-only `recallState` tool: lets the model fetch specific
-   * history it decides it needs for the current turn — a past turn's request and
-   * answer, an operator's code as of a past turn, an operator's revision
-   * history, or a result sample. Pairs with `turnHistory: "index"`: the index
-   * says what exists, the tool fetches what matters. Off by default.
-   */
-  enableRecallTool: boolean;
-  /** Per-operator ceiling for recallState's `includeOutputTableSample`
-   *  (characters). Requests above it are clamped with a teaching message.
-   *  The ceiling is an experiment knob; the existence of a clamp is not. */
-  recallMaxResultChars: number;
-  /** OPERATOR-LEVEL recall (v3): recallState takes `ref: "opId (turn N)"` —
-   *  one version per pull, values on by default — instead of a whole turn.
-   *  Pairs with versionedMode (the catalog prints those addresses). */
-  recallOperatorLevel: boolean;
-  /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
-   *  — every requested quantity traced to an `opId (turn N)` + column, every
-   *  binding clause of the task text quoted and answered. Prompt-side only, and
-   *  layout-agnostic: the defect it targets (a 90%-correct answer that loses on
-   *  one unchecked clause — scope, population, sign, denominator, scale) was
-   *  measured at the same rate under `# Session` and `# Catalog`. */
-  specAudit: boolean;
-  /**
-   * How many UPSTREAM operators of the current turn's work may render sample
-   * rows, ranked most-recently-touched first; the rest stay a one-line index
-   * entry and are a `recallState` call away. There is no matching cap on code:
-   * the operators a turn is working on always render their code in full, because
-   * a partial view of the turn's own definitions makes the model rebuild what it
-   * already has.
-   */
-  indexRichTables: number;
-  /**
-   * How many operators keep a full index entry (summary + schema), beyond the
-   * ones this turn is working on, which are never evicted. Admitted
-   * most-recently-touched first; the rest collapse to a bare header line —
-   * still named and recallable, but no longer re-sent in detail. The index
-   * would otherwise grow with every operator ever created (737 by turn 30 on
-   * one task, 360 KB of a 559 KB prompt).
-   *
-   * This is a COUNT and not an age. It replaced `indexRecentTurns`, which was
-   * the same constant for a 31-operator task and a 381-operator one and so
-   * failed in both directions at once: at 3 turns passnyc could see 4 result
-   * tables out of ~23 live operators (63.3% -> 40.0%), and at 12 turns nfl and
-   * uber flooded to 360-600 kB and spent whole 40-step budgets returning
-   * nothing. A count bounds what the prompt actually pays for.
-   */
-  indexDetailedOperators: number;
-  /**
-   * Expose `resumeFrom(turn)`: the model names the turn it builds on and the
-   * dataflow becomes that turn's state, instead of a recency rule choosing.
-   * Off by default — control arms keep a byte-identical prompt and tool set.
-   */
-  enableResumeTool: boolean;
-  /**
-   * Check that a final answer's substantive numbers trace to a materialized
-   * operator result or to state recalled this turn; on total failure, send one
-   * feedback round. Leverages the dataflow property that results are
-   * addressable tables — unverifiable in a plain transcript. Off by default.
-   */
-  enableAnswerGrounding: boolean;
-  /**
-   * SEEDED SOURCE ROOTS — when a message arrives with `sources`, scan every
-   * listed file and observe it BEFORE the first model call, recorded as an
-   * ordinary `dataflow` step with zero usage. A dataflow's roots are the one
-   * part of the graph the model cannot decide differently, so materializing
-   * them up front removes the scan-only opening step(s) every layout renders
-   * anyway. Off by default — control arms keep a byte-identical protocol.
-   */
-  seedSources: boolean;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
-  /**
-   * VERSIONED MODE — the session as one immutable version DAG addressed by
-   * (operatorId, turnId). Three coupled changes, one flag:
-   *   render: the context is a single `# Catalog` — finished turns as
-   *     Task / Dataflow delta / Answer entries, the turn in progress as the
-   *     last entry (its steps carry full observations; recall output persists
-   *     there as an ordinary observation). No `# Dataflow` section: state
-   *     renders once, at creation, and the prompt is append-only.
-   *   tools: `createOrModifyOperator` requires `upstreams` (def-arg → version
-   *     turn) and `fromTurn` on revisions, validated against the version store
-   *     with errors that list the valid turns.
-   *   prompt: the versioned.md fragment replaces recall.md's layout section.
-   * Off by default — byte-parity with legacy when off.
-   */
-  versionedMode: boolean;
-  /** Versioned mode: render the Latest-versions pointer table (default true).
-   *  Exposed for the A/B measuring what dropping it costs. */
-  versionedHeads: boolean;
-  /** SESSION LAYOUT (non-versioned multi-turn): group the context by turn —
-   *  `# Session` with one `## Turn N` entry per turn (### Task, ### Steps in
-   *  DELTA / ### Dataflow in LATEST, ### Final Answer), closed by a
-   *  `# Your Task` directive pointing at the current turn. The ReAct render
-   *  knobs apply unchanged inside each turn. Purely a re-grouping of the same
-   *  information the flat event log carries — the fair baseline layout for
-   *  comparisons against versionedMode. Ignored when versionedMode is on
-   *  (the catalog is already turn-grouped). Off by default — byte-parity
-   *  with the legacy flat layout when off. */
-  sessionTurns: boolean;
-  /**
-   * Whether the step log drops each observation's result body, keeping only its
-   * `- operator X updated` verb line. True (default) relies on the dataflow
-   * render above being the authoritative state. Exposed because it is the leading
-   * suspect for the accuracy gap against the flat prototype: with it on, the last
-   * thing the model reads before answering is content-free verb lines.
-   */
-  indexThinObservations: boolean;
-  /**
-   * Expose the `compactContext` tool (agent-triggered compaction POC). When the
-   * agent calls it, the DELTA assembler folds the trajectory up to that mark into
-   * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
-   * LATEST — nothing to fold). Off by default. See docs/agent-triggered-compaction-plan.md.
-   */
-  enableCompactTool: boolean;
-  /**
-   * Static fold parameter (POC): how many of the most recent agent events to keep
-   * raw BEFORE the compaction mark (in addition to everything after it). 0 ⇒ fold
-   * everything through the mark. A constant, not model-chosen.
-   */
-  compactKeepLastSteps: number;
   /**
    * Static compaction rule (DELTA-only). When true, the assembler automatically
    * folds settled older events into the compact deck once the trajectory grows
@@ -549,9 +388,7 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
-  taskContext: "trajectory",
   ...DEFAULT_OBSERVATION_FORMAT,
-  multiTask: false,
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
@@ -571,12 +408,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeProfileScope: "prefix",
   dataEvidence: false,
   flowEvidence: false,
-  dataflowReasoning: true,
   nativeChecks: false,
-  nativePromptDetail: "full",
-  nativeTransport: "tool",
-  stateHistory: false,
-  stateLedger: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
@@ -598,30 +430,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableRenderPrefs: false,
   enableCodeInSnapshot: true,
   sourceProvenanceHint: false,
-  enableCompactTool: false,
-  compactKeepLastSteps: 0,
   staticCompaction: false,
   userTaskPlacement: "top",
-  turnHistory: "full",
-  enableRecallTool: false,
-  recallMaxResultChars: 5000,
-  recallOperatorLevel: false,
-  specAudit: false,
-  indexRichTables: 12,
-  // 0 = no cap. The count cap is off while the version-tree model is being
-  // evaluated: resumeFrom bounds the DAG by choosing an earlier base, and the
-  // two mechanisms need measuring apart before they are stacked.
-  indexDetailedOperators: 0,
-  enableResumeTool: false,
-  enableAnswerGrounding: false,
-  seedSources: false,
-  versionedMode: false,
-  // Default OFF: the A/B measured wrong-reference errors at 0.8%/write with
-  // and without the table — it is derivable from the entries and buys nothing
-  // at this scale. Kept as a flag for much longer sessions.
-  versionedHeads: false,
-  sessionTurns: false,
-  indexThinObservations: false,
 };
 
 /**
@@ -640,7 +450,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
  * together) and not mutable via UpdateAgentSettings. (The `toolDialect`
  * sub-mode, by contrast, IS mutable.)
  */
-export type AgentDriverKind = "vercel-tool-use" | "local-react" | "text-turn" | "turn-tool";
+export type AgentDriverKind = "vercel-tool-use" | "local-react";
 
 /**
  * Tool-call dialect for the `local-react` text-mode driver — the wire syntax
@@ -678,8 +488,6 @@ export interface AgentDelegateConfig {
 }
 
 export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
-  taskContext?: "trajectory" | "dependencies";
-  multiTask?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
@@ -695,17 +503,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
-  dataflowReasoning?: boolean;
   nativeChecks?: boolean;
-  nativePromptDetail?: "full" | "on_demand";
-  /** How the registered protocol travels: `tool` (one JSON tool call of
-   *  actions per model step), `turn` (one tool call carrying a turn of
-   *  statements; a reply without a tool call is the answer) or `text` (the
-   *  model's message is the turn; see native/turn-syntax.ts). Set from the
-   *  driver kind at creation. */
-  nativeTransport?: "tool" | "text" | "turn";
-  stateHistory?: boolean;
-  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -744,28 +542,12 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   enableCodeInSnapshot?: boolean;
   /** Append the multi-file provenance principle to the code-mode prompt (see AgentSettings.sourceProvenanceHint). */
   sourceProvenanceHint?: boolean;
-  /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
-  enableCompactTool?: boolean;
-  /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
-  compactKeepLastSteps?: number;
   /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
   /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
   userTaskPlacement?: "top" | "bottom";
-  /** Prior-turn rendering: verbatim vs compact catalogue (see AgentSettings.turnHistory). */
-  turnHistory?: "full" | "index";
-  /** Expose the read-only recallState tool (see AgentSettings.enableRecallTool). */
-  enableRecallTool?: boolean;
-  /** Service-side clamp on a recall pull's result chars (see AgentSettings.recallMaxResultChars). */
-  recallMaxResultChars?: number;
-  /** Upstream operators allowed to render sample rows (see AgentSettings.indexRichTables). */
-  indexRichTables?: number;
-  /** Operators keeping a full index entry (see AgentSettings.indexDetailedOperators). */
-  indexDetailedOperators?: number;
-  /** Turn-grouped session layout (see AgentSettings.sessionTurns). */
-  sessionTurns?: boolean;
 }
 
 export interface AgentInfo {
@@ -792,8 +574,6 @@ export interface CreateAgentRequest {
 }
 
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
-  taskContext?: "trajectory" | "dependencies";
-  multiTask?: boolean;
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
@@ -808,17 +588,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
-  dataflowReasoning?: boolean;
   nativeChecks?: boolean;
-  nativePromptDetail?: "full" | "on_demand";
-  /** How the registered protocol travels: `tool` (one JSON tool call of
-   *  actions per model step), `turn` (one tool call carrying a turn of
-   *  statements; a reply without a tool call is the answer) or `text` (the
-   *  model's message is the turn; see native/turn-syntax.ts). Set from the
-   *  driver kind at creation. */
-  nativeTransport?: "tool" | "text" | "turn";
-  stateHistory?: boolean;
-  stateLedger?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -855,10 +625,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   enableRenderPrefs?: boolean;
   /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
   enableCodeInSnapshot?: boolean;
-  /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
-  enableCompactTool?: boolean;
-  /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
-  compactKeepLastSteps?: number;
   /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */

@@ -82,9 +82,6 @@ export interface SnapshotData {
   /** Private event-owned diagnostics. Never inherited or added to the ordinary
    * unauthenticated snapshot response; expanded reads use inspectError. */
   nativeDiagnostics?: Readonly<Record<string, NativeDiagnosticRecord>>;
-  /** Unrepaired rejected definitions are control state, not result evidence.
-   * Upstream result invalidation must not silently forgive a syntax rejection. */
-  nativeRejectedEdits?: Readonly<Record<string, NativeErrorSummary>>;
 }
 
 function createEmptyWorkflow(): WorkflowContent {
@@ -257,23 +254,9 @@ export class WorkflowSnapshotStorage {
       // Entries are carried forward by reference — ResultEntry is
       // immutable; overrides replace the entry, never mutate in place.
       results: inherited,
-      ...(parentSnap.nativeRejectedEdits
-        ? {
-            nativeRejectedEdits: freezeSnapshotValue(
-              Object.fromEntries(
-                Object.entries(parentSnap.nativeRejectedEdits).filter(([opId]) => {
-                  const old = parentSnap.workflow.operators.find(op => op.operatorID === opId)?.nativeOp?.revision;
-                  const current = workflow.operators.find(op => op.operatorID === opId)?.nativeOp?.revision;
-                  return old === current;
-                })
-              )
-            ),
-          }
-        : {}),
     };
     this.snapshots.set(id, snapshot);
     this.snapshotByReactStepId.set(reactStepId, id);
-    this.restoreNativeRejectedEdits(reactStepId);
     return snapshot;
   }
 
@@ -292,12 +275,6 @@ export class WorkflowSnapshotStorage {
       if (stale.has(operatorId) || !present.has(operatorId)) snapshot.results.delete(operatorId);
     const owned = copyWorkflow(workflow, snapshot.workflow);
     snapshot.workflow = freezeSnapshotValue(owned);
-    if (snapshot.nativeRejectedEdits)
-      snapshot.nativeRejectedEdits = freezeSnapshotValue(
-        Object.fromEntries(
-          Object.entries(snapshot.nativeRejectedEdits).filter(([operatorId]) => present.has(operatorId))
-        )
-      );
   }
 
   /**
@@ -409,139 +386,6 @@ export class WorkflowSnapshotStorage {
     return freezeSnapshotValue(diagnosticSummary(record));
   }
 
-  /** Record a rejected submitted definition without putting it in the DAG.
-   * Current successes from this operator/descendants must not masquerade as
-   * the rejected computation. Historical snapshots remain untouched. */
-  captureNativeAttemptDiagnostic(reactStepId: string, attempted: OperatorPredicate, error: string): NativeErrorSummary {
-    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
-    if (!snapshotId) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
-    const snapshot = this.snapshots.get(snapshotId)!;
-    const info: OperatorInfo = { state: "Failed", resultMode: "table", inputTuples: 0, outputTuples: 0, error };
-    const summary = this.recordNativeFailure(snapshot, attempted, info, "attempt");
-    snapshot.nativeRejectedEdits = freezeSnapshotValue({
-      ...snapshot.nativeRejectedEdits,
-      [attempted.operatorID]: summary,
-    });
-    info.nativeError = summary;
-    // Keep only sanitized diagnostic text in the normal result API. The private
-    // record owns its bounded raw traceback and submitted-source context.
-    info.error = "NATIVE_ERROR_V2:" + JSON.stringify(summary.diagnostic);
-    snapshot.results.set(attempted.operatorID, { info: freezeSnapshotValue(info), sourceStepId: reactStepId });
-    const pending = [attempted.operatorID],
-      seen = new Set(pending);
-    for (const id of pending)
-      for (const link of snapshot.workflow.links) {
-        const child = link.target.operatorID;
-        if (link.source.operatorID !== id || seen.has(child)) continue;
-        seen.add(child);
-        pending.push(child);
-        const previous = snapshot.results.get(child);
-        if (previous?.sourceStepId === reactStepId && previous.info.nativeError?.phase === "attempt") continue;
-        const op = snapshot.workflow.operators.find(item => item.operatorID === child);
-        if (!op?.nativeOp) {
-          snapshot.results.delete(child);
-          continue;
-        }
-        const blocked: OperatorInfo = {
-          state: "Blocked",
-          resultMode: "table",
-          inputTuples: 0,
-          outputTuples: 0,
-          error:
-            "NATIVE_ERROR_V2:" +
-            JSON.stringify({
-              version: 1,
-              operatorId: child,
-              operatorRevision: op.nativeOp.revision ?? "unversioned",
-              code: "UPSTREAM_FAILED",
-              stage: "dependency",
-              message: `Not executed: upstream ${attempted.operatorID} revision ${summary.operatorRevision} was rejected; previous values are unavailable until repair.`,
-            }),
-        };
-        blocked.nativeError = this.recordNativeFailure(snapshot, op, blocked);
-        snapshot.results.set(child, { info: freezeSnapshotValue(blocked), sourceStepId: reactStepId });
-      }
-    return summary;
-  }
-
-  /** An accepted explicit resubmission also repairs a rejected attempt when
-   * it deliberately restores the unchanged stored definition. It earns no
-   * successful result until execution completes. */
-  clearNativeRejectedEdits(reactStepId: string, acceptedIds: Iterable<string>): void {
-    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
-    if (!snapshotId) return;
-    const snapshot = this.snapshots.get(snapshotId)!;
-    if (!snapshot.nativeRejectedEdits) return;
-    const remaining = { ...snapshot.nativeRejectedEdits };
-    for (const id of acceptedIds) {
-      if (!Object.hasOwn(remaining, id)) continue;
-      delete remaining[id];
-      const pending = [id],
-        seen = new Set(pending);
-      for (const root of pending) {
-        snapshot.results.delete(root);
-        for (const link of snapshot.workflow.links)
-          if (link.source.operatorID === root && !seen.has(link.target.operatorID)) {
-            seen.add(link.target.operatorID);
-            pending.push(link.target.operatorID);
-          }
-      }
-    }
-    snapshot.nativeRejectedEdits = freezeSnapshotValue(remaining);
-  }
-
-  /** A new input materialization can invalidate cached outputs, not the fact
-   * that a submitted definition was rejected. Reuse that event's immutable
-   * diagnostic identity/source; do not invent a fresh execution or error. */
-  restoreNativeRejectedEdits(reactStepId: string): void {
-    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
-    if (!snapshotId) return;
-    const snapshot = this.snapshots.get(snapshotId)!;
-    for (const [id, summary] of Object.entries(snapshot.nativeRejectedEdits ?? {})) {
-      // Edits can add a new consumer while a rejected definition is pending.
-      // Give that consumer the same explicit dependency failure as existing ones.
-      const pending = [id],
-        seen = new Set(pending);
-      for (const parent of pending)
-        for (const link of snapshot.workflow.links) {
-          const child = link.target.operatorID;
-          if (link.source.operatorID !== parent || seen.has(child)) continue;
-          seen.add(child);
-          pending.push(child);
-          if (snapshot.results.has(child)) continue;
-          const op = snapshot.workflow.operators.find(item => item.operatorID === child);
-          if (!op?.nativeOp) continue;
-          const blocked: OperatorInfo = {
-            state: "Blocked",
-            resultMode: "table",
-            inputTuples: 0,
-            outputTuples: 0,
-            error:
-              "NATIVE_ERROR_V2:" +
-              JSON.stringify({
-                version: 1,
-                operatorId: child,
-                operatorRevision: op.nativeOp.revision,
-                code: "UPSTREAM_FAILED",
-                stage: "dependency",
-                message: `Not executed: upstream ${id} revision ${summary.operatorRevision} was rejected; repair it before executing this consumer.`,
-              }),
-          };
-          blocked.nativeError = this.recordNativeFailure(snapshot, op, blocked);
-          snapshot.results.set(child, { info: freezeSnapshotValue(blocked), sourceStepId: reactStepId });
-        }
-      const info: OperatorInfo = {
-        state: "Failed",
-        resultMode: "table",
-        inputTuples: 0,
-        outputTuples: 0,
-        error: "NATIVE_ERROR_V2:" + JSON.stringify(summary.diagnostic),
-        nativeError: summary,
-      };
-      snapshot.results.set(id, { info: freezeSnapshotValue(info), sourceStepId: summary.stepId });
-    }
-  }
-
   inspectNativeError(
     reactStepId: string | undefined,
     query: NativeErrorQuery
@@ -550,10 +394,7 @@ export class WorkflowSnapshotStorage {
     text: string;
     summary?: NativeErrorSummary;
   } {
-    const rejected = this.getAssociatedSnapshot(reactStepId).nativeRejectedEdits;
-    const current =
-      (rejected && Object.hasOwn(rejected, query.operatorId) ? rejected[query.operatorId] : undefined) ??
-      this.getOperatorResult(reactStepId, query.operatorId)?.nativeError;
+    const current = this.getOperatorResult(reactStepId, query.operatorId)?.nativeError;
     let selected: NativeDiagnosticRecord | undefined;
     const matches = (record: NativeDiagnosticRecord) =>
       record.operatorId === query.operatorId &&

@@ -18,7 +18,6 @@ import sys
 
 import pytest
 
-from benchmark.dsbench.accounting import capture_model_accounting
 from benchmark.runtime import AttemptMetrics, run_supervised
 from benchmark.runtime import metrics as runtime_metrics
 from benchmark.runtime.native_accounting import finish_native_metrics
@@ -65,49 +64,6 @@ def _replay_fixture(directory, supervised_interval=None):
         values["supervision.json"] = {"wall_seconds": 46.77774950605817, "wall_interval": supervised_interval}
     for name, value in values.items():
         (directory / name).write_text(json.dumps(value))
-
-
-def test_historical_replay_does_not_infer_utc_from_receipt_or_wrapper_timestamp(tmp_path):
-    _replay_fixture(tmp_path)
-    result = capture_model_accounting(tmp_path, system="native", benchmark="fixture", resources={})
-    assert result["clocks"]["wall_seconds"] == 46.77774950605817
-    assert result["clocks"]["phases"] == {"solve_seconds": 45.0}
-    assert result["clocks"]["measured_interval"] == {
-        "source": "status.json.runner_seconds (preserved supervised wall)",
-        "boundary": BOUNDARY,
-        "started_at": None,
-        "finished_at": None,
-        "utc_status": "not_recorded",
-    }
-    assert result["receipt"]["constructed_at"] == result["started_at"]
-    assert result["receipt"]["finalized_at"] == result["finished_at"]
-    assert result["model_calls"] == {"attempted": 0, "succeeded": 0, "failed": 0}
-    assert result["cost"]["cost_usd"] == 0
-    assert json.loads((tmp_path / "accounting/metrics.json").read_text()) == result
-
-
-def test_replay_uses_preserved_supervisor_utc_boundaries_without_changing_duration(tmp_path):
-    interval = {"source": "supervision.json.wall_seconds", "boundary": BOUNDARY,
-                "started_at": "2026-01-01T00:00:00+00:00",
-                "finished_at": "2026-01-01T00:00:47+00:00", "utc_status": "observed"}
-    _replay_fixture(tmp_path, interval)
-    result = capture_model_accounting(tmp_path, system="native", benchmark="fixture", resources={})
-    assert result["clocks"]["measured_interval"] == interval
-    assert result["clocks"]["wall_seconds"] == 46.77774950605817
-    assert result["clocks"]["phases"] == {"solve_seconds": 45.0}
-    assert result["receipt"]["constructed_at"] != interval["started_at"]
-
-
-def test_legacy_adapter_retains_its_explicit_grading_boundary(tmp_path):
-    interval = {"source": "supervision.json.wall_seconds", "boundary": BOUNDARY,
-                "started_at": "2026-01-01T00:00:00+00:00",
-                "finished_at": "2026-01-01T00:00:47+00:00", "utc_status": "observed"}
-    _replay_fixture(tmp_path, interval)
-    boundary = "legacy adapter launch through exit; includes official grading"
-    result = capture_model_accounting(tmp_path, system="native", benchmark="fixture", resources={}, wall_boundary=boundary)
-    assert result["clocks"]["boundary"] == boundary
-    assert result["clocks"]["measured_interval"]["boundary"] == boundary
-    assert result["clocks"]["measured_interval"]["started_at"] == interval["started_at"]
 
 
 def test_external_wall_interval_requires_paired_utc_and_explicit_provenance():

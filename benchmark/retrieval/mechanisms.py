@@ -20,6 +20,11 @@ from collections import Counter, defaultdict
 import json
 from pathlib import Path
 
+try:
+    from .metrics import final_reply
+except ImportError:
+    from metrics import final_reply
+
 
 def audit(directory):
     analysis = json.loads((directory / "analysis.json").read_text())
@@ -40,13 +45,8 @@ def audit(directory):
         group = groups[row["model"], row["arm"]]
         group["tasks"] += 1
         corrections = sum(s.get("messageSource") == "feedback" and
-                          (s.get("content") or "").startswith("No Dataflow action was called.") for s in steps)
-        completed_answer = any(
-            action.get("action", {}).get("type") == "answer" and action.get("status") == "ok"
-            for s in steps for tool in s.get("toolResults", [])
-            if isinstance(tool.get("output"), dict)
-            for action in tool["output"].get("actions", [])
-        )
+                          (s.get("content") or "").startswith("That reply was text") for s in steps)
+        completed_answer = final_reply(steps)
         group["missing_action_corrections"] += corrections
         group["tasks_with_missing_action_correction"] += bool(corrections)
         group["corrected_tasks_with_answer"] += bool(corrections) and completed_answer

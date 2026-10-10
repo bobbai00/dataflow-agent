@@ -24,8 +24,9 @@ import { parseTurn, type ParsedTurn } from "./turn-syntax";
 
 const views = ["sample_stats", "full"] as const;
 
-function turnOf(text: string): ParsedTurn {
-  const parsed = parseTurn(text, { views });
+/** The parsed statements (and definitions) of one call. */
+function turnOf(statements: string, python = ""): ParsedTurn {
+  const parsed = parseTurn({ python, statements }, { views });
   if (!parsed.ok) throw new Error(parsed.error);
   return parsed.turn;
 }
@@ -62,15 +63,13 @@ const block = (id: string, kind: string, inputs: string[], result: string, issue
 });
 
 test("edits, then show result with the executed upstream, the result, its records and statistics", () => {
-  const turn = turnOf(`summary: Marine only; rate = exceedances / samples.
-\`\`\`python
-def ej_band(table):
-    return table
-\`\`\`
-set marine: filter(water, predicate='is_marine')
+  const turn = turnOf(
+    `set marine: filter(water, predicate='is_marine')
 set bands: ej_band(marine)
 set rates: aggregate(bands, by=['band'], outputs={'samples': count(), 'exceedances': sum('exceedance')})
-show result rates full`);
+show result rates full`,
+    "def ej_band(table):\n    return table"
+  );
   const result = resultOf(turn, [
     {
       status: "ok",
@@ -144,29 +143,27 @@ statistics: full table, 2 of 2 rows, 3 of 3 columns
 });
 
 test("a rejected edit names the line and nothing else runs", () => {
-  const turn = turnOf(`summary: Totals.
-set records: scan(files='data/a.csv')
+  const turn = turnOf(`set records: scan(files='data/a.csv')
 set totals: aggregate(records, outputs={'n': avg('value')})
 show result totals`);
   const result = resultOf(turn, [
     {
       status: "error",
-      output: "ValueError: Changes line 3: unknown reducer 'avg'; use mean. No changes were applied.",
+      output: "ValueError: Changes line 2: unknown reducer 'avg'; use mean. No changes were applied.",
     },
     { status: "skipped", output: "Not run because an earlier action failed." },
     { status: "skipped", output: "Not run because an earlier action failed." },
   ]);
   const text = renderTurnReceipt(result, turn);
   expect(text).toBe(`## edits rejected
-ValueError: Changes line 3: unknown reducer 'avg'; use mean.
-No edit applied; resend the corrected turn.
+ValueError: Changes line 2: unknown reducer 'avg'; use mean.
+No edit applied; resend the corrected call.
 
 ## show result totals: not run (an earlier statement failed)`);
 });
 
 test("an execution failure names the operator; execute without show lists what ran", () => {
-  const turn = turnOf(`summary: Compute.
-execute rates
+  const turn = turnOf(`execute rates
 show result rates`);
   const failedExecute = {
     operators: [
@@ -212,27 +209,30 @@ not run: rates.`);
   expect(text).toContain("result rates: unavailable\n- error RESULT_FAILED: the last execution of `rates` failed.");
 });
 
-test("lookups return their text; a turn rejected before running says so; a missing summary is noted once", () => {
+test("lookups return their text; ignored prose is noted; a call rejected before running says so", () => {
   const turn = turnOf(`Look at the columns.
 show schema omni
 show builtin join`);
-  const result = resultOf(turn, [
+  const schema = [
     {
-      status: "ok",
+      status: "ok" as const,
       output: {
         operators: [{ id: "omni", status: "ok", state: "cached", rows: 2 }],
         operator_blocks: [{ ...block("omni", "scan", [], "2 rows × 2 columns"), state: "cached" }],
       },
     },
     {
-      status: "ok",
+      status: "ok" as const,
       output: {
         text: 'Schema for `omni`: 1–2 of 2 columns.\n| index | name | type |\n|---|---|---|\n| 0 | "a" | str |',
       },
     },
+  ];
+  const result = resultOf(turn, [
+    ...schema,
     { status: "ok", output: { text: 'join(left, right, on=..., how="inner")\n    Join two tables.' } },
   ]);
-  expect(renderTurnReceipt(result, turn)).toBe(`note: start each turn with a summary: line.
+  expect(renderTurnReceipt(result, turn)).toBe(`note: line 1 of statements is not a statement and was ignored.
 
 ## show schema omni
 Schema for \`omni\`: 1–2 of 2 columns.
@@ -251,24 +251,14 @@ join(left, right, on=..., how="inner")
     operators: [],
     observe: [],
     observationErrors: [],
-    error:
-      "line 3: not a statement; a line starts with summary, set, delete, execute, show, or answer. No actions ran.",
+    error: "line 3: show takes a resource: result, schema, operator, function, or builtin. No actions ran.",
   };
   expect(renderTurnReceipt(rejected)).toBe(
-    "## turn rejected\nline 3: not a statement; a line starts with summary, set, delete, execute, show, or answer."
+    "## call rejected\nline 3: show takes a resource: result, schema, operator, function, or builtin."
   );
-});
-
-test("an answer turn records the answer; a refused answer shows the reason", () => {
-  const turn = turnOf("summary: Done.\nanswer: 27");
-  expect(renderTurnReceipt(resultOf(turn, [{ status: "ok", output: "27" }]), turn)).toBe("answer recorded");
-  const refused = resultOf(turn, [
-    {
-      status: "error",
-      output: "answer not accepted: this request asks for the line **Final Answer: <value>**, and the answer has none.",
-    },
-  ]);
-  expect(renderTurnReceipt(refused, turn)).toContain("## answer\n- error ANSWER_REFUSED: answer not accepted");
+  // Several ignored lines are listed in one note.
+  const prose = turnOf("Look first.\nshow schema omni\nThen decide.");
+  expect(renderTurnReceipt(resultOf(prose, schema), prose)).toStartWith("note: lines 1, 3 of statements");
 });
 
 const castFlow =
@@ -279,7 +269,7 @@ const flowObservation = (id: string, text = castFlow) => ({
 });
 
 test("show result retains its target's own execution measurements beside the result", () => {
-  const turn = turnOf("summary: Check conversions.\nshow result typed full");
+  const turn = turnOf("show result typed full");
   const typed = {
     ...block("typed", "cast", ["raw"], "100 rows × 1 columns", ["- note: check normalized values.", castFlow]),
     flow_observation: flowObservation("typed"),
@@ -311,7 +301,7 @@ test("show result retains its target's own execution measurements beside the res
 });
 
 test("a failed retrieval retains the successful target's execution measurements", () => {
-  const turn = turnOf("summary: Check conversions.\nshow result typed full");
+  const turn = turnOf("show result typed full");
   const result = resultOf(turn, [
     {
       status: "ok",
@@ -335,7 +325,7 @@ test("a failed retrieval retains the successful target's execution measurements"
 });
 
 test("a capped upstream execution list never marks an unseen measurement as shown", () => {
-  const turn = turnOf("summary: Check output.\nshow result output full");
+  const turn = turnOf("show result output full");
   const blocks = Array.from({ length: 9 }, (_, i) => ({
     ...block(`typed${i}`, "cast", ["raw"], "100 rows × 1 columns", [castFlow]),
     flow_observation: flowObservation(`typed${i}`),
@@ -379,7 +369,7 @@ test("a capped upstream execution list never marks an unseen measurement as show
 });
 
 test("show schema retains execution evidence and attributed errors even if lookup fails", () => {
-  const turn = turnOf("summary: Check types.\nshow schema typed");
+  const turn = turnOf("show schema typed");
   const failure = "- error CALLBACK_RUNTIME: invalid column";
   const result = resultOf(turn, [
     {
@@ -401,4 +391,44 @@ test("show schema retains execution evidence and attributed errors even if looku
   expect(text).toContain("- typed (custom of upstream): failed");
   expect(text).toContain(failure);
   expect(text).toContain("No completed schema.");
+});
+
+test("a scanned workbook's receipt lists its sheet names, upstream and as the shown result", () => {
+  const sheets = `workbook sheets of "book": "Main", "Details"; scan(..., sheet='name') reads one (the first is read now).`;
+  const scan = { ...block("book", "scan", [], "4 rows × 2 columns"), scope: [sheets] };
+  const shown = turnOf("show result book");
+  const result = resultOf(shown, [
+    { status: "ok", output: { operator_blocks: [scan], operators: [{ id: "book", state: "executed", status: "ok" }] } },
+    {
+      status: "ok",
+      output: { results: [{ operator_id: "book", status: "ok", operator_blocks: [scan], text: "records: …" }] },
+    },
+  ]);
+  const text = renderTurnReceipt(result, shown);
+  expect(text).toContain(`result book (scan): 4 rows × 2 columns\n- ${sheets}`);
+  const upstream = resultOf(turnOf("show result total"), [
+    {
+      status: "ok",
+      output: {
+        operator_blocks: [scan, block("total", "aggregate", ["book"], "1 row × 1 column")],
+        operators: [],
+      },
+    },
+    {
+      status: "ok",
+      output: {
+        results: [
+          {
+            operator_id: "total",
+            status: "ok",
+            operator_blocks: [block("total", "aggregate", ["book"], "1 row × 1 column")],
+            text: "records: …",
+          },
+        ],
+      },
+    },
+  ]);
+  expect(renderTurnReceipt(upstream, turnOf("show result total"))).toContain(
+    `- book (scan): 4 rows × 2 columns\n  - ${sheets}`
+  );
 });

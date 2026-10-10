@@ -19,7 +19,7 @@
 
 > **Superseded on 2026-09-22.** The JSON batch tool, the V1/V2 catalogs and
 > `nativeToolMode` / `nativeCatalogVersion` described here were replaced by the
-> expression program of [native-expression-mode.md](native-expression-mode.md).
+> expression program of [native-expression-mode.md](archived/native-expression-mode.md).
 > Operator semantics remain the reference; Transform/Derive are now `map`, UDF is `process`, and arguments are expression keywords, not JSON fields.
 
 # Python-native operators and budgeted dataflow evidence
@@ -53,7 +53,7 @@ The development worktree is
 
 Preserve the existing `dataflow({operators, observe})` framework, shared
 scheduler, forward references, existing-DAG edits, and DELTA/LATEST behavior.
-The [batching contract](native-batch-tools.md) remains applicable. Run separate
+The [batching contract](archived/native-batch-tools.md) remains applicable. Run separate
 agent services against the **same Texera backend**, with isolated workflows
 and computing-unit registrations. Keep the existing services on 3008/3009;
 reserve 3011 for this worktree after checking availability. An agent-only launch

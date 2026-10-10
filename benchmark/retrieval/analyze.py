@@ -19,7 +19,7 @@ from pathlib import Path
 import random
 import statistics
 import sys
-from metrics import retrieval_results, tool_error_counts, edit_operations
+from metrics import final_reply, retrieval_results, tool_error_counts, edit_operations
 from comparison import evidence_matrix_contrasts
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -75,8 +75,8 @@ def main():
                "attempt_seconds": done[(job["sut"], job["task"])].get("seconds"),
                "usage_complete": stats.get("usage_complete"),
                "model_requests": stats.get("model_requests"),
-               "no_answer": "turn ended without an answer action" in response,
-               "answer_recorded": False, "native_actions_observed": False,
+               "no_answer": "no final answer was produced" in response,
+               "answer_recorded": final_reply(steps), "native_actions_observed": False,
                "tool_errors": 0, "envelope_errors": 0, "action_errors": 0,
                "model_calls": 0, "prefix_checks": 0, "prefix_failures": 0}
         previous = None
@@ -103,7 +103,6 @@ def main():
                     action, observation = item.get("action", {}), item.get("output")
                     types[action.get("type")] += 1
                     statuses[item.get("status")] += 1
-                    row["answer_recorded"] |= action.get("type") == "answer" and item.get("status") == "ok"
                     if item.get("status") == "error":
                         errors.append({**job, "step": step.get("stepId"), "action": action,
                                        "error": str(observation)[:1600]})

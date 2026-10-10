@@ -2,7 +2,7 @@
 
 > **Superseded on 2026-09-22.** The JSON batch tool, the V1/V2 catalogs and
 > `nativeToolMode` / `nativeCatalogVersion` described here were replaced by the
-> expression program of [native-expression-mode.md](native-expression-mode.md).
+> expression program of [native-expression-mode.md](archived/native-expression-mode.md).
 > The two evidence booleans are unchanged; the example settings below predate
 > the single catalog.
 

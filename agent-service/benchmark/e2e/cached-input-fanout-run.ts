@@ -26,7 +26,8 @@ import { createAgent, deleteAgent, getReActSteps, getSnapshot } from "../../src/
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { WorkflowState } from "../../src/agent/workflow-state";
 import { env } from "../../src/config/env";
-import type { DataflowAction, DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import type { DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import { dataflowDebugInput, shownResult } from "./native-debug-input";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3015";
 if (!process.env.TEXERA_AGENT_SERVICE_ENDPOINT || !process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT)
@@ -35,12 +36,12 @@ const directory = mkdtempSync(join(tmpdir(), "cached-fanout-e2e-"));
 const save = (name: string, value: unknown) =>
   writeFileSync(join(directory, name), JSON.stringify(value, null, 2) + "\n");
 const token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
-const unit = await createComputingUnit(token, `state-history-${Date.now()}`, {
+const unit = await createComputingUnit(token, `cached-fanout-${Date.now()}`, {
   unitType: "local",
   uri: env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
 });
 const cuid = unit.computingUnit.cuid;
-const wid = await createWorkflow(token, `state-history-${Date.now()}`, new WorkflowState().getWorkflowContent());
+const wid = await createWorkflow(token, `cached-fanout-${Date.now()}`, new WorkflowState().getWorkflowContent());
 let agentId = "";
 let sequence = 0;
 
@@ -74,38 +75,15 @@ async function debug(content: string) {
   });
 }
 
-function pythonLiteral(value: unknown): string {
-  if (value === null) return "None";
-  if (typeof value === "boolean") return value ? "True" : "False";
-  if (Array.isArray(value)) return `[${value.map(pythonLiteral).join(",")}]`;
-  if (typeof value === "object")
-    return `{${Object.entries(value!)
-      .map(([k, v]) => `${JSON.stringify(k)}:${pythonLiteral(v)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
-async function actions(items: DataflowAction[], expectedStatus = "completed") {
-  const input = { reasoning: "Verify historical definitions and results.", actions: items };
-  await debug(`Function(name="dataflow", arguments=${JSON.stringify(pythonLiteral(input))})`);
+async function call(python: string, statements: string, expectedStatus?: string) {
+  await debug(dataflowDebugInput(python, statements, ["full"]));
   const trace = await getReActSteps(agentId, baseUrl);
   const receipt = trace.steps.at(-1)?.toolResults?.[0]?.output as DataflowActionsResult;
-  save(`action-${++sequence}.json`, { input, receipt });
+  save(`call-${++sequence}.json`, { python, statements, receipt });
   save("trace.json", trace.steps);
-  assert.equal(receipt?.status, expectedStatus, JSON.stringify(receipt));
+  if (expectedStatus) assert.equal(receipt?.status, expectedStatus, JSON.stringify(receipt));
   return receipt;
 }
-async function executions() {
-  const response = await fetch(`${env.TEXERA_DASHBOARD_SERVICE_ENDPOINT}/api/executions/${wid}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  assert.ok(response.ok);
-  return ((await response.json()) as any[]).length;
-}
-const textOf = (receipt: DataflowActionsResult, index: number) =>
-  String(
-    (receipt.actions[index].output as any).text ??
-      (receipt.actions[index].output as any).versions?.[0]?.observation?.text
-  );
 
 const started = performance.now();
 try {
@@ -129,39 +107,27 @@ try {
   const file = join(directory, "tiny.csv");
   writeFileSync(file, "value\n1\n2\n");
   writeFileSync(join(directory, "fresh.csv"), "value\n1\n2\n");
-  const cached = await actions([
-    { type: "edit", changes: `source = scan(${JSON.stringify(file)})` },
-    { type: "execute", operator_ids: ["source"] },
-    { type: "retrieve", operator_id: "source", view: "full" },
-  ]);
-  assert.ok(textOf(cached, 2).includes("2"));
-  const pair = (
-    id: string,
-    source: string
-  ) => `${id} = process(${source}, ${source}, fn=compare, doc="Count both input ports")
-    def compare(a, b):
-        import pandas as pd
-        return pd.DataFrame({"left_rows": [len(a)], "right_rows": [len(b)], "sum": [a["value"].sum() + b["value"].sum()]})`;
+  const cached = await call(
+    "",
+    `set source: scan(files=${JSON.stringify(file)})\nshow result source full`,
+    "completed"
+  );
+  assert.ok(String(shownResult(cached, "source").text).includes("2"));
+  const compare = `import pandas as pd
+
+def compare(a, b):
+    """Count the rows on both input ports."""
+    return pd.DataFrame({"left_rows": [len(a)], "right_rows": [len(b)], "sum": [a["value"].sum() + b["value"].sum()]})`;
   const checks: any[] = [];
   for (const fresh of [false, true]) {
     const id = fresh ? "fresh_pair" : "cached_pair";
-    const changes = fresh
-      ? `fresh_source = scan(${JSON.stringify(join(directory, "fresh.csv"))})\n${pair(id, "fresh_source")}`
-      : pair(id, "source");
+    const statements = fresh
+      ? `set fresh_source: scan(files=${JSON.stringify(join(directory, "fresh.csv"))})\nset ${id}: compare(fresh_source, fresh_source)`
+      : `set ${id}: compare(source, source)`;
     const start = performance.now();
-    const receipt = await actions([{ type: "edit", changes }]);
-    assert.equal(receipt.status, "completed");
+    await call(fresh ? "" : compare, statements, "completed");
     // Preserve a timeout as diagnostic evidence rather than failing before the other control.
-    const input = {
-      reasoning: "Probe repeated source ports.",
-      actions: [
-        { type: "execute", operator_ids: [id] },
-        { type: "retrieve", operator_id: id, view: "full" },
-      ],
-    };
-    await debug(`Function(name="dataflow", arguments=${JSON.stringify(pythonLiteral(input))})`);
-    const result = (await getReActSteps(agentId, baseUrl)).steps.at(-1)?.toolResults?.[0]
-      ?.output as DataflowActionsResult;
+    const result = await call("", `show result ${id} full`);
     save(`${id}.json`, result);
     checks.push({
       fresh,

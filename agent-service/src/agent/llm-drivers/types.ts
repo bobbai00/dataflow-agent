@@ -33,25 +33,13 @@ import type { WorkflowCompilationResponse } from "../../api/compile-api";
  * compilation (e.g. `getNextStepContext()` previews or empty workflows).
  */
 export interface ContextAssemblerInput {
-  /** Original trajectories, including saved off-branch tasks, for task indexing. */
-  taskHistory?: readonly import("../task-history").TaskHistory[];
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;
   settings: AgentSettings;
   compilationResult: WorkflowCompilationResponse | null;
-  /** GLOBAL turn number per messageId (ask order over the whole session). The
-   *  branch is shorter than the session once a turn resumes from an earlier
-   *  one, so the renderer cannot derive these from `visibleSteps`. */
+  /** GLOBAL turn number per messageId (ask order over the whole session). */
   turnNumberByMessageId?: Map<string, number>;
-  /** Turns that exist but are not ancestors of HEAD — still listed, still
-   *  resumable. Empty for a session that never resumed. */
-  offBranchTurns?: Array<{
-    turn: number;
-    request: string;
-    answer?: string;
-    operators: string[];
-  }>;
 }
 
 /**
@@ -122,13 +110,11 @@ export interface DriverRunTurnInput {
    *  calls per turn. The local-react driver always supports multiple Action
    *  pairs in a single turn — this flag is effectively a no-op there. */
   parallelToolCalls: boolean;
-  /** Native action mode always finishes through an answer action. */
-  requireToolCall?: boolean;
-  /** Set by onStepFinish after the answer action has been accepted. */
-  getFinalAnswer?: () => string | undefined;
-  /** Whether a result of this task has been displayed (a retrieval succeeded).
-   *  The turn transport accepts a reply without a tool call as the answer only
-   *  then; the text transport accepts a bare `Final Answer:` line only then. */
+  /** Native mode: the final answer is a reply without a tool call, accepted
+   *  once a result of this task has been shown. Before that, such a reply is a
+   *  lapse the agent corrects. */
+  requireShownResult?: boolean;
+  /** Whether a result of this task has been displayed (a retrieval succeeded). */
   resultShown?: () => boolean;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
@@ -151,15 +137,15 @@ export interface DriverRunTurnResult {
   usage: TokenUsage;
 }
 
-/** Native turns end through Answer. Preserve billed usage when a provider
- * stops with a plain-text plan so the agent can offer one protocol correction. */
+/** Native turns end with a reply after a shown result. Preserve billed usage
+ * when a model replies before computing anything, so the agent can correct it. */
 export class MissingAnswerActionError extends Error {
   constructor(
     readonly partial: DriverRunTurnResult,
     readonly canContinue: boolean
   ) {
     super(
-      "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
+      "The turn ended before any result was shown. The model stopped or reached the step limit; no final answer was produced."
     );
     this.name = "MissingAnswerActionError";
   }
@@ -172,7 +158,5 @@ export class MissingAnswerActionError extends Error {
  * every emitted assistant turn.
  */
 export interface LLMDriver {
-  /** Fixed protocol paired with this driver's parser and context assembler. */
-  readonly nativeTransport?: "tool" | "text" | "turn";
   runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult>;
 }

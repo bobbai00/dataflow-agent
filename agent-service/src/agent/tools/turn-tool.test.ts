@@ -20,18 +20,21 @@
 import { expect, test } from "bun:test";
 import { asSchema } from "ai";
 import { renderDataflowActionsResult, type DataflowActionsResult } from "./dataflow-actions";
-import { createTurnTool, prepareTurnToolActions, TURN_TOOL_SCHEMA } from "./turn-tool";
+import { createDataflowTool, DATAFLOW_TOOL_DESCRIPTION, DATAFLOW_TOOL_SCHEMA, prepareDataflowCall } from "./turn-tool";
 
 const views = ["sample_stats", "full"] as const;
 
-test("the tool exposes three string fields and prepares the turn's actions with a receipt descriptor", async () => {
-  const tool = createTurnTool(views);
+test("the tool takes two strings and prepares the call's actions with its statements", async () => {
+  const tool = createDataflowTool(views);
+  expect(tool.description).toBe(DATAFLOW_TOOL_DESCRIPTION);
+  expect(tool.strict).toBe(true);
   const schema = asSchema(tool.inputSchema).jsonSchema as any;
-  expect(schema).toEqual(TURN_TOOL_SCHEMA);
-  expect(Object.keys(schema.properties)).toEqual(["summary", "python", "statements"]);
+  expect(schema).toEqual(DATAFLOW_TOOL_SCHEMA);
+  expect(Object.keys(schema.properties)).toEqual(["python", "statements"]);
+  expect(schema.required).toEqual(["python", "statements"]);
+  expect(JSON.stringify(schema)).not.toMatch(/summary|reasoning|answer/);
   const result = (await tool.execute!(
     {
-      summary: "Totals per group.",
       python: "",
       statements:
         "set records: scan(files='data/a.csv')\nset totals: aggregate(records, by=['g'], outputs={'n': count()})\nshow result totals full",
@@ -39,42 +42,50 @@ test("the tool exposes three string fields and prepares the turn's actions with 
     { toolCallId: "t1", messages: [] }
   )) as DataflowActionsResult;
   expect(result.status).toBe("pending");
+  expect(result.protocol).toBe("registered-python-v1");
   expect(result.actions.map(item => item.action.type)).toEqual(["edit", "execute", "retrieve"]);
-  expect(result.turn?.fields).toBe(true);
   expect(result.turn?.statements.map(s => s.text)).toEqual([
     "set records: scan(files='data/a.csv')",
     "set totals: aggregate(records, by=['g'], outputs={'n': count()})",
     "show result totals full",
   ]);
-  expect(result.turn?.missingSummary).toBe(false);
+  expect(result.turn?.ignoredProse).toEqual([]);
 });
 
-test("a rejected call runs nothing and its receipt names the line; arguments sent as text still parse", () => {
-  const unavailable = prepareTurnToolActions({ summary: "x", python: "", statements: "show result a sample" }, views);
+test("a rejected call runs nothing and its receipt says why; arguments sent as text still parse", () => {
+  const unavailable = prepareDataflowCall({ python: "", statements: "show result a sample" }, views);
   expect(unavailable.status).toBe("error");
   expect(unavailable.actions).toEqual([]);
   expect(renderDataflowActionsResult(unavailable)).toBe(
-    '## turn rejected\nline 1: the view "sample" is unavailable; use sample_stats or full.'
+    '## call rejected\nline 1: the view "sample" is unavailable; use sample_stats or full.'
   );
-  const answer = prepareTurnToolActions({ summary: "x", python: "", statements: "answer: 42" }, views);
+  const answer = prepareDataflowCall({ python: "", statements: "answer: 42" }, views);
   expect(renderDataflowActionsResult(answer)).toContain("reply with the answer text and no tool call");
-  const malformed = prepareTurnToolActions({ summary: "x", python: 3, statements: "execute" }, views);
-  expect(renderDataflowActionsResult(malformed)).toContain(
-    "takes an object with the strings summary, python and statements"
+  const malformed = prepareDataflowCall({ python: 3, statements: "execute" }, views);
+  expect(renderDataflowActionsResult(malformed)).toBe(
+    "## call rejected\ndataflow takes an object with the strings python and statements."
   );
-  const text = prepareTurnToolActions(JSON.stringify({ summary: "x", python: "", statements: "execute a" }), views);
+  for (const input of [null, "not json", ["execute"]]) expect(prepareDataflowCall(input, views).status).toBe("error");
+  const text = prepareDataflowCall(JSON.stringify({ python: "", statements: "execute a" }), views);
   expect(text.status).toBe("pending");
   expect(text.actions.map(item => item.action.type)).toEqual(["execute"]);
+  // A missing field reads as empty.
+  expect(prepareDataflowCall({ statements: "execute a" }, views).status).toBe("pending");
+  // Duplicate selections are refused before anything runs.
+  const duplicate = prepareDataflowCall({ python: "", statements: "show builtin join, join" }, views);
+  expect(duplicate.status).toBe("error");
+  expect(duplicate.error).toMatch(/unique/);
+  expect(duplicate.actions).toEqual([]);
 });
 
-test("the receipt of a turn result is rendered by statement, with a note for an empty summary", () => {
-  const result = prepareTurnToolActions({ summary: "", python: "", statements: "execute a" }, views);
+test("the receipt of a call is rendered by statement, with a note for ignored prose", () => {
+  const result = prepareDataflowCall({ python: "", statements: "Run it now.\nexecute a" }, views);
   result.actions[0].status = "ok";
   result.actions[0].output = {
     operator_blocks: [{ id: "a", kind: "scan", state: "executed", inputs: [], result: "3 rows × 2 columns" }],
   };
   result.status = "completed";
   expect(renderDataflowActionsResult(result)).toBe(
-    "note: the summary field was empty; state the population, definitions and formula the call assumes.\n\n## execute a\nexecuted: a\n- a (scan): 3 rows × 2 columns"
+    "note: line 1 of statements is not a statement and was ignored.\n\n## execute a\nexecuted: a\n- a (scan): 3 rows × 2 columns"
   );
 });

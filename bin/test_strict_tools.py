@@ -50,7 +50,9 @@ class StrictToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_strict_survives_actual_litellm_transformation(self):
         data = await self.adapt(request())
-        tools, _ = AnthropicConfig()._map_tools(data["tools"])
+        # Older LiteLLM releases return (tools, mcp_servers); newer ones return the list.
+        mapped = AnthropicConfig()._map_tools(data["tools"])
+        tools = mapped[0] if isinstance(mapped, tuple) else mapped
         self.assertTrue(tools[0]["strict"])
         self.assertEqual(tools[0]["name"], "dataflow")
         self.assertEqual(tools[0]["description"], "Edit a graph.")

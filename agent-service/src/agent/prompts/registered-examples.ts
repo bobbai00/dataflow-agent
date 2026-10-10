@@ -21,43 +21,18 @@ import type { OperatorInfo } from "../../types/execution";
 import type { RetrievalView } from "../../types/agent";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { DataflowActionsResult } from "../tools/dataflow-actions";
-import { renderActionObservations } from "../native/action-observations";
 import { selectNativeObservation } from "../native/evidence";
 import { describeOperator, type ObservationFormatOptions } from "../native/observation-format";
 import type { ProfileColumn, ProfileScalar } from "../native/profiles";
 import { availableRetrievalViews } from "../native/retrieval";
 import { renderTurnReceipt } from "../native/turn-receipt";
-import { parseTurn, parseTurnFields, type TurnParse } from "../native/turn-syntax";
+import { parseTurn } from "../native/turn-syntax";
 
 type Row = Record<string, string | number>;
 type Options = ObservationFormatOptions & {
-  transport?: "text" | "tool" | "turn";
   retrievalViews?: RetrievalView[];
   flowEvidence?: boolean;
 };
-
-/** The turn transport's call: the text form of an example split into its three fields. */
-function turnFields(text: string): { summary: string; python: string; statements: string } {
-  const lines = text.split("\n");
-  let summary = "";
-  const python: string[] = [];
-  const statements: string[] = [];
-  let fence = false;
-  for (const line of lines) {
-    if (/^```python\s*$/.test(line)) {
-      fence = true;
-      continue;
-    }
-    if (fence && /^```\s*$/.test(line)) {
-      fence = false;
-      continue;
-    }
-    if (fence) python.push(line);
-    else if (/^summary:/.test(line)) summary = line.replace(/^summary:\s*/, "");
-    else statements.push(line);
-  }
-  return { summary, python: python.join("\n"), statements: statements.join("\n").trim() };
-}
 
 /** Small complete synthetic materializations. Receipts use the production
  * evidence and observation renderers; prose never invents a second format. */
@@ -163,21 +138,14 @@ export function registeredExamples(options: Options): string {
   const show = (ids: string, final = false) =>
     `show result ${ids} ${(final ? finalView : sample) === "full" ? "full" : ""}`.trim();
   const block = (text: string) => `\`\`\`text\n${text}\n\`\`\``;
-  const turn = (text: string, receipt = false): string => {
-    // The turn transport answers with a reply, never with a statement.
-    if (options.transport === "turn" && /^answer:/m.test(text))
-      return `Reply, without the tool: \`${text.replace(/^answer:\s*/, "")}\``;
-    const fields = turnFields(text);
-    const parsed: TurnParse =
-      options.transport === "turn" ? parseTurnFields(fields, { views }) : parseTurn(text, { views });
+  // The answer is a reply without the tool, never a statement.
+  const reply = (text: string) => `Reply, without the tool: \`${text}\``;
+  const call = (python: string, statements: string, receipt = false): string => {
+    const fields = { python, statements };
+    const parsed = parseTurn(fields, { views });
     if (!parsed.ok) throw new Error(`Invalid teaching example: ${parsed.error}`);
-    const { actions, summary } = parsed.turn;
-    const authored =
-      options.transport === "text"
-        ? `\`\`\`\`turn\n${text}\n\`\`\`\``
-        : options.transport === "turn"
-          ? `\`\`\`json\n${JSON.stringify(fields, null, 2)}\n\`\`\``
-          : `\`\`\`json\n${JSON.stringify({ reasoning: summary || "The checked result answers the request.", actions })}\n\`\`\``;
+    const { actions } = parsed.turn;
+    const authored = `\`\`\`json\n${JSON.stringify(fields, null, 2)}\n\`\`\``;
     if (!receipt) return authored;
     const workflow: WorkflowContent = {
       operators: [...tables.values()].map(t => t.op),
@@ -255,7 +223,7 @@ export function registeredExamples(options: Options): string {
           ids.forEach(id => completed.add(id));
         } else if (action.type === "retrieve")
           output = {
-            results: ("operator_ids" in action ? action.operator_ids : [action.operator_id]).map(id => {
+            results: action.operator_ids.map(id => {
               const observation = observe(id, action.view);
               return {
                 operator_id: id,
@@ -266,15 +234,11 @@ export function registeredExamples(options: Options): string {
               };
             }),
           };
-        else output = action.type === "answer" && "content" in action ? action.content : {};
+        else output = {};
         return { index: i + 1, action, status: "ok" as const, output };
       }),
     };
-    const receiptText =
-      options.transport === "text" || options.transport === "turn"
-        ? renderTurnReceipt(result, parsed.turn)
-        : renderActionObservations(result);
-    return `${authored}\n\n${options.transport === "turn" ? "Tool result (the receipt):" : "Engine receipt:"}\n\n${block(receiptText)}`;
+    return `${authored}\n\nTool result (the receipt):\n\n${block(renderTurnReceipt(result, parsed.turn))}`;
   };
 
   add(
@@ -313,20 +277,19 @@ export function registeredExamples(options: Options): string {
   const parts = [
     "### Read unfamiliar data, then batch a known computation",
     "Request: report the total value for every group in alphabetical order. These synthetic receipts use two sample rows and 2,000-character budgets to make the difference between records and evidence visible; your session budgets are listed above.",
-    turn(
-      `summary: Check the source's columns and values before choosing the grouping.\nset records: scan(files='data/example.csv')\n${show("records")}`,
-      true
-    ),
+    "Check the source's columns and values before choosing the grouping:",
+    call("", `set records: scan(files='data/example.csv')\n${show("records")}`, true),
     sample === "sample_stats"
       ? "Both displayed rows belong to A, but the full-table statistics also contain B. A sample does not define the population; aggregate the whole source."
       : sample === "sample"
         ? "Both displayed rows belong to A. They do not establish which groups exist; aggregate the whole source."
         : "The complete source contains groups A and B. Aggregate the whole source.",
-    turn(
-      `summary: Sum each group across all source rows and order the groups alphabetically.\nset totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\n${show("report", true)}`,
+    call(
+      "",
+      `set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\n${show("report", true)}`,
       true
     ),
-    turn("answer: Group A: 60; group B: 70."),
+    reply("Group A: 60; group B: 70."),
   ];
 
   if (options.flowEvidence) {
@@ -353,27 +316,25 @@ export function registeredExamples(options: Options): string {
     parts.push(
       "### Use upstream measurements to repair a condition",
       "Request: sum readings at least 10. Suppose the first predicate mistakenly uses a strict comparison:",
-      turn(
-        `summary: Sum qualifying readings.\n\`\`\`python\ndef eligible(row, *, minimum=10):\n    """Select readings above the threshold."""\n    return row['value'] > minimum\n\`\`\`\nset readings: scan(files='data/readings.csv')\nset kept: filter(readings, predicate='eligible', settings={'minimum': 10})\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
+      call(
+        `def eligible(row, *, minimum=10):\n    """Select readings above the threshold."""\n    return row['value'] > minimum`,
+        `set readings: scan(files='data/readings.csv')\nset kept: filter(readings, predicate='eligible', settings={'minimum': 10})\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
         true
       ),
       "The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the predicate; the existing graph keeps its connections:",
-      turn(
-        `summary: Include readings equal to 10, as the request specifies.\n\`\`\`python\ndef eligible(row, *, minimum=10):\n    """Select readings at or above the threshold."""\n    return row['value'] >= minimum\n\`\`\`\n${show("total", true)}`
+      call(
+        `def eligible(row, *, minimum=10):\n    """Select readings at or above the threshold."""\n    return row['value'] >= minimum`,
+        show("total", true)
       ),
       "The new result is total=60. Check the returned result before ending the task.",
-      turn("answer: 60")
+      reply("60")
     );
   }
 
   // One reading example, the flow repair when flow evidence is on, and the
   // answer rule. Every example is paid for on every call of every task.
   parts.push(
-    options.transport === "turn"
-      ? "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
-      : options.transport === "text"
-        ? "If the user explicitly requests the label Final Answer:, put that label inside the answer content, for example `answer: Final Answer: 60`. It is a formatting choice, never a replacement for the answer command."
-        : "If the user explicitly requests the label Final Answer:, include it in the answer action's content. Otherwise use the requested answer format without adding that label."
+    "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
   );
   return parts.join("\n\n");
 }

@@ -23,10 +23,16 @@ import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import { planRegisteredGraphEdit } from "./graph-edits";
 import { executeDataflowActionBatch } from "./dataflow-action-runtime";
-import { prepareRegisteredDataflowActions, renderDataflowActionsResult } from "./dataflow-actions";
+import {
+  prepareActions,
+  renderDataflowActionsResult,
+  type DataflowAction,
+  type DataflowActionsResult,
+} from "./dataflow-actions";
 import { inspectRegisteredNamespace } from "./registered-inspection";
+import { prepareDataflowCall } from "./turn-tool";
 import { TexeraAgent } from "../texera-agent";
-import type { ReActStep } from "../../types/agent";
+import type { ReActStep, RetrievalView } from "../../types/agent";
 import type { RegisteredNamespace } from "../native/registered";
 
 function context() {
@@ -158,16 +164,20 @@ test("documentation-only replacements preserve cached numerical results", async 
   expect(second.invalidated_results).toEqual([]);
 });
 
+const VIEWS: RetrievalView[] = ["sample_stats", "full"];
+type Execute = (step: string, ids?: readonly string[]) => Promise<void>;
+
+/** One step per call: a `dataflow(python, statements)` call, or (for runtime
+ * ordering rules the statement parser never produces) a raw action list. */
 function harness() {
   const state = new WorkflowState();
   const steps: string[] = [];
   const storage = new WorkflowSnapshotStorage(id => steps.slice(0, steps.indexOf(id) + 1));
   let executions = 0;
-  const run = async (actions: unknown[], execute?: (step: string, ids?: readonly string[]) => Promise<void>) => {
+  const resolve = async (result: DataflowActionsResult, execute?: Execute) => {
     const stepId = `step${steps.length}`;
     steps.push(stepId);
     storage.createSnapshot(stepId, state.getWorkflowContent());
-    const result = prepareRegisteredDataflowActions({ reasoning: "Check the registered protocol.", actions });
     await executeDataflowActionBatch(result, {
       state,
       storage,
@@ -178,12 +188,14 @@ function harness() {
         executions++;
         await execute?.(stepId, ids);
       },
-      edited: () => {},
       isCurrent: () => true,
     });
     return result;
   };
-  return { state, storage, run, executions: () => executions };
+  const call = (python: string, statements: string, execute?: Execute) =>
+    resolve(prepareDataflowCall({ python, statements }, VIEWS), execute);
+  const actions = (list: DataflowAction[], execute?: Execute) => resolve(prepareActions(list, VIEWS), execute);
+  return { state, storage, call, actions, executions: () => executions };
 }
 function completed(id: string, value: number): OperatorInfo {
   return {
@@ -196,130 +208,121 @@ function completed(id: string, value: number): OperatorInfo {
     resultSchema: [{ name: "value", type: "integer" }],
   } as unknown as OperatorInfo;
 }
+function failed(id: string, value: number): OperatorInfo {
+  return { ...completed(id, value), state: "Failed", error: "Synthetic operator failure" } as unknown as OperatorInfo;
+}
 
-test("registered receipts retain useful identities while engine reuse stays in telemetry", async () => {
+test("a receipt names functions, operators and results by statement while engine reuse stays in telemetry", async () => {
   const h = harness();
-  const result = await h.run(
-    [
-      { type: "edit", python: loader, changes: "set raw: source()\nset report: copy_values(raw)" },
-      { type: "execute", operator_ids: ["report"] },
-      { type: "retrieve", operator_ids: ["report"], view: "full" },
-    ],
+  const result = await h.call(
+    loader,
+    "set raw: source()\nset report: copy_values(raw)\nshow result report full",
     async step => {
-      h.storage.setOperatorResult(step, "raw", {
-        ...completed("raw", 2),
-        state: "CompletedFromCache",
-      });
+      h.storage.setOperatorResult(step, "raw", { ...completed("raw", 2), state: "CompletedFromCache" });
       h.storage.setOperatorResult(step, "report", completed("report", 2));
     }
   );
-  expect(result.actions.map(action => action.status)).toEqual(["ok", "ok", "ok"]);
+  expect(result.actions.map(item => [item.action.type, item.status])).toEqual([
+    ["edit", "ok"],
+    ["execute", "ok"],
+    ["retrieve", "ok"],
+  ]);
   const text = renderDataflowActionsResult(result);
-  expect(text).toContain("function source registered");
-  expect(text).toContain("function copy_values registered");
-  expect(text).toContain("operator raw created (source)");
-  expect(text).toContain("operator report created (copy_values)");
-  expect(text).toContain("edge raw -> report created");
-  expect(text).toContain("2. execute report: ok");
-  expect(text).toContain("2 completed (report, raw)");
-  expect(text).toContain("3. retrieve report: ok");
-  expect(text).toContain("**report** (copy_values, completed)");
+  expect(text).toContain("## edits applied\nfunctions: source registered, copy_values registered");
+  expect(text).toContain("operators: raw created (source), report created (copy_values)");
+  expect(text).toContain(
+    "## show result report full\nexecuted: report\nresult report (copy_values of raw): 1 row × 1 column"
+  );
   expect(text).toContain("| 2 |");
   expect(text).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
   expect((result.actions[1].output as any).operators.find((op: any) => op.id === "raw").state).toBe("cached");
   expect(h.storage.getOperatorResult("step0", "raw")?.state).toBe("CompletedFromCache");
 });
 
-test("rejected batch edits name the action and declaration without undoing earlier edits", async () => {
+test("a rejected edit names the statement line and declaration, applies nothing and skips the requests", async () => {
   const h = harness();
-  const result = await h.run([
-    { type: "edit", python: loader, changes: "set raw: source()" },
-    {
-      type: "edit",
-      python: "",
-      changes: "set report: copy_values(raw)\nset broken: limit(raw, n='invalid')",
-    },
-    { type: "execute", operator_ids: ["report"] },
-  ]);
+  await h.call(loader, "set raw: source()");
+  const result = await h.call("", "set report: copy_values(raw)\nset broken: limit(raw, n='invalid')\nexecute report");
   const text = renderDataflowActionsResult(result);
-  expect(result.actions.map(action => action.status)).toEqual(["ok", "error", "skipped"]);
-  expect(text).toContain("2. edit: error\nNo changes were applied.");
-  expect(text).toContain("Changes line 2, operator broken");
-  expect(text).toContain("3. execute report: skipped (action 2 failed)");
+  expect(result.actions.map(item => item.status)).toEqual(["error", "skipped"]);
+  expect(text).toContain("## edits rejected\nChanges line 2, operator broken: Invalid limit arguments");
+  expect(text).toContain("## execute report: not run (an earlier statement failed)");
   expect(h.state.getAllOperators().map(op => op.operatorID)).toEqual(["raw"]);
   expect(h.executions()).toBe(0);
 });
 
-test("batched retrieval keeps valid targets around missing targets without execution", async () => {
+test("a result request keeps valid targets around a missing one and starts no execution for it", async () => {
   const h = harness();
-  const created = await h.run([{ type: "edit", python: loader, changes: "set a: source()\nset b: source(value=2)" }]);
+  const created = await h.call(loader, "set a: source()\nset b: source(value=2)");
   expect(created.status).toBe("completed");
   expect(h.executions()).toBe(0);
-  await h.run([{ type: "execute", operator_ids: ["a", "b"] }], async step => {
+  await h.call("", "execute a, b", async step => {
     h.storage.setOperatorResult(step, "a", completed("a", 2));
     h.storage.setOperatorResult(step, "b", completed("b", 3));
   });
-  const read = await h.run([{ type: "retrieve", operator_ids: ["a", "unknown", "b"], view: "full" }]);
+  const read = await h.call("", "show result a, unknown, b full");
   expect(read.status).toBe("error");
-  expect((read.actions[0].output as any).results.map((entry: any) => [entry.operator_id, entry.status])).toEqual([
+  expect((read.actions[1].output as any).results.map((entry: any) => [entry.operator_id, entry.status])).toEqual([
     ["a", "ok"],
     ["unknown", "error"],
     ["b", "ok"],
   ]);
   expect(read.observe).toEqual(["a", "b"]);
-  expect(renderDataflowActionsResult(read)).toContain("UNKNOWN_OPERATOR");
+  const text = renderDataflowActionsResult(read);
+  expect(text).toContain("UNKNOWN_TARGET: Unknown or disabled execution targets: unknown. No execution was started.");
+  expect(text).toContain("result unknown: unavailable\n- error UNKNOWN_OPERATOR");
+  expect(text.indexOf("| 2 |")).toBeLessThan(text.indexOf("| 3 |"));
   expect(h.executions()).toBe(1);
 });
 
-test("a Python-only edit never executes, rejects stale reads, and keeps prior snapshot results", async () => {
+test("a definitions-only call never executes; a failed recomputation reports the stale result, not the old one", async () => {
   const h = harness();
-  await h.run([{ type: "edit", python: loader, changes: "set a: source()" }]);
-  await h.run([{ type: "execute", operator_ids: ["a"] }], async step =>
-    h.storage.setOperatorResult(step, "a", completed("a", 2))
-  );
-  const update = await h.run([
-    { type: "edit", python: "OFFSET = 2", changes: "" },
-    { type: "retrieve", operator_ids: ["a"], view: "full" },
-  ]);
+  await h.call(loader, "set a: source()");
+  await h.call("", "execute a", async step => h.storage.setOperatorResult(step, "a", completed("a", 2)));
+  const definitions = await h.call("OFFSET = 2", "");
+  expect(definitions.actions.map(item => item.action.type)).toEqual(["edit"]);
+  expect(renderDataflowActionsResult(definitions)).toContain("stale until executed: a");
+  expect(h.executions()).toBe(1);
+  const update = await h.call("OFFSET = 3", "show result a full", async () => {
+    throw new Error("Synthetic engine failure");
+  });
   expect(update.status).toBe("error");
   expect(renderDataflowActionsResult(update)).toContain("RESULT_STALE");
-  expect(h.executions()).toBe(1);
+  expect(h.executions()).toBe(2);
   expect(h.storage.getOperatorResult("step1", "a")?.result).toEqual([{ value: 2 }]);
-  expect(h.storage.getOperatorResult("step2", "a")).toBeUndefined();
+  expect(h.storage.getOperatorResult("step3", "a")).toBeUndefined();
 });
 
-test("namespace inspection and operator implementation report the latest authored definitions", async () => {
+test("show function and show operator report the latest authored definitions without executing", async () => {
   const h = harness();
-  await h.run([{ type: "edit", python: loader, changes: "set a: source(value=4)" }]);
-  const inspected = await h.run([
-    { type: "inspect", target: "namespace" },
-    { type: "inspect", target: "operator", operator_id: "a", include_implementation: true },
-  ]);
+  await h.call(loader, "set a: source(value=4)");
+  const inspected = await h.call("", "show function source, copy_values\nshow operator a");
+  expect(inspected.actions.map(item => item.status)).toEqual(["ok", "ok"]);
   const text = renderDataflowActionsResult(inspected);
-  expect(text).toContain("operator function");
-  expect(text).toContain("copy_values");
-  expect(text).toContain("Create a single numeric record.");
-  expect(text).toContain("set a: source(value=4)");
-  expect(text).not.toContain("= set");
+  expect(text).toContain("## show function source, copy_values");
+  expect(text).toContain("| source | operator function | (*, value=1) | Create a single numeric record. | a |");
+  expect(text).toContain("def copy_values(table):");
+  // The operator's block, not an empty lookup.
+  const section = text.slice(text.indexOf("## show operator a"));
+  expect(section).toContain("- **a** (source,");
+  expect(section).toContain("definition: `set a: source(value=4)`");
+  expect(section).not.toContain("No retained metadata.");
+  const operator = inspected.actions[1].output as any;
+  expect(operator.expression).toBe("set a: source(value=4)");
+  expect(operator.signature).toBe("(*, value=1)");
+  expect(operator.description).toBe("Create a single numeric record.");
   expect(h.executions()).toBe(0);
 });
 
 test("inspection exposes a semantic filter's registered predicate and its graph users", async () => {
   const h = harness();
-  await h.run([
-    {
-      type: "edit",
-      python:
-        loader +
-        '\ndef keep(row, *, minimum=2):\n    """Keep values meeting the threshold."""\n    return row["value"] >= minimum\n',
-      changes: 'set a: source()\nset kept: filter(a, predicate="keep", settings={"minimum": 3})',
-    },
-  ]);
-  const result = await h.run([
-    { type: "inspect", target: "namespace", names: ["keep"], include_implementation: true },
-    { type: "inspect", target: "operator", operator_id: "kept", include_implementation: true },
-  ]);
-  expect(result.actions.map(action => action.status)).toEqual(["ok", "ok"]);
+  await h.call(
+    loader +
+      '\ndef keep(row, *, minimum=2):\n    """Keep values meeting the threshold."""\n    return row["value"] >= minimum\n',
+    'set a: source()\nset kept: filter(a, predicate="keep", settings={"minimum": 3})'
+  );
+  const result = await h.call("", "show function keep\nshow operator kept");
+  expect(result.actions.map(item => item.status)).toEqual(["ok", "ok"]);
   expect((result.actions[0].output as any).entries[0].used_by).toEqual(["kept"]);
   expect((result.actions[1].output as any).signature).toBe("(row, *, minimum=2)");
   const text = renderDataflowActionsResult(result);
@@ -328,144 +331,99 @@ test("inspection exposes a semantic filter's registered predicate and its graph 
   expect(h.executions()).toBe(0);
 });
 
-test("same-call preview discovery and paginated schema inspection read retained engine metadata only", async () => {
+test("schema pages read retained engine metadata; a changed definition makes the schema stale", async () => {
   const h = harness();
-  const discovered = await h.run(
-    [
-      { type: "edit", python: "", changes: "set preview: scan(files='example.xlsx', preview=1)" },
-      { type: "execute", operator_ids: ["preview"] },
-      { type: "inspect", target: "source", operator_id: "preview" },
-    ],
-    async step => {
-      h.storage.setOperatorResult(step, "preview", {
-        ...completed("preview", 1),
-        result: [{ sheet: "Measurements", row_no: 0, line: "id | amount" }],
-        resultSchema: [
-          { name: "sheet", type: "string" },
-          { name: "row_no", type: "integer" },
-          { name: "line", type: "string" },
-        ],
-      } as unknown as OperatorInfo);
-    }
-  );
-  expect(discovered.actions.map(action => action.status)).toEqual(["ok", "ok", "ok"]);
-  expect(renderDataflowActionsResult(discovered)).toContain('"Measurements"');
-  expect(renderDataflowActionsResult(discovered)).toContain("known names only");
-  const frozen = structuredClone(discovered);
   const fields = Array.from({ length: 179 }, (_, i) => ({
     name: i === 178 ? "Last column " : `field_${i}`,
     type: "string",
     encoding: "",
   }));
-  await h.run(
-    [
-      { type: "edit", python: "", changes: "set table: scan(files='example.xlsx', sheet='Measurements')" },
-      { type: "execute", operator_ids: ["table"] },
-    ],
-    async step => h.storage.setOperatorResult(step, "table", { ...completed("table", 1), resultSchema: fields })
+  await h.call("", "set table: scan(files='example.xlsx', sheet='Measurements')\nexecute table", async step =>
+    h.storage.setOperatorResult(step, "table", { ...completed("table", 1), resultSchema: fields })
   );
-  const read = await h.run([
-    { type: "inspect", target: "schema", operator_id: "table", offset: 170, limit: 20 },
-    { type: "inspect", target: "source", operator_id: "preview" },
+  const read = await h.call("", "show schema table from 170");
+  expect(read.actions.map(item => item.action)).toEqual([
+    { type: "execute", operator_ids: ["table"] },
+    { type: "inspect", target: "schema", operator_id: "table", offset: 170, limit: 200 },
   ]);
-  expect(read.actions.map(action => action.status)).toEqual(["ok", "ok"]);
-  expect(renderDataflowActionsResult(read)).toContain('"Last column "');
-  expect(h.executions()).toBe(2);
-  expect(renderDataflowActionsResult(frozen)).toBe(renderDataflowActionsResult(discovered));
-  const stale = await h.run([
-    { type: "edit", python: "", changes: "set table: scan(files='different.xlsx')" },
-    { type: "inspect", target: "schema", operator_id: "table" },
-  ]);
+  expect(read.actions.map(item => item.status)).toEqual(["ok", "ok"]);
+  const text = renderDataflowActionsResult(read);
+  expect(text).toContain("## show schema table from 170");
+  expect(text).toContain('"Last column "');
+  expect(text).not.toContain('"field_10"');
+  const frozen = structuredClone(read);
+  const stale = await h.call("", "set table: scan(files='different.xlsx')\nshow schema table");
   expect(renderDataflowActionsResult(stale)).toContain("RESULT_STALE");
-  expect(h.executions()).toBe(2);
+  expect(renderDataflowActionsResult(frozen)).toBe(text);
 });
 
-test("execution failures permit independent batch reads while later writes are skipped", async () => {
+test("an execution failure still shows the results that completed", async () => {
   const h = harness();
-  await h.run([{ type: "edit", python: loader, changes: "set a: source()\nset b: source(value=2)" }]);
-  const result = await h.run(
-    [
-      { type: "execute", operator_ids: ["a", "b"] },
-      { type: "retrieve", operator_ids: ["a", "b"], view: "full" },
-      { type: "edit", python: "OFFSET = 9", changes: "" },
-    ],
-    async step => {
-      h.storage.setOperatorResult(step, "a", completed("a", 2));
-      h.storage.setOperatorResult(step, "b", {
-        ...completed("b", 3),
-        state: "Failed",
-        error: "Synthetic operator failure",
-      } as unknown as OperatorInfo);
-      throw new Error("Synthetic operator failure");
-    }
-  );
-  expect(result.actions.map(item => item.status)).toEqual(["error", "error", "skipped"]);
+  await h.call(loader, "set a: source()\nset b: source(value=2)");
+  const result = await h.call("", "show result a, b full", async step => {
+    h.storage.setOperatorResult(step, "a", completed("a", 2));
+    h.storage.setOperatorResult(step, "b", failed("b", 3));
+    throw new Error("Synthetic operator failure");
+  });
+  expect(result.actions.map(item => item.status)).toEqual(["error", "error"]);
   expect((result.actions[1].output as any).results.map((entry: any) => entry.status)).toEqual(["ok", "error"]);
   expect(result.observe).toEqual(["a"]);
-  expect(h.state.getWorkflowContent().nativeNamespace?.cells).toHaveLength(1);
+  const text = renderDataflowActionsResult(result);
+  expect(text).toContain("result a (source): 1 row × 1 column");
+  expect(text).toContain("result b: unavailable");
 });
 
 test("a failed execution permits a later requested execution and its result in the same call", async () => {
   const h = harness();
-  await h.run([{ type: "edit", python: loader, changes: "set a: source()\nset b: source(value=2)" }]);
+  await h.call(loader, "set a: source()\nset b: source(value=2)");
   const requested: string[][] = [];
-  const result = await h.run(
-    [
-      { type: "execute", operator_ids: ["a"] },
-      { type: "execute", operator_ids: ["b"] },
-      { type: "retrieve", operator_ids: ["a", "b"], view: "full" },
-    ],
-    async (step, ids) => {
-      requested.push([...(ids ?? [])]);
-      if (ids?.includes("a")) {
-        h.storage.setOperatorResult(step, "a", {
-          ...completed("a", 2),
-          state: "Failed",
-          error: "Synthetic operator failure",
-        } as unknown as OperatorInfo);
-        throw new Error("Synthetic operator failure");
-      }
-      h.storage.setOperatorResult(step, "b", completed("b", 3));
+  const result = await h.call("", "execute a\nexecute b\nshow result a, b full", async (step, ids) => {
+    requested.push([...(ids ?? [])]);
+    if (ids?.includes("a")) {
+      h.storage.setOperatorResult(step, "a", failed("a", 2));
+      throw new Error("Synthetic operator failure");
     }
-  );
-  expect(requested).toEqual([["a"], ["b"]]);
-  expect(result.actions.map(item => item.status)).toEqual(["error", "ok", "error"]);
-  expect((result.actions[2].output as any).results.map((entry: any) => [entry.operator_id, entry.status])).toEqual([
+    h.storage.setOperatorResult(step, "b", completed("b", 3));
+  });
+  expect(requested).toEqual([["a"], ["b"], ["a", "b"]]);
+  expect(result.actions.map(item => item.status)).toEqual(["error", "ok", "error", "error"]);
+  expect((result.actions[3].output as any).results.map((entry: any) => [entry.operator_id, entry.status])).toEqual([
     ["a", "error"],
     ["b", "ok"],
   ]);
   expect(result.observe).toEqual(["b"]);
 });
 
-test("an execution after a skipped edit cannot silently use the old graph", async () => {
+test("nothing after a skipped edit runs, so an execution cannot silently use the old graph", async () => {
   const h = harness();
-  await h.run([{ type: "edit", python: loader, changes: "set a: source()\nset b: source(value=2)" }]);
+  await h.call(loader, "set a: source()\nset b: source(value=2)");
   const requested: string[][] = [];
-  const result = await h.run(
+  const result = await h.actions(
     [
       { type: "execute", operator_ids: ["a"] },
       { type: "edit", python: "", changes: "set b: source(value=9)" },
       { type: "execute", operator_ids: ["b"] },
-      { type: "inspect", target: "graph" },
+      { type: "inspect", target: "operator", operator_id: "b", include_implementation: false },
     ],
     async (_step, ids) => {
       requested.push([...(ids ?? [])]);
       throw new Error("Synthetic operator failure");
     }
   );
+  // Reads continue after a failed execution, but nothing runs after the skipped edit.
   expect(requested).toEqual([["a"]]);
-  expect(result.actions.map(item => item.status)).toEqual(["error", "skipped", "skipped", "ok"]);
+  expect(result.actions.map(item => item.status)).toEqual(["error", "skipped", "skipped", "skipped"]);
   expect(h.state.getOperator("b")?.nativeOp?.source).toContain("value=2");
 });
 
 test("a read followed by an edit marks only that target's captured observation superseded", async () => {
   const h = harness();
-  await h.run([{ type: "edit", python: loader, changes: "set a: source()\nset b: source(value=2)" }]);
-  await h.run([{ type: "execute", operator_ids: ["a", "b"] }], async step => {
+  await h.call(loader, "set a: source()\nset b: source(value=2)");
+  await h.call("", "execute a, b", async step => {
     h.storage.setOperatorResult(step, "a", completed("a", 2));
     h.storage.setOperatorResult(step, "b", completed("b", 3));
   });
-  const result = await h.run([
+  const result = await h.actions([
     { type: "retrieve", operator_ids: ["a", "b"], view: "full" },
     { type: "edit", python: "", changes: "set a: source(value=4)" },
   ]);
@@ -474,27 +432,23 @@ test("a read followed by an edit marks only that target's captured observation s
   expect(reads[0].superseded_in_call).toBe(true);
   expect(reads[1].superseded_in_call).toBeUndefined();
   expect(result.observe).toEqual(["b"]);
+  expect(renderDataflowActionsResult(result)).toContain("note: this result was superseded later in the call.");
   expect(h.executions()).toBe(1);
 });
 
-test("trace import preserves registered protocol and replays definitions without executing operators", async () => {
+test("trace import replays dataflow edits without executing operators", async () => {
   context();
-  const first = prepareRegisteredDataflowActions({
-    reasoning: "Register.",
-    actions: [{ type: "edit", python: loader, changes: "" }],
+  const inputs = [
+    { python: loader, statements: "" },
+    { python: "", statements: "set a: source()\nexecute a" },
+  ];
+  const outputs = inputs.map(input => {
+    const output = prepareDataflowCall(input, VIEWS);
+    output.status = "completed";
+    output.actions.forEach(action => (action.status = "ok"));
+    return output;
   });
-  first.status = "completed";
-  first.actions[0].status = "ok";
-  const second = prepareRegisteredDataflowActions({
-    reasoning: "Build.",
-    actions: [
-      { type: "edit", python: "", changes: "set a: source()" },
-      { type: "execute", operator_ids: ["a"] },
-    ],
-  });
-  second.status = "completed";
-  second.actions.forEach(action => (action.status = "ok"));
-  const steps: ReActStep[] = [first, second].map((output, i) => ({
+  const steps: ReActStep[] = outputs.map((output, i) => ({
     id: `import${i}`,
     parentId: i ? "import0" : undefined,
     messageId: "import",
@@ -504,13 +458,7 @@ test("trace import preserves registered protocol and replays definitions without
     content: "",
     isBegin: i === 0,
     isEnd: false,
-    toolCalls: [
-      {
-        toolCallId: `call${i}`,
-        toolName: "dataflow",
-        input: { reasoning: "Replay.", actions: output.actions.map(item => item.action) },
-      },
-    ],
+    toolCalls: [{ toolCallId: `call${i}`, toolName: "dataflow", input: inputs[i] }],
     toolResults: [{ toolCallId: `call${i}`, output }],
   }));
   const agent = new TexeraAgent({

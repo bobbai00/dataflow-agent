@@ -40,7 +40,7 @@ import {
   type ParsedFunction,
   type ParsedStatement,
 } from "./catalog";
-import { nativeRevision, runNativePython } from "./codegen";
+import { nativeRevision } from "./codegen";
 
 /** One statement (or def) that did not parse or is not `name = operator(...)`.
  * Reported at its line; the rest of the program is unaffected. */
@@ -82,17 +82,6 @@ function validatorFor(name: string) {
     validators.set(name, validate);
   }
   return validate;
-}
-
-/** Parse only: the Python subset's statements and functions, plus the
- * statements that did not parse (each positioned, each independent). */
-export async function parseNativeProgram(program: string): Promise<{
-  ok: true;
-  statements: ParsedStatement[];
-  functions: Record<string, ParsedFunction>;
-  errors: ProgramSyntaxError[];
-}> {
-  return (await runNativePython({ program })) as any;
 }
 
 function attemptedView(statement: ParsedStatement, type: string, inputs: string[]): NativeOpView {
@@ -172,18 +161,4 @@ export function normalizeStatement(
     }
     throw error;
   }
-}
-
-/** Parse and normalize a whole program. */
-export async function compileProgram(
-  program: string,
-  options: { profileCollection?: boolean; profileScope?: "full" } = {}
-): Promise<ProgramResult> {
-  const parsed = await parseNativeProgram(program);
-  return {
-    ok: true,
-    statements: parsed.statements.map(statement => normalizeStatement(statement, parsed.functions, options)),
-    functions: parsed.functions,
-    errors: parsed.errors ?? [],
-  };
 }

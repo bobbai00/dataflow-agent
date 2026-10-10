@@ -18,46 +18,44 @@
  */
 
 import { expect, test } from "bun:test";
-import { buildRegisteredNativeSystemPrompt, registeredReferenceText } from "../prompts";
-import { parseTurn } from "./turn-syntax";
 import { asSchema } from "ai";
+import { spawnSync } from "node:child_process";
+import { buildRegisteredNativeSystemPrompt, registeredReferenceText } from "../prompts";
 import { ContextMode, type RetrievalView } from "../../types/agent";
-import { createRegisteredDataflowTool, prepareRegisteredDataflowActions } from "../tools/dataflow-actions";
+import { createDataflowTool, prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
 import { compileNativeOp, nativePython } from "./codegen";
 import { stageRegisteredEdit, type RegisteredStageInput } from "./registered";
-import { spawnSync } from "node:child_process";
 
-test("registered prompt examples obey the active tool envelope and enabled views", () => {
+/** The example calls a prompt shows, as the model would send them. */
+const exampleCalls = (prompt: string) =>
+  [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
+/** The example receipts a prompt shows. */
+const exampleReceipts = (prompt: string) =>
+  [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
+
+test("example calls are valid dataflow calls for every view setting", () => {
   for (const retrievalViews of [["full"], ["sample"], ["sample_stats"], ["sample_stats", "full"]] as const) {
-    const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: [...retrievalViews] });
-    const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
-    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: [...retrievalViews],
+      flowEvidence: true,
+    });
+    const calls = exampleCalls(prompt);
+    // The reading example and the flow repair, two calls each.
+    expect(calls).toHaveLength(4);
     for (const call of calls) {
-      const result = prepareRegisteredDataflowActions(call, [...retrievalViews]);
+      expect(Object.keys(call)).toEqual(["python", "statements"]);
+      const result = prepareDataflowCall(call, [...retrievalViews]);
       expect(result.error).toBeUndefined();
       expect(result.status).toBe("pending");
     }
     expect(prompt).not.toContain("{{");
-    if (!retrievalViews.includes("sample_stats" as never)) expect(prompt).not.toContain("statistics: full table");
-  }
-});
-
-for (const view of ["full", "sample", "sample_stats"] as const)
-  test(`text teaching examples respect a ${view}-only session`, () => {
-    const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
-      transport: "text",
-      retrievalViews: [view],
-      flowEvidence: true,
-    });
-    for (const [, text] of prompt.matchAll(/````turn\n([\s\S]*?)\n````/g)) {
-      const parsed = parseTurn(text, { views: [view] });
-      expect(parsed.ok).toBe(true);
-    }
     expect(prompt).toContain("show schema <id> [from <index>]");
     expect(prompt).toContain("docstring");
     expect(prompt).not.toContain("statistics on every column");
-  });
+    if (!retrievalViews.includes("sample_stats" as never)) expect(prompt).not.toContain("statistics: full table");
+  }
+});
 
 test("reference and initial prompt expose only retained built-ins with registered mappings", () => {
   const prompt = buildRegisteredNativeSystemPrompt();
@@ -70,20 +68,20 @@ test("reference and initial prompt expose only retained built-ins with registere
   expect(() => registeredReferenceText({ topic: "operators", operator_names: ["process"] })).toThrow();
 });
 
-test("registered instructions explain actionable observations without cache bookkeeping", () => {
+test("instructions describe receipts by statement, without cache bookkeeping", () => {
   const prompt = buildRegisteredNativeSystemPrompt();
   expect(prompt).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
-  expect(prompt).toContain("action number");
   expect(prompt).toContain("operator ID");
-  expect(prompt).toContain("completed");
-  expect(prompt).toContain("No changes were applied");
-  const schema = asSchema(createRegisteredDataflowTool().inputSchema).jsonSchema;
+  expect(prompt).toContain("one section per statement");
+  expect(prompt).toContain("An error names the statement and the cause.");
+  expect(prompt).toContain("if one line is rejected, nothing changes and the receipt names the line");
+  const schema = asSchema(createDataflowTool().inputSchema).jsonSchema;
   expect(JSON.stringify(schema)).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
 });
 
 for (const data of [false, true])
   for (const flow of [false, true])
-    test(`registered prompt and live agent settings agree: data=${data}, flow=${flow}`, () => {
+    test(`prompt and live agent settings agree: data=${data}, flow=${flow}`, () => {
       const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
       // Explicit retrieval choices are authoritative even when the historical
       // dataEvidence flag disagrees. A false flag alone is not a stats-off arm.
@@ -116,34 +114,26 @@ for (const data of [false, true])
         expect(prompt).toContain("cast failures");
         expect(prompt).toContain("Python functions are not measured");
       }
-      expect(prompt).toContain("Every record within 5000 characters");
-      expect(prompt).toContain("Put the edits, execution, and retrieval of a known computation in one call");
-      // The context holds every definition and receipt: inspection is for what it lacks.
+      expect(prompt).toContain("every record within 5000 characters");
+      expect(prompt).toContain("Put the definitions, statements, and `show result` of a known computation in one call");
+      // The context holds every definition and receipt: lookups are for what it lacks.
       expect(prompt).toContain("Everything you defined and observed is already in your context");
       expect(prompt).not.toContain("preview=1), execute, and inspect source");
 
-      const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
-      expect(calls.length).toBeGreaterThanOrEqual(2);
-      for (const call of calls) expect(prepareRegisteredDataflowActions(call, retrievalViews).status).toBe("pending");
-      const examples = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
-      if (!flow) expect(examples).not.toMatch(/^\s*- flow\b/m);
+      for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, retrievalViews).status).toBe("pending");
+      if (!flow) expect(exampleReceipts(prompt)).not.toMatch(/^\s*- flow\b/m);
 
-      const schema = asSchema(createRegisteredDataflowTool(retrievalViews).inputSchema).jsonSchema as any;
-      const reads = schema.properties.actions.items.anyOf.filter(
-        (action: any) => action.properties.type.const === "retrieve"
-      );
-      expect(reads).toHaveLength(1);
-      for (const read of reads) expect(read.properties.view.enum).toEqual(retrievalViews);
+      const schema = asSchema(createDataflowTool(retrievalViews).inputSchema).jsonSchema;
       expect(info.tools).toHaveLength(1);
+      expect(info.tools[0].name).toBe("dataflow");
       expect(info.tools[0].inputSchema).toEqual(schema);
     });
 
 for (const data of [false, true])
   for (const flow of [false, true])
-    test(`text transport prompt: turns parse and prepare, sections follow the settings: data=${data}, flow=${flow}`, () => {
+    test(`one protocol: calls prepare, sections follow the settings, size stays bounded: data=${data}, flow=${flow}`, () => {
       const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
       const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
-        transport: "text",
         retrievalViews,
         dataEvidence: data,
         flowEvidence: flow,
@@ -152,65 +142,117 @@ for (const data of [false, true])
         maxResultRows: 5,
       });
       expect(prompt).not.toContain("{{");
-      expect(prompt).toContain("Each message you send is one turn");
+      expect(prompt).toContain(
+        'Use the `dataflow` tool: `python` (definitions, or `""`) and `statements` (one per line).'
+      );
       expect(prompt).toContain("show result <id>, ... [view]");
+      expect(prompt).toContain("reply without calling the tool");
+      expect(prompt).toContain("There is no answer statement.");
       expect(prompt).toContain("Everything you defined and observed is already in your context");
-      expect(prompt).not.toContain("```json");
+      // No summary field, no answer statement, no raw-text framing, no JSON action list.
+      expect(prompt).not.toContain("`summary`");
+      expect(prompt).not.toContain('"summary"');
+      expect(prompt).not.toContain("answer: <text to the end of the turn>");
+      expect(prompt).not.toContain("````turn");
+      expect(prompt).not.toContain('"actions"');
       expect(prompt).not.toContain("Actions run in order.");
+      expect(prompt).not.toContain("Engine receipt:");
       expect(prompt.includes("plus collected column statistics")).toBe(data);
       expect(prompt.includes("Flow statistics report measured effects")).toBe(flow);
-      // Every example turn parses and passes the registered validator.
-      const turns = [...prompt.matchAll(/````turn\n([\s\S]*?)\n````/g)].map(match => match[1]);
-      expect(turns.length).toBeGreaterThanOrEqual(3);
-      for (const text of turns) {
-        const parsed = parseTurn(text, { views: retrievalViews });
-        expect(parsed.ok).toBe(true);
-        if (!parsed.ok) continue;
-        expect(parsed.turn.missingSummary).toBe(false);
-        // The answer turn carries no summary; the driver sends a placeholder as the reasoning.
-        expect(
-          prepareRegisteredDataflowActions(
-            { reasoning: parsed.turn.summary || "(no summary)", actions: parsed.turn.actions },
-            retrievalViews
-          ).status
-        ).toBe("pending");
+      // Every example call is valid for this session.
+      const calls = exampleCalls(prompt);
+      expect(calls).toHaveLength(flow ? 4 : 2);
+      for (const call of calls) {
+        expect(Object.keys(call)).toEqual(["python", "statements"]);
+        const result = prepareDataflowCall(call, retrievalViews);
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe("pending");
       }
-      // The example receipt is real renderer output; statistics lines appear only with data on.
-      const receipts = [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
+      // The receipts are real renderer output, introduced as tool results.
+      expect(prompt.match(/^Tool result \(the receipt\):$/gm)).toHaveLength(flow ? 3 : 2);
+      const receipts = exampleReceipts(prompt);
       expect(receipts).toContain("## edits applied");
       expect(receipts).toContain("## show result report full");
-      expect(receipts.includes("statistics:")).toBe(data);
       expect(receipts).not.toContain(": not run");
-      const fullReport = receipts.split("## show result report full")[1].split("````")[0];
-      expect(fullReport).not.toContain("statistics: full table");
+      expect(receipts.includes("statistics:")).toBe(data);
+      expect(receipts.split("## show result report full")[1].split("```")[0]).not.toContain("statistics: full table");
       if (data) {
         expect(receipts).toContain("2 of 6 rows");
         expect(receipts).toContain("all: A 4; B 2");
       }
-      if (flow) {
-        expect(receipts).toContain("kept=2/4, rejected=2");
-        expect(receipts).toContain("10 × 2");
-      }
+      expect(receipts.includes("kept=2/4, rejected=2")).toBe(flow);
+      expect(receipts.includes("10 × 2")).toBe(flow);
+      // The answer is a reply without the tool.
+      expect(prompt).toContain("Reply, without the tool: `Group A: 60; group B: 70.`");
+      expect(prompt.includes("Reply, without the tool: `60`")).toBe(flow);
+      expect(prompt).toContain(
+        "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`."
+      );
+      const examples = prompt.slice(prompt.indexOf("## 4. Worked examples"));
+      expect(examples.length).toBeLessThan(flow ? 5000 : 2500);
+      expect(prompt.length).toBeLessThan(18000);
     });
+
+test("every context mode, evidence setting and table format keeps the section order and closes every fence", () => {
+  for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
+    for (const data of [false, true])
+      for (const flow of [false, true])
+        for (const tableFormat of ["markdown", "tsv"] as const) {
+          const views: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+          const prompt = buildRegisteredNativeSystemPrompt(mode, {
+            retrievalViews: views,
+            flowEvidence: flow,
+            tableFormat,
+          });
+          const order = [
+            "## 1. Role and objective",
+            "## 2. Your resources",
+            "## 3. Working with Dataflows",
+            "### Built-in operators",
+            "### Python functions",
+            "### Reading results",
+            "## 4. Worked examples",
+          ];
+          expect(prompt.startsWith(order[0])).toBe(true);
+          for (let i = 1; i < order.length; i++)
+            expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
+          expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
+          expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
+          const receipts = exampleReceipts(prompt);
+          expect(/^\s*- flow\b/m.test(receipts)).toBe(flow);
+          expect(/^statistics: full table/m.test(receipts)).toBe(data);
+          expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
+          for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, views).status).toBe("pending");
+        }
+});
 
 test("synthetic teaching edits compile and their calculations and repair run in isolated Python operators", async () => {
   const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { flowEvidence: true });
-  const calls = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
   let stage: RegisteredStageInput = { operators: {}, python: "", changes: "" };
   const compiled: Record<string, string> = {};
-  for (const call of calls) {
-    for (const action of call.actions) {
+  for (const call of exampleCalls(prompt)) {
+    const prepared = prepareDataflowCall(call);
+    expect(prepared.status).toBe("pending");
+    for (const { action } of prepared.actions) {
       if (action.type !== "edit") continue;
       stage = { ...(await stageRegisteredEdit({ ...stage, ...action })), python: "", changes: "" };
       for (const id of ["totals", "report", "kept", "total"]) {
         const op = stage.operators[id];
         if (!op) continue;
         const key =
-          id === "kept" || id === "total" ? `${id}_${action.python?.includes(" >= ") ? "fixed" : "first"}` : id;
+          id === "kept" || id === "total" ? `${id}_${action.python.includes(" >= ") ? "fixed" : "first"}` : id;
         compiled[key] ??= compileNativeOp(op, id).code;
       }
     }
   }
+  expect(Object.keys(compiled).sort()).toEqual([
+    "kept_first",
+    "kept_fixed",
+    "report",
+    "total_first",
+    "total_fixed",
+    "totals",
+  ]);
   const run = spawnSync(
     nativePython(),
     [

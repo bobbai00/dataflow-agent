@@ -19,7 +19,7 @@
 
 import { expect, spyOn, test } from "bun:test";
 import { AgentMode, ContextMode } from "../types/agent";
-import { buildCodeModeSystemPrompt, buildNativeModeSystemPrompt } from "./prompts";
+import { buildCodeModeSystemPrompt, buildRegisteredNativeSystemPrompt } from "./prompts";
 import { TexeraAgent } from "./texera-agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
@@ -91,13 +91,11 @@ test("the model driver receives no result-inspection schema", async () => {
   expect(dispatchedTools).toEqual(["dataflow"]);
 });
 
-test("legacy prompt-builder inspection flags cannot advertise a removed tool", () => {
+test("prompt builders cannot advertise a removed tool", () => {
   for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     expect(buildCodeModeSystemPrompt(mode, false, true)).toBe(buildCodeModeSystemPrompt(mode, false, false));
-    for (const layout of [{}, { recall: true }, { messageLayout: "opBlock" as const }]) {
-      const prompt = buildNativeModeSystemPrompt(mode, layout);
-      expect(prompt).not.toContain("inspectResult");
-      expect(prompt).toContain("retrieve");
-    }
+    const prompt = buildRegisteredNativeSystemPrompt(mode);
+    expect(prompt).not.toContain("inspectResult");
+    expect(prompt).toContain("show result");
   }
 });

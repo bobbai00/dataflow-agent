@@ -32,18 +32,21 @@ class MatrixAuditTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value))
 
-    def request(self, n=1, extra=None, data=False, flow=False):
-        views = ["sample_stats", "full"] if data else ["sample", "full"]
-        prompt = "Python functions you can register. Every operator execution has its own isolated environment."
+    TOOLS = [{"type": "function", "function": {"name": "dataflow", "parameters": {
+        "type": "object", "properties": {"python": {"type": "string"}, "statements": {"type": "string"}}}}}]
+
+    def prompt(self, data=False, flow=False):
+        prompt = ("Python functions you can register. Every operator execution has its own isolated environment. "
+                  "Use the `dataflow` tool: `python` and `statements` (one per line).")
         if data:
-            prompt += " Column statistics are collected separately from displayed records."
+            prompt += " Column statistics in `sample_stats` describe the requested result."
         if flow:
-            prompt += " Flow statistics describe measured built-in effects."
-        request = {"messages": [{"role": "system", "content": prompt}, {"role": "user", "content": "task"}],
-                   "parallel_tool_calls": False,
-                   "tools": [{"type": "function", "function": {"name": "dataflow", "parameters": {
-                       "properties": {"actions": {"items": {"anyOf": [{"properties": {
-                           "type": {"const": "retrieve"}, "view": {"enum": views}}}]}}}}}}]}
+            prompt += " Flow statistics report measured effects."
+        return prompt
+
+    def request(self, n=1, extra=None, data=False, flow=False, tools=None):
+        request = {"messages": [{"role": "system", "content": self.prompt(data, flow)}, {"role": "user", "content": "task"}],
+                   "parallel_tool_calls": False, "tools": tools or self.TOOLS}
         request["messages"].extend(extra or [])
         self.write(f"wire/{n:06d}-request.json", request)
         return request
@@ -56,20 +59,22 @@ class MatrixAuditTests(unittest.TestCase):
     def findings(self):
         return audit_attempt(self.path, self.settings)
 
-    def text_request(self, receipt, data=False, flow=False):
-        self.settings.update(nativeTransport="text", retrievalViews=["sample_stats" if data else "sample", "full"], flowEvidence=flow)
-        prompt = "You have Python functions you register. Each execution runs in isolation. Each message you send is one turn."
-        if data:
-            prompt += " Column statistics in `sample_stats` describe the requested result."
-        if flow:
-            prompt += " Flow statistics report measured effects."
-        request = {"messages": [{"role": "system", "content": prompt}, {"role": "user", "content": "task"},
-                                {"role": "assistant", "content": "summary: Read.\nshow result data"},
-                                {"role": "user", "content": receipt}]}
+    def receipt_request(self, receipt, data=False, flow=False, tool_choice="auto", tools=True, prompt_extra=""):
+        """One call and its receipt, as the tool message a later request replays."""
+        self.settings.update(retrievalViews=["sample_stats" if data else "sample", "full"], flowEvidence=flow)
+        call = {"id": "c1", "type": "function", "function": {
+            "name": "dataflow", "arguments": json.dumps({"python": "", "statements": "show result data"})}}
+        request = {"messages": [{"role": "system", "content": self.prompt(data, flow) + prompt_extra},
+                                {"role": "user", "content": "task"},
+                                {"role": "assistant", "content": "", "tool_calls": [call]},
+                                {"role": "tool", "tool_call_id": "c1", "content": receipt}],
+                   "parallel_tool_calls": False, "tool_choice": tool_choice}
+        if tools:
+            request["tools"] = self.TOOLS
         self.write("wire/000001-request.json", request)
         return request
 
-    def test_text_receipts_are_audited_in_all_four_arms_without_tool_schema(self):
+    def test_tool_receipts_are_audited_in_all_four_arms(self):
         for data in (False, True):
             for flow in (False, True):
                 with self.subTest(data=data, flow=flow):
@@ -78,16 +83,17 @@ class MatrixAuditTests(unittest.TestCase):
                         receipt += "\nstatistics: full table, 3 of 3 rows, 1 of 1 columns"
                     if flow:
                         receipt += "\n- flow: measured rows=3"
-                    self.text_request(receipt, data, flow)
+                    self.receipt_request(receipt, data, flow)
                     result = self.findings()
                     self.assertEqual(result["violations"], [])
-                    self.assertEqual(result["observations"]["text_receipts"], 1)
+                    self.assertEqual(result["observations"]["tool_messages"], 1)
+                    self.assertEqual(result["observations"]["retrieve_blocks"], 1)
                     self.assertEqual(result["observations"]["with_flow"], int(flow))
                     self.assertEqual(result["observations"]["with_table_statistics"], int(data))
 
-    def test_text_receipt_leaks_are_detected_but_user_tasks_are_not_observations(self):
+    def test_receipt_leaks_are_detected_but_user_tasks_are_not_observations(self):
         receipt = "## show result data\n- flow: leaked\nstatistics: full table, 3 of 3 rows, 1 of 1 columns"
-        request = self.text_request(receipt)
+        request = self.receipt_request(receipt)
         result = self.findings()
         self.assertIn("data_markdown_leak", result["violations"])
         self.assertIn("flow_markdown_leak", result["violations"])
@@ -96,15 +102,16 @@ class MatrixAuditTests(unittest.TestCase):
         self.write("wire/000001-request.json", request)
         self.assertEqual(self.findings()["violations"], [])
 
-    def test_text_transport_rejects_tools_on_wire_and_false_complete_profile(self):
-        request = self.text_request("## show result data\nstatistics: full table, 2 of 3 rows, 1 of 1 columns", data=True)
-        request["tools"] = [{"type": "function", "function": {"name": "dataflow"}}]
-        self.write("wire/000001-request.json", request)
-        result = self.findings()
-        self.assertIn("tools_in_text_transport", result["violations"])
-        self.assertIn("false_full_statistics_caption", result["violations"])
+    def test_the_tool_must_be_offered_unforced_and_full_captions_must_be_true(self):
+        receipt = "## show result data\nrecords: sample; 1 of 3 rows, 1 of 1 columns (incomplete)"
+        self.receipt_request(receipt, tool_choice="required")
+        self.assertIn("forced_tool_choice", self.findings()["violations"])
+        self.receipt_request(receipt, tools=False)
+        self.assertIn("missing_dataflow_tool", self.findings()["violations"])
+        self.receipt_request("## show result data\nstatistics: full table, 2 of 3 rows, 1 of 1 columns", data=True)
+        self.assertIn("false_full_statistics_caption", self.findings()["violations"])
 
-    def test_unavailable_explicit_views_in_text_examples_are_rejected(self):
+    def test_unavailable_explicit_views_in_prompt_examples_are_rejected(self):
         cases = [
             (["sample", "full"], "show result data sample_stats", False),
             (["sample_stats"], "show result data full", True),
@@ -113,59 +120,32 @@ class MatrixAuditTests(unittest.TestCase):
         ]
         for views, command, data in cases:
             with self.subTest(views=views, command=command):
-                request = self.text_request("## show result data", data=data)
+                request = self.receipt_request("## show result data", data=data)
                 self.settings["retrievalViews"] = views
                 request["messages"][0]["content"] += f"\n```text\n{command}\n```"
                 self.write("wire/000001-request.json", request)
                 self.assertIn("disabled_view_in_prompt_example", self.findings()["violations"])
+        # Example calls carry their statements inside JSON strings with literal \n escapes.
+        self.receipt_request("## show result data", prompt_extra='\n```json\n{"statements": "set a: scan(files=\'x.csv\')\\nshow result data sample_stats"}\n```')
+        self.assertIn("disabled_view_in_prompt_example", self.findings()["violations"])
 
-    def test_enabled_or_implicit_text_views_are_not_reported_as_unavailable(self):
-        request = self.text_request("## show result data")
+    def test_enabled_or_implicit_views_are_not_reported_as_unavailable(self):
+        request = self.receipt_request("## show result data")
         request["messages"][0]["content"] += "\n```text\nshow result data\nshow result data sample\nshow result first, second full\n```"
         self.write("wire/000001-request.json", request)
         self.assertEqual(self.findings()["violations"], [])
 
     def test_wire_statistics_cannot_claim_more_columns_than_the_result(self):
-        self.text_request("## show result data\nstatistics: full table, 3 of 3 rows, 8 of 2 columns", data=True)
+        self.receipt_request("## show result data\nstatistics: full table, 3 of 3 rows, 8 of 2 columns", data=True)
         self.assertIn("false_full_statistics_caption", self.findings()["violations"])
         # Full-table statistics may still cover a bounded subset of columns.
-        self.text_request("## show result data\nstatistics: full table, 3 of 3 rows, 2 of 8 columns", data=True)
+        self.receipt_request("## show result data\nstatistics: full table, 3 of 3 rows, 2 of 8 columns", data=True)
         self.assertEqual(self.findings()["violations"], [])
-
-    def turn_request(self, receipt, tool_choice="auto", tools=True, prompt_extra=""):
-        self.settings.update(nativeTransport="turn", retrievalViews=["sample", "full"], flowEvidence=False)
-        prompt = ("Python functions you register. Each execution runs in isolation. Use the `dataflow` tool: "
-                  "`summary` (one line), `python`, and `statements` (one per line)." + prompt_extra)
-        request = {"messages": [{"role": "system", "content": prompt}, {"role": "user", "content": "task"},
-                                {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {
-                                    "name": "dataflow", "arguments": json.dumps({"summary": "Read.", "python": "", "statements": "show result data"})}}]},
-                                {"role": "tool", "tool_call_id": "c1", "content": receipt}],
-                   "parallel_tool_calls": False, "tool_choice": tool_choice}
-        if tools:
-            request["tools"] = [{"type": "function", "function": {"name": "dataflow", "parameters": {
-                "type": "object", "properties": {"summary": {"type": "string"}, "python": {"type": "string"}, "statements": {"type": "string"}}}}}]
-        self.write("wire/000001-request.json", request)
-        return request
-
-    def test_turn_transport_audits_tool_receipts_without_a_retrieval_enum(self):
-        receipt = "## show result data\nrecords: sample; 1 of 3 rows, 1 of 1 columns (incomplete)"
-        self.turn_request(receipt)
-        result = self.findings()
-        self.assertEqual(result["violations"], [])
-        self.assertEqual(result["observations"]["tool_messages"], 1)
-        self.assertEqual(result["observations"]["retrieve_blocks"], 1)
-        self.turn_request(receipt, tool_choice="required")
-        self.assertIn("forced_tool_choice_in_turn_transport", self.findings()["violations"])
-        self.turn_request(receipt, tools=False)
-        self.assertIn("missing_turn_tool", self.findings()["violations"])
-        # The example's statements sit inside a JSON string with literal \n escapes, as the prompt renders them.
-        self.turn_request(receipt, prompt_extra='\n```json\n{"statements": "set a: scan(files=\'x.csv\')\\nshow result data sample_stats"}\n```')
-        self.assertIn("disabled_view_in_prompt_example", self.findings()["violations"])
 
     def test_wire_text_catches_execute_flow_leak_without_retrieval_evidence(self):
         self.request()
         self.request(2, [{"role": "tool", "tool_call_id": "t1", "content":
-                          "### 1. execute source: ok\n- flow: Scan parsed selected sources."}])
+                          "## execute source\n- flow: Scan parsed selected sources."}])
         result = self.findings()
         self.assertIn("flow_markdown_leak", result["violations"])
         self.assertEqual(result["wire_prefix_checks"], 1)
@@ -173,9 +153,9 @@ class MatrixAuditTests(unittest.TestCase):
 
     def test_each_wire_request_must_keep_conditional_prompt_and_schema(self):
         self.request()
-        self.request(2, data=True, flow=True)
+        self.request(2, data=True, flow=True, tools=[{"type": "function", "function": {"name": "dataflow"}}])
         result = self.findings()
-        self.assertTrue({"wire_prefix_changed", "tool_schema_changed", "retrieval_schema_mismatch",
+        self.assertTrue({"wire_prefix_changed", "tool_schema_changed",
                          "data_prompt_mismatch", "flow_prompt_mismatch"}.issubset(result["violations"]))
 
     def test_developer_role_is_a_provider_prompt_encoding_not_a_missing_prompt(self):
@@ -228,7 +208,7 @@ class MatrixAuditTests(unittest.TestCase):
     def test_suppression_notice_is_not_allowed_when_data_disabled(self):
         self.request()
         self.request(2, [{"role": "tool", "tool_call_id": "t1", "content":
-                          "### 1. retrieve source: ok\nstatistics: not shown; the complete records above show every value"}])
+                          "## show result source\nstatistics: not shown; the complete records above show every value"}])
         result = self.findings()
         self.assertIn("data_markdown_leak", result["violations"])
         self.assertEqual(result["observations"]["with_table_statistics"], 0)

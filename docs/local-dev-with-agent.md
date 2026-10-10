@@ -152,10 +152,12 @@ Context-tuning matrix configs, all green: `latest` default;
 `bun run e2e:errors` checks the worker's error contract: the exception type
 and a `(line N) \`source\` - ` pointer at the offending statement; the
 agent-service appends the operator code from `operatorProperties` itself.
-Native-mode smokes: `bun run benchmark/e2e/native-program-run.ts` (a program
-through the real engine) and `bun run benchmark/e2e/native-errors-run.ts`
-(every error layer rendered as the model sees it). Both need
-`TEXERA_AGENT_SERVICE_ENDPOINT` pointing at the running agent-service.
+Native-mode smokes send `dataflow(python, statements)` calls as debug input,
+with no model request: `bun run benchmark/e2e/registered-python-run.ts`
+(registered-Python probes through the real engine) and
+`bun run benchmark/e2e/registered-evidence-matrix.ts` (the four data/flow
+evidence settings). Both need `TEXERA_AGENT_SERVICE_ENDPOINT` pointing at an
+agent-service running this checkout.
 
 ### Agent settings (tuning knobs)
 
@@ -165,10 +167,9 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 
 | Knob | Values | What it does |
 |---|---|---|
-| `agentMode` | `native` (default) \| `code` | native: the model writes the dataflow as a `name = operator(...)` program (`dataflow` tool); code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
+| `agentMode` | `native` (default) \| `code` | native: the model edits, runs and reads the dataflow through the `dataflow(python, statements)` tool; code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
 | `dataEvidence` | bool (default `false`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
-| `dataflowReasoning` | bool (default `false`) | native `dataflow` tool gains a required `reasoning` argument (why this call, what the observed tables should show), replayed with the call |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `maxOperatorResultCellCharLimit` | int (default 2000) | clip long cells |
@@ -182,15 +183,14 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | int | per tool call / per workflow execution |
 | `parallelToolCalls` | bool (default `true`) | provider-side parallel tool calls; forced off in native mode |
 | `thoughtReplay` / `thoughtReplayK` | bool / int | recent reasoning re-injected (default on, K=10) |
-| `turnHistory` | `full` \| `index` | prior turns verbatim vs. compact catalogue |
-| `indexDetailedOperators` / `indexRichTables` | int | index caps for `turnHistory: index` |
-| `seedSources` | bool (default `false`) | scan and observe the files passed as `sources` with the message before the first model call |
-| `enableRecallTool` / `enableResumeTool` / `enableCompactTool` | bool (default `false`) | expose `recallState` / `resumeFrom` / `compactContext` |
 | `disabledTools` | string[] | hide tools by name |
 
 Retired knobs (`nativeToolMode`, `nativeCatalogVersion`, `allowedOperatorTypes`,
-`columnStats`, `flowLevel`/`dataLevel`, `agentMode: "general"`) are rejected
-with an error rather than mapped.
+`columnStats`, `flowLevel`/`dataLevel`, `agentMode: "general"`, and the protocol
+and multi-task knobs removed with the JSON action tool and the text transport,
+such as `nativeTransport`, `dataflowReasoning`, `taskContext`, `stateHistory`,
+`turnHistory`, `seedSources` and `enableRecallTool`) are rejected with an error
+rather than mapped.
 
 ## Troubleshooting
 

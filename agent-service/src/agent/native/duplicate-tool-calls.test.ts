@@ -23,26 +23,35 @@ import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
 import { assembleContext } from "../util/context-utils";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+
+type Call = { python: string; statements: string };
 
 /** One response carrying the same dataflow call several times (a provider decoding
  * repeat, seen 62 times in one Qwen response) counts as one call: it runs once and
  * the replayed context shows one call with one result. Distinct calls in one
- * response still follow the one-call-per-turn rule. */
-function fixture(callsAt: (call: number) => Array<{ reasoning: string; actions: unknown[] }>) {
+ * response run in order, each with its own receipt. */
+function fixture(replyAt: (call: number) => Call[] | string) {
+  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
   const prompts: unknown[][] = [];
   const model = new MockLanguageModelV3({
     doGenerate: async options => {
       prompts.push(structuredClone(options.prompt));
-      const batch = callsAt(++calls);
+      const reply = replyAt(++calls);
+      const text = typeof reply === "string";
       return {
-        content: batch.map((input, i) => ({
-          type: "tool-call" as const,
-          toolCallId: `dup-${calls}-${i}`,
-          toolName: "dataflow",
-          input: JSON.stringify(input),
-        })),
-        finishReason: { unified: "tool-calls" as const, raw: "tool_calls" },
+        content: text
+          ? [{ type: "text" as const, text: reply }]
+          : reply.map((input, i) => ({
+              type: "tool-call" as const,
+              toolCallId: `dup-${calls}-${i}`,
+              toolName: "dataflow",
+              input: JSON.stringify(input),
+            })),
+        finishReason: text
+          ? { unified: "stop" as const, raw: "stop" }
+          : { unified: "tool-calls" as const, raw: "tool_calls" },
         usage: {
           inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
           outputTokens: { total: 5, text: 5, reasoning: 0 },
@@ -63,70 +72,63 @@ function fixture(callsAt: (call: number) => Array<{ reasoning: string; actions: 
       }),
   });
   agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 25, thoughtReplay: false });
+  // No engine in a unit test: every operator "executes" to one row.
+  (agent as any).executePostStepChanges = async () => {
+    for (const op of agent.getWorkflowState().getAllOperators())
+      agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, op.operatorID, {
+        state: "Completed",
+        inputTuples: 0,
+        outputTuples: 1,
+        totalRowCount: 1,
+        resultMode: "table",
+        result: [{ value: 42 }],
+        resultSchema: [{ name: "value", type: "int64", encoding: "" }],
+      });
+  };
   return { agent, prompts };
 }
 
-const inspect = { reasoning: "Look at the graph.", actions: [{ type: "inspect", target: "graph" }] };
-const answer = { reasoning: "Done.", actions: [{ type: "answer", content: "The graph is empty." }] };
+const scan: Call = { python: "", statements: "set raw: scan(files='data/x/input/a.csv')\nshow result raw" };
+const lookup: Call = { python: "", statements: "show builtin scan" };
+const replayedCalls = (prompt: unknown[]) =>
+  prompt
+    .filter((m: any) => m.role === "assistant")
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .filter((p: any) => p.type === "tool-call");
 
 test("identical repeated tool calls in one response collapse to one recorded call that runs", async () => {
-  const f = fixture(call => (call === 1 ? [inspect, inspect, inspect] : [answer]));
-  const result = await f.agent.sendMessage("Check the graph.");
+  const f = fixture(call => (call === 1 ? [scan, scan, scan] : "The value is 42."));
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
   expect(result.error).toBeUndefined();
-  expect(result.response).toBe("The graph is empty.");
+  expect(result.response).toBe("The value is 42.");
   const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
   expect(steps[0].toolCalls).toHaveLength(1);
   expect(steps[0].toolResults).toHaveLength(1);
   const receipt = steps[0].toolResults![0].output as any;
   expect(receipt.status).toBe("completed");
-  expect(receipt.actions.map((a: any) => a.status)).toEqual(["ok"]);
+  expect(receipt.actions.map((a: any) => [a.action.type, a.status])).toEqual([
+    ["edit", "ok"],
+    ["execute", "ok"],
+    ["retrieve", "ok"],
+  ]);
+  expect(f.agent.getWorkflowState().getAllOperators()).toHaveLength(1);
   // The second request replays one call with one result, not three.
-  const assistant = f.prompts[1].filter((m: any) => m.role === "assistant");
-  const toolParts = assistant.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((p: any) => p.type === "tool-call");
-  expect(toolParts).toHaveLength(1);
-});
-
-test("repeated calls with the same actions and reworded reasoning collapse to one call", async () => {
-  const reworded = { reasoning: "Inspect the graph first.", actions: inspect.actions };
-  const f = fixture(call => (call === 1 ? [inspect, reworded] : [answer]));
-  const result = await f.agent.sendMessage("Check the graph.");
-  expect(result.error).toBeUndefined();
-  const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
-  expect(steps[0].toolCalls).toHaveLength(1);
-  expect(steps[0].toolResults).toHaveLength(1);
-  expect((steps[0].toolResults![0].output as any).status).toBe("completed");
+  expect(replayedCalls(f.prompts[1])).toHaveLength(1);
 });
 
 test("distinct calls in one response run in order, each with its own receipt", async () => {
-  const other = { reasoning: "Look again.", actions: [{ type: "inspect", target: "namespace" }] };
-  const f = fixture(call => (call === 1 ? [inspect, other] : [answer]));
-  const result = await f.agent.sendMessage("Check the graph.");
+  const f = fixture(call => (call === 1 ? [scan, lookup] : "The value is 42."));
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
   expect(result.error).toBeUndefined();
-  expect(result.response).toBe("The graph is empty.");
+  expect(result.response).toBe("The value is 42.");
   const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
   expect(steps[0].toolCalls).toHaveLength(2);
   expect(steps[0].toolResults).toHaveLength(2);
-  for (const tr of steps[0].toolResults!) {
-    const receipt = tr.output as any;
-    expect(receipt.status).toBe("completed");
-    expect(receipt.actions.map((a: any) => a.status)).toEqual(["ok"]);
-  }
-  // Both calls and both receipts are replayed, in order.
-  const assistant = f.prompts[1].filter((m: any) => m.role === "assistant");
-  const toolParts = assistant.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((p: any) => p.type === "tool-call");
-  expect(toolParts.map((p: any) => p.toolCallId)).toEqual(["dup-1-0", "dup-1-1"]);
-});
-
-test("a call after an answer in the same response is skipped and the answer stands", async () => {
-  const f = fixture(call => (call === 1 ? [answer, inspect] : [answer]));
-  const result = await f.agent.sendMessage("Check the graph.");
-  expect(result.error).toBeUndefined();
-  expect(result.response).toBe("The graph is empty.");
-  const steps = f.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length);
-  expect(steps).toHaveLength(1);
   const [first, second] = steps[0].toolResults!.map(tr => tr.output as any);
   expect(first.status).toBe("completed");
-  expect(second.status).toBe("error");
-  expect(second.error).toContain("answered the task");
-  expect(second.actions.map((a: any) => a.status)).toEqual(["skipped"]);
+  expect(first.actions.map((a: any) => a.action.type)).toEqual(["edit", "execute", "retrieve"]);
+  expect(second.status).toBe("completed");
+  expect(second.actions.map((a: any) => [a.action.type, a.status])).toEqual([["inspect", "ok"]]);
+  // Both calls and both receipts are replayed, in order.
+  expect(replayedCalls(f.prompts[1]).map((p: any) => p.toolCallId)).toEqual(["dup-1-0", "dup-1-1"]);
 });

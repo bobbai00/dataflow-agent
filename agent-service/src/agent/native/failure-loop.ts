@@ -83,7 +83,9 @@ export function repeatedFailure(step: ReActStep, workflow: WorkflowContent): Rep
   };
   const first = failures[0];
   return {
-    signature: createHash("sha256").update(JSON.stringify([failures, graph])).digest("hex"),
+    signature: createHash("sha256")
+      .update(JSON.stringify([failures, graph]))
+      .digest("hex"),
     head: first.error || first.actions.find(a => a[2])?.[2] || "the call failed",
     emptyGraph: workflow.operators.length === 0,
   };
@@ -93,20 +95,22 @@ export function repeatedFailure(step: ReActStep, workflow: WorkflowContent): Rep
 export function repeatedFailureFeedback(failure: RepeatedFailure, workflow: WorkflowContent): string {
   const operators = workflow.operators
     .slice(0, 12)
-    .map(op => `${op.operatorID} (${op.nativeOp?.registeredName ?? op.nativeOp?.type?.toLowerCase() ?? op.operatorType})`);
+    .map(
+      op => `${op.operatorID} (${op.nativeOp?.registeredName ?? op.nativeOp?.type?.toLowerCase() ?? op.operatorType})`
+    );
   const functions = Object.values(workflow.nativeNamespace?.functions ?? {})
     .filter(f => f.exported)
     .map(f => f.name);
   const state = failure.emptyGraph
-    ? "The graph is empty: execute and retrieve have nothing to compute until an edit declares operators (changes uses set id: operator(...))."
+    ? "The graph is empty: execute and show result have nothing to compute until a set statement declares operators (set id: operator(...))."
     : `Current operators: ${operators.join(", ")}${workflow.operators.length > 12 ? ", …" : ""}.`;
   return (
-    `The last two calls failed the same way: ${failure.head} Repeating the same actions will fail again. ${state}` +
+    `The last two calls failed the same way: ${failure.head} Repeating the same call will fail again. ${state}` +
     (functions.length ? ` Registered functions: ${functions.join(", ")}.` : "") +
-    " Fix the reported cause in the next call, or use Answer as the sole action to report what could not be completed. Two more identical failures end this turn."
+    " Fix the reported cause in the next call. Two more identical failures end this turn."
   );
 }
 
 export function repeatedFailureError(failure: RepeatedFailure): string {
-  return `REPEATED_FAILURE_LOOP: ${REPEATED_FAILURE_LIMIT} consecutive model calls failed identically (${failure.head}). The turn ended without an answer. Correct the tool actions or provider configuration before retrying.`;
+  return `REPEATED_FAILURE_LOOP: ${REPEATED_FAILURE_LIMIT} consecutive model calls failed identically (${failure.head}). The turn ended without an answer. Correct the call or provider configuration before retrying.`;
 }

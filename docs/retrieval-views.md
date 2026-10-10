@@ -1,26 +1,23 @@
 # Retrieval views and automatic flow evidence
 
-Native agents choose a `view` on each `retrieve` action:
+Native agents choose a view on each `show result` statement of a `dataflow`
+call:
 
 ```json
-{
-  "reasoning": "Check the output's missing values and range.",
-  "actions": [
-    {"type": "retrieve", "operator_ids": ["joined", "checks"], "view": "sample_stats"}
-  ]
-}
+{"python": "", "statements": "show result joined, checks sample_stats"}
 ```
 
-The optional text transport uses `show result joined, checks` for the default
-enabled view, or an explicit suffix such as `show result joined, checks full`.
-It first computes stale targets, then runs the same retrieval action. A JSON-tool
-`retrieve` itself never executes. Text `show schema joined from 200` follows a
-schema page's `next_offset`; the offset is a zero-based column index.
+`show result joined, checks` uses the default enabled view; an explicit suffix
+such as `show result joined, checks full` selects another. The statement first
+computes stale targets, then reads them; reading itself never executes.
+`show schema joined from 200` follows a schema page's `next_offset`; the offset
+is a zero-based column index.
 
-The current registered protocol retrieves a nonempty list of operator IDs.
-The view and optional columns apply to every target; each target has its own
-status and result block, so a missing or stale target does not hide valid reads.
-Use separate actions when results need different views or column selections.
+A `show result` statement reads a nonempty list of operator IDs. The view and
+optional columns (`show result joined[name, total]`) apply to every target;
+each target has its own status and result block, so a missing or stale target
+does not hide valid reads. Use separate statements when results need different
+views or column selections.
 
 | View | Records | Data statistics |
 | --- | --- | --- |
@@ -53,15 +50,13 @@ records. The default full display cap is 5,000 characters. Workbook header
 inspection uses a one-row preview; increasing its length reads data rows from
 each sheet as well.
 
-For complete column discovery, inspect `target:"schema"` with `operator_id`.
-This reads the stored result schema independently of record and statistics
-budgets. For workbook discovery, execute `scan(..., preview=1)` and inspect
-`target:"source"` to read retained paths, sheet names, and first raw rows. Neither
-inspection opens files or executes. Both use optional `offset`/`limit` pages
-(default 200 entries, limit 1–200) and return `next_offset` when more retained
-entries remain. Source inspection distinguishes known sheet names from a complete
-workbook list; raw rows are layout hints, not parsed schema. Missing, failed, or
-stale materializations must be executed before these inspections can succeed.
+For complete column discovery, use `show schema <id>`. This reads the stored
+result schema independently of record and statistics budgets, in pages of up to
+200 columns, and returns `next_offset` when more columns remain; it computes a
+missing or stale result first. For workbook discovery, run `scan(..., preview=1)`
+and `show result`: the receipt lists the workbook's sheet names, and
+`scan(..., sheet='name')` reads one. Raw preview rows are layout hints, not a
+parsed schema.
 
 Data statistics describe an explicitly requested operator's output table.
 `flowEvidence` independently exposes operator runtime measurements: filter

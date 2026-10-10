@@ -37,16 +37,9 @@ import {
   selectScopedShapes,
   type ShapeDecision,
 } from "../native/selection";
-import { nativeOperatorName } from "../native/catalog";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
 import { asDataflowActionsResult, renderDataflowActionsResult } from "../tools/dataflow-actions";
-import {
-  clampCodeChars,
-  estimateTableChars,
-  formatApproxChars,
-  formatOperatorResult,
-  formatSchemaLine,
-} from "../tools/result-formatting";
+import { clampCodeChars, formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
 import {
   buildErrorReflection,
@@ -129,13 +122,9 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
   return undefined;
 }
 
-import { buildTaskGraph, renderTaskMessages, taskHistoryFromSteps } from "../task-history";
-
 const log = createLogger("ContextAssembler");
 
 export interface AssembleContextOptions extends ObservationFormatOptions {
-  taskContext?: "trajectory" | "dependencies";
-  taskHistory?: readonly import("../task-history").TaskHistory[];
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
@@ -173,34 +162,16 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  keeps the history a byte-stable prefix across turns, which is what prompt
    *  caching matches on; see AgentSettings.userTaskPlacement. */
   userTaskPlacement?: "top" | "bottom";
-  /** DELTA: collapse PRIOR turns into a compact `# Prior Turns` catalogue and
-   *  keep only the current turn's events raw. See AgentSettings.turnHistory. */
-  turnHistoryIndex?: boolean;
-  /** Internal: pre-rendered `# Recalled State` block (this turn's recallState
-   *  outputs), set by renderContextCore. */
-  recalledStateRendered?: string;
-  /** Structured-turn layout: drop each observation's RESULT body, keep its
-   *  `- operator X updated` verb line. Safe ONLY when the current dataflow is
-   *  rendered below it (the authoritative state); thinning without that removes
-   *  the state entirely — measured 33.3% -> 11.1%. */
-  thinObservations?: boolean;
   /** Per-operator detail in each `# Catalog` turn entry: "ids" (id + verb),
    *  "brief" (+ summary and shape, default), "schema" (+ column inventory).
    *  Capped by design: a full snapshot per turn is O(turns x operators), which
    *  was the $12.39 NFL blowup (323 operators re-rendered every step). */
   catalogDetail?: "ids" | "brief" | "schema";
   /** GLOBAL turn number per messageId — the order turns were asked in over the
-   *  whole session, which is NOT the position on the current branch once a turn
-   *  has resumed from an earlier one. The catalogue must number by this, or
-   *  "Turn 5" in the prompt stops meaning turn 5 to `resumeFrom` /
-   *  `recallState`. Absent ⇒ fall back to branch position (single-branch
-   *  sessions, where the two agree). */
+   *  whole session, which is NOT the position on the current branch after a
+   *  checkout. Absent ⇒ fall back to branch position (single-branch sessions,
+   *  where the two agree). */
   turnNumberByMessageId?: Map<string, number>;
-  /** Every turn of the session, including ones that are NOT on the current
-   *  branch, so the model can still see — and resume to — a turn it has
-   *  branched away from. Without this the catalogue shrinks after each resume
-   *  and the version tree becomes unnavigable. */
-  offBranchTurns?: Array<{ turn: number; request: string; answer?: string; operators: string[] }>;
   /** LATEST only: when true, render the full Thought/Action/Observation
    *  trajectory as a `# Agent Turns` section (delta-style) on top of the
    *  latest-state core — the same per-event serializer DELTA uses. The block is
@@ -229,19 +200,11 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
    *  Undefined ⇒ 0.10. */
   deckSampleRatio?: number;
-  /** Agent-triggered compaction (POC): raw agent events to keep BEFORE the newest
-   *  `compactContext` mark (in addition to everything after it). 0 ⇒ fold through
-   *  the mark. Only consulted when a mark is present in the visible path. */
-  compactKeepLastSteps?: number;
-  /** Show the context-budget meter line at the top of DELTA context (the
-   *  observable signal that lets the agent decide when to call compactContext).
-   *  Enabled when the compact tool is on. */
-  showCompactMeter?: boolean;
   /** Static compaction rule (DELTA-only). When true, the assembler AUTOMATICALLY
    *  folds older events into the compact deck once the trajectory grows past a
    *  static trigger, keeping the last K steps raw — no agent involvement, no
    *  token window. Deterministic on trajectory shape (see staticCompactionFoldMark).
-   *  Ignored in LATEST mode and when an agent `compactContext` mark is present. */
+   *  Ignored in LATEST mode. */
   staticCompaction?: boolean;
   /** Which static rule when `staticCompaction` is on. "editConvergence" (default)
    *  folds at the frontier operator's active-edit-run boundary (monotone, cache-
@@ -294,30 +257,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   schemaInResult?: boolean;
   /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
   maxResultChars?: number;
-  /** VERSIONED MODE render: one `# Catalog` for everything — finished turns as
-   *  Task / Dataflow delta / Answer entries, the in-progress turn as the last
-   *  entry with its live step log. No `# Dataflow` section, no `# Recalled
-   *  State` tail (pull outputs persist inline as observations). See
-   *  renderVersionedCatalog. Off by default. */
-  versionedCatalog?: boolean;
-  /** Versioned mode: render the `### Latest versions` pointer table. Default
-   *  true. The A/B: the table is strictly derivable from the entries, so its
-   *  value is an attention bet — off measures what dropping it costs in
-   *  wrong-version references per write. */
-  versionedHeads?: boolean;
-  /** SESSION LAYOUT (non-versioned): group the whole context by turn under
-   *  `# Session` — each turn as ### Task / ### Steps (DELTA) or ### Dataflow
-   *  (LATEST) / ### Final Answer — closed by a `# Your Task` directive. Same
-   *  information as the flat event log, re-grouped; the ReAct render knobs
-   *  apply unchanged inside each turn. Superseded by versionedCatalog. */
-  sessionTurns?: boolean;
-  /** OPERATOR-LEVEL recall (v3): the catalog header teaches the per-version
-   *  recall address instead of the per-turn one. Render-text only. */
-  recallOperatorLevel?: boolean;
-  /** v3.3: restate the AUDIT requirement in the `# Your Task` directive. The
-   *  system-prompt section is the specification; this is the reminder at the
-   *  point of action. */
-  specAudit?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -489,49 +428,6 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
-  if (options.taskContext === "dependencies") {
-    const currentRequest = [...visibleSteps].reverse().find(s => s.role === "user" && s.isBegin);
-    const history =
-      options.taskHistory ?? taskHistoryFromSteps(visibleSteps, snapshotStorage, options.turnNumberByMessageId);
-    const prior = history.filter(t => t.steps[0]?.messageId !== currentRequest?.messageId);
-    if (prior.length && currentRequest) {
-      const currentSteps = visibleSteps.filter(s => s.messageId === currentRequest.messageId);
-      // Seed delta rendering at this task's saved starting workflow. A bounded
-      // checkpoint can then distinguish current work from inherited operators.
-      const initialSnapshot = snapshotStorage.getAssociatedSnapshot(currentRequest.id);
-      const initialState: ReActStep = {
-        ...currentRequest,
-        // User turns have no owned snapshot. Resolve the preceding action's
-        // identity so buildPath can load the actual starting workflow.
-        id: initialSnapshot.reactStepId ?? currentRequest.id,
-        role: "agent",
-        content: "",
-        toolCalls: [{ toolName: "initialize", toolCallId: `task-start-${currentRequest.id}`, input: {} }],
-        toolResults: undefined,
-      };
-      const messages = assembleContext([initialState, ...currentSteps], workflowState, snapshotStorage, mode, {
-        ...options,
-        taskContext: "trajectory",
-        taskHistory: undefined,
-      });
-      // A task-boundary checkpoint stays byte-identical during this task.
-      // The current task's ordinary native tool frames append after it.
-      // Reuse the normal renderer for archived requests, including its event
-      // wrapper. A different wrapper would invalidate the previous first-call
-      // prefix even when every older task card remained unchanged.
-      const requestMessages = new Map(
-        prior.map(task => [
-          task.taskId,
-          assembleContext(task.steps.slice(0, 1), workflowState, snapshotStorage, mode, {
-            ...options,
-            taskContext: "trajectory",
-            taskHistory: undefined,
-          }),
-        ])
-      );
-      return [...renderTaskMessages(buildTaskGraph(snapshotStorage, prior), requestMessages), ...messages];
-    }
-  }
   // The legacy entry point is now a thin preset shim over summarize(): the
   // (mode, options) pair maps to a point in the summarize parameter space
   // (LATEST / DELTA are just two presets), and summarize() calls back into
@@ -623,7 +519,6 @@ export function renderContextCore(
       // retain the established tail deck; a moving tail would otherwise stop
       // the native transcript's reusable prefix at the first inspection.
       options.inspectionsRendered = options.inlineInspections ? undefined : buildInspectionsSection(path);
-      options.recalledStateRendered = buildRecalledStateSection(tasks);
       // Write-time render prefs (DELTA): a landed version's prefs govern the
       // observations rendered while it was active — historical ranges, so an
       // old event's render never changes (append-only).
@@ -640,25 +535,6 @@ export function renderContextCore(
         const dossier = buildDossier(visibleSteps, snapshotStorage);
         const folds = computeRevisionFolds(dossier, { graceEvents: options.foldGraceEvents ?? 1 });
         options.revisionFolds = hasNoFolds(folds) ? undefined : folds;
-      }
-      // Agent-triggered compaction (POC): if the agent called `compactContext`,
-      // fold the trajectory up to the newest such mark into a compress deck +
-      // raw suffix, using STATIC params (compactKeepLastSteps). This takes
-      // precedence over the token-window rolling compaction.
-      const markEventIndex = newestCompactMarkEventIndex(tasks);
-      if (markEventIndex !== undefined) {
-        content = renderAgentCompacted(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep,
-          markEventIndex,
-          Math.max(0, options.compactKeepLastSteps ?? 0)
-        );
-        break;
       }
       // Static compaction rule (DELTA-only, behind the staticCompaction flag).
       // Two rules selectable via options.compactionRule (default editConvergence):
@@ -713,53 +589,6 @@ export function renderContextCore(
               );
         break;
       }
-      // VERSIONED MODE: the whole context is one catalog over the version DAG.
-      // Checked before the structured layout — it supersedes it.
-      if (options.versionedCatalog) {
-        content = renderVersionedCatalog(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep,
-          ContextMode.DELTA
-        );
-        break;
-      }
-      // SESSION LAYOUT: the flat event log re-grouped by turn (# Session +
-      // # Your Task). Superseded by versionedCatalog above.
-      if (options.sessionTurns) {
-        content = renderSession(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep,
-          ContextMode.DELTA
-        );
-        break;
-      }
-      // Structured three-section layout (turnHistory: "index"). A dedicated
-      // renderer rather than a branch inside renderInterleaved, so every legacy
-      // DELTA arm stays byte-identical. It supersedes the Session Brief / Prior
-      // Turns block inside renderInterleaved, which index mode no longer reaches.
-      if (options.turnHistoryIndex) {
-        if (options.thinObservations !== false) options.thinObservations = true;
-        content = renderStructuredTurn(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep
-        );
-        break;
-      }
       const windowTokens =
         options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
       // Unbounded window (0/unset) ⇒ legacy lossless delta (respects the data
@@ -793,38 +622,6 @@ export function renderContextCore(
       // On-demand pulls persist across steps via the tail `# Inspections`
       // section (undefined when the agent never called inspectResult).
       options.inspectionsRendered = buildInspectionsSection(path);
-      // VERSIONED MODE × LATEST: catalog entries for finished turns; the
-      // current turn keeps thoughts/actions (+ recall pulls) in its step log
-      // and collapses observations into a `### Dataflow` leaf snapshot.
-      if (options.versionedCatalog) {
-        content = renderVersionedCatalog(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep,
-          ContextMode.LATEST
-        );
-        break;
-      }
-      // SESSION LAYOUT × LATEST: turn-grouped; finished turns show the
-      // operators they touched (as-of-turn-end), the current turn the full
-      // leaf snapshot.
-      if (options.sessionTurns) {
-        content = renderSession(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep,
-          ContextMode.LATEST
-        );
-        break;
-      }
       // Latest = user task + the leaf snapshot. Optionally (agentTurns) also
       // prepend the full Thought/Action/Observation trajectory as a
       // `# Agent Turns` section — the same per-event bodies DELTA renders, on
@@ -857,19 +654,6 @@ export function renderContextCore(
     // fact that has nothing to do with it; a `# ` heading makes splitOperators
     // give it its own trailing message.
     if (receipt) content += options.messageLayout === "opBlock" ? `\n\n# Last Action\n\n${receipt}` : `\n\n${receipt}`;
-  }
-
-  // Context-budget meter (POC): the observable signal that lets the agent decide
-  // when to call compactContext. Prepended to DELTA context only (LATEST has no
-  // growing trajectory to fold). Static soft target.
-  if (mode === ContextMode.DELTA && options.showCompactMeter) {
-    const used = estimateTokens(content);
-    const target = COMPACT_SOFT_TARGET_TOKENS;
-    const over = used > target;
-    const meter = over
-      ? `> Context budget: ~${Math.round(used / 1000)}k tokens used / soft target ${Math.round(target / 1000)}k — OVER. If earlier steps are settled (sources loaded and consumed, or a fix has landed) and you are NOT mid-debugging an erroring operator, call compactContext at your next natural boundary to fold earlier history.`
-      : `> Context budget: ~${Math.round(used / 1000)}k tokens used / soft target ${Math.round(target / 1000)}k — within target.`;
-    content = `${meter}\n\n${content}`;
   }
 
   log.debug(
@@ -963,9 +747,6 @@ export function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotSt
       }
       continue;
     }
-    // Loaded state (`seedState`) is inherited through the snapshot tree; the
-    // request that describes it is the user's, so the step itself is not shown.
-    if (step.synthetic === "state") continue;
     remaining.push(step);
   }
   const path: PathNode[] = remaining.map((step, i) => ({
@@ -1000,96 +781,6 @@ function groupIntoTasks(path: PathNode[]): TaskGroup[] {
     const nodes = byMessageId.get(id)!;
     return { nodes, isCompleted: nodes.some(n => n.step.role === "agent" && n.step.isEnd) };
   });
-}
-
-/** One line's worth of a long string, collapsed and clipped. */
-function clip(text: string | undefined, max: number): string {
-  if (!text) return "";
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max)}…`;
-}
-
-/**
- * The ASK inside a turn's message.
- *
- * A harness typically front-loads the first turn with session setup (role, file
- * inventory, output contract) and appends the actual request after it, so a
- * head-clip of turn 1 yields boilerplate and none of the question. Anchor on the
- * last `Question:` when there is one; the tail is what identifies the turn.
- */
-function requestGist(text: string | undefined, max: number): string {
-  if (!text) return "";
-  const idx = text.lastIndexOf("Question:");
-  let body = idx >= 0 ? text.slice(idx) : text;
-  // Stop at the paragraph break: a harness appends its answer-format contract
-  // after the question, and letting that eat the clip budget leaves an entry
-  // that says nothing about what the turn was for.
-  const para = body.indexOf("\n\n");
-  if (para > 40) body = body.slice(0, para);
-  return clip(body, max);
-}
-
-/** Strip a harness's final-answer marker so the catalogue shows the value. */
-function stripAnswerMarker(text: string): string {
-  const m = /(?:\*\*\s*)?final answer:\s*/i.exec(text);
-  return m ? text.slice(m.index + m[0].length).replace(/\*\*\s*$/, "") : text;
-}
-
-/**
- * Collapse prior turns into a catalogue: per turn, what was asked, which
- * operators it touched, and what was answered.
- *
- * This is the push half of the turn-boundary reorganization. It is deliberately
- * a CATALOGUE and not a summary: it names what exists so the model can decide
- * what to pull with `recallState`, rather than paraphrasing content it might need
- * verbatim (a wrong paraphrase of an earlier definition is exactly the cascade
- * failure this is meant to prevent).
- */
-function renderPriorTurnsIndex(prior: TaskGroup[]): string {
-  if (prior.length === 0) return "";
-  const lines: string[] = ["# Prior Turns", ""];
-  const isOne = prior.length === 1;
-  lines.push(
-    `The ${isOne ? "" : `${prior.length} `}earlier turn${isOne ? "" : "s"} of this session ` +
-      `${isOne ? "is" : "are"} catalogued below instead of replayed in full. Nothing is lost — use ` +
-      "`recallState` with a turn number to fetch that turn verbatim, together with the code and " +
-      "results of the operators it changed. Turn numbers here are the ones `recallState` expects."
-  );
-  lines.push("");
-
-  prior.forEach((task, i) => {
-    const turnNo = i + 1;
-    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
-    // The answer is the content of the step that ended the turn.
-    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
-
-    // Operator touches, in order, deduped by id with the first action kept.
-    const touched: string[] = [];
-    const seen = new Set<string>();
-    for (const node of task.nodes) {
-      for (const call of node.step.toolCalls ?? []) {
-        const opId = writtenOperatorId(call.toolName, call.input);
-        if (typeof opId !== "string" || seen.has(opId)) continue;
-        seen.add(opId);
-        touched.push(opId);
-      }
-    }
-
-    // Turn 1 is entry 1, rendered exactly like every other turn.
-    lines.push(`## Turn ${turnNo}`);
-    if (request) {
-      lines.push("Request:");
-      lines.push(request.trim());
-    }
-    if (touched.length > 0) lines.push(`Operators: ${touched.join(", ")}`);
-    if (answer) {
-      lines.push("Answer:");
-      lines.push(clip(answer.trim(), CATALOG_ANSWER_CHARS));
-    }
-    lines.push("");
-  });
-
-  return lines.join("\n").trimEnd();
 }
 
 /* ============================================================================
@@ -1246,11 +937,6 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  * from the current window; because a linear trajectory only grows, the chosen
  * boundary advances monotonically without any persisted state.
  */
-/** Soft context-budget target (POC) shown by the compaction meter. Static
- *  constant; chosen so multi-source / multi-step DELTA runs cross it mid-trajectory
- *  (traces run 10-40k), giving the agent a signal to compact at a natural boundary. */
-const COMPACT_SOFT_TARGET_TOKENS = 4000;
-
 // ── Static compaction rule (DELTA-only) ────────────────────────────────────
 // Ad-hoc-but-deterministic trigger derived from the Latest-vs-Delta 5K trace
 // analysis (docs/compaction-static-rule.md). The decisive signal is the RENDERED
@@ -1368,22 +1054,6 @@ function snapshotHasErroredOperator(snap: SnapshotData): boolean {
     if (rv?.info?.error) return true;
   }
   return false;
-}
-
-/** The eventIndex of the newest `compactContext` tool call in the visible path,
- *  or undefined if the agent never compacted. That mark is the fold boundary. */
-function newestCompactMarkEventIndex(tasks: TaskGroup[]): number | undefined {
-  let mark: number | undefined;
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent") continue;
-      const calls = node.step.toolCalls ?? [];
-      if (calls.some(c => (c as any).toolName === "compactContext")) {
-        if (mark === undefined || node.eventIndex > mark) mark = node.eventIndex;
-      }
-    }
-  }
-  return mark;
 }
 
 /**
@@ -1646,8 +1316,6 @@ function renderCompressed(
     sections.push("");
   }
 
-  const leaf = lastSnapshotOf(tasks);
-
   return sections.join("\n").trimEnd();
 }
 
@@ -1797,7 +1465,7 @@ function renderInterleaved(
   // Native frames are a conversation: keep each request at its original
   // position. Hoisting the latest request rewrites the prefix at task changes;
   // repeating it at the tail prevents reuse after every new action.
-  const chronologicalRequests = options.messageLayout === "native" && !options.turnHistoryIndex;
+  const chronologicalRequests = options.messageLayout === "native";
 
   // 1. # User Task — unless it was moved to the bottom, where it leaves the
   // history as a byte-stable prefix across turns (cache) and sits closest to
@@ -1809,27 +1477,7 @@ function renderInterleaved(
     sections.push("");
   }
 
-  // 1b. # Prior Turns — the turn-boundary reorganization. Earlier turns become a
-  // one-line-per-turn catalogue and only the CURRENT turn keeps its raw events;
-  // anything the catalogue elides is pulled back on demand with `recallState`.
-  // Splitting here (rather than inside renderAgentEvents) keeps the raw path
-  // untouched when the flag is off.
-  let eventTasks = tasks;
-  if (options.turnHistoryIndex && tasks.length > 1) {
-    const prior = tasks.slice(0, -1);
-    eventTasks = tasks.slice(-1);
-    // No `# Session Brief`: turn 1 is an ordinary entry in the index below. The
-    // opening request is the first message of one conversation, not a preamble
-    // of a different kind, and giving it its own verbatim section while every
-    // later turn was clipped taught the model that only turn 1's conventions
-    // bind. See renderStructuredTurn's header — index mode uses that renderer;
-    // this path stays for the legacy budgeted/compaction callers.
-    const index = renderPriorTurnsIndex(prior);
-    if (index) {
-      sections.push(index);
-      sections.push("");
-    }
-  }
+  const eventTasks = tasks;
 
   // 2. # Agent Events — every event in the path as a Thought / Action /
   // Observation triplet (the Observation lists the operators changed or
@@ -1881,12 +1529,6 @@ function renderInterleaved(
   if (options.inspectionsRendered) {
     sections.push("");
     sections.push(options.inspectionsRendered);
-  }
-
-  // Same for recallState: the events carry the CALL, this carries the answer.
-  if (options.recalledStateRendered) {
-    sections.push("");
-    sections.push(options.recalledStateRendered);
   }
 
   // 1-at-the-bottom: the request goes last so everything above it is a stable
@@ -2033,24 +1675,23 @@ function serializeTaskBody(
     );
     lines.push("");
 
-    // VERSIONED MODE / NATIVE DELTA: a read-only pull's OUTPUT persists inline, as an
-    // ordinary observation — snapshot or not (a pull writes nothing, so it
-    // never owns a snapshot and the block below never fires for it). One rule,
-    // "every action's observation stays", replaces the `# Recalled State`
-    // tail. Without persistence the output evaporates on re-render and the
-    // model re-asks (measured at 98 calls in one turn). Deliberately NOT
+    // Historical inspectResult/inspectError traces: a read-only pull's OUTPUT
+    // persists inline, as an ordinary observation — snapshot or not (a pull
+    // writes nothing, so it never owns a snapshot and the block below never
+    // fires for it). Without persistence the output evaporates on re-render
+    // and the model re-asks (measured at 98 calls in one turn). Deliberately NOT
     // gated on omitObservation: in the catalog's LATEST cell the step log
     // drops operator observations (they collapse into `### Dataflow`) but a
     // pull's output has no snapshot to collapse into — dropping it would
     // reintroduce the evaporation bug there.
-    if (options.versionedCatalog || options.inlineInspections) {
+    if (options.inlineInspections) {
       const calls = node.step.toolCalls ?? [];
       const results = node.step.toolResults ?? [];
       const pulls: string[] = [];
       calls.forEach((tc, i) => {
         const isInspection = tc.toolName === "inspectResult" || tc.toolName === "inspectError";
         const inlineInspection = options.inlineInspections && isInspection;
-        if (!inlineInspection && !(options.versionedCatalog && (tc.toolName === "recallState" || isInspection))) return;
+        if (!inlineInspection) return;
         const output = (results.find(result => result.toolCallId === tc.toolCallId) ?? results[i])?.output;
         const out = stringifyOutput(output).trimEnd();
         if (out.length === 0) return;
@@ -2253,10 +1894,6 @@ function serializeTaskBody(
           obs.push(`  result: ${foldFact}`);
           continue;
         }
-        // Structured layout: the verb line is this event's news; the dataflow
-        // rendered below carries the state. Emitting the result here too is the
-        // duplication that makes "which copy is current?" ambiguous.
-        if (options.thinObservations) continue;
         // summarize(): per-op extras apply to the observation render too —
         // detail "omit" keeps the verb line but drops the result body.
         const ex = options.opExtras?.(op.operatorID);
@@ -2367,36 +2004,16 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
       const actionResult = asDataflowActionsResult(results.find(r => r.toolCallId === tc.toolCallId)?.output);
       if (actionResult) {
         for (const item of actionResult.actions) {
-          if (item.action.type === "retrieve" && "operator_ids" in item.action) {
+          if (item.action.type === "retrieve") {
             for (const read of (item.output as any)?.results ?? [])
-              if (read.status === "ok" && (read.superseded_in_call || read.historical_state))
+              if (read.status === "ok" && read.superseded_in_call)
                 pulls.push({
                   eventIndex: node.eventIndex,
                   toolName: "retrieve",
                   operatorId: read.operator_id,
-                  argsSummary: read.superseded_in_call
-                    ? "historical result; changed later in this call"
-                    : "saved historical result",
+                  argsSummary: "historical result; changed later in this call",
                   output: JSON.stringify(read, null, 2),
                 });
-            continue;
-          }
-          if (
-            item.action.type === "retrieve" &&
-            "operator_id" in item.action &&
-            item.status === "ok" &&
-            ((item.output as { superseded_in_call?: boolean })?.superseded_in_call ||
-              (item.output as { historical_state?: unknown })?.historical_state)
-          ) {
-            pulls.push({
-              eventIndex: node.eventIndex,
-              toolName: "retrieve",
-              operatorId: item.action.operator_id,
-              argsSummary: (item.output as { superseded_in_call?: boolean })?.superseded_in_call
-                ? "historical result; changed later in this call"
-                : "saved historical result",
-              output: JSON.stringify(item.output, null, 2),
-            });
             continue;
           }
           if (item.action.type !== "inspect") continue;
@@ -2404,17 +2021,11 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
             eventIndex: node.eventIndex,
             toolName: "inspect",
             operatorId:
-              item.action.target === "graph"
-                ? "graph"
-                : item.action.target === "task"
-                  ? `task ${item.action.task_id}`
-                  : item.action.target === "reference"
-                    ? `reference ${item.action.topic === "operators" ? item.action.operator_names.join(", ") : item.action.example}`
-                    : item.action.target === "namespace"
-                      ? `namespace${item.action.names ? ` ${item.action.names.join(", ")}` : ""}`
-                      : Array.isArray(item.action.operator_id)
-                        ? item.action.operator_id.join(", ")
-                        : item.action.operator_id,
+              item.action.target === "reference"
+                ? `reference ${item.action.operator_names.join(", ")}`
+                : item.action.target === "namespace"
+                  ? `namespace ${item.action.names.join(", ")}`
+                  : item.action.operator_id,
             argsSummary: item.status,
             output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
           });
@@ -2460,785 +2071,6 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
     lines.push(pull.output.length > 0 ? pull.output : "(empty output)");
     lines.push("");
   }
-  return lines.join("\n").trimEnd();
-}
-
-/**
- * Re-render this turn's `recallState` outputs.
- *
- * A tool's OUTPUT is not part of the re-rendered context — only the call is. For
- * an operator write that is fine (the effect shows up in the snapshot), but for a
- * read-only pull it means the answer evaporates on the next step, so the model
- * asks again. Measured without this section: 98 recall calls in one turn, the
- * same three turns fetched over and over, the whole 40-step budget gone and no
- * answer produced. `inspectResult` needed the same treatment (`# Inspections`).
- *
- * Scoped to the CURRENT turn: recalled state is fetched to answer the request in
- * front of the model, and keeping every turn's pulls forever would rebuild the
- * unbounded history that cataloguing exists to avoid.
- */
-function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
-  const current = tasks[tasks.length - 1];
-  if (!current) return undefined;
-  const blocks: string[] = [];
-  for (const node of current.nodes) {
-    const step = node.step;
-    if (step.role !== "agent") continue;
-    const calls = step.toolCalls ?? [];
-    const results = step.toolResults ?? [];
-    calls.forEach((tc, i) => {
-      if (tc.toolName !== "recallState") return;
-      const inp = (tc.input ?? {}) as Record<string, unknown>;
-      const args = Object.entries(inp)
-        .map(([k, v]) => `${k}=${String(v)}`)
-        .join(", ");
-      const out = stringifyOutput(results[i]?.output).trimEnd();
-      if (out.startsWith("[ERROR]")) return; // a rejected call teaches nothing worth re-reading
-      blocks.push(`## Recalled (${args})\n\n${out.length > 0 ? out : "(empty)"}`);
-    });
-  }
-  if (blocks.length === 0) return undefined;
-  return ["# Recalled State (your recallState pulls this turn)", "", ...blocks].join("\n").trimEnd();
-}
-
-/** The closing H1 directive shared by both multi-turn layouts (`# Session`
- *  and `# Catalog`). Identical bytes in every layout so it can never confound
- *  a layout comparison. The answer FORMAT is deliberately deferred to the
- *  task text — tasks carry their own rounding/scale/JSON rules. */
-function renderYourTask(turnNo: number, specAudit = false): string {
-  return [
-    "# Your Task",
-    "",
-    `Work on the current turn (turn ${turnNo}). Earlier turns are the state and ` +
-      "conventions they established. When the current turn's task is solved, end " +
-      "your reply with:",
-    "",
-    "**Final Answer:** <your answer, in the format the task asks for>",
-    // v3.3: the audit only works if it happens. In the system prompt alone it
-    // reads as optional and fired on 1 turn in 11; this is the last line the
-    // model reads before acting, so the requirement is restated where the work
-    // actually starts. One line, and only when the knob is on.
-    ...(specAudit
-      ? [
-          "",
-          "Before that line: for each number you report, know the operator version, " +
-            "column and row it came from, check it against a relation that would break if " +
-            "it were wrong, and re-read the sentences of the request that constrain the " +
-            "result against what your operators actually do.",
-        ]
-      : []),
-  ].join("\n");
-}
-
-/** Renumber a rendered event log local to its turn: `## Agent|User Event N`
- *  headings become `#### Step k` starting at 1. Turn-grouped layouts address
- *  turns, not global event indices, so local numbering is pure clarity. */
-function localizeSteps(steps: string): string {
-  let stepNo = 0;
-  return steps.replace(/^## (?:Agent|User) Event \d+$/gm, () => `#### Step ${++stepNo}`).replace(/^## /gm, "#### ");
-}
-
-/**
- * SESSION LAYOUT (non-versioned multi-turn) — the flat event log re-grouped by
- * turn. Exactly two H1 sections:
- *
- *   # Session      one `## Turn N` entry per turn, each with
- *                    ### Task            the request, verbatim
- *                    ### Steps (DELTA) | ### Dataflow (LATEST)
- *                    ### Final Answer    duplicated from the closing step
- *                  the last entry is `## Turn N (current turn)` and has no
- *                  Final Answer yet.
- *   # Your Task    the closing directive (renderYourTask).
- *
- * This layout ADDS no information and REMOVES none relative to the legacy
- * flat render — it is the same trajectory with turn boundaries made explicit —
- * which is exactly what makes it the fair baseline against the versioned
- * catalog (which drops step history for finished turns). The ReAct render
- * knobs (sample chars, column stats, lineage, …) apply unchanged inside each
- * turn: DELTA multiplies them by steps, LATEST by operators.
- *
- * LATEST specifics: a FINISHED turn's `### Dataflow` shows the operators that
- * turn touched, at their values as of the turn's end — as-of-end keeps
- * finished entries append-only (byte-stable forever), touched-only keeps the
- * DAG from being re-stated under every past turn. The CURRENT turn's
- * `### Dataflow` is the full leaf snapshot, exactly what legacy LATEST renders
- * under `# Current Dataflow`.
- */
-function renderSession(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined,
-  latestUserContent: string | undefined,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  mode: ContextMode
-): string {
-  const sections: string[] = [];
-  const prior = tasks.slice(0, -1);
-  const current = tasks.slice(-1);
-  const turnNoOf = (task: TaskGroup | undefined, fallback: number): number => {
-    const msgId = task?.nodes[0]?.step.messageId;
-    return (msgId ? options.turnNumberByMessageId?.get(msgId) : undefined) ?? fallback;
-  };
-  const currentTurnNo = turnNoOf(current[0], tasks.length);
-
-  sections.push("# Session");
-  sections.push("");
-
-  // A turn's request is already its `### Task` section; drop user nodes from
-  // the slice handed to the event renderer or they'd render twice.
-  const agentOnly = (task: TaskGroup): TaskGroup => ({
-    ...task,
-    nodes: task.nodes.filter(n => n.step.role !== "user"),
-  });
-
-  const pushSteps = (task: TaskGroup, base: SnapshotData | undefined, omitObservation: boolean): void => {
-    const steps = renderAgentEvents(
-      [agentOnly(task)],
-      workflowState,
-      options,
-      base,
-      latestUserStepId,
-      createFlagsByStep,
-      omitObservation
-    );
-    if (steps.trim().length > 0 && steps !== "(no agent actions yet)") {
-      sections.push("### Steps");
-      sections.push("");
-      sections.push(localizeSteps(steps));
-      sections.push("");
-    }
-  };
-
-  const pushTurnDataflow = (task: TaskGroup): void => {
-    // LATEST, finished turn: touched operators at as-of-turn-end values.
-    const leaf = lastSnapshotOf([task]);
-    if (!leaf) return;
-    const touched = new Set<string>();
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent") continue;
-      for (const call of node.step.toolCalls ?? []) {
-        const opId = writtenOperatorId(call.toolName, call.input);
-        if (typeof opId === "string") touched.add(opId);
-      }
-    }
-    const { sortedOps, allLinks } = topoSortDag(leaf.workflow);
-    const blocks = sortedOps
-      .filter(op => touched.has(op.operatorID))
-      .map(op => serializeOperatorFull(op, leaf, workflowState, options, /*isCurrent=*/ false, allLinks, 4));
-    if (blocks.length === 0) return;
-    sections.push("### Dataflow");
-    sections.push("");
-    for (const b of blocks) {
-      sections.push(b);
-      sections.push("");
-    }
-  };
-
-  // DELTA event diffs are seeded per turn from the previous turn's leaf, so a
-  // turn's first observation diffs against the state it actually inherited.
-  let base: SnapshotData | undefined = initSnapshot;
-
-  prior.forEach((task, i) => {
-    const turnNo = turnNoOf(task, i + 1);
-    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
-    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
-
-    sections.push(`## Turn ${turnNo}`);
-    sections.push("### Task");
-    if (request) sections.push(request.trim());
-    sections.push("");
-
-    if (mode === ContextMode.DELTA) {
-      pushSteps(task, base, false);
-    } else {
-      pushTurnDataflow(task);
-    }
-    base = lastSnapshotOf([task]) ?? base;
-
-    sections.push("### Final Answer");
-    sections.push(answer ? clip(stripAnswerMarker(answer).trim(), CATALOG_ANSWER_CHARS) : "(no answer recorded)");
-    sections.push("");
-  });
-
-  sections.push(`## Turn ${currentTurnNo} (current turn)`);
-  sections.push("### Task");
-  if (latestUserContent) sections.push(latestUserContent.trim());
-  sections.push("");
-  // turnSplit: directive with the task, before the growing step log (see the
-  // catalog renderer for why).
-  const directiveEarly = options.messageLayout === "turnSplit";
-  if (directiveEarly) {
-    sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
-    sections.push("");
-  }
-
-  if (current.length > 0) {
-    if (mode === ContextMode.DELTA) {
-      pushSteps(current[0], base, false);
-    } else {
-      // LATEST current turn: optional thought/action log (agentTurns knob,
-      // observations collapsed into the snapshot), then the full leaf DAG.
-      if (options.agentTurns) {
-        pushSteps(current[0], undefined, true);
-      }
-      const leaf = lastSnapshotOf(tasks) ?? initSnapshot;
-      if (leaf) {
-        const { sortedOps, allLinks } = topoSortDag(leaf.workflow);
-        if (sortedOps.length > 0) {
-          sections.push("### Dataflow");
-          sections.push("");
-          for (const op of sortedOps) {
-            sections.push(serializeOperatorFull(op, leaf, workflowState, options, /*isCurrent=*/ true, allLinks, 4));
-            sections.push("");
-          }
-        }
-      }
-    }
-  }
-
-  // On-demand pulls (inspectResult) persist here, ahead of the directive.
-  if (options.inspectionsRendered) {
-    sections.push(options.inspectionsRendered);
-    sections.push("");
-  }
-
-  if (!directiveEarly) sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
-  return sections.join("\n").trimEnd();
-}
-
-/**
- * VERSIONED CATALOG — the whole context is ONE catalog over an immutable
- * version DAG.
- *
- *   ## Turn 1..N-1     finished: Task (verbatim) / Dataflow delta / Answer
- *   ### Current operators   pointer table: lineage -> latest finished turn
- *   ## Turn N (in progress) Task + the live step log (full observations;
- *                           recall output persists inline as an observation)
- *
- * There is deliberately NO `# Dataflow` section. State renders once, at the
- * turn that created it, and every reference names (operatorId, turnId) — so
- * the state dump and the history stop duplicating each other, and the prompt
- * becomes append-only end to end: finished entries are byte-stable forever,
- * the heads table changes only at turn boundaries, and within a turn only the
- * step log grows. That is the cache-optimal shape, reached by structure
- * rather than by a render cap.
- */
-function renderVersionedCatalog(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined,
-  latestUserContent: string | undefined,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  mode: ContextMode = ContextMode.DELTA
-): string {
-  const sections: string[] = [];
-  const prior = tasks.slice(0, -1);
-  const current = tasks.slice(-1);
-  const currentTurnNo =
-    (current[0]?.nodes[0]?.step.messageId
-      ? options.turnNumberByMessageId?.get(current[0].nodes[0].step.messageId)
-      : undefined) ?? tasks.length;
-
-  sections.push("# Catalog (the whole session, one entry per turn)");
-  sections.push("");
-  sections.push(
-    "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
-      "addressed as (operatorId, turn)), and what was answered. " +
-      (options.recallOperatorLevel
-        ? '`recallState(ref: "opId (turn N)")` fetches that one version\'s code and values verbatim. '
-        : "`recallState(turn)` fetches any entry's code and results verbatim. ") +
-      "The last entry is the turn in progress."
-  );
-  sections.push("");
-
-  // last finished turn that touched each lineage — powers Upstream provenance
-  // and the Current operators table. Finished turns only, so the table changes
-  // at turn boundaries, never mid-turn.
-  const touchTurns = new Map<string, number[]>();
-
-  prior.forEach((task, i) => {
-    const msgId = task.nodes[0]?.step.messageId;
-    const turnNo = (msgId ? options.turnNumberByMessageId?.get(msgId) : undefined) ?? i + 1;
-    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
-    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
-
-    sections.push(`## Turn ${turnNo}`);
-    sections.push("### Task");
-    if (request) sections.push(request.trim());
-    sections.push("");
-
-    // verbs from the same create-vs-modify walk the event renderer uses
-    const verbs = new Map<string, string>();
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent") continue;
-      const flags = createFlagsByStep.get(node.step.id);
-      for (const call of node.step.toolCalls ?? []) {
-        const opId = writtenOperatorId(call.toolName, call.input);
-        if (typeof opId !== "string") continue;
-        if (call.toolName === "deleteOperator") {
-          verbs.set(opId, "deleted");
-        } else if (
-          call.toolName === "createOrModifyOperator" ||
-          call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator"
-        ) {
-          if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
-          else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
-        }
-      }
-    }
-
-    const leaf = lastSnapshotOf([task]);
-    if (verbs.size > 0) {
-      sections.push("### Dataflow delta");
-      for (const [opId, verb] of verbs) {
-        // Deleted and gone: a throwaway probe the turn ends without; listing it
-        // is noise. Deleted but still in the leaf: the service REFUSED the
-        // delete (the operator still feeds a consumer), so the turn changed
-        // nothing about it — labelling it `(deleted)` was a false statement
-        // about live state.
-        if (verb === "deleted") continue;
-        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
-        // Typed operators: the header names the type and the entry carries the
-        // parameters (the agent's own words) instead of a summary line.
-        const nat = op?.nativeOp;
-        sections.push(
-          nat
-            ? `#### ${nat.registeredName ?? nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})`
-            : `#### \`${opId}\` (${verb})`
-        );
-        if (verb === "deleted") {
-          sections.push("");
-          continue;
-        }
-        if (nat) {
-          for (const l of nativeDefinitionLines(nat, false)) sections.push(l);
-        } else {
-          const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
-          if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
-        }
-        // Upstream with version provenance: the defining turn of each input as
-        // of THIS turn — the exact (operatorId, turn) pairs a later write's
-        // `upstreams` should carry when it builds on this version's inputs.
-        const ups = (leaf?.workflow.links ?? [])
-          .filter(l => l?.target?.operatorID === opId)
-          .map(l => l.source.operatorID);
-        if (ups.length > 0) {
-          const withProv = ups.map(u => {
-            const t = (touchTurns.get(u) ?? []).filter(x => x <= turnNo);
-            // An upstream with no earlier touch was created in THIS turn — its
-            // version is this turn's. Uniform notation, no bare names: the
-            // string printed here is exactly what a later write's `upstreams`
-            // should carry.
-            const at = t.length > 0 ? t[t.length - 1] : verbs.has(u) ? turnNo : undefined;
-            return at !== undefined ? `${u} (turn ${at})` : u;
-          });
-          sections.push(`Upstream: ${withProv.join(", ")}`);
-        }
-        const info = leaf?.results.get(opId)?.info;
-        if (info && Array.isArray(info.result) && info.result.length > 0) {
-          const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
-          // Total serialized size (estimated) is the recall-scaling fact: it
-          // tells a later turn whether an `includeOutputTableSample` budget
-          // sees the whole table or a sliver, BEFORE it spends the call.
-          const est = estimateTableChars(info);
-          const size = est !== undefined ? `, ${formatApproxChars(est)}` : "";
-          sections.push(
-            `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size} — Schema: ${cols.join(", ")}`
-          );
-        }
-        sections.push("");
-      }
-      for (const [opId, verb] of verbs) {
-        if (verb === "deleted") continue;
-        const arr = touchTurns.get(opId) ?? [];
-        arr.push(turnNo);
-        touchTurns.set(opId, arr);
-      }
-    }
-
-    sections.push("### Answer");
-    sections.push(answer ? clip(stripAnswerMarker(answer).trim(), CATALOG_ANSWER_CHARS) : "(no answer recorded)");
-    sections.push("");
-  });
-
-  // Heads: the derived "current" — a pointer table, never content. This is
-  // what "latest version" means; everything else is explicit (op, turn) refs.
-  const lastLeaf = lastSnapshotOf(prior.length > 0 ? prior : tasks);
-  const alive = new Set((lastLeaf?.workflow.operators ?? []).map(o => o.operatorID));
-  const heads = [...touchTurns.entries()].filter(([op]) => alive.has(op));
-  if (heads.length > 0 && options.versionedHeads !== false) {
-    sections.push("### Latest versions");
-    sections.push("The newest version of each operator. Use these when a reference should build on current state.");
-    for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {
-      sections.push(`- ${op} (turn ${turns[turns.length - 1]})`);
-    }
-    sections.push("");
-  }
-
-  sections.push(`## Turn ${currentTurnNo} (in progress)`);
-  sections.push("### Task");
-  if (latestUserContent) sections.push(latestUserContent.trim());
-  sections.push("");
-  // turnSplit: the directive sits with the task, BEFORE the step log, so the
-  // prompt only ever grows at its tail (a directive after the steps would move
-  // every step and the provider's cache would credit nothing past the catalog).
-  const directiveEarly = options.messageLayout === "turnSplit";
-  if (directiveEarly) {
-    sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
-    sections.push("");
-  }
-  // LATEST collapses the current turn's observations into one snapshot: the
-  // step log keeps thoughts/actions (and recallState pull outputs, which have
-  // no snapshot to collapse into), and a `### Dataflow` block carries every
-  // live operator at its current value. DELTA keeps the full step log with
-  // observations, exactly as before.
-  const omitObservation = mode === ContextMode.LATEST;
-  // Diff the live turn's first step against the state it INHERITED — the leaf
-  // snapshot of the last finished turn — not against the empty root.
-  //
-  // With `initSnapshot` as the baseline, every operator the session had ever
-  // built counted as "changed at step 1", so the first observation re-dumped
-  // the whole graph: measured on a 42-turn task, step 1 alone was 238 KB of a
-  // 450 KB prompt (53%), growing with operator count and re-paid on every step
-  // of the turn. That silently undid the catalog's central promise — state
-  // renders ONCE, at the turn that created it — and made cost track graph size
-  // (r = +0.98) rather than the work in front of the model.
-  const inheritedSnapshot = prior.length > 0 ? (lastSnapshotOf(prior) ?? initSnapshot) : initSnapshot;
-  const steps = renderAgentEvents(
-    current,
-    workflowState,
-    options,
-    inheritedSnapshot,
-    latestUserStepId,
-    createFlagsByStep,
-    omitObservation
-  );
-  if (steps.trim().length > 0 && steps !== "(no agent actions yet)") {
-    sections.push("### Steps");
-    sections.push("");
-    // Step numbers are LOCAL to the turn and start at 1. The global event
-    // index still exists internally, but nothing in versioned mode
-    // cross-references it — the catalog addresses turns and operator versions,
-    // not events — so renumbering here is pure clarity: a turn's log reads
-    // 1, 2, 3 instead of starting wherever the session left off.
-    sections.push(localizeSteps(steps));
-  }
-  if (mode === ContextMode.LATEST) {
-    const leaf = lastSnapshotOf(tasks) ?? initSnapshot;
-    if (leaf) {
-      const { sortedOps, allLinks } = topoSortDag(leaf.workflow);
-      if (sortedOps.length > 0) {
-        sections.push("");
-        sections.push("### Dataflow");
-        sections.push("");
-        for (const op of sortedOps) {
-          sections.push(serializeOperatorFull(op, leaf, workflowState, options, /*isCurrent=*/ true, allLinks, 4));
-          sections.push("");
-        }
-      }
-    }
-  }
-
-  sections.push("");
-  if (!directiveEarly) sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
-  return sections.join("\n").trimEnd();
-}
-
-/**
- * STRUCTURED TURN LAYOUT — two sections, exactly one of which changes.
- *
- *   # Catalog         one append-only entry per FINISHED turn: what was asked,
- *                     which operators it added / revised / deleted, what was
- *                     answered. Grows by one entry per turn; earlier entries are
- *                     byte-identical forever.
- *   # Current Turn    the only volatile section: the live task, the steps taken
- *                     so far, the state recalled so far, and the dataflow as it
- *                     stands right now.
- *
- * EVERY TURN IS THE SAME KIND OF THING. An earlier version lifted turn 1 out of
- * the catalogue into its own `# Session Brief` block, on the theory that an
- * opening request is "conventions" rather than history. It is not a separate
- * kind of object — it is the first message of one conversation — and privileging
- * it cost twice: the model treated later convention-setting turns as ordinary
- * (they were clipped to a 260-char gist while turn 1 was verbatim), and the same
- * text existed in two places with two different renderings. The session prompt
- * already explains how a multi-turn session works, so the context can open
- * directly on the catalogue. Turn 1 is catalogue entry 1.
- *
- * Why this order. The dataflow mutates on every operator write, so anything
- * rendered BEHIND it is invalidated on every write; putting it last leaves
- * nothing behind it. And the two stable sections form a prefix that only ever
- * grows at its tail, which is the shape prompt caching rewards. (On the
- * Responses-API route gpt-5.6 requires, only exact repeats cache today — so this
- * is a structural property we want, not a saving we can bank yet.)
- *
- * Why the catalogue carries VERBS. "which turn changed this operator" is the
- * question every rollback and counterfactual turn asks. With `+ added` /
- * `~ revised` / `- deleted` in the catalogue it is readable; without it the
- * model must spend a `recallState` call to find out.
- */
-function renderStructuredTurn(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined,
-  latestUserContent: string | undefined,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>
-): string {
-  const sections: string[] = [];
-  const prior = tasks.slice(0, -1);
-  const current = tasks.slice(-1);
-
-  // ---- 1. Catalog -----------------------------------------------------------
-  if (prior.length > 0) {
-    sections.push(renderCatalog(prior, options, createFlagsByStep));
-    sections.push("");
-  }
-
-  // ---- 2. Current Turn ------------------------------------------------------
-  sections.push("# Current Turn");
-  sections.push("");
-
-  if (latestUserContent) {
-    sections.push("## Task");
-    sections.push("");
-    sections.push(latestUserContent);
-    sections.push("");
-  }
-
-  // ORDER INSIDE THIS SECTION: by how often each block changes, least first, and
-  // the one that only ever APPENDS goes last. A change anywhere shifts every byte
-  // behind it, so the cheapest layout puts the immutable task first, then the
-  // dataflow (changes when an operator is written), then recalled state (changes
-  // only when a pull happens), and the step log last (pure append). Measured on
-  // the first ordering (steps before dataflow): every step broke the shared
-  // prefix at the append point, ~45%. This ordering leaves a step that writes no
-  // operator — a recall step, an answer step — with the whole prefix intact.
-  const leaf = lastSnapshotOf(tasks);
-  if (leaf) {
-    const dag = serializeSnapshotFull(leaf, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 3);
-    if (dag) {
-      sections.push("## Dataflow (current state — this is what exists now)");
-      sections.push(dag);
-      sections.push("");
-    }
-  }
-
-  // The pull blocks are subsections of this section, not top-level ones.
-  // Demote EVERY heading level inside the pulled blocks, deepest first so a
-  // line is only demoted once. The recall tool's own output opens with an H1
-  // (`# Turn 13`); demoting only the wrapper left that posing as a sibling of
-  // `# Catalog` / `# Current Turn` in the prompt's structure.
-  const nest = (block: string) => block.replace(/\n## /g, "\n### ").replace(/\n# /g, "\n## ").replace(/^# /, "## ");
-  if (options.recalledStateRendered) {
-    sections.push(nest(options.recalledStateRendered));
-    sections.push("");
-  }
-  if (options.inspectionsRendered) {
-    sections.push(nest(options.inspectionsRendered));
-    sections.push("");
-  }
-
-  // Append-only, therefore last. Observations are thinned to their verb lines
-  // because the dataflow above is the authoritative state.
-  const steps = renderAgentEvents(
-    current,
-    workflowState,
-    options,
-    initSnapshot,
-    latestUserStepId,
-    createFlagsByStep,
-    options.omitObservations === true
-  );
-  if (steps.trim().length > 0) {
-    sections.push("## Steps this turn");
-    sections.push("");
-    sections.push(steps);
-  }
-
-  return sections.join("\n").trimEnd();
-}
-
-/** Catalogue clip budgets.
- *
- *  Requests are not clipped at all. They are the cheapest thing in the prompt
- *  (measured over the 8 LongDS tasks: mean 624 characters, so ~30 kB for the
- *  whole 42-turn NFL task against a 400 kB+ prompt) and they are the one thing
- *  a paraphrase cannot substitute for — a turn that fixes a convention (a
- *  percentile rule, a rounding rule, a tie-break) states it once, and a clipped
- *  restatement is how the convention silently drifts.
- *
- *  Answers are clipped only as a guard against a reply that never emitted the
- *  final-answer marker, in which case the whole prose response lands here. The
- *  previous 260 truncated 73% of real answers (mean payload 752, p95 1844) —
- *  which meant the catalogue was lying to the model about its own prior results
- *  on three turns in four.
- */
-const CATALOG_ANSWER_CHARS = 2400;
-
-/** `# Catalog` — one append-only entry per finished turn.
- *
- *  Turn 1 is entry 1, rendered exactly like every other: the session is one
- *  conversation, and the opening request is its first message, not a preamble
- *  of a different kind.
- */
-function renderCatalog(
-  prior: TaskGroup[],
-  options: AssembleContextOptions,
-  createFlagsByStep: Map<string, Map<string, boolean>>
-): string {
-  const detail = options.catalogDetail ?? "brief";
-  const lines: string[] = ["# Catalog (every finished turn, in order)", ""];
-  lines.push(
-    "Each entry is what I asked, how the dataflow changed, and what you answered. " +
-      "The code and the numbers behind any entry are one `recallState` " +
-      "call away, and any turn can be resumed from — these turn numbers are the " +
-      "ones both tools expect."
-  );
-  lines.push("");
-
-  // Which LATER turns revised each operator. This is the anchor for "as it
-  // originally was": a request that wants the version before a change needs to
-  // resume from the turn BEFORE the revision, and without this marker the model
-  // has no way to see that a change ever happened — it would resume from the
-  // newest turn, get the revised version, and answer confidently wrong.
-  const revisedLater = new Map<string, number[]>();
-  prior.forEach((task, i) => {
-    const m = task.nodes[0]?.step.messageId;
-    const tn = (m ? options.turnNumberByMessageId?.get(m) : undefined) ?? i + 1;
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent") continue;
-      const flags = createFlagsByStep.get(node.step.id);
-      for (const call of node.step.toolCalls ?? []) {
-        const opId = writtenOperatorId(call.toolName, call.input);
-        if (typeof opId !== "string") continue;
-        const isWrite =
-          call.toolName === "createOrModifyOperator" ||
-          call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator";
-        if (!isWrite || flags?.get(opId) === true) continue; // creation is not a revision
-        const at = revisedLater.get(opId) ?? [];
-        if (!at.includes(tn)) at.push(tn);
-        revisedLater.set(opId, at);
-      }
-    }
-  });
-
-  prior.forEach((task, i) => {
-    // Global turn number where the agent supplied one. Branch position (i + 1)
-    // is only correct for a session that never resumed.
-    const msgId = task.nodes[0]?.step.messageId;
-    const turnNo = (msgId ? options.turnNumberByMessageId?.get(msgId) : undefined) ?? i + 1;
-    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
-    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
-
-    lines.push(`## Turn ${turnNo}`);
-    if (request) {
-      lines.push("Asked:");
-      lines.push(request.trim());
-    }
-
-    // Operator diff for the turn, in the order the turn touched them. The verb
-    // comes from the same create-vs-modify walk the event renderer uses, so
-    // "revised" here and "revised" there cannot disagree.
-    const verbs = new Map<string, string>();
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent") continue;
-      const flags = createFlagsByStep.get(node.step.id);
-      for (const call of node.step.toolCalls ?? []) {
-        const opId = writtenOperatorId(call.toolName, call.input);
-        if (typeof opId !== "string") continue;
-        if (call.toolName === "deleteOperator") {
-          verbs.set(opId, "deleted");
-        } else if (
-          call.toolName === "createOrModifyOperator" ||
-          call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator"
-        ) {
-          // First touch in the turn decides added-vs-revised; a later edit in the
-          // same turn does not demote an operator this turn introduced.
-          if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
-          else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
-        }
-      }
-    }
-    if (verbs.size > 0) {
-      const leaf = lastSnapshotOf([task]);
-      // A throwaway probe created and deleted inside the same turn never existed
-      // at the turn's end; listing it is noise the reader has to discount.
-      for (const [opId, verb] of verbs) {
-        // Gone → nothing to list; still in the leaf → the delete was refused and
-        // the turn changed nothing about that operator. Either way it is not a
-        // `- <id>` deletion entry.
-        if (verb === "deleted") continue;
-        const mark = verb === "added" ? "+" : verb === "revised" ? "~" : "-";
-        if (detail === "ids" || verb === "deleted") {
-          lines.push(`  ${mark} ${opId}`);
-          continue;
-        }
-        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
-        // The write tool stores the model's `summary` as the operator's display
-        // name (code-op-tools.ts:849), not under operatorProperties.
-        const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
-        const info = leaf?.results.get(opId)?.info;
-        const shape =
-          info && Array.isArray(info.result) && info.result.length > 0
-            ? `${info.totalRowCount ?? info.result.length} rows x ${Object.keys(info.result[0]).length} cols`
-            : undefined;
-        const head = [summary ? clip(summary, 110) : undefined, shape].filter(Boolean).join(" — ");
-        const later = (revisedLater.get(opId) ?? []).filter(t => t > turnNo);
-        // Worded for the tool every index arm has: recallState. An arm without
-        // resumeFrom must never be pointed at it — a marker naming a missing
-        // tool is the same shape of trap as the resumeFrom turn-1 error loop.
-        const changed =
-          later.length > 0
-            ? `  [later revised in turn ${later.join(", ")} — recallState(turn: ${turnNo}) has this version]`
-            : "";
-        lines.push(`  ${mark} ${opId}${head ? `: ${head}` : ""}${changed}`);
-        if (detail === "schema" && info && Array.isArray(info.result) && info.result.length > 0) {
-          lines.push(`      cols: ${Object.keys(info.result[0]).join(", ")}`);
-        }
-      }
-    }
-    if (answer) {
-      lines.push("Answered:");
-      lines.push(clip(stripAnswerMarker(answer).trim(), CATALOG_ANSWER_CHARS));
-    }
-    lines.push("");
-  });
-
-  // Turns that are no longer on this branch. They still happened, they are
-  // still resumable, and dropping them would make the version tree one-way:
-  // once you resume to turn 8, turns 9..20 would vanish and never come back.
-  const shown = new Set(
-    prior.map((t, i) => {
-      const m = t.nodes[0]?.step.messageId;
-      return (m ? options.turnNumberByMessageId?.get(m) : undefined) ?? i + 1;
-    })
-  );
-  const off = (options.offBranchTurns ?? []).filter(t => !shown.has(t.turn)).sort((a, b) => a.turn - b.turn);
-  if (off.length > 0) {
-    lines.push("## Turns not on your current branch");
-    lines.push(
-      "You resumed from an earlier turn, so these are not part of the dataflow you " +
-        "have now. They still exist and you can resume from any of them."
-    );
-    lines.push("");
-    for (const t of off) {
-      lines.push(`### Turn ${t.turn}`);
-      if (t.request) lines.push(`Asked: ${requestGist(t.request, 300)}`);
-      if (t.operators.length > 0) lines.push(`Operators: ${t.operators.join(", ")}`);
-      if (t.answer) lines.push(`Answered: ${clip(stripAnswerMarker(t.answer).trim(), 300)}`);
-      lines.push("");
-    }
-  }
-
   return lines.join("\n").trimEnd();
 }
 
@@ -3347,26 +2179,6 @@ function renderNativeToolCall(
   if (tc.toolName === "deleteOperator" && id) return [`- delete operator \`${id}\``];
   void createFlags;
   return undefined;
-}
-
-/**
- * A native operator's definition for the render: the `def`s it uses followed
- * by the assignment as written. A process body is long and is not what the
- * table looks like, so it is included only where code is asked for.
- */
-function nativeDefinitionLines(
-  view: NonNullable<OperatorPredicate["nativeOp"]>,
-  includeProcessBody: boolean
-): string[] {
-  const body: string[] = [];
-  if (view.functions && (view.type !== "Process" || includeProcessBody))
-    for (const source of Object.values(view.functions)) body.push(...source.split("\n"));
-  if (view.source) body.push(...view.source.split("\n"));
-  else
-    body.push(
-      `${view.registeredName ?? nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`
-    );
-  return ["Definition:", ...body.map(l => "  " + l)];
 }
 
 /** A one-line, code-free outcome for a tool result: `ok` or the first line of

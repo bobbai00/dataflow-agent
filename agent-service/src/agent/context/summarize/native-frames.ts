@@ -149,11 +149,7 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     // `Thought:` is the model's own reasoning; keep it as the assistant's text.
     // The `Action:` render is dropped here — the tool-call parts below ARE the
     // action, and repeating it as prose is what caused the narration failure.
-    let thought = extractThought(head);
-    // An Answer step's content is the answer itself. Once the receipt is the
-    // task ledger (`stateLedger`), the answer already sits in the tool-call
-    // arguments, so the same bytes are not repeated as assistant text.
-    if (thought && calls.some(tc => answerContent(tc.input) === thought) && ledgerReceipt(step)) thought = "";
+    const thought = extractThought(head);
 
     if (calls.length === 0) {
       const body = thought || head;
@@ -211,20 +207,6 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
   if (last && last.role === "assistant") messages.push({ role: "user", content: "Continue." });
 
   return { messages, events: converted };
-}
-
-/** The content of a sole Answer action in a dataflow call, if that is what it is. */
-function answerContent(input: unknown): string | undefined {
-  const actions = (input as { actions?: Array<{ type?: string; content?: unknown }> } | undefined)?.actions;
-  if (!Array.isArray(actions) || actions.length !== 1 || actions[0]?.type !== "answer") return undefined;
-  return typeof actions[0].content === "string" ? actions[0].content : undefined;
-}
-
-/** True when the step's Answer receipt is a ledger (`{recorded: true}`). */
-function ledgerReceipt(step: ReActStep | undefined): boolean {
-  return (step?.toolResults ?? []).some(r =>
-    (r.output?.actions ?? []).some((item: any) => item?.action?.type === "answer" && item?.output?.recorded === true)
-  );
 }
 
 /** The `Thought: …` body of a rendered event, up to the `Action:` block. */

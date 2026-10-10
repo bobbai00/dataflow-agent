@@ -21,7 +21,7 @@
 
 Applies assignments and deletions atomically; never executes. Building blocks
 and settings: [README.md](README.md). The language itself is described in
-[native-expression-mode.md](../native-expression-mode.md#edit-statements).
+[native-expression-mode.md](../archived/native-expression-mode.md#edit-statements).
 
 The receipt lists one line per change: first the operators the edit created,
 updated, left unchanged or deleted, in statement order, then every edge it

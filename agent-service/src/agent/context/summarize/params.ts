@@ -227,12 +227,6 @@ export const TrajectoryParamsSchema = z.object({
   compaction: z.enum(["sliding", "compress"]).default("compress"),
   /** compress-deck row-sample fraction (clamped to [3, sampleRows||20]/op). */
   deckSampleRatio: z.number().min(0).max(1).default(0.1),
-  /** Agent-triggered compaction (POC): raw agent events kept before the newest
-   *  compactContext mark. 0 ⇒ fold through the mark. */
-  compactKeepLastSteps: z.number().int().min(0).default(0),
-  /** Show the context-budget meter atop DELTA context (the observable signal for
-   *  the agent's compactContext decision). */
-  showCompactMeter: z.boolean().default(false),
   /** Static compaction rule (DELTA-only): auto-fold settled older events into the
    *  deck once the trajectory passes a static trigger, keeping the last K raw. */
   staticCompaction: z.boolean().default(false),
@@ -254,21 +248,6 @@ export const TrajectoryParamsSchema = z.object({
    *  byte-stable prefix across turns, which is what prompt caching matches on;
    *  "top" is the legacy placement. */
   userTaskPlacement: z.enum(["top", "bottom"]).default("top"),
-  /** Prior turns of a multi-turn session: "full" replays every event forever,
-   *  "index" collapses them into the `# Prior Turns` catalogue and keeps only the
-   *  current turn raw (details then pulled with `recallState`). */
-  priorTurns: z.enum(["full", "index"]).default("full"),
-  /** Versioned mode: the whole context is one catalog over the version DAG
-   *  (supersedes priorTurns entirely). */
-  versionedCatalog: z.boolean().default(false),
-  versionedHeads: z.boolean().default(true),
-  /** Session layout: the flat event log re-grouped by turn (# Session +
-   *  # Your Task). Superseded by versionedCatalog. */
-  sessionTurns: z.boolean().default(false),
-  /** v3: catalog header teaches operator-level recall addressing. */
-  recallOperatorLevel: z.boolean().default(false),
-  /** v3.3: the `# Your Task` directive restates the AUDIT requirement. */
-  specAudit: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -428,31 +407,17 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       windowTokens: options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : 0,
       compaction: options.compactionStrategy ?? "compress",
       deckSampleRatio: options.deckSampleRatio ?? 0.1,
-      compactKeepLastSteps: options.compactKeepLastSteps ?? 0,
-      showCompactMeter: options.showCompactMeter ?? false,
       staticCompaction: options.staticCompaction ?? false,
       compactionRule: options.compactionRule ?? "editConvergence",
       compactBoundaryFloor: options.compactBoundaryFloor ?? 0,
       foldResolvedRevisions: options.foldResolvedRevisions ?? false,
       foldGraceEvents: options.foldGraceEvents ?? 1,
       userTaskPlacement: options.userTaskPlacement ?? "top",
-      priorTurns: options.turnHistoryIndex ? "index" : "full",
-      versionedCatalog: options.versionedCatalog === true,
-      versionedHeads: options.versionedHeads !== false,
-      sessionTurns: options.sessionTurns === true,
-      recallOperatorLevel: options.recallOperatorLevel === true,
-      specAudit: options.specAudit === true,
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
-    // DELTA normally has no `# Current Dataflow` section because state lives
-    // inline in the events' observations. Cataloguing prior turns removes those
-    // observations, so without this the model loses every schema and result it
-    // ever computed — measured: a 13 KB turn-20 prompt with zero result data, and
-    // accuracy 33.3% -> 11.1% concentrated entirely in the Initial/Update turns
-    // that need the CURRENT state (Rollback/Counterfactual were unaffected,
-    // because recallState covers old definitions). Cataloguing has to REPLACE the
-    // event log with the live snapshot, not delete state.
-    currentSnapshot: isLatest || options.turnHistoryIndex === true,
+    // DELTA has no `# Current Dataflow` section: state lives inline in the
+    // events' observations.
+    currentSnapshot: isLatest,
     compiledSchemas: false,
     resultSelection: options.resultSelection ?? "all",
     messageLayout: options.messageLayout,
@@ -465,13 +430,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       defaults: {
         property: {
           includeProperties: options.includeOperatorProperties !== false,
-          // Same reasoning as `currentSnapshot` above: DELTA's event log is where
-          // an operator's code lives (79 `def process/load` blocks in a measured
-          // baseline prompt, versus ZERO once prior turns were catalogued), so
-          // cataloguing has to put the code in the snapshot or the agent goes
-          // code-blind about its own pipeline and has to recall it back one
-          // operator at a time.
-          includeCode: options.turnHistoryIndex === true,
+          // DELTA's event log is where an operator's code lives.
+          includeCode: false,
           codeHistory: 0,
         },
         result: {

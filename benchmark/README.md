@@ -1,16 +1,16 @@
 # Benchmarks
 
-Two benchmarks drive the dataflow agent end-to-end; `bench.sh` is the single
-entry point for both. The full Texera stack must be up first
+KramaBench drives the dataflow agent end-to-end; `bench.sh` is the single
+entry point. The full Texera stack must be up first
 (`bin/local-dev.sh up` — see [docs/local-dev-with-agent.md](../docs/local-dev-with-agent.md)).
 
-| | KramaBench | LongDS-Bench |
-|---|---|---|
-| Where | `benchmark/Kramabench` — git **submodule**, branch `stable` | `benchmark/longds` — part of this repo |
-| Shape | 104 single-question tasks over 6 domain data lakes | 68 tasks / 2,225 turns of long-horizon multi-turn analysis |
-| Driver | `kb.py` (inside the submodule) | `run_longds.py` (one agent + one workflow per task) |
-| Scoring | repo's `evaluate.py` (gpt-5-mini metrics — needs `OPENAI_API_KEY` in `Kramabench/.env`) | LLM judge with upstream DataMind's own prompt |
-| Data | committed in the submodule, except wildfire's WeatherEvents csv (Kaggle) | downloaded per-task from HF `zjunlp/LongDS` |
+| | KramaBench |
+|---|---|
+| Where | `benchmark/Kramabench` — git **submodule**, branch `stable` |
+| Shape | 104 single-question tasks over 6 domain data lakes |
+| Driver | `kb.py` (inside the submodule); native campaigns through `benchmark/retrieval/run.py` |
+| Scoring | repo's `evaluate.py` (gpt-5-mini metrics — needs `OPENAI_API_KEY` in `Kramabench/.env`) |
+| Data | committed in the submodule, except wildfire's WeatherEvents csv (Kaggle) |
 
 ## One-time setup
 
@@ -18,17 +18,14 @@ entry point for both. The full Texera stack must be up first
 bin/bench.sh setup [--copy-from ~/path/to/old/Kramabench]
 ```
 
-Creates the submodule venv, wires the symlinks, clones `zjunlp/DataMind`
-(judge prompt + dataset home), fetches the Kaggle csv (or copies it from an
-existing checkout), downloads + prepares the LongDS sample task
-(`sports/nfl_big_data_bowl_2023/task1`, 42 turns).
+Creates the submodule venv, wires the symlinks, and fetches the Kaggle csv
+(or copies it from an existing checkout).
 
 Symlink layout (one relative `data/...` path resolves in this harness, the JVM
 services, and the Python UDF workers):
 
 ```
 dataflow-agent/data              -> benchmark/Kramabench/data
-benchmark/Kramabench/data/longds -> ../../longds/DataMind/longds/dataset/data/longds
 ```
 
 API keys come from the repo-root `.env` (see `.env.example`) — `bin/bench.sh`
@@ -89,15 +86,12 @@ bin/bench.sh retrieval run \
     --tasks archeology-easy-6 legal-easy-3 biomedical-hard-3 \
     --models Luna Terra Sol Opus48 Qwen38_27B DeepSeek41Flash \
     --arms evidence_data0_flow0 evidence_data0_flow1 evidence_data1_flow0 evidence_data1_flow1 \
-    --driver text-turn \
     --repetitions 1 --workers 2 --full-result-char-limit 5000
 ```
 
-This example runs 72 model/task/arm attempts. `--driver turn-tool` runs the agent on the
-turn transport (one `dataflow(summary, python, statements)` tool call per step; a reply
-without a tool call is the answer); `--driver text-turn` runs the raw text transport (the
-model's message is the turn); see `docs/native-registered-python-design.md`, "Turn tool
-transport" and "Text transport". The default `vercel-tool-use` is the JSON action tool. `--full-result-char-limit` controls
+This example runs 72 model/task/arm attempts. The agent makes one
+`dataflow(python, statements)` tool call per step, and a reply without a tool call
+is the answer; see `docs/native-registered-python-design.md`. `--full-result-char-limit` controls
 the display budget independently of retained data and records it in the campaign
 manifest. Its default remains 100,000 for existing campaign compatibility; pass
 5,000 explicitly to match the current service default. Valid values are
@@ -181,28 +175,3 @@ token usage and seconds are recorded, and execution output is cut at
 `--output-chars`. Upstream declares that limit (`max_stdout_length=5000`) and
 never applies it. `DSGymSystem` alone works against DSGym's docker manager as
 well: pass `manager_url`.
-
-## LongDS
-
-```bash
-bin/bench.sh longds download --task sports/nfl_big_data_bowl_2023/task1
-bin/bench.sh longds prepare  --task sports/nfl_big_data_bowl_2023/task1
-bin/bench.sh longds run     --task sports__nfl_big_data_bowl_2023__task1 \
-    --arm haiku-delta-1k --turn-limit 3          # smoke; drop --turn-limit for all 42 turns
-bin/bench.sh longds judge   --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
-bin/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k \
-    --task sports__nfl_big_data_bowl_2023__task1
-```
-
-The judge defaults to `JUDGE_BASE_URL=http://localhost:4000/v1` — the
-local-dev LiteLLM proxy, which serves every model in
-`bin/single-node/litellm-config.yaml` using the provider keys from the root
-`.env`. Override `JUDGE_BASE_URL` / `JUDGE_API_KEY` (root `.env` or shell) to
-judge through any other OpenAI-compatible endpoint.
-
-Arms live in `benchmark/longds/arms.py` (`haiku-delta-1k` is the
-gateway-reachable smoke arm; the `luna-*` arms name `gpt-5.6-luna`, which the
-DKNet gateway does not serve). Run artifacts land in
-`benchmark/longds/system_scratch/<SUT>/<task>/` — per-turn prompt, response,
-react steps, workflow snapshot, token/cost stats. `prepared/`, `DataMind/`,
-and `system_scratch/` are gitignored.

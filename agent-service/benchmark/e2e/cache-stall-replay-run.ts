@@ -20,6 +20,8 @@
 /** Replay saved callback inputs through cached multi-port execution, without model calls.
  * Manifest: [{operator_id, native_op: {properties: {code}}, inputs: [{operator_id, path}]}].
  * Inputs must be full CSV exports, ordered by input port; duplicate IDs reuse one source.
+ * The saved code's first top-level function is registered and called with one
+ * table per input port.
  */
 import { strict as assert } from "node:assert";
 import { mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -29,7 +31,8 @@ import { createAgent, deleteAgent, getReActSteps, getSnapshot } from "../../src/
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { WorkflowState } from "../../src/agent/workflow-state";
 import { env } from "../../src/config/env";
-import type { DataflowAction, DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import type { DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import { dataflowDebugInput } from "./native-debug-input";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT;
 assert.ok(baseUrl && process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT, "Set isolated service endpoints");
@@ -45,17 +48,6 @@ const save = (name: string, data: unknown) =>
 const token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
 const checks: unknown[] = [];
 type SavedResult = { state?: string; sampleRecords?: unknown[]; materialization?: { executionId?: string | number } };
-
-function pythonLiteral(value: unknown): string {
-  if (value === null) return "None";
-  if (typeof value === "boolean") return value ? "True" : "False";
-  if (Array.isArray(value)) return `[${value.map(pythonLiteral).join(",")}]`;
-  if (typeof value === "object")
-    return `{${Object.entries(value!)
-      .map(([k, v]) => `${JSON.stringify(k)}:${pythonLiteral(v)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
 
 for (const scenario of cases) {
   const label = scenario.operator_id;
@@ -85,8 +77,9 @@ for (const scenario of cases) {
       })
     ).id;
     save(`${label}-resources.json`, { agentId, wid, cuid, model_calls: 0 });
-    async function actions(items: DataflowAction[]) {
-      const input = { reasoning: "Isolate cached input delivery and error propagation.", actions: items };
+    async function call(python: string, statements: string) {
+      const input = { python, statements };
+      const content = dataflowDebugInput(python, statements, ["full"]);
       const start = performance.now();
       await new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(`${baseUrl!.replace(/^http/, "ws")}/api/agents/${agentId}/react`);
@@ -100,12 +93,7 @@ for (const scenario of cases) {
           const frame = JSON.parse(String(event.data));
           if (frame.type === "init" && !sent) {
             sent = true;
-            ws.send(
-              JSON.stringify({
-                type: "debug",
-                content: `Function(name="dataflow", arguments=${JSON.stringify(pythonLiteral(input))})`,
-              })
-            );
+            ws.send(JSON.stringify({ type: "debug", content }));
           }
           if (frame.type === "complete") finished = true;
           if ((frame.type === "nextContext" && finished) || frame.type === "error") {
@@ -126,40 +114,30 @@ for (const scenario of cases) {
       return { receipt, seconds: (performance.now() - start) / 1000 };
     }
     const unique = [...new Map(scenario.inputs.map(i => [i.operator_id, i])).values()];
-    const seeded = await actions([
-      {
-        type: "edit",
-        changes: unique.map(i => `${i.operator_id} = scan(${JSON.stringify(i.path)})`).join("\n"),
-      },
-      { type: "execute", operator_ids: unique.map(i => i.operator_id) },
-    ]);
+    const seeded = await call(
+      "",
+      [
+        ...unique.map(i => `set ${i.operator_id}: scan(files=${JSON.stringify(i.path)})`),
+        `execute ${unique.map(i => i.operator_id).join(", ")}`,
+      ].join("\n")
+    );
     assert.equal(seeded.receipt.status, "completed");
     const inputs = scenario.inputs.map(i => i.operator_id).join(", ");
     const countId = `${label}_counts`;
     const params = scenario.inputs.map((_, i) => `p${i}`).join(", ");
     const columns = scenario.inputs.map((_, i) => `${JSON.stringify(`port_${i}`)}: [len(p${i})]`).join(", ");
-    const counts = await actions([
-      {
-        type: "edit",
-        changes: `${countId} = process(${inputs}, fn=count_inputs, doc="Verify each input port")\n    def count_inputs(${params}):\n        import pandas as pd\n        return pd.DataFrame({${columns}})`,
-      },
-      { type: "execute", operator_ids: [countId] },
-      { type: "retrieve", operator_id: countId, view: "full" },
-    ]);
+    const counts = await call(
+      `import pandas as pd\n\ndef count_inputs(${params}):\n    """Count the rows on each input port."""\n    return pd.DataFrame({${columns}})`,
+      `set ${countId}: count_inputs(${inputs})\nshow result ${countId} full`
+    );
     const code = scenario.native_op.properties.code;
     const entry = /^def\s+(\w+)\(/m.exec(code)?.[1];
     assert.ok(entry, "Saved code needs a function entry");
-    const callback = await actions([
-      {
-        type: "edit",
-        changes: `${label} = process(${inputs}, fn=${entry}, doc="Replay original callback")\n${code
-          .split("\n")
-          .map(l => "    " + l)
-          .join("\n")}`,
-      },
-      { type: "execute", operator_ids: [label] },
-      { type: "retrieve", operator_id: label, view: "full" },
-    ]);
+    // Registered under a fixed name: saved entries are often called `process`.
+    const callback = await call(
+      code.replace(new RegExp(`^def\\s+${entry}\\(`, "m"), "def replay_callback("),
+      `set ${label}: replay_callback(${inputs})\nshow result ${label} full`
+    );
     const snapshot = await getSnapshot(agentId, "head", baseUrl);
     const results = snapshot.results as Record<string, SavedResult>;
     save(`${label}-snapshot.json`, snapshot);
@@ -212,19 +190,14 @@ for (const scenario of cases) {
         .map(name => join(table, name));
       assert.ok(files.length, "Need a locally stored data file for fault injection");
       const faultId = `${label}_read_fault`;
-      await actions([
-        {
-          type: "edit",
-          changes: `${faultId} = aggregate(${source}, n=count())`,
-        },
-      ]);
+      await call("", `set ${faultId}: aggregate(${source}, outputs={'n': count()})`);
       const moved: string[] = [];
       try {
         for (const file of files) {
           renameSync(file, `${file}.probe-backup`);
           moved.push(file);
         }
-        const failure = await actions([{ type: "execute", operator_ids: [faultId] }]);
+        const failure = await call("", `execute ${faultId}`);
         save("read-failure.json", failure);
         assert.equal(failure.receipt.status, "error");
         assert.ok(
@@ -236,10 +209,7 @@ for (const scenario of cases) {
       } finally {
         for (const file of moved) renameSync(`${file}.probe-backup`, file);
       }
-      const recovery = await actions([
-        { type: "execute", operator_ids: [faultId] },
-        { type: "retrieve", operator_id: faultId, view: "full" },
-      ]);
+      const recovery = await call("", `show result ${faultId} full`);
       save("read-recovery.json", recovery);
       assert.equal(recovery.receipt.status, "completed");
       const recovered = await getSnapshot(agentId, "head", baseUrl);

@@ -17,6 +17,11 @@
  * under the License.
  */
 
+import { strict as assert } from "node:assert";
+import type { RetrievalView } from "../../src/types/agent";
+import type { DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import { prepareDataflowCall } from "../../src/agent/tools/turn-tool";
+
 /** The debug endpoint takes a Python repr, not JSON. Encode the tree, never
  * replace token words inside submitted callbacks or user string literals. */
 export function nativeDebugInput(tool: string, args: Record<string, unknown>): string {
@@ -34,4 +39,29 @@ export function nativeDebugInput(tool: string, args: Record<string, unknown>): s
     throw new TypeError("Debug arguments must be JSON-compatible values");
   }
   return `Function(name=${JSON.stringify(tool)}, arguments=${JSON.stringify(python(args))})`;
+}
+
+/** A `dataflow(python, statements)` call as debug input. The call is parsed
+ * here first, so a malformed probe fails before it reaches the service. */
+export function dataflowDebugInput(python: string, statements: string, views?: readonly RetrievalView[]): string {
+  const prepared = prepareDataflowCall({ python, statements }, views);
+  assert.equal(prepared.status, "pending", `The probe's dataflow call does not parse: ${prepared.error}`);
+  return nativeDebugInput("dataflow", { python, statements });
+}
+
+/** The action list a call becomes (an edit first, `show result` as execute
+ * then retrieve), for the statuses a probe expects. */
+export function dataflowActionTypes(python: string, statements: string, views?: readonly RetrievalView[]): string[] {
+  return prepareDataflowCall({ python, statements }, views).actions.map(item => item.action.type);
+}
+
+/** What `show result` returned for one operator, from the call's last retrieve that read it. */
+export function shownResult(result: DataflowActionsResult, operatorId: string): any {
+  const entry = result.actions
+    .filter(item => item.action.type === "retrieve")
+    .flatMap(item => ((item.output as any)?.results ?? []) as any[])
+    .filter(item => item.operator_id === operatorId)
+    .at(-1);
+  assert.ok(entry, `No shown result for ${operatorId}`);
+  return entry;
 }

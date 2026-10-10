@@ -66,7 +66,6 @@ export interface LocalReactTextDriverOptions {
 }
 
 export class LocalReactTextDriver implements LLMDriver {
-  readonly nativeTransport = "tool" as const;
   private readonly model: LanguageModel;
   private readonly temperature: number;
   /** Increments every parsed action; used to mint stable per-call IDs the
@@ -159,18 +158,17 @@ export class LocalReactTextDriver implements LLMDriver {
         usage,
       });
 
-      // Native mode ends with the explicit Answer action. Code-mode models
-      // retain their existing convention of ending with a text-only reply.
-      if (input.getFinalAnswer?.() !== undefined || toolCalls.length === 0) break;
+      // A reply without a tool call ends the turn.
+      if (toolCalls.length === 0) break;
     }
 
-    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
+    if (input.requireShownResult && !input.resultShown?.()) {
       throw new Error(
-        "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
+        "The turn ended before any result was shown. The model stopped or reached the step limit; no final answer was produced."
       );
     }
     return {
-      text: input.getFinalAnswer?.() ?? lastThought,
+      text: lastThought,
       messages,
       usage: aggregated,
     };

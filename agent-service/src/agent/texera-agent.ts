@@ -24,9 +24,6 @@ import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-bud
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
-import { OperatorVersionStore } from "./operator-version-store";
-import { VersionCheckout } from "./version-checkout";
-import { WorkflowUtilService } from "./util/workflow-utils";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
@@ -94,23 +91,10 @@ Example D — commit the answer. The final operator must OUTPUT the answer in th
 exact type/shape the question asks (a scalar, or a clean list) — don't leave it
 implicit in an intermediate frame.`;
 import { createDeleteOperatorTool, TOOL_NAME_DELETE_OPERATOR, type ToolContext } from "./tools/workflow-crud-tools";
-import {
-  asNativeBatchResult,
-  batchObservedIds,
-  createNativeTools,
-  TOOL_NAME_DATAFLOW,
-} from "./tools/native-batch-tools";
-import {
-  NativeCatalogSettingsError,
-  validateNativeSettings,
-  validateTaskContextSettings,
-  validateNativeTransport,
-} from "./native/settings";
-import { buildTaskGraph, taskHistoryFromSteps } from "./task-history";
-import { planSeedSources, registeredSeedStatement } from "./native/seed-sources";
+import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
+import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { requestFilePath } from "./native/turn-syntax";
-import { NativeValidationRepair } from "./native/validation-repair";
 import {
   REPEATED_FAILURE_LIMIT,
   REPEATED_FAILURE_WARNING,
@@ -124,33 +108,13 @@ import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
-import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
-import {
-  createRecallStateTool,
-  TOOL_NAME_RECALL_STATE,
-  type RecalledTurn,
-  type RecallVerb,
-} from "./tools/recall-state-tool";
-import { createResumeFromTool, TOOL_NAME_RESUME_FROM, WRITE_TOOL_NAMES } from "./tools/resume-from-tool";
-import {
-  GROUNDING_NUDGES_PER_TURN,
-  buildGroundingNudge,
-  extractSubstantiveNumbers,
-  finalAnswerPayload,
-  groundingReport,
-  shouldNudge,
-} from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
-import {
-  createRegisteredDataflowTool,
-  asDataflowActionsResult,
-  type DataflowActionsResult,
-} from "./tools/dataflow-actions";
-import { createTurnTool } from "./tools/turn-tool";
+import { asDataflowActionsResult } from "./tools/dataflow-actions";
+import { createDataflowTool } from "./tools/turn-tool";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
-import { planGraphEdit, planRegisteredGraphEdit } from "./tools/graph-edits";
+import { planRegisteredGraphEdit } from "./tools/graph-edits";
 import {
   executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
@@ -166,14 +130,13 @@ import {
   type ContextAssembler,
   type DriverRunTurnResult,
 } from "./llm-drivers/types";
-import { forkState, historicalTask } from "./state-history";
-import { restoreAssignment, splitVersionCommands } from "./state-ledger";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
 
-/** Tool names whose successful invocation triggers post-step operator execution. */
-const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DATAFLOW]);
+/** Code-mode tool names whose successful invocation triggers post-step operator
+ * execution; a native `dataflow` call executes through its own statements. */
+const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
   return {
@@ -363,13 +326,6 @@ export class TexeraAgent {
   private reActStepsByMessageId: Map<string, ReActStep[]> = new Map();
 
   private currentMessageId: string | undefined = undefined;
-  private readonly nativeValidationRepair = new NativeValidationRepair();
-  /** (operatorId, turnId) -> version. Written in EVERY mode so the backbone is
-   *  always turn-tracked; only the versioned write path reads it for wiring. */
-  readonly versionStore = new OperatorVersionStore();
-  /** Materializes referenced versions into wire-able nodes. Built lazily so it
-   *  sees the WorkflowUtilService the agent constructs during setup. */
-  private versionCheckout: VersionCheckout | undefined;
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
@@ -392,7 +348,6 @@ export class TexeraAgent {
   private tools: Record<string, any>;
 
   private abortController: AbortController | null = null;
-  private nativeActionAnswer: string | undefined;
 
   private workflowChangeSubscription: Subscription | null = null;
 
@@ -419,7 +374,6 @@ export class TexeraAgent {
 
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
-      nativeTransport: this.driver.nativeTransport ?? DEFAULT_AGENT_SETTINGS.nativeTransport,
       systemPrompt: this.systemPrompt,
       parallelToolCalls: DEFAULT_AGENT_SETTINGS.agentMode !== AgentMode.NATIVE,
     };
@@ -609,31 +563,14 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
       this.systemPrompt = buildRegisteredNativeSystemPrompt(this.settings.contextMode, {
         ...observationFormatPatch(this.settings),
-        // Decided when the session starts (the setting, or state loaded before
-        // the first request), never by the arrival of a later request: a
-        // system prompt that changes mid-session invalidates the whole cached
-        // prefix and gives the first task different instructions.
-        multiTask: this.settings.multiTask || this.taskNumberOffset > 0,
-        resume: this.settings.enableResumeTool === true,
-        compact: this.settings.enableCompactTool === true,
-        versioned: this.settings.versionedMode === true,
-        session: this.settings.sessionTurns === true,
-        recall: this.settings.enableRecallTool === true,
-        messageLayout: this.settings.messageLayout,
-        reasoning: this.settings.dataflowReasoning === true,
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
-        checks: this.settings.nativeChecks === true,
-        nativePromptDetail: this.settings.nativePromptDetail,
-        transport: this.settings.nativeTransport,
         retrievalViews: availableRetrievalViews(this.settings),
         fullResultCharLimit: this.settings.fullResultCharLimit,
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         maxResultRows: this.settings.maxResultRows,
         dataEvidenceCharLimit: this.settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: this.settings.flowEvidenceCharLimit,
-        stateHistory: this.settings.stateHistory === true,
-        stateLedger: this.settings.stateLedger === true,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -642,13 +579,7 @@ export class TexeraAgent {
         false,
         this.settings.enableRenderPrefs === true,
         this.settings.enableCodeInSnapshot === true,
-        this.settings.sourceProvenanceHint === true,
-        this.settings.enableRecallTool === true,
-        this.settings.enableResumeTool === true,
-        this.settings.versionedMode === true,
-        this.settings.sessionTurns === true,
-        this.settings.recallOperatorLevel === true,
-        this.settings.specAudit === true
+        this.settings.sourceProvenanceHint === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -706,14 +637,12 @@ export class TexeraAgent {
 
     const context: ToolContext = {
       metadataStore: this.metadataStore,
-      nativeValidationRepair: this.nativeValidationRepair,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeProfileScope: this.settings.nativeProfileScope,
-        dataflowReasoning: this.settings.dataflowReasoning === true,
         nativeChecks: this.settings.nativeChecks === true,
       },
     };
@@ -728,50 +657,10 @@ export class TexeraAgent {
         context,
         this.settings.maxOperatorEdits,
         this.settings.enableRenderPrefs === true,
-        this.isCodeShownToAgent(),
-        this.settings.versionedMode ? this.operatorVersionStore() : undefined
+        this.isCodeShownToAgent()
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] =
-        this.settings.nativeTransport === "turn"
-          ? createTurnTool(availableRetrievalViews(this.settings))
-          : createRegisteredDataflowTool(
-              availableRetrievalViews(this.settings),
-              this.settings.stateHistory,
-              this.settings.multiTask || this.settings.stateHistory
-            );
-    }
-
-    // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
-    // folds the trajectory up to the newest call into a compact deck. Read-only.
-    if (this.settings.enableCompactTool) {
-      tools[TOOL_NAME_COMPACT_CONTEXT] = createCompactContextTool();
-    }
-
-    // Opt-in multi-turn state recall: the model fetches the specific earlier
-    // state this turn depends on, instead of the renderer pushing every turn
-    // forever. Pairs with `turnHistory: "index"`. Read-only.
-    if (this.settings.enableRecallTool) {
-      tools[TOOL_NAME_RECALL_STATE] = createRecallStateTool({
-        getTurns: () => this.buildTurnLog(),
-        // The messageId of the turn in progress: one user request per messageId,
-        // so this is what resets the per-turn recall budget.
-        getCurrentTurnKey: () => this.currentMessageId ?? "",
-        workflowState: this.workflowState,
-        maxResultChars: this.settings.recallMaxResultChars,
-        operatorLevel: this.settings.recallOperatorLevel === true,
-      });
-    }
-
-    // Opt-in version-tree navigation: the model names the turn it builds on,
-    // instead of a recency heuristic choosing for it. Pairs with recallState —
-    // resumeFrom MOVES, recallState READS.
-    if (this.settings.enableResumeTool) {
-      tools[TOOL_NAME_RESUME_FROM] = createResumeFromTool({
-        resumeToTurn: (turn: number) => this.resumeToTurn(turn),
-        turnCount: () => this.turnOrder().length,
-        getCurrentTurnKey: () => this.currentMessageId ?? "",
-      });
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings));
     }
 
     // When parallel tool calls are enabled the model can emit N tool calls in
@@ -790,10 +679,9 @@ export class TexeraAgent {
   }
 
   /**
-   * Build a tool registry for `importReActSteps` replay. Includes CRUD tools
-   * for BOTH code and native modes so any exported session is replayable
-   * regardless of the agent's current `agentMode`. No scheduler wrapping —
-   * the replay loop awaits each call sequentially.
+   * Build a tool registry for `importReActSteps` replay: the code-mode CRUD
+   * tools. Native `dataflow` calls replay the edits recorded in their saved
+   * results instead. No scheduler wrapping; the replay loop awaits each call.
    */
   private buildReplayTools(): Record<string, any> {
     const operatorSchemas = new Map<string, any>();
@@ -811,7 +699,6 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
-        dataflowReasoning: this.settings.dataflowReasoning === true,
         nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
@@ -819,7 +706,6 @@ export class TexeraAgent {
     };
 
     return {
-      [TOOL_NAME_DATAFLOW]: createNativeTools(this.workflowState, context)[TOOL_NAME_DATAFLOW],
       [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
       [TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]: createCreateOrModifyOperatorTool(
         this.workflowState,
@@ -895,45 +781,19 @@ export class TexeraAgent {
   }
 
   /**
-   * The COMPLETED turns before the current one, for `recallState`.
-   *
-   * Turns are the `messageId` groups along the visible path (one user request per
-   * group), which is the same grouping the renderer's `# Prior Turns` catalogue
-   * numbers from — so a turn number the model reads in the prompt resolves here.
-   * The last group is the turn in progress and is excluded: its events are
-   * already rendered raw, and recalling the request you were just handed is
-   * pure waste.
-   *
-   * Each turn carries the workflow snapshot recorded at its final step, which is
-   * what makes "the code of operator X as of turn 12" answerable, plus that
-   * snapshot's materialized results, which makes "and what did it compute then"
-   * answerable without reaching forward to HEAD (where the operator may since
-   * have been revised — reading today's numbers for an earlier turn's question
-   * is precisely the cascade error this tool exists to prevent).
-   *
-   * The per-operator VERB comes from diffing consecutive turn snapshots, so the
-   * "delta set" the tool reports is the real one: an id the turn wrote but left
-   * byte-identical still lists (the turn did work on it), while added / revised /
-   * deleted is decided by what actually changed in the DAG.
-   */
-  /**
    * GLOBAL turn order: the messageIds of every turn ever asked, in the order
    * they were asked, with the synthetic `initialize` bootstrap excluded.
    *
-   * Numbering must not depend on the current branch. Once a turn resumes from
-   * an earlier one, the ancestor path is SHORTER than the session — turns on
-   * abandoned branches are no longer ancestors of HEAD — so numbering by path
-   * position would renumber everything, and "Turn 5" in the catalogue would
-   * stop meaning turn 5 to `resumeFrom` / `recallState`. `stepsById` is a Map,
-   * so its insertion order is creation order, which is exactly the ask order.
+   * Numbering must not depend on the current branch: after a checkout, turns on
+   * abandoned branches are no longer ancestors of HEAD, so numbering by path
+   * position would renumber everything. `stepsById` is a Map, so its insertion
+   * order is creation order, which is exactly the ask order.
    */
   turnOrder(): string[] {
     const seen = new Set<string>();
     const order: string[] = [];
     for (const step of this.stepsById.values()) {
       if (TexeraAgent.isInitializationStep(step)) continue;
-      // Loaded state is not a request: task numbers start at the first user message.
-      if (step.synthetic === "state") continue;
       if (seen.has(step.messageId)) continue;
       seen.add(step.messageId);
       order.push(step.messageId);
@@ -956,438 +816,6 @@ export class TexeraAgent {
     const m = new Map<string, number>();
     this.turnOrder().forEach((id, i) => m.set(id, i + 1));
     return m;
-  }
-
-  /** HEAD when the request that owns `stepId` arrived: the user step's parent.
-   * The ledger and provenance cards measure a task's changes against it. */
-  private taskBaseStepId(stepId: string): string | undefined {
-    const messageId = this.stepsById.get(stepId)?.messageId;
-    if (!messageId) return undefined;
-    return (this.reActStepsByMessageId.get(messageId) ?? []).find(step => step.role === "user")?.parentId;
-  }
-
-  /** HEAD when the first request arrived: the state loaded before this conversation. */
-  private loadedStepId(): string | undefined {
-    const first = this.turnOrder()[0];
-    return first
-      ? (this.reActStepsByMessageId.get(first) ?? []).find(step => step.role === "user")?.parentId
-      : undefined;
-  }
-
-  /** The number of the task a step belongs to, counted like `completedStateTasks`. */
-  private currentTaskNumber(stepId: string): number | undefined {
-    const messageId = this.stepsById.get(stepId)?.messageId;
-    const index = messageId ? this.turnOrder().indexOf(messageId) : -1;
-    return index >= 0 ? index + 1 + this.taskNumberOffset : undefined;
-  }
-
-  private archivedTaskHistory() {
-    return taskHistoryFromSteps(
-      this.getReActSteps(),
-      this.snapshotStorage,
-      this.turnNumberMap(),
-      this.taskNumberOffset
-    );
-  }
-
-  getTaskHistory() {
-    return buildTaskGraph(this.snapshotStorage, this.archivedTaskHistory());
-  }
-
-  /** Resolve completed user tasks directly from the append-only ReAct tree. */
-  private completedStateTasks() {
-    const currentMessage = this.head ? this.stepsById.get(this.head)?.messageId : undefined;
-    return this.turnOrder().flatMap((messageId, i) => {
-      if (messageId === currentMessage) return [];
-      const steps = this.reActStepsByMessageId.get(messageId) ?? [];
-      const end = [...steps].reverse().find(
-        step =>
-          step.role === "agent" &&
-          step.isEnd &&
-          step.toolResults?.some(result => {
-            const actions = asDataflowActionsResult(result.output);
-            return actions?.status === "completed" && actions.answer !== undefined;
-          })
-      );
-      if (!end) return [];
-      return [
-        {
-          // Tasks are numbered as the user counts requests: loaded tasks
-          // first, then every request of this conversation, answered or not.
-          taskId: i + 1 + this.taskNumberOffset,
-          stepId: end.id,
-          request: steps.find(step => step.role === "user")?.content ?? "",
-          answer: end.content,
-          steps: steps.slice(0, steps.indexOf(end) + 1),
-        },
-      ];
-    });
-  }
-
-  /**
-   * Turns that happened but are NOT ancestors of HEAD — the branches left
-   * behind by a `resumeFrom`. They stay in the catalogue so the version tree
-   * is navigable in both directions; without them, resuming to turn 8 would
-   * hide turns 9..20 permanently.
-   */
-  offBranchTurns(visibleSteps: ReActStep[]): Array<{
-    turn: number;
-    request: string;
-    answer?: string;
-    operators: string[];
-  }> {
-    const onBranch = new Set(visibleSteps.map(s => s.messageId));
-    const out: Array<{
-      turn: number;
-      request: string;
-      answer?: string;
-      operators: string[];
-    }> = [];
-    this.turnOrder().forEach((msgId, i) => {
-      if (onBranch.has(msgId)) return;
-      const steps = this.reActStepsByMessageId.get(msgId) ?? [];
-      const operators: string[] = [];
-      for (const step of steps) {
-        for (const call of step.toolCalls ?? []) {
-          const opId = writtenOperatorId(call.toolName, call.input);
-          if (typeof opId === "string" && !operators.includes(opId)) operators.push(opId);
-        }
-      }
-      out.push({
-        turn: i + 1,
-        request: steps.find(s => s.role === "user")?.content ?? "",
-        answer: [...steps].reverse().find(s => s.role === "agent" && s.isEnd)?.content,
-        operators,
-      });
-    });
-    return out;
-  }
-
-  /**
-   * Move this turn's base to the end of an earlier turn (see resume-from-tool).
-   *
-   * The move is a RE-PARENT of the current turn's user step, not a mutation of
-   * history: the turn being left keeps all of its steps, and the snapshot
-   * storage resolves state through a live ancestor-path callback, so changing
-   * one parent link is enough to change which workflow and which results the
-   * renderer sees. Nothing is copied and nothing is deleted.
-   */
-  resumeToTurn(turn: number): { ok: boolean; message: string } {
-    const order = this.turnOrder();
-    const currentMsg = this.currentMessageId;
-    if (!currentMsg) return { ok: false, message: "No turn is in progress." };
-    const completed = order.filter(m => m !== currentMsg);
-
-    // THE FIRST TURN HAS NOTHING TO RESUME FROM, and this must not be an error.
-    // The prompt tells the model to resume before building, so on turn 1 it
-    // dutifully calls `resumeFrom(1)` — and an error there is a rejection with
-    // no alternative action, which the model answers by retrying verbatim.
-    // Measured: 35 identical failing calls on nfl turn 1, the whole 40-step
-    // budget spent, no answer. Same shape as the recall loops before it. So
-    // this succeeds and says what to do instead.
-    if (completed.length === 0) {
-      return {
-        ok: true,
-        message:
-          "This is the first turn of the session, so there is no earlier state to resume from — " +
-          "you are starting from an empty dataflow, which is correct. Build what the request needs. " +
-          "Do not call resumeFrom again this turn.",
-      };
-    }
-
-    const noRetry = " Do not call resumeFrom again this turn — pick a valid turn or proceed with the base you have.";
-    if (turn < 1 || turn > order.length) {
-      return {
-        ok: false,
-        message: `Turn ${turn} does not exist. Earlier turns are 1..${completed.length}.` + noRetry,
-      };
-    }
-    const targetMsg = order[turn - 1];
-    if (targetMsg === currentMsg) {
-      return {
-        ok: false,
-        message:
-          `Turn ${turn} is the turn you are on. Earlier turns are 1..${completed.length}; ` +
-          `to continue from where the last turn left off, resume from ${completed.length}.` +
-          noRetry,
-      };
-    }
-
-    // The uncommitted-changes guard. Moving now would strand this turn's own
-    // operators on a branch that is no longer an ancestor of HEAD.
-    const mine = this.reActStepsByMessageId.get(currentMsg) ?? [];
-    const built: string[] = [];
-    for (const step of mine) {
-      for (const call of step.toolCalls ?? []) {
-        if (call.toolName === TOOL_NAME_DATAFLOW) {
-          const batch = asNativeBatchResult(step.toolResults?.find(r => r.toolCallId === call.toolCallId)?.output);
-          for (const outcome of batch?.operators ?? [])
-            if ((outcome.status === "added" || outcome.status === "modified") && !built.includes(outcome.id))
-              built.push(outcome.id);
-          continue;
-        }
-        if (!WRITE_TOOL_NAMES.has(call.toolName)) continue;
-        const opId = writtenOperatorId(call.toolName, call.input);
-        if (typeof opId === "string" && !built.includes(opId)) built.push(opId);
-      }
-    }
-    if (built.length > 0) {
-      return {
-        ok: false,
-        message:
-          `Cannot change base now: this turn already built ${built.join(", ")}. ` +
-          "Resuming would strand that work on an abandoned branch. Continue from the base you have, " +
-          "or use `recallState` to READ an earlier turn without moving to it.",
-      };
-    }
-
-    const group = this.reActStepsByMessageId.get(targetMsg) ?? [];
-    const baseStepId = group[group.length - 1]?.id;
-    if (!baseStepId)
-      return {
-        ok: false,
-        message: `Turn ${turn} recorded no steps to resume from.`,
-      };
-
-    const userStep = mine.find(s => s.role === "user");
-    if (!userStep)
-      return {
-        ok: false,
-        message: "This turn has no request step to re-parent.",
-      };
-    userStep.parentId = baseStepId;
-    this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(baseStepId));
-    this.nativeValidationRepair.clear();
-
-    const ops = (this.snapshotStorage.getWorkflow(baseStepId).operators ?? []).length;
-    return {
-      ok: true,
-      message:
-        `Resumed from turn ${turn}. The dataflow is now that turn's state: ${ops} operator(s). ` +
-        "Everything you build now branches from there. Every turn is still listed in the `# Catalog` " +
-        "and still resumable.",
-    };
-  }
-
-  /**
-   * The version store for STRICT (operatorId, turnId) addressing: which
-   * finished turns wrote each operator (with that turn's code), which turn is
-   * in progress, and what it has touched so far. Derived from the same turn
-   * grouping as the catalogue and `recallState`, so a version turn the model
-   * reads anywhere is valid everywhere.
-   */
-  /**
-   * Record the current definition of each edited operator as its version at
-   * the turn in progress.
-   *
-   * `inputRefs` are captured from the live graph — for each upstream, the
-   * version that upstream currently holds — so a version remembers what it
-   * actually consumed. That is what makes checking out an old version a
-   * lookup chain instead of guesswork about which inputs were in play.
-   */
-  private recordVersionsFor(operatorIds: readonly string[]): void {
-    const turn = this.turnOrder().length;
-    if (turn <= 0) return;
-    for (const opId of new Set(operatorIds)) {
-      const op = this.workflowState.getOperator(opId);
-      if (!op) continue;
-      const inputRefs = this.workflowState
-        .getLinksConnectedToOperator(opId)
-        .filter(l => l.target.operatorID === opId)
-        .map(l => l.source.operatorID)
-        .map(srcId => ({
-          operatorId: srcId,
-          // An upstream written earlier this turn is at THIS turn; otherwise
-          // it is whatever version it last landed at.
-          turn: this.versionStore.latestTurnOf(srcId) ?? turn,
-        }));
-      try {
-        this.versionStore.recordWrite({
-          operatorId: opId,
-          turn,
-          code: String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? ""),
-          operatorType: op.operatorType,
-          inputPorts: op.inputPorts,
-          outputPorts: op.outputPorts,
-          inputRefs,
-          resultStepId: this.head,
-        });
-      } catch (e: any) {
-        // Only thrown when writing into a closed turn — a real invariant
-        // breach worth seeing, never worth killing the turn over.
-        this.log.warn({ err: e?.message || e, opId, turn }, "version store write rejected");
-      }
-    }
-  }
-
-  /**
-   * Resolve `(operatorId, turn)` to the node the write path should wire from.
-   * Built on first use so it picks up the initialized metadata store.
-   */
-  private checkoutVersion(
-    operatorId: string,
-    turn: number,
-    writingOperatorId?: string
-  ): { operatorId: string; pinned: boolean } | { error: string } {
-    if (!this.versionCheckout) {
-      const util = new WorkflowUtilService(this.metadataStore, this.workflowState);
-      this.versionCheckout = new VersionCheckout({
-        workflowState: this.workflowState,
-        store: this.versionStore,
-        newOperator: (operatorType, displayName) => {
-          try {
-            return util.getNewOperatorPredicate(operatorType, displayName);
-          } catch {
-            return undefined;
-          }
-        },
-      });
-    }
-    const outcome = this.versionCheckout.resolve({ operatorId, turn }, writingOperatorId);
-    // A freshly materialized pin is itself a version of this turn: recording
-    // it keeps the store's picture of the graph complete, and gives the pin a
-    // lineage entry of its own.
-    if (!("error" in outcome) && outcome.pinned) {
-      this.recordVersionsFor([outcome.operatorId]);
-    }
-    return outcome;
-  }
-
-  /** Seal the finished turn's versions: from here they are permanent facts. */
-  private closeVersionTurn(): void {
-    const turn = this.turnOrder().length;
-    if (turn > 0) this.versionStore.closeTurn(turn);
-  }
-
-  operatorVersionStore() {
-    const agent = this;
-    return {
-      versionsOf(operatorId: string): Array<{ turn: number; code: string }> {
-        const out: Array<{ turn: number; code: string }> = [];
-        for (const t of agent.buildTurnLog()) {
-          if (!t.operators.includes(operatorId)) continue;
-          const op = (t.workflow?.operators as any[])?.find(o => o?.operatorID === operatorId);
-          out.push({
-            turn: t.turn,
-            code: String(op?.operatorProperties?.code ?? ""),
-          });
-        }
-        return out;
-      },
-      currentTurn(): number {
-        return agent.turnOrder().length;
-      },
-      touchedThisTurn(): Set<string> {
-        const touched = new Set<string>();
-        const msg = agent.currentMessageId;
-        if (!msg) return touched;
-        for (const step of agent.reActStepsByMessageId.get(msg) ?? []) {
-          for (const call of step.toolCalls ?? []) {
-            const opId = writtenOperatorId(call.toolName, call.input);
-            if (typeof opId === "string") touched.add(opId);
-          }
-        }
-        return touched;
-      },
-      checkout: (operatorId: string, turn: number, writingOperatorId?: string) =>
-        agent.checkoutVersion(operatorId, turn, writingOperatorId),
-      pinnedLabelOf: (operatorId: string) => agent.versionCheckout?.pinnedLabel(operatorId),
-      resultOf(operatorId: string, turn: number) {
-        // The same as-of-turn results recallState serves — one source of truth
-        // for "what did this version hold" (buildTurnLog resolves each turn's
-        // ending snapshot).
-        return agent
-          .buildTurnLog()
-          .find(t => t.turn === turn)
-          ?.results?.get(operatorId);
-      },
-    };
-  }
-
-  private buildTurnLog(): RecalledTurn[] {
-    // Drop the synthetic `initialize` bootstrap step exactly as the renderer's
-    // buildPath does. Without this the tool numbers turns one higher than the
-    // `# Prior Turns` catalogue the model is reading, so "turn 1" returns the
-    // bootstrap group with an empty request — which sent the model into a
-    // retrieval loop (44 recall calls in one turn, observed 2026-08-04).
-    const path = this.getVisibleReActSteps().filter(s => !TexeraAgent.isInitializationStep(s));
-    const groups: ReActStep[][] = [];
-    const indexByMessageId = new Map<string, number>();
-    for (const step of path) {
-      let idx = indexByMessageId.get(step.messageId);
-      if (idx === undefined) {
-        idx = groups.length;
-        indexByMessageId.set(step.messageId, idx);
-        groups.push([]);
-      }
-      groups[idx].push(step);
-    }
-    // Drop the in-progress turn.
-    const prior = groups.slice(0, -1);
-
-    // The snapshot that ends each turn, resolved once so turn i can be diffed
-    // against turn i-1. `undefined` when the turn wrote nothing at all.
-    const endStepIdOf = (steps: ReActStep[]): string | undefined => {
-      for (const step of [...steps].reverse()) {
-        if (this.snapshotStorage.hasSnapshotFor(step.id)) return step.id;
-      }
-      return undefined;
-    };
-    const endStepIds = prior.map(endStepIdOf);
-
-    return prior.map((steps, i) => {
-      const request = steps.find(s => s.role === "user")?.content ?? "";
-      const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
-      const operators: string[] = [];
-      const seen = new Set<string>();
-      for (const step of steps) {
-        for (const call of step.toolCalls ?? []) {
-          const opId = writtenOperatorId(call.toolName, call.input);
-          if (typeof opId !== "string" || seen.has(opId)) continue;
-          seen.add(opId);
-          operators.push(opId);
-        }
-      }
-
-      // Prefer the snapshot at the step that ended the turn; fall back to the
-      // newest snapshot-bearing step in the group. A turn that wrote nothing
-      // inherits the previous turn's state, so walk back for its baseline too.
-      const endId = endStepIds[i];
-      const workflow = endId ? this.snapshotStorage.getWorkflow(endId) : undefined;
-      const results = endId ? this.snapshotStorage.getAllVisibleResults(endId) : undefined;
-
-      let beforeId: string | undefined;
-      for (let j = i - 1; j >= 0; j--) {
-        if (endStepIds[j]) {
-          beforeId = endStepIds[j];
-          break;
-        }
-      }
-      const before = new Set(
-        (beforeId ? this.snapshotStorage.getWorkflow(beforeId).operators : []).map(o => o.operatorID)
-      );
-      const after = new Set((workflow?.operators ?? []).map(o => o.operatorID));
-      const verbs = new Map<string, RecallVerb>();
-      for (const opId of operators) {
-        if (!after.has(opId)) verbs.set(opId, "deleted");
-        else verbs.set(opId, before.has(opId) ? "revised" : "added");
-      }
-
-      // GLOBAL turn number, not the position on this branch. After a resume the
-      // branch is shorter than the session, so `i + 1` would renumber turns and
-      // `recallState(turn: 5)` would stop meaning the catalogue's "Turn 5".
-      const msgId = steps[0]?.messageId;
-      const turnNo = (msgId ? this.turnNumberOf(msgId) : undefined) ?? i + 1;
-      return {
-        turn: turnNo,
-        request,
-        answer: endStep?.content,
-        operators,
-        verbs,
-        workflow,
-        results,
-      };
-    });
   }
 
   getAllSteps(): ReActStep[] {
@@ -1421,7 +849,6 @@ export class TexeraAgent {
     // total — if no action-bearing ancestor owns a snapshot on this branch
     // we fall through to the empty root's empty workflow.
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(stepId));
-    this.nativeValidationRepair.clear();
     return true;
   }
 
@@ -1527,13 +954,7 @@ export class TexeraAgent {
       nativeProfileScope?: "prefix" | "full";
       dataEvidence?: boolean;
       flowEvidence?: boolean;
-      dataflowReasoning?: boolean;
       nativeChecks?: boolean;
-      nativePromptDetail?: "full" | "on_demand";
-      nativeTransport?: "tool" | "text" | "turn";
-      taskContext?: "trajectory" | "dependencies";
-      stateHistory?: boolean;
-      stateLedger?: boolean;
       resultSelection?: ResultSelection;
       contextMode?: ContextMode;
       parallelToolCalls?: boolean;
@@ -1561,38 +982,16 @@ export class TexeraAgent {
       enableRenderPrefs?: boolean;
       enableCodeInSnapshot?: boolean;
       sourceProvenanceHint?: boolean;
-      enableCompactTool?: boolean;
-      compactKeepLastSteps?: number;
       staticCompaction?: boolean;
       userTaskPlacement?: "top" | "bottom";
-      turnHistory?: "full" | "index";
-      enableRecallTool?: boolean;
-      indexRichTables?: number;
-      indexDetailedOperators?: number;
-      enableResumeTool?: boolean;
-      enableAnswerGrounding?: boolean;
-      seedSources?: boolean;
       messageLayout?: AgentSettings["messageLayout"];
-      versionedMode?: boolean;
-      versionedHeads?: boolean;
-      sessionTurns?: boolean;
-      recallMaxResultChars?: number;
-      recallOperatorLevel?: boolean;
-      specAudit?: boolean;
-      indexThinObservations?: boolean;
       tunerConfig?: TunerConfig | null;
     } & RetrievalSettings &
-      ObservationFormatOptions & { multiTask?: boolean }
+      ObservationFormatOptions
   ): void {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
-    if (this.driver.nativeTransport)
-      validateNativeTransport(this.driver.nativeTransport, {
-        ...this.settings,
-        ...Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined)),
-      });
-    validateTaskContextSettings({ ...this.settings, ...updates });
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
     if (
@@ -1605,22 +1004,9 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
-    if (updates.nativePromptDetail !== undefined && updates.nativePromptDetail !== this.settings.nativePromptDetail) {
-      this.settings.nativePromptDetail = updates.nativePromptDetail;
-      promptNeedsRebuild = true;
-    }
-    if (updates.nativeTransport !== undefined && updates.nativeTransport !== this.settings.nativeTransport) {
-      this.settings.nativeTransport = updates.nativeTransport;
-      promptNeedsRebuild = true;
-    }
-    if (updates.taskContext !== undefined) this.settings.taskContext = updates.taskContext;
     const formatUpdates = observationFormatPatch(updates);
     if (Object.keys(formatUpdates).length) {
       Object.assign(this.settings, formatUpdates);
-      promptNeedsRebuild = true;
-    }
-    if (updates.multiTask !== undefined) {
-      this.settings.multiTask = updates.multiTask;
       promptNeedsRebuild = true;
     }
     for (const key of [
@@ -1643,19 +1029,6 @@ export class TexeraAgent {
     }
     if (updates.flowEvidence !== undefined && updates.flowEvidence !== this.settings.flowEvidence) {
       this.settings.flowEvidence = updates.flowEvidence;
-      promptNeedsRebuild = true;
-    }
-    if (updates.dataflowReasoning !== undefined && updates.dataflowReasoning !== this.settings.dataflowReasoning) {
-      // Changes the tool schema (rebuilt below) and the prompt's tool section.
-      this.settings.dataflowReasoning = updates.dataflowReasoning;
-      promptNeedsRebuild = true;
-    }
-    if (updates.stateHistory !== undefined && updates.stateHistory !== this.settings.stateHistory) {
-      this.settings.stateHistory = updates.stateHistory;
-      promptNeedsRebuild = true;
-    }
-    if (updates.stateLedger !== undefined && updates.stateLedger !== this.settings.stateLedger) {
-      this.settings.stateLedger = updates.stateLedger;
       promptNeedsRebuild = true;
     }
     if (updates.nativeChecks !== undefined && updates.nativeChecks !== this.settings.nativeChecks) {
@@ -1713,10 +1086,7 @@ export class TexeraAgent {
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
     }
-    if (this.settings.agentMode === AgentMode.NATIVE) {
-      this.settings.parallelToolCalls = false;
-      this.settings.dataflowReasoning = true;
-    }
+    if (this.settings.agentMode === AgentMode.NATIVE) this.settings.parallelToolCalls = false;
     if (updates.includeOperatorProperties !== undefined) {
       this.settings.includeOperatorProperties = updates.includeOperatorProperties;
       // Pure render-time toggle — controls whether each operator's
@@ -1836,14 +1206,6 @@ export class TexeraAgent {
       this.settings.sourceProvenanceHint = updates.sourceProvenanceHint;
       promptNeedsRebuild = true;
     }
-    if (updates.enableCompactTool !== undefined) {
-      // Adds/removes the compactContext marker tool (createTools() rebuilds).
-      this.settings.enableCompactTool = updates.enableCompactTool;
-      promptNeedsRebuild = true;
-    }
-    if (updates.compactKeepLastSteps !== undefined) {
-      this.settings.compactKeepLastSteps = updates.compactKeepLastSteps;
-    }
     if (updates.staticCompaction !== undefined) {
       this.settings.staticCompaction = updates.staticCompaction;
     }
@@ -1851,64 +1213,11 @@ export class TexeraAgent {
       // Pure render-time: where the `# User Task` block goes.
       this.settings.userTaskPlacement = updates.userTaskPlacement;
     }
-    if (updates.turnHistory !== undefined) {
-      // Pure render-time: prior turns raw vs catalogued.
-      this.settings.turnHistory = updates.turnHistory;
-    }
-    if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
-    if (updates.indexDetailedOperators !== undefined)
-      this.settings.indexDetailedOperators = updates.indexDetailedOperators;
-    if (updates.enableResumeTool !== undefined && updates.enableResumeTool !== this.settings.enableResumeTool) {
-      this.settings.enableResumeTool = updates.enableResumeTool;
-      promptNeedsRebuild = true;
-    }
-    if (updates.enableAnswerGrounding !== undefined)
-      this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
-    if (updates.seedSources !== undefined) this.settings.seedSources = updates.seedSources;
     if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
       this.settings.messageLayout = updates.messageLayout;
       if (this.settings.agentMode === AgentMode.NATIVE) {
         promptNeedsRebuild = true;
       }
-    }
-    if (updates.versionedMode !== undefined && updates.versionedMode !== this.settings.versionedMode) {
-      // Changes the write tool's schema (strict version params), the context
-      // layout, AND the prompt fragment describing both. Tools are rebuilt at
-      // the end of this method regardless; the prompt needs an explicit rebuild.
-      this.settings.versionedMode = updates.versionedMode;
-      promptNeedsRebuild = true;
-    }
-    if (updates.versionedHeads !== undefined) this.settings.versionedHeads = updates.versionedHeads;
-    if (updates.sessionTurns !== undefined && updates.sessionTurns !== this.settings.sessionTurns) {
-      // Changes the context layout and the prompt fragment describing it.
-      this.settings.sessionTurns = updates.sessionTurns;
-      promptNeedsRebuild = true;
-    }
-    if (updates.recallMaxResultChars !== undefined) {
-      // Tools are rebuilt at the end of this method, which re-reads the cap.
-      this.settings.recallMaxResultChars = updates.recallMaxResultChars;
-    }
-    if (
-      updates.recallOperatorLevel !== undefined &&
-      updates.recallOperatorLevel !== this.settings.recallOperatorLevel
-    ) {
-      // Changes the recall tool's schema AND the prompt fragment + catalog
-      // header describing its addressing.
-      this.settings.recallOperatorLevel = updates.recallOperatorLevel;
-      promptNeedsRebuild = true;
-    }
-    if (updates.specAudit !== undefined && updates.specAudit !== this.settings.specAudit) {
-      // Adds/removes a system-prompt section only — no tool or schema changes.
-      this.settings.specAudit = updates.specAudit;
-      promptNeedsRebuild = true;
-    }
-    if (updates.indexThinObservations !== undefined)
-      this.settings.indexThinObservations = updates.indexThinObservations;
-    if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
-      // Adds/removes the read-only recallState tool AND its prompt section, so
-      // the system prompt has to be rebuilt (same contract as inspect/compact).
-      this.settings.enableRecallTool = updates.enableRecallTool;
-      promptNeedsRebuild = true;
     }
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner
@@ -2022,21 +1331,14 @@ export class TexeraAgent {
     this.workflowState.addSubscription(subscription);
   }
 
-  async sendMessage(
-    userMessage: string,
-    messageSource?: "chat" | "feedback",
-    options?: { sources?: readonly string[] }
-  ): Promise<AgentMessageResult> {
+  async sendMessage(userMessage: string, messageSource?: "chat" | "feedback"): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
     // Failed/stopped turns still consumed model responses. Preserve their
     // reported usage; absent provider fields remain unknown rather than zero.
     const recordedUsage: TokenUsage = {};
-    this.nativeActionAnswer = undefined;
 
     await this.refreshWorkflowFromBackend();
-
-    this.nativeValidationRepair.clear();
 
     this.abortController = new AbortController();
 
@@ -2071,13 +1373,6 @@ export class TexeraAgent {
       // workflow visible here resolves to the nearest action-bearing
       // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
 
-      // Seeded source roots: a system-performed opening step (stepId 1) the
-      // model's first step then builds on. Only when the arm opts in AND the
-      // message names its sources; otherwise the turn is byte-identical.
-      if (this.settings.seedSources && options?.sources && options.sources.length > 0) {
-        if (await this.seedSourceRoots(messageId, options.sources)) stepIndex = 1;
-      }
-
       let isFirstStep = stepIndex === 0;
       let lastPreparedMessages: ModelMessage[] | undefined;
 
@@ -2102,8 +1397,7 @@ export class TexeraAgent {
           tools: this.tools,
           maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
-          requireToolCall: this.settings.agentMode === AgentMode.NATIVE,
-          getFinalAnswer: () => this.nativeActionAnswer,
+          requireShownResult: this.settings.agentMode === AgentMode.NATIVE,
           resultShown: () => this.resultShownInMessage(messageId),
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
@@ -2178,8 +1472,6 @@ export class TexeraAgent {
               settings: this.settings,
               compilationResult,
               turnNumberByMessageId: this.turnNumberMap(),
-              offBranchTurns: this.offBranchTurns(visibleSteps),
-              taskHistory: this.settings.taskContext === "dependencies" ? this.archivedTaskHistory() : undefined,
             });
             lastPreparedMessages = processed;
             this.lastRenderedContext = processed
@@ -2219,18 +1511,14 @@ export class TexeraAgent {
             );
 
             // Some routes repeat one tool call within a response (Qwen on
-            // DeepInfra returned 62 copies of one dataflow call, sometimes with
-            // the reasoning reworded). Copies with the same actions are one
-            // decision: keep the first call and its result, so the copies
-            // neither run nor enter the replayed context.
+            // DeepInfra returned 62 copies of one dataflow call). Identical
+            // copies are one decision: keep the first call and its result, so
+            // the copies neither run nor enter the replayed context.
             const seenInputs = new Set<string>();
             const keptCallIds = new Set<string>();
             const formattedToolCalls = toolCalls
               ?.filter(tc => {
-                const input = tc.input as { actions?: unknown } | null | undefined;
-                const decision =
-                  tc.toolName === TOOL_NAME_DATAFLOW && input?.actions !== undefined ? input.actions : input;
-                const key = `${tc.toolName}\u0000${JSON.stringify(decision ?? null)}`;
+                const key = `${tc.toolName}\u0000${JSON.stringify(tc.input ?? null)}`;
                 if (seenInputs.has(key)) return false;
                 seenInputs.add(key);
                 keptCallIds.add(tc.toolCallId);
@@ -2355,21 +1643,11 @@ export class TexeraAgent {
               error instanceof MissingAnswerActionError &&
               error.canContinue &&
               this.settings.agentMode === AgentMode.NATIVE &&
-              protocolFeedbackSteps < (this.settings.nativeTransport === "turn" ? 2 : 1) &&
+              protocolFeedbackSteps < 2 &&
               !this.abortController?.signal.aborted
             ) {
               partials.push(error.partial);
-              const feedback =
-                this.settings.nativeTransport === "turn"
-                  ? this.turnTransportLapseFeedback()
-                  : this.settings.nativeTransport === "text"
-                    ? "No turn was found in your reply. Write a turn: a summary: line, then statements (set, execute, show); finish with answer: alone in a turn once show result has displayed what the answer rests on."
-                    : "No Dataflow action was called. Continue through the dataflow tool. To finish, submit " +
-                      JSON.stringify({
-                        reasoning: "Submit the supported result.",
-                        actions: [{ type: "answer", content: "<answer in the user's required format>" }],
-                      }) +
-                      ". Put the final response in answer.content; Answer must be the sole action. Use other actions if more work is needed.";
+              const feedback = this.lapseFeedback();
               const feedbackId = this.generateStepId();
               this.addStep({
                 id: feedbackId,
@@ -2409,54 +1687,7 @@ export class TexeraAgent {
           }
         }
       };
-      let result = await runDriverWithRetry(currentUserMessage);
-
-      // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
-      // materialized results or state recalled this turn — the property a
-      // dataflow makes checkable that a notebook transcript does not. On total
-      // failure, one feedback round: the nudge is recorded as a visible
-      // feedback step (so the re-rendered context carries it) and the driver
-      // runs once more. One round only — it either works or it will not.
-      if (this.settings.enableAnswerGrounding && result.text) {
-        for (let round = 0; round < GROUNDING_NUDGES_PER_TURN; round++) {
-          const payload = finalAnswerPayload(result.text);
-          if (!payload) break;
-          const numbers = extractSubstantiveNumbers(payload);
-          const pulls: string[] = [];
-          for (const step of this.reActStepsByMessageId.get(messageId) ?? []) {
-            for (const tr of step.toolResults ?? []) {
-              if (typeof tr.output === "string") pulls.push(tr.output);
-            }
-          }
-          const report = groundingReport(
-            numbers,
-            this.head ? this.snapshotStorage.getAllVisibleResults(this.head) : new Map(),
-            pulls
-          );
-          if (!shouldNudge(report)) break;
-          this.log.info(
-            { unmatched: report.unmatched.slice(0, 5), messageId },
-            "answer grounding failed; sending feedback round"
-          );
-          const nudge = buildGroundingNudge(report);
-          const nudgeStepId = this.generateStepId();
-          this.addStep({
-            id: nudgeStepId,
-            parentId: this.head,
-            messageId,
-            stepId: ++stepIndex,
-            timestamp: Date.now(),
-            role: "user",
-            content: nudge,
-            isBegin: false,
-            isEnd: true,
-            messageSource: "feedback",
-          });
-          this.head = nudgeStepId;
-          this.nativeActionAnswer = undefined;
-          result = await runDriverWithRetry([{ role: "user", content: nudge }]);
-        }
-      }
+      const result = await runDriverWithRetry(currentUserMessage);
 
       const msgSteps = this.reActStepsByMessageId.get(messageId);
       if (msgSteps && msgSteps.length > 0) {
@@ -2467,7 +1698,7 @@ export class TexeraAgent {
       }
 
       return {
-        response: this.nativeActionAnswer ?? result.text,
+        response: result.text,
         messages: result.messages,
         usage: result.usage,
         stopped: false,
@@ -2524,10 +1755,6 @@ export class TexeraAgent {
         error: error.message || String(error),
       };
     } finally {
-      // The turn is over however it ended (answered, aborted, error): seal its
-      // versions. A later turn referencing `X (turn N)` must get one fixed
-      // definition, so the boundary — not the outcome — is what freezes it.
-      this.closeVersionTurn();
       this.abortController = null;
       this.currentMessageId = undefined;
       this.state = AgentStateEnum.AVAILABLE;
@@ -2555,8 +1782,6 @@ export class TexeraAgent {
       settings: this.settings,
       compilationResult: null,
       turnNumberByMessageId: this.turnNumberMap(),
-      offBranchTurns: this.offBranchTurns(visibleSteps),
-      taskHistory: this.settings.taskContext === "dependencies" ? this.archivedTaskHistory() : undefined,
     });
     // An async assembler (LLM tuner) can't be awaited in this sync preview —
     // return the content last rendered on the prepareStep path.
@@ -2574,7 +1799,6 @@ export class TexeraAgent {
   }
 
   clearHistory(): void {
-    this.nativeValidationRepair.clear();
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
     this.currentMessageId = undefined;
@@ -2750,97 +1974,35 @@ export class TexeraAgent {
         this.workflowState.setWorkflowContent(parentContent);
         for (const tc of step.toolCalls) {
           if (tc.toolName === "initialize" || tc.toolName === TOOL_NAME_EXECUTE_OPERATOR) continue;
+          if (tc.toolName === TOOL_NAME_DATAFLOW) {
+            const saved = asDataflowActionsResult(step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output);
+            // Replay recorded edits only. Never execute a saved workflow or
+            // apply an action that the original run skipped after a failure.
+            try {
+              for (const item of saved?.actions ?? []) {
+                if (item.status === "pending" || item.status === "skipped") break;
+                if (item.action.type === "edit" && item.status === "ok") {
+                  const plan = await planRegisteredGraphEdit(
+                    this.workflowState.getWorkflowContent(),
+                    item.action.python,
+                    item.action.changes,
+                    { metadataStore: this.metadataStore, settings: this.settings }
+                  );
+                  this.workflowState.setWorkflowContent(plan.workflow);
+                }
+                if (item.status === "error") break;
+              }
+            } catch (err) {
+              this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: edit replay threw, continuing");
+            }
+            continue;
+          }
           const tool = replayTools[tc.toolName];
           if (!tool?.execute) {
             this.log.warn({ stepId: id, toolName: tc.toolName }, "import replay: unknown tool, skipped");
             continue;
           }
           try {
-            if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(tc.input?.actions)) {
-              const saved = asDataflowActionsResult(
-                step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output
-              );
-              // Replay recorded edits only. Never execute a saved workflow or
-              // apply an action that the original run skipped after a failure.
-              for (const item of saved?.actions ?? []) {
-                if (item.status === "pending" || item.status === "skipped") break;
-                if (item.action.type === "fork" && item.status === "ok") {
-                  const plan = forkState(
-                    this.workflowState.getWorkflowContent(),
-                    this.snapshotStorage,
-                    this.completedStateTasks(),
-                    item.action.task_id,
-                    item.action.operator_id,
-                    item.action.new_operator_id
-                  );
-                  this.workflowState.setWorkflowContent(plan.workflow);
-                } else if (item.action.type === "edit" && "changes" in item.action) {
-                  if (item.status === "ok") {
-                    if (saved?.protocol === "registered-python-v1") {
-                      const plan = await planRegisteredGraphEdit(
-                        this.workflowState.getWorkflowContent(),
-                        item.action.python ?? "",
-                        item.action.changes,
-                        { metadataStore: this.metadataStore, settings: this.settings }
-                      );
-                      this.workflowState.setWorkflowContent(plan.workflow);
-                      continue;
-                    }
-                    const { rest, versions } = splitVersionCommands(item.action.changes);
-                    const tasks = this.completedStateTasks().filter(task =>
-                      this.snapshotStorage.hasSnapshotFor(task.stepId)
-                    );
-                    const expanded: string[] = [];
-                    for (const command of versions) {
-                      const task = historicalTask(tasks, command.task);
-                      if (command.as) {
-                        this.workflowState.setWorkflowContent(
-                          forkState(
-                            this.workflowState.getWorkflowContent(),
-                            this.snapshotStorage,
-                            tasks,
-                            task.taskId,
-                            command.id,
-                            command.as
-                          ).workflow
-                        );
-                      } else {
-                        expanded.push(
-                          restoreAssignment(
-                            this.snapshotStorage,
-                            task,
-                            this.workflowState.getWorkflowContent(),
-                            command.id
-                          ).assignment
-                        );
-                      }
-                    }
-                    const changes = [...expanded, rest].filter(text => text.trim()).join("\n");
-                    const plan = changes
-                      ? await planGraphEdit(this.workflowState.getWorkflowContent(), changes, {
-                          metadataStore: this.metadataStore,
-                          settings: this.settings,
-                        })
-                      : { workflow: this.workflowState.getWorkflowContent() };
-                    this.workflowState.setWorkflowContent(plan.workflow);
-                  }
-                } else if ((item.action as { type: string }).type === "edit") {
-                  const legacy = item.action as unknown as {
-                    expressions?: string;
-                    program?: string;
-                    delete?: string[];
-                  };
-                  const landed = (item.output as { operators?: Array<{ status: string }> } | undefined)?.operators;
-                  if (landed?.some(op => ["added", "modified", "deleted"].includes(op.status))) {
-                    // Imported action traces may predate the expressions field.
-                    const expressions = legacy.expressions ?? legacy.program;
-                    await tool.execute({ edits: expressions, delete: legacy.delete });
-                  }
-                }
-                if (item.status === "error") break;
-              }
-              continue;
-            }
             await tool.execute(tc.input);
           } catch (err) {
             this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: tool threw, continuing");
@@ -2933,7 +2095,6 @@ export class TexeraAgent {
     // no action-bearing ancestor recorded one, we land on the empty
     // root's empty workflow.
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(headStep.id));
-    this.nativeValidationRepair.clear();
 
     // Recompute stepCounter from the largest numeric segment in any imported
     // id of the form `step-<agentId>-<n>-<ts>`, so subsequent generateStepId()
@@ -2990,150 +2151,8 @@ export class TexeraAgent {
    * path) so a Function(...) tool call has identical post-step behaviour to
    * an LLM-emitted one.
    */
-  /**
-   * LOADED STATE — materialize tables as the state in force before the
-   * session's first request, without a model call. The edit program creates
-   * the operators (typically one `scan` per saved table) and the batch
-   * executes them; the step is recorded under its own message, marked
-   * `synthetic: "state"`, so its snapshot and results are inherited by every
-   * later step while nothing about it is rendered into the model's context or
-   * counted as a task. Returns the action receipt.
-   */
-  /** Tasks completed before this conversation, declared with the loaded state. */
-  private taskNumberOffset = 0;
-
-  async seedState(changes: string, completedTasks = 0): Promise<DataflowActionsResult> {
-    if (this.settings.agentMode !== AgentMode.NATIVE) throw new Error("seedState requires native mode");
-    if (!Number.isInteger(completedTasks) || completedTasks < 0)
-      throw new Error("completedTasks must be a non-negative integer");
-    if (this.state !== AgentStateEnum.AVAILABLE) throw new Error(`agent is ${this.state}; seed state while it is idle`);
-    // Loaded state defines task numbering and the system prompt for the whole
-    // session, so it can only be loaded before the first request.
-    if (this.turnOrder().length > 0)
-      throw new Error("seed state before the first request; this session already has requests");
-    const tool = this.tools[TOOL_NAME_DATAFLOW];
-    if (!tool || typeof tool.execute !== "function") throw new Error("dataflow tool is not registered");
-    this.abortController = new AbortController();
-    this.nativeActionAnswer = undefined;
-    this.state = AgentStateEnum.GENERATING;
-    try {
-      const messageId = `seed-state-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
-      this.currentMessageId = messageId;
-      const stepId = this.generateStepId();
-      const toolCallId = `call-${stepId}-state`;
-      const input = {
-        reasoning: "Load the tables in force from the completed tasks.",
-        actions: [{ type: "edit", python: "", changes }, { type: "execute" }],
-      };
-      const output = (await tool.execute(input, { toolCallId, messages: [] })) as DataflowActionsResult;
-      const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
-      const toolResults = [{ toolCallId, output, isError: false }];
-      const step: ReActStep = {
-        id: stepId,
-        parentId: this.head,
-        messageId,
-        stepId: 1,
-        timestamp: Date.now(),
-        role: "agent",
-        content: "",
-        isBegin: true,
-        isEnd: false,
-        toolCalls,
-        toolResults,
-        operatorAccess: computeOperatorAccess(toolCalls, toolResults),
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cachedInputTokens: 0 },
-        synthetic: "state",
-      };
-      this.addStep(step);
-      this.head = stepId;
-      this.maybeCreateSnapshotForHead(this.workflowState.getWorkflowContent());
-      await this.runPostStepExecution(toolCalls, toolResults);
-      this.taskNumberOffset = completedTasks;
-      this.log.info(
-        { messageId, status: output.status, operators: output.operators?.length ?? 0, completedTasks },
-        "seedState: loaded state recorded"
-      );
-      return output;
-    } finally {
-      this.abortController = null;
-      this.currentMessageId = undefined;
-      this.state = AgentStateEnum.AVAILABLE;
-    }
-  }
-
-  /**
-   * SEEDED SOURCE ROOTS — materialize the DAG's roots before the first model
-   * call of this turn. The scans of the task's listed files are the one part
-   * of the dataflow the model cannot decide differently, so the service runs
-   * them and records the result as an ordinary `dataflow` batch step: tool
-   * call, tool result and captured observations, exactly what the model's own
-   * opening scan step would have produced. Zero usage, `synthetic: "seed"`.
-   * Returns true when a seed step was recorded.
-   */
-  private async seedSourceRoots(messageId: string, sources: readonly string[]): Promise<boolean> {
-    if (this.settings.agentMode !== AgentMode.NATIVE) {
-      this.log.warn({ messageId }, "seedSources ignored: requires native mode");
-      return false;
-    }
-    const plan = planSeedSources(sources, this.settings.maxOperatorResultCharLimit);
-    if (plan.operators.length === 0) {
-      this.log.info({ messageId, skipped: plan.skipped }, "seedSources: nothing to seed");
-      return false;
-    }
-    const tool = this.tools[TOOL_NAME_DATAFLOW];
-    if (!tool || typeof tool.execute !== "function") return false;
-    const stepId = this.generateStepId();
-    const toolCallId = `call-${stepId}-seed`;
-    const views = availableRetrievalViews(this.settings);
-    const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : "full";
-    const input = {
-      reasoning: "Load the supplied source files.",
-      actions: [
-        { type: "edit", python: "", changes: plan.operators.map(registeredSeedStatement).join("\n") },
-        { type: "execute" },
-        { type: "retrieve", operator_ids: plan.observe, view },
-      ],
-    };
-    let output: unknown;
-    let isError = false;
-    try {
-      output = await tool.execute(input, { toolCallId, messages: [] });
-    } catch (error: any) {
-      output = `[ERROR] seed failed: ${error?.message ?? String(error)}`;
-      isError = true;
-    }
-    const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
-    const toolResults = [{ toolCallId, output, isError }];
-    const afterStepContent = this.workflowState.getWorkflowContent();
-    const step: ReActStep = {
-      id: stepId,
-      parentId: this.head,
-      messageId,
-      stepId: 1,
-      timestamp: Date.now(),
-      role: "agent",
-      content: "",
-      isBegin: true,
-      isEnd: false,
-      toolCalls,
-      toolResults,
-      operatorAccess: computeOperatorAccess(toolCalls, toolResults),
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cachedInputTokens: 0 },
-      synthetic: "seed",
-    };
-    this.addStep(step);
-    this.head = stepId;
-    this.maybeCreateSnapshotForHead(afterStepContent);
-    await this.runPostStepExecution(toolCalls, toolResults, { maxChars: plan.perSourceChars });
-    this.log.info(
-      { messageId, seeded: plan.observe, skipped: plan.skipped, perSourceChars: plan.perSourceChars },
-      "seeded source roots"
-    );
-    return true;
-  }
-
-  /** Has a retrieval of this task succeeded? A turn-transport reply without a
-   * tool call, or a bare text-transport `Final Answer:` line, ends the task only then. */
+  /** Has a retrieval of this task succeeded? A reply without a tool call ends
+   * the task as its answer only then. */
   private resultShownInMessage(messageId: string): boolean {
     return (this.reActStepsByMessageId.get(messageId) ?? []).some(step =>
       (step.toolResults ?? []).some(tr =>
@@ -3144,13 +2163,12 @@ export class TexeraAgent {
     );
   }
 
-  /** Turn transport: a reply without a tool call before any result was shown
-   * computed nothing. The correction names the first call to make, with a path
-   * from the request when it has one, so a model that hesitates has a turn to copy. */
-  private turnTransportLapseFeedback(): string {
+  /** A reply without a tool call before any result was shown computed
+   * nothing. The correction names the first call to make, with a path from the
+   * request when it has one, so a model that hesitates has a call to copy. */
+  private lapseFeedback(): string {
     const request = [...this.getVisibleReActSteps()].reverse().find(step => step.role === "user" && step.isBegin);
     const starter = JSON.stringify({
-      summary: "Read the first file.",
       python: "",
       statements: `set data: scan(files='${requestFilePath(String(request?.content ?? ""))}')\nshow result data`,
     });
@@ -3168,26 +2186,12 @@ export class TexeraAgent {
     const actions = (toolResults ?? []).map(tr => asDataflowActionsResult(tr.output)).filter(r => r !== undefined);
     if (actions.length && this.head) {
       const stepId = this.head;
-      const previousTasks = this.archivedTaskHistory().filter(
-        task => task.steps[0]?.messageId !== this.stepsById.get(stepId)?.messageId
-      );
       // Several distinct dataflow calls in one response (Qwen splits one turn's
       // work into two or more calls) run in the order given, each with its own
-      // receipt, as if their action lists had been sent as one call. Calls
-      // after an answer are not run: the task ended there.
+      // receipt, as if their action lists had been sent as one call.
       if (actions.length > 1)
         this.log.info({ stepId, calls: actions.length }, "running several dataflow calls from one response in order");
-      let answered = false;
       for (const result of actions) {
-        if (answered) {
-          result.status = "error";
-          result.error = "Not run: an earlier dataflow call in this response answered the task.";
-          for (const item of result.actions) {
-            item.status = "skipped";
-            item.output = result.error;
-          }
-          continue;
-        }
         await executeDataflowActionBatch(result, {
           state: this.workflowState,
           storage: this.snapshotStorage,
@@ -3198,45 +2202,12 @@ export class TexeraAgent {
           },
           context: {
             metadataStore: this.metadataStore,
-            nativeValidationRepair: this.nativeValidationRepair,
             settings: this.settings,
           },
           execute: (operatorIds, onExecution) => this.executePostStepChanges([], [], true, operatorIds, onExecution),
-          edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
-          historicalTasks: previousTasks,
-          taskHistory: previousTasks,
-          taskBaseStepId: this.taskBaseStepId(stepId),
-          taskNumberOffset: this.taskNumberOffset,
-          taskNumber: this.currentTaskNumber(stepId),
-          loadedStepId: this.loadedStepId(),
-          taskChanges: new Map(
-            this.getVisibleReActSteps()
-              .filter(step => step.messageId === this.stepsById.get(stepId)?.messageId)
-              .flatMap(step =>
-                (step.toolResults ?? []).flatMap(result =>
-                  (asDataflowActionsResult(result.output)?.actions ?? [])
-                    .filter(action => action.status === "ok" && action.action.type === "edit")
-                    .flatMap(action =>
-                      (
-                        (action.output as { operator_blocks?: Array<{ id: string; state: string }> })
-                          ?.operator_blocks ?? []
-                      ).map(block => [block.id, block.state] as const)
-                    )
-                )
-              )
-          ),
-          // Every request of the session so far, for the decimal rule an
-          // answer composed from a table has to follow.
-          requestTexts: this.getVisibleReActSteps()
-            .filter(step => step.role === "user" && step.isBegin)
-            .map(step => String(step.content ?? "")),
         });
-        if (result.answer !== undefined) {
-          this.nativeActionAnswer = result.answer;
-          answered = true;
-        }
       }
       const step = this.stepsById.get(stepId);
       if (step) {
@@ -3245,78 +2216,13 @@ export class TexeraAgent {
           const result = asDataflowActionsResult(tr.output);
           if (result) tr.isError = result.status === "error";
         }
-        if (this.nativeActionAnswer !== undefined) {
-          step.content = this.nativeActionAnswer;
-          step.isEnd = true;
-        }
         this.stepCallback?.(step);
       }
       this.snapshotCallback?.(stepId, this.workflowState.getWorkflowContent());
       return;
     }
-    const owningStepId = this.head;
-    const owningSignal = this.abortController?.signal;
-    const requested = batchObservedIds({ toolCalls, toolResults } as Pick<ReActStep, "toolCalls" | "toolResults">);
-    // Capture exposure settings before awaiting the engine. Changing settings
-    // while the request is in flight must not rewrite this event's selection.
-    const options = {
-      data: this.settings.dataEvidence,
-      flow: this.settings.flowEvidence,
-      maxChars: overrides?.maxChars ?? this.settings.maxOperatorResultCharLimit,
-      maxRows: this.settings.maxResultRows,
-    };
+    // Code mode: execute what the step's operator edits changed.
     await this.executePostStepChanges(toolCalls, toolResults);
-    if (
-      requested &&
-      owningStepId &&
-      this.head === owningStepId &&
-      !owningSignal?.aborted &&
-      this.settings.agentMode === AgentMode.NATIVE &&
-      this.snapshotStorage.hasSnapshotFor(owningStepId)
-    ) {
-      for (const call of toolCalls ?? []) {
-        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
-        const batch = asNativeBatchResult(toolResults?.find(result => result.toolCallId === call.toolCallId)?.output);
-        for (const outcome of batch?.operators ?? []) {
-          if (outcome.status !== "error" && outcome.status !== "blocked") continue;
-          const view = outcome.attempted;
-          if (!view || !outcome.id) continue;
-          const diagnostic = outcome.diagnostic ?? {
-            version: 1 as const,
-            operatorId: outcome.id,
-            operatorRevision: view.revision!,
-            code: outcome.status === "blocked" ? "UPSTREAM_FAILED" : "EDIT_REJECTED",
-            stage: outcome.status === "blocked" ? ("dependency" as const) : ("validate" as const),
-            message: outcome.message,
-            hint: "Repair the rejected arguments/upstream dependency and resubmit; the DAG definition was not changed.",
-            retryable: false,
-          };
-          const summary = this.snapshotStorage.captureNativeAttemptDiagnostic(
-            owningStepId,
-            {
-              operatorID: outcome.id,
-              operatorType: "DataProcessing",
-              operatorVersion: "1",
-              operatorProperties: {},
-              inputPorts: [],
-              outputPorts: [],
-              showAdvanced: false,
-              nativeOp: view,
-            },
-            "NATIVE_ERROR_V2:" + JSON.stringify(diagnostic)
-          );
-          outcome.diagnostic = summary.diagnostic;
-          this.nativeValidationRepair.bind(
-            outcome.op,
-            { id: outcome.id, inputs: view.inputs, ...view.properties },
-            summary
-          );
-          outcome.message = `${formatNativeDiagnostic(summary.diagnostic)}\nDiagnostic: ${summary.diagnosticId} (rejected edit; DAG definition unchanged)`;
-        }
-      }
-      this.snapshotStorage.restoreNativeRejectedEdits(owningStepId);
-      this.snapshotStorage.captureNativeObservations(owningStepId, requested, options);
-    }
   }
 
   private async executePostStepChanges(
@@ -3334,13 +2240,6 @@ export class TexeraAgent {
       const tc = toolCalls[i];
       const tr = toolResults.find(result => result.toolCallId === tc.toolCallId);
       if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
-      if (tc.toolName === TOOL_NAME_DATAFLOW) {
-        const batch = asNativeBatchResult(tr?.output);
-        for (const outcome of batch?.operators ?? []) {
-          if (outcome.status === "added" || outcome.status === "modified") editedOpIds.push(outcome.id);
-        }
-        continue;
-      }
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;
@@ -3348,20 +2247,11 @@ export class TexeraAgent {
       if (operatorId) editedOpIds.push(operatorId);
     }
     if (editedOpIds.length === 0 && !executeAll) return;
-    if (this.head && this.settings.agentMode === AgentMode.NATIVE) {
-      this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
-    }
     const execConfig = this.buildExecutionConfig();
     if (!execConfig) {
       if (executeAll) throw new Error("Execution is unavailable: this agent has no backend workflow connection.");
       return;
     }
-
-    // WRITE THROUGH TO THE VERSION STORE — every mode. The store is the only
-    // place a version is a thing rather than an inference; recording here (on
-    // the post-step path, after the write succeeded and the graph settled)
-    // means `inputRefs` capture the wiring that actually landed.
-    this.recordVersionsFor(editedOpIds);
 
     // Build the materialization set: every edited op AND every downstream sink
     // of every edited op. Including the edited op itself is critical for
@@ -3406,71 +2296,7 @@ export class TexeraAgent {
       !owningSignal?.aborted &&
       this.snapshotStorage.hasSnapshotFor(owningStepId);
 
-    // A rejected edit never entered the DAG. Executing a later consumer across
-    // it would silently use the last accepted definition instead of the model's
-    // requested computation. Keep independent branches runnable, but require an
-    // explicit accepted repair for each rejected root (including same-ID/same-code).
-    const blocked = new Map<string, { root: string; revision: string }>();
-    if (owningStepId && this.settings.agentMode === AgentMode.NATIVE) {
-      const roots = new Map(
-        Object.entries(this.snapshotStorage.getAssociatedSnapshot(owningStepId).nativeRejectedEdits ?? {}).map(
-          ([id, summary]) => [id, summary.operatorRevision]
-        )
-      );
-      for (const call of toolCalls) {
-        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
-        const batch = asNativeBatchResult(toolResults.find(result => result.toolCallId === call.toolCallId)?.output);
-        for (const outcome of batch?.operators ?? []) {
-          if (outcome.status !== "error" && outcome.status !== "blocked") continue;
-          const revision = outcome.attempted?.revision;
-          if (revision) roots.set(outcome.id, revision);
-        }
-      }
-      for (const [root, revision] of roots) {
-        for (const id of [root, ...this.workflowState.getDownstreamOperators(root)]) {
-          if (targets.delete(id)) blocked.set(id, { root, revision });
-        }
-      }
-    }
-    const persistBlocked = () => {
-      if (!stillOwned()) return;
-      // Upstream-first writes: each error invalidates its descendants; writing
-      // a downstream first and its parent last would erase the blocked receipt.
-      const pending = new Map(blocked);
-      while (pending.size) {
-        const id =
-          [...pending.keys()].find(
-            id =>
-              !this.workflowState
-                .getAllLinks()
-                .some(link => link.target.operatorID === id && pending.has(link.source.operatorID))
-          ) ?? pending.keys().next().value!;
-        const cause = pending.get(id)!;
-        pending.delete(id);
-        const op = this.workflowState.getOperator(id);
-        if (!op?.nativeOp) continue;
-        this.snapshotStorage.setOperatorResult(owningStepId!, id, {
-          state: "Blocked",
-          inputTuples: 0,
-          outputTuples: 0,
-          resultMode: "table",
-          error:
-            "NATIVE_ERROR_V2:" +
-            JSON.stringify({
-              version: 1,
-              operatorId: id,
-              operatorRevision: op.nativeOp.revision,
-              code: "UPSTREAM_FAILED",
-              stage: "dependency",
-              message: `Not executed: ${cause.root} revision ${cause.revision} was rejected. Explicitly repair/resubmit that operator before using its downstream results.`,
-            }),
-        });
-      }
-    };
-    if (targets.size === 0) {
-      persistBlocked();
-      return;
-    }
+    if (targets.size === 0) return;
 
     // One execution covers every edit in this step. `executeWorkflowAndPersist`
     // fires `onResult` for every operator that ran on the backend — including
@@ -3526,7 +2352,6 @@ export class TexeraAgent {
         } as any);
       }
     }
-    persistBlocked();
     if (executeAll && failure) throw new Error(failure);
   }
 
@@ -3588,13 +2413,11 @@ export class TexeraAgent {
     error?: string;
   }> {
     this.abortController = new AbortController();
-    this.nativeActionAnswer = undefined;
     this.state = AgentStateEnum.GENERATING;
 
     try {
       // Plain user text → start a new task (fresh messageId, stepId 0).
       if (!looksLikeFunctionCall(content)) {
-        this.nativeValidationRepair.clear();
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
 
@@ -3634,7 +2457,6 @@ export class TexeraAgent {
         isBegin = false;
       } else {
         messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
-        this.nativeValidationRepair.clear();
         stepId = 0;
         isBegin = true;
       }

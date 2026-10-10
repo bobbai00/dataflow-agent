@@ -72,8 +72,11 @@ describe("computeOperatorAccess", () => {
   });
 
   test("native mode: the dataflow receipt names what landed and what was observed", () => {
-    const batch = (operators: Array<{ id: string; status: string }>, observe: string[]) => ({
-      kind: "native-batch",
+    const receipt = (operators: Array<{ id: string; status: string }>, observe: string[]) => ({
+      kind: "dataflow-actions",
+      protocol: "registered-python-v1",
+      status: "completed",
+      actions: [],
       operators: operators.map(o => ({ ...o, op: "filter", message: "" })),
       observe,
       observationErrors: [],
@@ -81,20 +84,20 @@ describe("computeOperatorAccess", () => {
     const access = computeOperatorAccess(
       [
         call("dataflow", "a", {
-          edits: "web_fraud = filter(contributors, lambda row: row['amount'] > 1, doc='amount above 1')",
-          observe: ["web_fraud"],
+          python: "",
+          statements: "set web_fraud: filter(contributors, predicate='large')\nshow result web_fraud",
         }),
         call("dataflow", "m", {
-          edits: "web_fraud = filter(contributors, lambda row: row['amount'] > 2, doc='amount above 2')",
-          observe: [],
+          python: "",
+          statements: "set web_fraud: filter(contributors, predicate='larger')",
         }),
         call("deleteOperator", "d", { id: "probe" }),
       ],
       [
-        result("a", batch([{ id: "web_fraud", status: "added" }], ["web_fraud"])),
+        result("a", receipt([{ id: "web_fraud", status: "added" }], ["web_fraud"])),
         result(
           "m",
-          batch(
+          receipt(
             [
               { id: "web_fraud", status: "modified" },
               { id: "bad", status: "error" },

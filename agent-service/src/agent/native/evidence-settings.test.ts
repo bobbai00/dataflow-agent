@@ -20,7 +20,7 @@
 import { expect, test } from "bun:test";
 import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { mapLegacyToParams, SummarizeParamsPatchSchema } from "../context/summarize/params";
-import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
+import { REGISTERED_OPERATOR_NAMES, registeredCatalogText } from "./registered";
 import { profileDiff } from "./selection";
 import { parseRolePolicyConfig } from "../context/selector/role-policy";
 import { TexeraAgent } from "../texera-agent";
@@ -38,12 +38,10 @@ const removed = [
   "statScopes",
 ];
 
-test("the prompt's operator reference lists every operator's signature once", () => {
-  const catalog = nativeCatalogText();
-  for (const def of NATIVE_OPERATORS) {
-    expect(catalog.split(`= ${def.signature}`)).toHaveLength(2);
-    expect(catalog).toContain(def.doc);
-  }
+test("the prompt's operator index lists every built-in once, signature first", () => {
+  const entries = registeredCatalogText().split("\n\n");
+  expect(entries).toHaveLength(REGISTERED_OPERATOR_NAMES.length);
+  for (const [i, name] of REGISTERED_OPERATOR_NAMES.entries()) expect(entries[i]).toStartWith(`${name}(`);
 });
 
 test("nested rendering overrides cannot restore old evidence channels", () => {
@@ -78,7 +76,7 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   for (const key of removed) expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, key)).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).dataEvidence).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).flowEvidence).toBe(false);
-  expect((DEFAULT_AGENT_SETTINGS as any).dataflowReasoning).toBe(true);
+  expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, "dataflowReasoning")).toBe(false);
 });
 
 for (const key of removed) {
@@ -125,10 +123,25 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     }
 }
 
-for (const key of ["dataEvidence", "flowEvidence", "dataflowReasoning"]) {
+for (const key of ["dataEvidence", "flowEvidence"]) {
   test(`${key} is a boolean, never a truthy level or string`, () => {
     for (const value of [1, "true", null]) {
       expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(/boolean/);
     }
   });
 }
+
+test("settings of the removed protocols and multi-task state are refused with the reason", () => {
+  for (const key of [
+    "nativeTransport",
+    "dataflowReasoning",
+    "nativePromptDetail",
+    "multiTask",
+    "stateHistory",
+    "specAudit",
+  ])
+    for (const value of [true, false, "text"])
+      expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(
+        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and no multi-task state`
+      );
+});

@@ -27,24 +27,25 @@ import { createAgent, deleteAgent, getReActSteps } from "../../src/api/agent-ser
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { env } from "../../src/config/env";
 import { WorkflowState } from "../../src/agent/workflow-state";
-import type { DataflowAction, DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import type { DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
 import { renderDataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import { dataflowDebugInput } from "./native-debug-input";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3001";
 const repo = Bun.argv[2];
 assert.ok(repo, "Pass the repository root");
 
-async function debug(agentId: string, actions: DataflowAction[]) {
+async function debug(agentId: string, python: string, statements: string) {
+  const content = dataflowDebugInput(python, statements);
   return new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${agentId}/react`);
     let sent = false;
-    const timer = setTimeout(() => (ws.close(), reject(new Error("Debug action timed out"))), 240_000);
+    const timer = setTimeout(() => (ws.close(), reject(new Error("Debug call timed out"))), 240_000);
     ws.onmessage = event => {
       const frame = JSON.parse(String(event.data));
       if (frame.type === "init" && !sent) {
         sent = true;
-        const args = { reasoning: "Probe the execution sandbox.", actions };
-        ws.send(JSON.stringify({ type: "debug", content: `Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify(args))})` }));
+        ws.send(JSON.stringify({ type: "debug", content }));
       } else if (frame.type === "complete" || frame.type === "error") {
         clearTimeout(timer);
         ws.close();
@@ -55,35 +56,41 @@ async function debug(agentId: string, actions: DataflowAction[]) {
   });
 }
 
-const probe = `cities = scan("data/archeology/input/worldcities.csv")
-escape = process(cities, fn=escape, doc="Attempt to read outside the task data")
-    def escape(cities):
-        import os, subprocess
-        import pandas as pd
-        repo = ${JSON.stringify(repo)}
-        def attempt(name, fn):
-            try:
-                return {"check": name, "result": str(fn())[:160]}
-            except Exception as error:
-                return {"check": name, "result": "blocked: " + type(error).__name__}
-        def run(*argv):
-            done = subprocess.run(list(argv), capture_output=True, text=True)
-            return f"exit {done.returncode}: {(done.stdout or done.stderr).strip()[:100]}"
-        rows = [
-            {"check": "task rows scanned", "result": str(len(cities))},
-            attempt("cwd", os.getcwd),
-            attempt("repo .git exists", lambda: os.path.exists(os.path.join(repo, ".git"))),
-            attempt("gold answers exist", lambda: os.path.exists(os.path.join(repo, "benchmark/Kramabench/workload/archeology.json"))),
-            attempt("cat gold answers", lambda: run("cat", os.path.join(repo, "benchmark/Kramabench/workload/archeology.json"))),
-            attempt("list reference solutions", lambda: sorted(os.listdir(os.path.join(repo, "benchmark/Kramabench/solutions")))),
-            attempt("git show gold answers", lambda: run("git", "-C", os.path.join(repo, "benchmark/Kramabench"), "show", "HEAD:workload/archeology.json")),
-            attempt("git from cwd", lambda: run("git", "log", "-1", "--oneline")),
-            attempt("home entries", lambda: sorted(os.listdir("/home"))),
-            attempt("walk cwd", lambda: sorted({os.path.relpath(r) for r, _, _ in os.walk(".") if r.count(os.sep) <= 2})),
-            attempt("touch task data", lambda: run("touch", "data/archeology/input/probe.txt")),
-            attempt("data still listed", lambda: sorted(os.listdir("data/archeology/input"))),
-        ]
-        return pd.DataFrame(rows)`;
+const probe = `import os
+import subprocess
+import pandas as pd
+
+def probe_sandbox(cities, *, repo):
+    """Attempt to read outside the task data."""
+    def attempt(name, fn):
+        try:
+            return {"check": name, "result": str(fn())[:160]}
+        except Exception as error:
+            return {"check": name, "result": "blocked: " + type(error).__name__}
+    def run(*argv):
+        done = subprocess.run(list(argv), capture_output=True, text=True)
+        return f"exit {done.returncode}: {(done.stdout or done.stderr).strip()[:100]}"
+    rows = [
+        {"check": "task rows scanned", "result": str(len(cities))},
+        attempt("cwd", os.getcwd),
+        attempt("repo .git exists", lambda: os.path.exists(os.path.join(repo, ".git"))),
+        attempt("gold answers exist", lambda: os.path.exists(os.path.join(repo, "benchmark/Kramabench/workload/archeology.json"))),
+        attempt("cat gold answers", lambda: run("cat", os.path.join(repo, "benchmark/Kramabench/workload/archeology.json"))),
+        attempt("list reference solutions", lambda: sorted(os.listdir(os.path.join(repo, "benchmark/Kramabench/solutions")))),
+        attempt("git show gold answers", lambda: run("git", "-C", os.path.join(repo, "benchmark/Kramabench"), "show", "HEAD:workload/archeology.json")),
+        attempt("git from cwd", lambda: run("git", "log", "-1", "--oneline")),
+        attempt("home entries", lambda: sorted(os.listdir("/home"))),
+        attempt("walk cwd", lambda: sorted({os.path.relpath(r) for r, _, _ in os.walk(".") if r.count(os.sep) <= 2})),
+        attempt("touch task data", lambda: run("touch", "data/archeology/input/probe.txt")),
+        attempt("data still listed", lambda: sorted(os.listdir("data/archeology/input"))),
+    ]
+    return pd.DataFrame(rows)
+`;
+const statements = [
+  "set cities: scan(files='data/archeology/input/worldcities.csv')",
+  `set escape: probe_sandbox(cities, repo=${JSON.stringify(repo)})`,
+  "show result escape full",
+].join("\n");
 
 const token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
 const cu = await createComputingUnit(token, `sandbox-probe-${Date.now()}`, {
@@ -95,12 +102,23 @@ const wid = await createWorkflow(token, `sandbox-probe-${Date.now()}`, new Workf
 let agentId = "";
 try {
   const agent = await createAgent({
-    baseUrl, userToken: token, modelType: "gpt-5.6-luna", workflowId: wid, computingUnitId: cuid,
-    settings: { agentMode: "native", contextMode: "delta", messageLayout: "native", maxSteps: 4,
-      dataEvidence: false, flowEvidence: false, resultSelection: "all" },
+    baseUrl,
+    userToken: token,
+    modelType: "gpt-5.6-luna",
+    workflowId: wid,
+    computingUnitId: cuid,
+    settings: {
+      agentMode: "native",
+      contextMode: "delta",
+      messageLayout: "native",
+      maxSteps: 4,
+      dataEvidence: false,
+      flowEvidence: false,
+      resultSelection: "all",
+    },
   });
   agentId = agent.id;
-  await debug(agentId, [{ type: "edit", changes: probe }, { type: "execute" }, { type: "retrieve", operator_id: "escape", view: "full" }]);
+  await debug(agentId, probe, statements);
   const trace = await getReActSteps(agentId, baseUrl);
   const result = trace.steps.flatMap(step => step.toolResults ?? []).at(-1)!.output as DataflowActionsResult;
   console.log(renderDataflowActionsResult(result));

@@ -21,7 +21,8 @@ import { expect, spyOn, test } from "bun:test";
 import { TexeraAgent } from "./texera-agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { planRegisteredGraphEdit } from "./tools/graph-edits";
-import { prepareRegisteredDataflowActions, renderDataflowActionsResult } from "./tools/dataflow-actions";
+import { renderDataflowActionsResult } from "./tools/dataflow-actions";
+import { prepareDataflowCall } from "./tools/turn-tool";
 import type { ReActStep } from "../types/agent";
 
 for (const success of [true, false]) {
@@ -45,8 +46,9 @@ for (const success of [true, false]) {
     agent.head = "A";
     agent.snapshotStorage.createSnapshot("A", plan.workflow);
     agent.abortController = new AbortController();
-    const input = { reasoning: "Execute requested data.", actions: [{ type: "execute", operator_ids: ["source"] }] };
-    const output = prepareRegisteredDataflowActions(input);
+    const input = { python: "", statements: "execute source" };
+    const output = prepareDataflowCall(input);
+    expect(output.actions.map(item => item.action)).toEqual([{ type: "execute", operator_ids: ["source"] }]);
     const calls = [{ toolName: "dataflow", toolCallId: "t", input }];
     const results = [{ toolCallId: "t", output }];
     agent.stepsById.set("A", {

@@ -74,7 +74,7 @@ export function inspectRegisteredNamespace(workflow: WorkflowContent, names?: st
           : []),
         ...(implementation
           ? [
-              "Source shows the selected current declarations. Other globals resolve from the current namespace; inspect their names when needed. Function defaults retain their definition-time bindings.",
+              "Source shows the selected current declarations. Other globals resolve from the current namespace; show function reads them when needed. Function defaults retain their definition-time bindings.",
             ]
           : []),
       ].join("\n\n")
@@ -148,141 +148,10 @@ export function inspectRegisteredSchema(
         columns.map(c => [String(c.index), JSON.stringify(c.name), c.type].map(v => tableCell(v, "markdown"))),
         "markdown"
       ),
-      ...(next === null
-        ? []
-        : [
-            `More columns: inspect target="schema", operator_id=${JSON.stringify(op.operatorID)}, offset=${next}, limit=${limit}.`,
-          ]),
+      ...(next === null ? [] : [`More columns: show schema ${op.operatorID} from ${next}.`]),
     ].join("\n"),
   };
 }
 
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, any>) : {};
-
-/** Compact discovery from retained engine scan metadata and raw preview rows.
- * This does not open local files or reinterpret a raw row as a parsed schema. */
-export function inspectRegisteredSource(
-  op: OperatorPredicate,
-  saved: OperatorInfo | undefined,
-  offset = 0,
-  limit = INSPECTION_PAGE_LIMIT
-) {
-  validatePage(offset, limit);
-  if (op.nativeOp?.type !== "Scan")
-    throw new Error("SOURCE_REQUIRES_SCAN: inspect source requires a scan operator, including a scan preview.");
-  const info = currentResult(op, saved);
-  const scan = record(record(info.tableProfile?.native?.operations).scan);
-  const sources = (Array.isArray(scan.sources) ? scan.sources : []).map(record);
-  const workbooks = sources.filter(source => source.format === "excel" || Array.isArray(source.sheets));
-  const preview = !!op.nativeOp.properties.preview;
-  const rawRows = preview ? (info.result ?? []).filter(row => typeof row.sheet === "string") : [];
-  const names = [
-    ...new Set([
-      ...workbooks.flatMap(source =>
-        Array.isArray(source.sheets)
-          ? source.sheets.filter((name: unknown): name is string => typeof name === "string")
-          : []
-      ),
-      ...rawRows.map(row => row.sheet as string),
-    ]),
-  ];
-  const all = names.map(name => {
-    const rows = rawRows.filter(
-      row => row.sheet === name && typeof row.line === "string" && Number.isInteger(row.row_no)
-    );
-    const first = rows.sort((a, b) => a.row_no - b.row_no)[0];
-    // Head/tail retention must not promote a later record to a header hint.
-    const initial = first?.row_no === (op.nativeOp!.properties.skipLines ?? 0) ? first : undefined;
-    const line = initial?.line as string | undefined;
-    const clipped = !!line && (line.length > 8000 || line.includes("...[truncated]..."));
-    return {
-      name,
-      first_raw_row: line === undefined ? null : line.slice(0, 8000),
-      row_no: initial?.row_no ?? null,
-      first_raw_row_truncated: clipped,
-    };
-  });
-  const sheets: typeof all = [];
-  let budget = 0;
-  for (const sheet of all.slice(offset, offset + limit)) {
-    const length = JSON.stringify(sheet).length;
-    if (sheets.length && budget + length > INSPECTION_TEXT_BUDGET) break;
-    sheets.push(sheet);
-    budget += length;
-  }
-  const next = offset + sheets.length < names.length ? offset + sheets.length : null;
-  const completeNames =
-    preview &&
-    op.nativeOp.properties.sheet === undefined &&
-    workbooks.length === 1 &&
-    Array.isArray(workbooks[0].sheets) &&
-    !(scan.sourcesOmitted > 0) &&
-    !(scan.omittedFiles > 0);
-  const selectedSources = sources.map(source => ({
-    path: typeof source.path === "string" ? source.path : null,
-    format: source.format ?? null,
-  }));
-  const lines = [
-    `Source discovery for \`${op.operatorID}\`: retained engine metadata only; never reads files or executes.`,
-    ...(selectedSources.length
-      ? [
-          renderTable(
-            ["source", "format"],
-            selectedSources.map(source =>
-              [JSON.stringify(source.path), String(source.format)].map(v => tableCell(v, "markdown"))
-            ),
-            "markdown"
-          ),
-        ]
-      : ["Source paths and sheet-name metadata were not retained."]),
-    ...(names.length
-      ? [
-          `Workbook sheets: ${completeNames ? "complete names for the scanned workbook" : "known names only; other sheets may exist"}; showing ${sheets.length} of ${names.length} retained names. First raw rows are raw layout hints, not parsed column schemas.`,
-          renderTable(
-            ["sheet", "first raw row", "status"],
-            sheets.map(sheet =>
-              [
-                JSON.stringify(sheet.name),
-                sheet.first_raw_row === null ? "—" : JSON.stringify(sheet.first_raw_row),
-                sheet.first_raw_row === null
-                  ? "empty or first raw row not retained"
-                  : sheet.first_raw_row_truncated
-                    ? "clipped"
-                    : "retained",
-              ].map(v => tableCell(v, "markdown"))
-            ),
-            "markdown"
-          ),
-        ]
-      : [
-          "No worksheet names were retained; a workbook preview scan keeps them.",
-        ]),
-    ...(scan.omittedFiles > 0
-      ? [
-          `Preview omitted ${scan.omittedFiles} resolved files; inspect another explicitly selected file to discover it.`,
-        ]
-      : []),
-    ...(scan.sourcesOmitted > 0
-      ? [`Source metadata omitted ${scan.sourcesOmitted} selected sources; this source list is partial.`]
-      : []),
-    ...(next === null
-      ? []
-      : [
-          `More sheets: inspect target="source", operator_id=${JSON.stringify(op.operatorID)}, offset=${next}, limit=${limit}.`,
-        ]),
-  ];
-  return {
-    operator_id: op.operatorID,
-    result_version: info.resultVersion?.id ?? null,
-    sources: selectedSources,
-    sources_omitted: scan.sourcesOmitted ?? null,
-    selected_files: scan.selectedFiles ?? null,
-    total_sheets_retained: names.length,
-    sheets,
-    sheet_names_complete: completeNames,
-    offset,
-    next_offset: next,
-    text: lines.join("\n"),
-  };
-}

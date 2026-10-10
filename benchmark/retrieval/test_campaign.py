@@ -97,30 +97,32 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(findings["violations"], [])
             self.assertEqual(findings["action_errors"], 1)
 
-    def test_campaign_audits_text_receipts_on_the_wire(self):
+    def test_campaign_audits_tool_receipts_on_the_wire(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
-            settings = {"nativeTransport": "text", "retrievalViews": ["sample"], "flowEvidence": False}
+            settings = {"retrievalViews": ["sample"], "flowEvidence": False}
             (path / "settings.json").write_text(json.dumps(settings))
             (path / "react_steps.json").write_text("[]")
             (path / "wire").mkdir()
-            request = {"messages": [
-                {"role": "system", "content": "Python functions you register. Each execution runs in isolation. Each message you send is one turn."},
+            call = {"id": "c1", "type": "function", "function": {
+                "name": "dataflow", "arguments": json.dumps({"python": "", "statements": "show result rows"})}}
+            request = {"tools": [{"type": "function", "function": {"name": "dataflow"}}], "parallel_tool_calls": False,
+                       "messages": [
+                {"role": "system", "content": "Python functions you register. Each execution runs in isolation. Use `statements`."},
                 {"role": "user", "content": "task"},
-                {"role": "assistant", "content": "summary: Inspect rows.\nshow result rows"},
-                {"role": "user", "content": "## show result rows\n- flow: 10 → 4 rows"},
+                {"role": "assistant", "content": "", "tool_calls": [call]},
+                {"role": "tool", "tool_call_id": "c1", "content": "## show result rows\n- flow: 10 → 4 rows"},
             ]}
             (path / "wire/0001-request.json").write_text(json.dumps(request))
             findings = audit_attempt(path, settings)
             self.assertIn("flow_markdown_leak", findings["violations"])
-            self.assertEqual(findings["wire_audit"]["observations"]["text_receipts"], 1)
+            self.assertEqual(findings["wire_audit"]["observations"]["tool_messages"], 1)
 
-    def test_turn_transport_final_reply_is_the_answer_but_a_lapse_is_not(self):
+    def test_final_reply_is_the_answer_but_a_lapse_is_not(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
             settings = {"agentMode": "native", "retrievalViews": ["sample", "full"], "flowEvidence": False}
             (path / "settings.json").write_text(json.dumps(settings))
-            (path / "config.json").write_text(json.dumps({"driver": "turn-tool"}))
             receipt = {"kind": "dataflow-actions", "status": "completed", "actions": [
                 {"action": {"type": "retrieve", "operator_ids": ["rows"], "view": "sample"}, "status": "ok",
                  "output": {"results": [{"status": "ok", "operator_id": "rows", "evidence": []}]}}]}
@@ -129,14 +131,14 @@ class CampaignTests(unittest.TestCase):
             final = {"role": "agent", "inputMessages": [], "toolCalls": [], "content": "**Final Answer: 4**", "isEnd": True}
             (path / "react_steps.json").write_text(json.dumps([call, final]))
             findings = audit_attempt(path, settings)
-            self.assertNotIn("missing_answer_action", findings["warnings"])
+            self.assertNotIn("missing_answer", findings["warnings"])
             self.assertNotIn("text_without_dataflow", findings["warnings"])
             lapse = {"role": "agent", "inputMessages": [], "toolCalls": [], "content": "I cannot open files.", "isEnd": False}
             (path / "react_steps.json").write_text(json.dumps([lapse, call, final]))
             self.assertIn("text_without_dataflow", audit_attempt(path, settings)["warnings"])
-            failed = {**final, "content": "Error: The turn ended without an answer action."}
+            failed = {**final, "content": "Error: The turn ended before any result was shown."}
             (path / "react_steps.json").write_text(json.dumps([call, failed]))
-            self.assertIn("missing_answer_action", audit_attempt(path, settings)["warnings"])
+            self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
 
     def test_partial_batch_failure_still_audits_successful_result(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -170,24 +172,24 @@ class CampaignTests(unittest.TestCase):
             self.assertEqual(findings["envelope_errors"], 2)
             self.assertEqual(findings["action_errors"], 1)
             self.assertEqual(findings["violations"], [])
-            self.assertIn("missing_answer_action", findings["warnings"])
+            self.assertIn("missing_answer", findings["warnings"])
 
-    def test_native_text_answer_is_flagged_until_an_answer_action_succeeds(self):
+    def test_a_reply_before_any_result_is_a_lapse_until_a_final_reply_ends_the_task(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
             settings = {"agentMode": "native", "retrievalViews": ["sample_stats"], "flowEvidence": False}
             (path / "settings.json").write_text(json.dumps(settings))
             steps = [{"role": "agent", "content": "Final Answer: No", "inputMessages": [{"role": "user", "content": "question"}], "toolCalls": []},
-                     {"role": "agent", "content": "Error: No final answer was produced."}]
+                     {"role": "agent", "content": "Error: No final answer was produced.", "isEnd": True}]
             (path / "react_steps.json").write_text(json.dumps(steps))
             findings = audit_attempt(path, settings)
             self.assertEqual(findings["violations"], [])
-            self.assertEqual(set(findings["warnings"]), {"text_without_dataflow", "missing_answer_action"})
+            self.assertEqual(set(findings["warnings"]), {"text_without_dataflow", "missing_answer"})
             self.assertEqual(findings["text_replies"], 1)
-            steps.append({"toolResults": [{"output": {"actions": [{"action": {"type": "answer", "content": "No"}, "status": "ok"}]}}]})
+            steps[-1] = {"role": "agent", "content": "Final Answer: No", "inputMessages": [], "toolCalls": [], "isEnd": True}
             (path / "react_steps.json").write_text(json.dumps(steps))
             findings = audit_attempt(path, settings)
-            self.assertNotIn("missing_answer_action", findings["warnings"])
+            self.assertNotIn("missing_answer", findings["warnings"])
             self.assertEqual(findings["text_replies"], 1)
 
 

@@ -23,9 +23,9 @@ from pathlib import Path
 import re
 
 try:
-    from .metrics import retrieval_results
+    from .metrics import final_reply, retrieval_results
 except ImportError:
-    from metrics import retrieval_results
+    from metrics import final_reply, retrieval_results
 
 
 def read(path, default=None):
@@ -44,25 +44,11 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def retrieval_enums(value):
-    """Find action variants without depending on JSON Schema wrapper depth."""
-    if isinstance(value, dict):
-        properties = value.get("properties", {})
-        if properties.get("type", {}).get("const") == "retrieve":
-            yield properties.get("view", {}).get("enum")
-        for child in value.values():
-            yield from retrieval_enums(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from retrieval_enums(child)
-
-
 FLOW_LINE = re.compile(r"^\s*-\s*flow(?: \([^\n]*\))?:", re.MULTILINE)
 DATA_LINE = re.compile(r"^\s*(?:-\s*)?statistics:", re.MULTILINE)
 DATA_TABLE = re.compile(r"^\s*statistics: (?:full table|partial profile), [\d,]+ of ", re.MULTILINE)
-ACTION_HEADING = re.compile(r"^### \d+\. (inspect|edit|execute|retrieve|answer)\b", re.MULTILINE)
-TEXT_HEADING = re.compile(r"^## (edits (?:applied|rejected)|execute\b[^\n]*|show (?:result|schema|operator|function|builtin)\b[^\n]*|turn rejected|answer)\s*$", re.MULTILINE)
-TEXT_RETRIEVAL_VIEW = re.compile(r"^[ \t]*show[ \t]+result[ \t]+[A-Za-z_]\w*[^\n]*[ \t]+(full|sample_stats|sample)[ \t]*$", re.MULTILINE)
+RECEIPT_HEADING = re.compile(r"^## (edits (?:applied|rejected)|execute\b[^\n]*|show (?:result|schema|operator|function|builtin)\b[^\n]*|(?:call|turn) rejected)\s*$", re.MULTILINE)
+STATEMENT_VIEW = re.compile(r"^[ \t]*show[ \t]+result[ \t]+[A-Za-z_]\w*[^\n]*[ \t]+(full|sample_stats|sample)[ \t]*$", re.MULTILINE)
 FULL_STATISTICS = re.compile(r"statistics: full table, ([\d,]+) of ([\d,]+) rows, ([\d,]+) of ([\d,]+) columns")
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
@@ -70,12 +56,6 @@ COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 def audit_attempt(path, settings):
     path = Path(path)
     views = settings.get("retrievalViews", [])
-    config = read(path / "config.json", {})
-    driver = settings.get("driver", config.get("driver"))
-    text_transport = settings.get("nativeTransport") == "text" or driver == "text-turn"
-    # The turn tool carries statements, so its schema names no retrieval view;
-    # the receipt (a tool message) uses the text transport's headings.
-    turn_transport = settings.get("nativeTransport") == "turn" or driver == "turn-tool"
     data_enabled, flow_enabled = "sample_stats" in views, bool(settings.get("flowEvidence"))
     violations, warnings, details = set(), set(), []
     counters = {key: Counter() for key in ("observations", "retrievals", "execution", "profiles")}
@@ -116,20 +96,13 @@ def audit_attempt(path, settings):
         if tools_hash is not None and current_tools != tools_hash:
             issue("tool_schema_changed", location)
         tools_hash = current_tools
-        enums = list(retrieval_enums(request.get("tools", [])))
-        if text_transport:
-            if request.get("tools"):
-                issue("tools_in_text_transport", location)
-        elif turn_transport:
-            if not request.get("tools"):
-                issue("missing_turn_tool", location)
-            if request.get("tool_choice") not in (None, "auto"):
-                issue("forced_tool_choice_in_turn_transport", location)
-        elif not enums:
-            issue("missing_retrieval_schema", location)
-        elif any(enum != views for enum in enums):
-            issue("retrieval_schema_mismatch", location)
-        if not text_transport and request.get("parallel_tool_calls") is not False:
+        # The dataflow tool carries statements, so its schema names no
+        # retrieval view; the model answers by replying without it.
+        if not request.get("tools"):
+            issue("missing_dataflow_tool", location)
+        if request.get("tool_choice") not in (None, "auto"):
+            issue("forced_tool_choice", location)
+        if request.get("parallel_tool_calls") is not False:
             issue("parallel_tool_calls_not_disabled", location)
         # OpenAI-compatible gateways may encode the same application system
         # prompt as a developer message. Audit both high-priority wire roles.
@@ -142,51 +115,41 @@ def audit_attempt(path, settings):
         if not (re.search(r"Python functions you (?:can )?register", system) and
                 re.search(r"(?:isolated environment|execution runs in isolation)", system)):
             issue("registered_prompt_missing", location)
-        if text_transport and "summary:" not in system and "Each message you send is one turn" not in system:
-            issue("text_prompt_missing", location)
-        if turn_transport and "`statements`" not in system:
-            issue("turn_prompt_missing", location)
+        if "`statements`" not in system:
+            issue("dataflow_prompt_missing", location)
         if bool(re.search(r"Column statistics (?:are collected|in `sample_stats`)", system)) != data_enabled:
             issue("data_prompt_mismatch", location)
         if bool(re.search(r"Flow statistics (?:describe measured|report measured)", system)) != flow_enabled:
             issue("flow_prompt_mismatch", location)
-        example_views = re.findall(r'"view"\s*:\s*"(full|sample_stats|sample)"', system)
-        if text_transport or turn_transport:
-            example_views.extend(TEXT_RETRIEVAL_VIEW.findall(system))
-            # Turn-tool examples carry their statements inside JSON strings.
-            unquoted = re.sub(r'["}\]]+', "", system.replace("\\n", "\n"))
-            example_views.extend(TEXT_RETRIEVAL_VIEW.findall(unquoted))
+        example_views = STATEMENT_VIEW.findall(system)
+        # Example calls carry their statements inside JSON strings.
+        unquoted = re.sub(r'["}\]]+', "", system.replace("\\n", "\n"))
+        example_views.extend(STATEMENT_VIEW.findall(unquoted))
         if any(view not in views for view in example_views):
             issue("disabled_view_in_prompt_example", location)
         for index, message in enumerate(messages):
             role = message.get("role")
             text = content_text(message.get("content"))
-            # Text receipts follow an assistant turn; a task containing a quoted
-            # receipt is not itself an environment observation. Adjacent feedback
-            # messages are left out. Position is stable in the append-only wire log.
-            text_receipt = (text_transport and role == "user" and index > 0 and
-                            messages[index - 1].get("role") == "assistant" and TEXT_HEADING.search(text))
-            if role != "tool" and not text_receipt:
+            if role != "tool":
                 continue
             # The same tool receipt is replayed on every later model request.
-            identity = (index if text_receipt else message.get("tool_call_id"), text)
+            identity = (message.get("tool_call_id"), text)
             if identity in seen_observations:
                 continue
             seen_observations.add(identity)
             counts = counters["observations"]
-            counts["text_receipts" if text_receipt else "tool_messages"] += 1
+            counts["tool_messages"] += 1
             counts["characters"] += len(text)
             counts["max_characters"] = max(counts["max_characters"], len(text))
             counts["with_flow"] += bool(FLOW_LINE.search(text))
             counts["with_statistics_caption"] += bool(DATA_LINE.search(text))
             counts["with_table_statistics"] += bool(DATA_TABLE.search(text))
-            for action in ACTION_HEADING.findall(text):
+            for heading in RECEIPT_HEADING.findall(text):
+                action = ("edit" if heading.startswith("edits ") else "retrieve" if heading.startswith("show result")
+                          else "inspect" if heading.startswith("show ") else "rejected" if heading.endswith("rejected")
+                          else heading.split()[0])
                 counts[f"{action}_blocks"] += 1
-            if text_receipt or turn_transport:
-                for heading in TEXT_HEADING.findall(text):
-                    action = "edit" if heading.startswith("edits ") else "retrieve" if heading.startswith("show result") else "inspect" if heading.startswith("show ") else heading.split()[0]
-                    counts[f"{action}_blocks"] += 1
-            display(text, f"{location}:{role}:{index if text_receipt else message.get('tool_call_id', '?')}")
+            display(text, f"{location}:{role}:{message.get('tool_call_id', '?')}")
     if not requests:
         issue("missing_wire_requests", "wire", warning=True)
 
@@ -196,7 +159,8 @@ def audit_attempt(path, settings):
     if raw is None:
         issue("missing_trace", "react_steps.json", warning=True)
     steps = raw if isinstance(raw, list) else (raw or {}).get("steps", [])
-    answers = action_failures = 0
+    action_failures = 0
+    answers = int(final_reply(steps))
     for step in steps:
         for result in step.get("toolResults", []):
             output = result.get("output")
@@ -208,7 +172,6 @@ def audit_attempt(path, settings):
                 action, observed = item.get("action", {}), item.get("output") or {}
                 location = f"step:{step.get('stepId')}/action:{index}"
                 action_failures += item.get("status") == "error"
-                answers += action.get("type") == "answer" and item.get("status") == "ok"
                 if not isinstance(observed, dict):
                     continue
                 # These fields form Markdown even for execute and inspect, where
@@ -239,7 +202,7 @@ def audit_attempt(path, settings):
                                 counts[name] += value
                 if action.get("type") == "retrieve":
                     counts = counters["retrievals"]
-                    requested = action.get("operator_ids") or ([action["operator_id"]] if action.get("operator_id") else [])
+                    requested = action.get("operator_ids") or []
                     counts["actions_requested"] += 1
                     counts["targets_requested"] += len(requested)
                     if action.get("view") == "sample_stats":
@@ -349,8 +312,6 @@ def audit_matrix(directory):
         path = directory / "system_scratch" / job["sut"] / job["task"]
         present = (path / "react_steps.json").exists()
         settings = {**manifest.get("settings", {}), **manifest.get("arms", {}).get(job["arm"], {})}
-        if manifest.get("driver"):
-            settings["driver"] = manifest["driver"]
         row = {**job, "audit": audit_attempt(path, settings) if present else None,
                "official_evaluation": read(path / "evaluation.json")}
         rows.append(row)

@@ -27,7 +27,7 @@ import { VercelToolUseDriver } from "./vercel-tool-use-driver";
 
 type Reply = { text?: string; call?: Record<string, string> };
 
-/** An agent on the turn transport whose model replies with the given calls or texts in order. */
+/** A native agent whose model replies with the given dataflow calls or texts in order. */
 function fixture(replies: Reply[]) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
@@ -38,17 +38,16 @@ function fixture(replies: Reply[]) {
       prompts.push(structuredClone(options.prompt));
       choices.push(options.toolChoice);
       const reply = replies[Math.min(calls++, replies.length - 1)];
+      const content: any[] = reply.text !== undefined ? [{ type: "text" as const, text: reply.text }] : [];
+      if (reply.call)
+        content.push({
+          type: "tool-call" as const,
+          toolCallId: `call-${calls}`,
+          toolName: "dataflow",
+          input: JSON.stringify(reply.call),
+        });
       return {
-        content: reply.call
-          ? [
-              {
-                type: "tool-call" as const,
-                toolCallId: `call-${calls}`,
-                toolName: "dataflow",
-                input: JSON.stringify(reply.call),
-              },
-            ]
-          : [{ type: "text" as const, text: reply.text ?? "" }],
+        content,
         finishReason: reply.call
           ? { unified: "tool-calls" as const, raw: "tool_calls" }
           : { unified: "stop" as const, raw: "stop" },
@@ -63,7 +62,7 @@ function fixture(replies: Reply[]) {
   const agent = new TexeraAgent({
     agentId: "turn-tool",
     modelType: "test",
-    driver: new VercelToolUseDriver({ model, transport: "turn", maxRetries: 0 }),
+    driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
     contextAssembler: input =>
       assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, ContextMode.DELTA, {
         agentMode: AgentMode.NATIVE,
@@ -94,17 +93,15 @@ function fixture(replies: Reply[]) {
 
 const text = (m: any) => (typeof m.content === "string" ? m.content : m.content.map((p: any) => p.text ?? "").join(""));
 const DEFINE = {
-  summary: "Register a helper and read it back.",
   python: 'def keep_all(table):\n    """Return the table unchanged."""\n    return table',
   statements: "show function keep_all",
 };
 const SCAN = {
-  summary: "Read the file.",
   python: "",
   statements: "set raw: scan(files='data/x/input/a.csv')\nshow result raw full",
 };
 
-test("a call is one turn: the fields are replayed verbatim with the receipt as the tool result, tool choice stays auto", async () => {
+test("each call is replayed verbatim with its receipt as the tool result; tool choice stays auto", async () => {
   const f = fixture([{ call: DEFINE }, { call: SCAN }, { text: "**Final Answer: 42**" }]);
   const result = await f.agent.sendMessage(
     "Register keep_all, then read data/x/input/a.csv and answer with **Final Answer: <value>**."
@@ -118,7 +115,7 @@ test("a call is one turn: the fields are replayed verbatim with the receipt as t
   expect(first.toolCalls![0].input).toEqual(DEFINE);
   const receipt = first.toolResults![0].output as any;
   expect(receipt.status).toBe("completed");
-  expect(receipt.turn.fields).toBe(true);
+  expect(receipt.turn.statements.map((s: any) => s.text)).toEqual(["show function keep_all"]);
   expect(receipt.actions.map((a: any) => [a.action.type, a.status])).toEqual([
     ["edit", "ok"],
     ["inspect", "ok"],
@@ -145,8 +142,11 @@ test("a call is one turn: the fields are replayed verbatim with the receipt as t
   const last = steps[steps.length - 1];
   expect(last.isEnd).toBe(true);
   expect(last.content).toBe("**Final Answer: 42**");
-  expect(f.agent.getSystemInfo().systemPrompt).toContain("`statements`");
-  expect(f.agent.getSystemInfo().systemPrompt).not.toContain("answer: <text to the end of the turn>");
+  const prompt = f.agent.getSystemInfo().systemPrompt;
+  expect(prompt).toContain("`statements`");
+  expect(prompt).not.toContain("`summary`");
+  expect(prompt).not.toContain("answer: <text to the end of the turn>");
+  expect(f.agent.getSystemInfo().tools.map(tool => tool.name)).toEqual(["dataflow"]);
 });
 
 test("a reply without a tool call before any shown result is corrected, at most twice, with a starter call from the request", async () => {
@@ -176,12 +176,8 @@ test("a reply without a tool call before any shown result is corrected, at most 
   expect(failed.error).toBeDefined();
 });
 
-test("an answer written as a statement is a rejected turn that runs nothing", async () => {
-  const f = fixture([
-    { call: { summary: "Done.", python: "", statements: "answer: 42" } },
-    { call: SCAN },
-    { text: "42" },
-  ]);
+test("an answer written as a statement is a rejected call that runs nothing", async () => {
+  const f = fixture([{ call: { python: "", statements: "answer: 42" } }, { call: SCAN }, { text: "42" }]);
   const result = await f.agent.sendMessage("Read data/x/input/a.csv.");
   expect(result.error).toBeUndefined();
   expect(result.response).toBe("42");
@@ -192,6 +188,22 @@ test("an answer written as a statement is a rejected turn that runs nothing", as
   const toolResult = f.prompts[1][3].content[0];
   const rendered =
     typeof toolResult.output?.value === "string" ? toolResult.output.value : JSON.stringify(toolResult.output);
-  expect(rendered).toContain("## turn rejected");
+  expect(rendered).toContain("## call rejected");
   expect(rendered).toContain("reply with the answer text and no tool call");
+});
+
+test("text the model writes beside a call is replayed with the call, before its receipt", async () => {
+  const f = fixture([
+    { text: "First I read the file to see its columns.", call: SCAN },
+    { text: "**Final Answer: 42**" },
+  ]);
+  const result = await f.agent.sendMessage("Read data/x/input/a.csv and answer with **Final Answer: <value>**.");
+  expect(result.error).toBeUndefined();
+  expect(result.response).toBe("**Final Answer: 42**");
+  const second = f.prompts[1];
+  expect(second.map((m: any) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+  const parts = second[2].content.map((part: any) => part.type);
+  expect(parts).toEqual(["text", "tool-call"]);
+  expect(second[2].content[0].text).toBe("First I read the file to see its columns.");
+  expect(second[2].content[1].input).toEqual(SCAN);
 });

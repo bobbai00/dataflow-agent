@@ -33,13 +33,10 @@ import { env } from "../../src/config/env";
 import { ContextMode, type RetrievalView } from "../../src/types/agent";
 import { buildRegisteredNativeSystemPrompt } from "../../src/agent/prompts";
 import { WorkflowState } from "../../src/agent/workflow-state";
-import {
-  createRegisteredDataflowTool,
-  renderDataflowActionsResult,
-  type DataflowAction,
-  type DataflowActionsResult,
-} from "../../src/agent/tools/dataflow-actions";
+import { renderDataflowActionsResult, type DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
+import { createDataflowTool } from "../../src/agent/tools/turn-tool";
 import { assertNativeCleanupSafe } from "./native-cleanup";
+import { dataflowActionTypes, dataflowDebugInput, shownResult } from "./native-debug-input";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3001";
 const directory = mkdtempSync(join(tmpdir(), "registered-evidence-matrix-"));
@@ -51,6 +48,7 @@ let token: string;
 let cuid: number | undefined;
 let resource: { agentId: string; wid: number; cuid: number } | undefined;
 let retainedResource = false;
+let views: RetrievalView[] = [];
 
 async function json(url: string, authenticated = false): Promise<any> {
   const response = await fetch(url, authenticated ? { headers: { Authorization: `Bearer ${token}` } } : {});
@@ -59,7 +57,8 @@ async function json(url: string, authenticated = false): Promise<any> {
 }
 const history = () => json(`${env.TEXERA_DASHBOARD_SERVICE_ENDPOINT}/api/executions/${resource!.wid}`, true);
 
-async function debug(actions: DataflowAction[]): Promise<string> {
+async function debug(python: string, statements: string): Promise<string> {
+  const content = dataflowDebugInput(python, statements, views);
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${resource!.agentId}/react`);
     let sent = false,
@@ -77,13 +76,7 @@ async function debug(actions: DataflowAction[]): Promise<string> {
       const frame = JSON.parse(String(event.data));
       if (frame.type === "init" && !sent) {
         sent = true;
-        const args = { reasoning: "Verify independent evidence settings and unchanged computed answers.", actions };
-        ws.send(
-          JSON.stringify({
-            type: "debug",
-            content: `Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify(args))})`,
-          })
-        );
+        ws.send(JSON.stringify({ type: "debug", content }));
       } else if (frame.type === "complete" || frame.type === "error") completed = true;
       else if (frame.type === "nextContext" && completed) {
         settled = true;
@@ -99,10 +92,13 @@ async function debug(actions: DataflowAction[]): Promise<string> {
   });
 }
 
-async function run(cell: string, label: string, actions: DataflowAction[], computes: boolean) {
+/** One call whose every action must succeed. Showing a result asks the
+ * engine even when all of it is cached. */
+async function run(cell: string, label: string, python: string, statements: string, computes: boolean) {
+  const expected = dataflowActionTypes(python, statements, views).map(() => "ok");
   const before = await history();
   const started = performance.now();
-  const context = await debug(actions);
+  const context = await debug(python, statements);
   const actionDurationMs = performance.now() - started;
   const trace = await getReActSteps(resource!.agentId, baseUrl);
   const result = trace.steps.flatMap(step => step.toolResults ?? []).at(-1)?.output as DataflowActionsResult;
@@ -116,7 +112,8 @@ async function run(cell: string, label: string, actions: DataflowAction[], compu
   assert.equal(result.protocol, "registered-python-v1");
   assert.deepEqual(
     result.actions.map(action => action.status),
-    actions.map(() => "ok")
+    expected,
+    `${cell}/${label}: ${text}`
   );
   assert.ok(computes ? executions > 0 : executions === 0, `${cell}/${label}: unexpected executions ${executions}`);
   return { result, snapshot, text, executions, actionDurationMs };
@@ -181,6 +178,7 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
     for (const flow of [false, true]) {
       const cell = `data${Number(data)}-flow${Number(flow)}`;
       const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+      views = retrievalViews;
       const settings = {
         agentMode: "native" as const,
         contextMode: "delta" as const,
@@ -216,31 +214,32 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
       const info = await json(`${baseUrl}/api/agents/${agent.id}/system-info`);
       save(`${cell}-system-info.json`, info);
       assert.equal(info.systemPrompt, buildRegisteredNativeSystemPrompt(ContextMode.DELTA, settings));
-      assert.equal(info.systemPrompt.includes("Column statistics are collected"), data);
-      assert.equal(info.systemPrompt.includes("Flow statistics describe"), flow);
+      assert.equal(info.systemPrompt.includes("Column statistics in `sample_stats`"), data);
+      assert.equal(info.systemPrompt.includes("Flow statistics report measured effects"), flow);
       assert.equal(info.systemPrompt.includes("sample_stats"), data);
       assert.deepEqual(
         info.tools.find((tool: any) => tool.name === "dataflow").inputSchema,
-        asSchema(createRegisteredDataflowTool(retrievalViews).inputSchema).jsonSchema
+        asSchema(createDataflowTool(retrievalViews).inputSchema).jsonSchema
       );
 
       const first = await run(
         cell,
         "execute",
+        'def select_record(row, *, category):\n    """Retain records matching the requested category."""\n    return row[\'category\'] == category\n',
         [
-          {
-            type: "edit",
-            python:
-              'def select_record(row, *, category):\n    """Retain records matching the requested category."""\n    return row[\'category\'] == category\n',
-            changes: `set source: scan(files=${JSON.stringify(sourcePath)}, all_text=True)\nset converted: cast(source, columns={'value': float64}, errors='null')\nset selected: filter(converted, predicate='select_record', settings={'category': 'accepted'})\nset lookup: scan(files=${JSON.stringify(lookupPath)}, all_text=True)\nset joined: join(selected, lookup, on='id', how='inner')\nset summary: aggregate(joined, outputs={'total': sum('value'), 'measured': count('value'), 'rows': count()})`,
-          },
-          { type: "execute", operator_ids: ["summary"] },
-          { type: "retrieve", operator_ids: ["joined", "summary"], view: retrievalViews[0] },
-        ],
+          `set source: scan(files=${JSON.stringify(sourcePath)}, all_text=True)`,
+          "set converted: cast(source, columns={'value': float64}, errors='null')",
+          "set selected: filter(converted, predicate='select_record', settings={'category': 'accepted'})",
+          `set lookup: scan(files=${JSON.stringify(lookupPath)}, all_text=True)`,
+          "set joined: join(selected, lookup, on='id', how='inner')",
+          "set summary: aggregate(joined, outputs={'total': sum('value'), 'measured': count('value'), 'rows': count()})",
+          "execute summary",
+          `show result joined, summary ${retrievalViews[0]}`,
+        ].join("\n"),
         true
       );
-      const output = first.result.actions[2].output as any;
-      const [joined, summary] = output.results;
+      const joined = shownResult(first.result, "joined");
+      const summary = shownResult(first.result, "summary");
       assert.equal(joined.text.includes("statistics:"), data, `${cell}: joined statistics mismatch`);
       assert.equal(summary.table.complete, true);
       assert.equal(summary.text.includes("statistics: not shown; the complete records above show every value"), data);
@@ -254,6 +253,7 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
         data
       );
       assert.equal(first.text.includes("- flow:"), flow, `${cell}: flow display mismatch`);
+      // The `execute summary` statement alone; the edit is the call's first action.
       const executeText = renderDataflowActionsResult({ ...first.result, actions: [first.result.actions[1]] });
       assert.equal(executeText.includes("- flow:"), flow, `${cell}: execution flow mismatch`);
       // Only downstream tables were retrieved. Measured ancestor losses
@@ -267,7 +267,7 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
         assert.match(executeText, /Filter kept=23\/24.*rejected=1/);
         assert.match(executeText, /Filter "category" among 1 rejected rows/);
         assert.match(frozenSummary, /- flow \(selected\):.*Filter kept=23\/24/);
-        assert.match(first.text, /see action \d+ \/ (?:selected|converted|joined)/);
+        assert.match(first.text, /see `(?:selected|converted|joined)` above/);
       }
       const filterProfile = (first.snapshot.results.selected as any).tableProfile;
       assert.equal(filterProfile.native.operations.rejectedRows, 1);
@@ -280,15 +280,7 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
       assert.deepEqual(rows, [{ total: 175, measured: 18, rows: 21 }]);
       const version = (first.snapshot.results.summary as any).resultVersion.id;
 
-      const second = await run(
-        cell,
-        "cache-and-full",
-        [
-          { type: "execute", operator_ids: ["summary"] },
-          { type: "retrieve", operator_ids: ["joined", "summary"], view: "full" },
-        ],
-        true
-      );
+      const second = await run(cell, "cache-and-full", "", "execute summary\nshow result joined, summary full", true);
       assert.match(second.text, /cached/);
       // Explicit execution still dispatches an engine request when all of its
       // operators resolve from cache. Result identities prove cache reuse.
@@ -303,46 +295,41 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
           (first.snapshot.results[id] as any).resultVersion.id
         );
       }
-      for (const entry of (second.result.actions[1].output as any).results) {
+      for (const entry of [shownResult(second.result, "joined"), shownResult(second.result, "summary")]) {
         assert.equal(entry.text.includes("statistics:"), false, `${cell}: full view must not add column statistics`);
         assert.equal(
           entry.evidence.some((id: string) => id.startsWith("flow.")),
           flow
         );
       }
-      const readOnly = await run(
-        cell,
-        "retrieve-only",
-        [{ type: "retrieve", operator_ids: ["joined", "summary"], view: retrievalViews[0] }],
-        false
+      const shown = await run(cell, "show-cached", "", `show result joined, summary ${retrievalViews[0]}`, true);
+      assert.equal((shown.snapshot.results.summary as any).resultVersion.id, version);
+      assert.ok(
+        (shown.result.actions[0].output as any).operators.every((operator: any) => operator.state === "cached")
       );
-      assert.equal((readOnly.snapshot.results.summary as any).resultVersion.id, version);
       const discovery = await run(
         cell,
-        "schema-and-source",
+        "schema-and-sheets",
+        "",
         [
-          {
-            type: "edit",
-            python: "",
-            changes: `set workbook_preview: scan(files=${JSON.stringify(workbookPath)}, preview=1)\nset wide: scan(files=${JSON.stringify(workbookPath)}, sheet='Measurements')`,
-          },
-          { type: "execute", operator_ids: ["workbook_preview", "wide"] },
-          { type: "inspect", target: "source", operator_id: "workbook_preview" },
-          { type: "inspect", target: "schema", operator_id: "wide" },
-          { type: "inspect", target: "schema", operator_id: "wide", offset: 170, limit: 20 },
-          { type: "inspect", target: "reference", topic: "operators", operator_names: ["filter"] },
-        ],
+          `set workbook_preview: scan(files=${JSON.stringify(workbookPath)}, preview=1)`,
+          `set wide: scan(files=${JSON.stringify(workbookPath)}, sheet='Measurements')`,
+          "execute workbook_preview, wide",
+          "show schema wide",
+          "show schema wide from 170",
+          "show builtin filter",
+        ].join("\n"),
         true
       );
-      const source = discovery.result.actions[2].output as any;
-      assert.equal(source.sheet_names_complete, true);
-      assert.deepEqual(
-        source.sheets.map((sheet: any) => sheet.name),
-        ["Measurements", "Lookup", "Empty"]
+      // Actions: edit, execute, then execute + schema twice, then the builtin contract.
+      const scanned = discovery.result.actions[1].output as any;
+      const wideBlock = scanned.operator_blocks.find((block: any) => block.id === "wide");
+      assert.ok(
+        (wideBlock?.scope ?? []).some((line: string) =>
+          line.startsWith('workbook sheets of "wide": "Measurements", "Lookup", "Empty"')
+        ),
+        JSON.stringify(wideBlock)
       );
-      assert.equal(source.sheets[0].first_raw_row_truncated, false);
-      assert.ok(source.sheets[0].first_raw_row.includes("last value "));
-      assert.equal(source.sheets[2].first_raw_row, null);
       const schema = discovery.result.actions[3].output as any;
       assert.equal(schema.total_columns, 179);
       assert.equal(schema.complete, true);
@@ -350,13 +337,13 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
         schema.columns.map((column: any) => column.name),
         columnNames
       );
-      const page = discovery.result.actions[4].output as any;
+      const page = discovery.result.actions[5].output as any;
       assert.equal(page.next_offset, null);
       assert.deepEqual(
         page.columns.map((column: any) => column.name),
         columnNames.slice(170)
       );
-      assert.match((discovery.result.actions[5].output as any).text, /filter\(t, predicate="name", settings=\{\}\)/);
+      assert.match((discovery.result.actions[6].output as any).text, /filter\(t, predicate="name", settings=\{\}\)/);
       const trace = (await getReActSteps(agent.id, baseUrl)).steps;
       assert.ok(
         trace.every(step => !step.usage),
@@ -368,10 +355,10 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
         passed: true,
         executions: first.executions,
         cachedExecutionRequests: second.executions,
-        retrieveOnlyExecutionRequests: readOnly.executions,
+        showCachedExecutionRequests: shown.executions,
         initialActionDurationMs: first.actionDurationMs,
         cachedActionDurationMs: second.actionDurationMs,
-        retrieveOnlyActionDurationMs: readOnly.actionDurationMs,
+        showCachedActionDurationMs: shown.actionDurationMs,
         cachedExecutionTelemetry: (second.result.actions[0].output as any).execution_runs,
         initialExecutionTelemetry: (first.result.actions[1].output as any).execution_runs,
         profiles: Object.fromEntries(
@@ -381,7 +368,7 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
           ])
         ),
         discovery: {
-          sheets: source.sheets.map((sheet: any) => sheet.name),
+          sheets: wideBlock.scope,
           columns: schema.total_columns,
           executions: discovery.executions,
           actionDurationMs: discovery.actionDurationMs,

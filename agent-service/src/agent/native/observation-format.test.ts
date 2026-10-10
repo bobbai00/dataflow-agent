@@ -20,7 +20,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
-import { issueText, renderActionObservations } from "./action-observations";
+import { issueText, renderTurnReceipt } from "./turn-receipt";
 import {
   displayValue,
   describeOperator,
@@ -258,7 +258,7 @@ test("an upstream failure leaves a consumer's state and result as not run", () =
   expect(root.result).toBe("failed");
 });
 
-test("wrapped engine diagnostics never expose their JSON envelope in action errors", () => {
+test("wrapped engine diagnostics never expose their JSON envelope in receipts", () => {
   const diagnostic = {
     version: 1,
     operatorId: "broken",
@@ -276,13 +276,15 @@ test("wrapped engine diagnostics never expose their JSON envelope in action erro
   expect(issue).toContain("- fix:");
   expect(issue).not.toContain("NATIVE_ERROR_V2");
   expect(issue).not.toContain(diagnostic.operatorRevision);
-  const text = renderActionObservations({
+  const text = renderTurnReceipt({
     kind: "dataflow-actions",
+    protocol: "registered-python-v1",
     status: "error",
     actions: [{ index: 1, action: { type: "execute" }, status: "error", output: { operators: [], error } }],
     operators: [],
     observe: [],
     observationErrors: [],
   });
+  expect(text).toContain("- error MISSING_COLUMN: Column 'unknown' is missing.");
   expect(text).not.toContain("NATIVE_ERROR_V2");
 });

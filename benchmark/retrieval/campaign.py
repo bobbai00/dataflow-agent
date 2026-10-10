@@ -14,11 +14,11 @@
 import json
 import threading
 try:
-    from .metrics import retrieval_results, tool_error_counts
+    from .metrics import final_reply, retrieval_results, tool_error_counts
     from .answer_diagnostics import diagnose_answer
     from .matrix_audit import audit_attempt as audit_wire_attempt
 except ImportError:
-    from metrics import retrieval_results, tool_error_counts
+    from metrics import final_reply, retrieval_results, tool_error_counts
     from answer_diagnostics import diagnose_answer
     from matrix_audit import audit_attempt as audit_wire_attempt
 
@@ -112,19 +112,17 @@ def audit_attempt(path, settings):
         warnings.append("missing_trace")
     steps = raw if isinstance(raw, list) else (raw or {}).get("steps", [])
     previous, prefix_checks, action_errors, reads = None, 0, 0, 0
-    answered, text_replies = False, 0
+    text_replies = 0
     tool_errors = envelope_errors = 0
-    # The turn transport answers with a final reply that calls no tool; any
-    # earlier tool-less reply is still a lapse.
-    turn_transport = settings.get("nativeTransport") == "turn" or read("config.json", {}).get("driver") == "turn-tool"
+    # Native mode answers with a final reply that calls no tool; any earlier
+    # tool-less reply is a lapse.
     agent_steps = [step for step in steps if step.get("role") == "agent"]
     final = agent_steps[-1] if agent_steps else None
-    final_reply = (turn_transport and final is not None and final.get("isEnd") and not final.get("toolCalls")
-                   and bool(final.get("content")) and not str(final["content"]).startswith("Error:"))
+    answered = final_reply(steps)
     for step in steps:
         messages = step.get("inputMessages")
         if (settings.get("agentMode") == "native" and step.get("role") == "agent" and messages is not None
-                and not step.get("toolCalls") and step.get("content") and not (final_reply and step is final)):
+                and not step.get("toolCalls") and step.get("content") and not (answered and step is final)):
             text_replies += 1
         if step.get("role") == "agent" and messages:
             if previous is not None:
@@ -141,8 +139,7 @@ def audit_attempt(path, settings):
                 continue
             for item in output.get("actions", []):
                 action_errors += item.get("status") == "error"
-                action, observed = item.get("action", {}), item.get("output", {})
-                answered |= action.get("type") == "answer" and item.get("status") == "ok"
+                action = item.get("action", {})
                 if action.get("type") != "retrieve":
                     continue
                 for target in retrieval_results(item):
@@ -156,12 +153,11 @@ def audit_attempt(path, settings):
                         violations.append("flow_evidence_leak")
                     if action.get("view") != "sample_stats" and any(f.startswith("data.") for f in facts):
                         violations.append("data_evidence_leak")
-    answered = answered or final_reply
     if settings.get("agentMode") == "native" and raw is not None:
         if text_replies:
             warnings.append("text_without_dataflow")
         if not answered:
-            warnings.append("missing_answer_action")
+            warnings.append("missing_answer")
     profiles = columns = 0
     for result in read("snapshot.json", {}).get("results", {}).values():
         profile = result.get("tableProfile")

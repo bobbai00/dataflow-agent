@@ -19,7 +19,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { formatOperatorResult, formatSchemaLine, readsFrom } from "./result-formatting";
-import { nativeTestTools } from "../native/test-support";
+import { planRegisteredGraphEdit } from "./graph-edits";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, OperatorLink, PortDescription } from "../../types/workflow";
@@ -488,18 +489,22 @@ describe("formatOperatorResult - who is blamed when the run stops", () => {
   // upstream failed; a bystander is told the run stopped elsewhere and that its
   // own definition is not implicated.
   async function stateWithFailedJoin() {
-    const { state, tools } = nativeTestTools();
-    const result = await tools.dataflow.execute({
-      edits: [
-        'sales = scan("data/sales.csv")',
-        'names = scan("data/names.csv")',
-        'labeled = join(sales, names, on="region", how="left", validate="many_to_one")',
-        "label_count = aggregate(labeled, n=count())",
-        "sales_count = aggregate(sales, n=count())",
+    const metadataStore = new WorkflowSystemMetadata();
+    metadataStore.seedCodeModeDefaults();
+    const plan = await planRegisteredGraphEdit(
+      new WorkflowState().getWorkflowContent(),
+      "",
+      [
+        "set sales: scan(files='data/sales.csv')",
+        "set names: scan(files='data/names.csv')",
+        "set labeled: join(sales, names, on='region', how='left', validate='many_to_one')",
+        "set label_count: aggregate(labeled, outputs={'n': count()})",
+        "set sales_count: aggregate(sales, outputs={'n': count()})",
       ].join("\n"),
-      observe: [],
-    });
-    if (typeof result === "string") throw new Error(result);
+      { metadataStore }
+    );
+    const state = new WorkflowState();
+    state.setWorkflowContent(plan.workflow);
     const revision = state.getOperator("labeled")!.nativeOp!.revision!;
     const payload =
       "NATIVE_ERROR_V2:" +

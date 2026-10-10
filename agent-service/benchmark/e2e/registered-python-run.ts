@@ -19,6 +19,7 @@
  * Amber engine. No model request is made. Run from agent-service:
  * bun benchmark/e2e/registered-python-run.ts
  * Requires bin/local-dev.sh services from this checkout. Artifacts go to /tmp.
+ * Every probe is one `dataflow(python, statements)` call sent as debug input.
  */
 import { strict as assert } from "node:assert";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -28,12 +29,10 @@ import { createAgent, deleteAgent, getReActSteps, getSnapshot } from "../../src/
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { env } from "../../src/config/env";
 import { WorkflowState } from "../../src/agent/workflow-state";
-import {
-  renderDataflowActionsResult,
-  type DataflowAction,
-  type DataflowActionsResult,
-} from "../../src/agent/tools/dataflow-actions";
+import type { RetrievalView } from "../../src/types/agent";
+import { renderDataflowActionsResult, type DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
 import { assertNativeCleanupSafe } from "./native-cleanup";
+import { dataflowActionTypes, dataflowDebugInput, shownResult } from "./native-debug-input";
 
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3001";
 const directory = mkdtempSync(join(tmpdir(), "registered-python-live-"));
@@ -41,6 +40,7 @@ const save = (name: string, value: unknown) =>
   writeFileSync(join(directory, name), JSON.stringify(value, null, 2) + "\n");
 const log = (message: string) => console.log(`[registered-python] ${message}`);
 const checks: Array<{ name: string; newExecutions: number }> = [];
+const views: RetrievalView[] = ["full", "sample_stats"];
 let token: string;
 let cuid: number | undefined;
 let resource: { agentId: string; wid: number; cuid: number } | undefined;
@@ -53,7 +53,8 @@ async function json(url: string, authenticated = false): Promise<any> {
 }
 const history = () => json(`${env.TEXERA_DASHBOARD_SERVICE_ENDPOINT}/api/executions/${resource!.wid}`, true);
 
-async function debug(actions: DataflowAction[]): Promise<string> {
+async function debug(python: string, statements: string): Promise<string> {
+  const content = dataflowDebugInput(python, statements, views);
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${resource!.agentId}/react`);
     let sent = false,
@@ -67,20 +68,14 @@ async function debug(actions: DataflowAction[]): Promise<string> {
       reject(new Error(message));
     };
     const timer = setTimeout(
-      () => fail("Debug action timed out; resources require terminal-state checks before cleanup."),
+      () => fail("Debug call timed out; resources require terminal-state checks before cleanup."),
       240_000
     );
     ws.onmessage = event => {
       const frame = JSON.parse(String(event.data));
       if (frame.type === "init" && !sent) {
         sent = true;
-        const args = { reasoning: "Verify registered Python execution and observations.", actions };
-        ws.send(
-          JSON.stringify({
-            type: "debug",
-            content: `Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify(args))})`,
-          })
-        );
+        ws.send(JSON.stringify({ type: "debug", content }));
       } else if (frame.type === "complete" || frame.type === "error") completed = true;
       else if (frame.type === "nextContext" && completed) {
         settled = true;
@@ -96,21 +91,23 @@ async function debug(actions: DataflowAction[]): Promise<string> {
   });
 }
 
-const edit = (python: string, changes = ""): DataflowAction => ({ type: "edit", python, changes });
-const retrieve = (operator_ids: string[]): DataflowAction => ({ type: "retrieve", operator_ids, view: "full" });
-const execute = (operator_ids: string[]): DataflowAction => ({ type: "execute", operator_ids });
-
-async function run(name: string, actions: DataflowAction[], statuses: string[], computes: boolean) {
+/** One call. `statuses` lists the expected status of each action the call
+ * becomes: the edit first (when it has definitions or set/delete lines), then
+ * `execute`, and `show result` as an execute followed by a retrieve. Showing
+ * a result asks the engine even when every result is cached. */
+async function run(name: string, python: string, statements: string, statuses: string[], computes: boolean) {
+  assert.equal(dataflowActionTypes(python, statements, views).length, statuses.length, `${name}: expected statuses`);
   const before = await history();
-  const context = await debug(actions);
+  const context = await debug(python, statements);
   const trace = await getReActSteps(resource!.agentId, baseUrl);
   const result = trace.steps.flatMap(step => step.toolResults ?? []).at(-1)?.output as DataflowActionsResult;
   const snapshot = await getSnapshot(resource!.agentId, "head", baseUrl);
   const after = await history();
   const newExecutions = after.length - before.length;
   const index = ++probe;
-  save(`probe-${index}.json`, { name, actions, result, snapshot, before, after });
-  writeFileSync(join(directory, `probe-${index}-observations.md`), renderDataflowActionsResult(result));
+  const text = renderDataflowActionsResult(result);
+  save(`probe-${index}.json`, { name, python, statements, result, snapshot, before, after });
+  writeFileSync(join(directory, `probe-${index}-receipt.md`), text);
   writeFileSync(join(directory, `probe-${index}-context.txt`), context);
   assert.equal(
     result.protocol,
@@ -128,10 +125,14 @@ async function run(name: string, actions: DataflowAction[], statuses: string[], 
   );
   checks.push({ name, newExecutions });
   log(`PASS ${name}: ${newExecutions} backend executions`);
-  return { result, snapshot };
+  return { result, snapshot, text };
 }
 const rows = (snapshot: Awaited<ReturnType<typeof getSnapshot>>, id: string): Array<Record<string, any>> =>
   (snapshot.results[id] as any)?.sampleRecords ?? [];
+const executeStates = (result: DataflowActionsResult) =>
+  result.actions
+    .filter(item => item.action.type === "execute")
+    .flatMap(item => ((item.output as any)?.operators ?? []) as Array<{ id: string; state: string }>);
 
 const definitions = `import pandas as pd
 COUNTER = 0
@@ -172,7 +173,7 @@ try {
       agentMode: "native",
       contextMode: "delta",
       messageLayout: "native",
-      retrievalViews: ["full", "sample_stats"],
+      retrievalViews: views,
       nativeProfileCollection: true,
       dataEvidence: true,
       flowEvidence: true,
@@ -181,31 +182,40 @@ try {
   });
   resource.agentId = agent.id;
   save("resource.json", resource);
-  save("system-info.json", await json(`${baseUrl}/api/agents/${agent.id}/system-info`));
+  const info = await json(`${baseUrl}/api/agents/${agent.id}/system-info`);
+  save("system-info.json", info);
+  assert.deepEqual(
+    info.tools.map((tool: any) => tool.name),
+    ["dataflow"]
+  );
   const sourcePath = join(directory, "records.csv");
   writeFileSync(sourcePath, "id,value\n1,10\n2,20\n");
 
   const registered = await run(
     "register before graph construction",
-    [edit(definitions), { type: "inspect", target: "namespace" }],
+    definitions,
+    "show function load_values, scale_values, combine_values",
     ["ok", "ok"],
     false
   );
   assert.equal(registered.snapshot.workflow?.operators.length, 0);
   assert.ok(registered.snapshot.workflow?.nativeNamespace?.functions.combine_values);
-  assert.match(renderDataflowActionsResult(registered.result), /function load_values registered/);
+  assert.match(registered.text, /load_values registered/);
+  assert.match(registered.text, /## show function load_values, scale_values, combine_values/);
 
   const initial = await run(
     "zero, one and multiple inputs with keyword settings",
+    "",
     [
-      edit(
-        "",
-        `set left: load_values()\nset right: load_values(start=3)\nset scaled: scale_values(left, factor=2)\nset combined: combine_values(scaled, right, multiplier=3)\nset independent: scan(files=${JSON.stringify(sourcePath)})`
-      ),
-      execute(["combined", "independent"]),
-      retrieve(["left", "right", "scaled", "combined", "independent"]),
-    ],
-    ["ok", "ok", "ok"],
+      "set left: load_values()",
+      "set right: load_values(start=3)",
+      "set scaled: scale_values(left, factor=2)",
+      "set combined: combine_values(scaled, right, multiplier=3)",
+      `set independent: scan(files=${JSON.stringify(sourcePath)})`,
+      "execute combined, independent",
+      "show result left, right, scaled, combined, independent full",
+    ].join("\n"),
+    ["ok", "ok", "ok", "ok"],
     true
   );
   assert.equal(rows(initial.snapshot, "combined")[0].value, 51);
@@ -215,30 +225,35 @@ try {
       [1, 1]
     );
 
+  // The unknown target stops the execution before the engine; the results
+  // that exist are still shown, each with its own status.
   const mixed = await run(
     "mixed retrieval preserves valid targets",
-    [retrieve(["combined", "missing", "independent"])],
-    ["error"],
+    "",
+    "show result combined, missing, independent full",
+    ["error", "error"],
     false
   );
   assert.deepEqual(
-    (mixed.result.actions[0].output as any).results.map((entry: any) => entry.status),
+    (mixed.result.actions[1].output as any).results.map((entry: any) => entry.status),
     ["ok", "error", "ok"]
   );
   assert.deepEqual(mixed.result.observe, ["combined", "independent"]);
 
   const stale = await run(
     "helper update invalidates without automatic execution",
-    [edit("def _adjust(value):\n    return value + 2"), retrieve(["independent", "combined"])],
-    ["ok", "error"],
+    "def _adjust(value):\n    return value + 2",
+    "",
+    ["ok"],
     false
   );
-  assert.match(renderDataflowActionsResult(stale.result), /RESULT_STALE/);
+  assert.match(stale.text, /stale until executed: .*combined/);
   assert.deepEqual(rows(stale.snapshot, "independent"), rows(initial.snapshot, "independent"));
   const revised = await run(
     "explicit execution uses the new shared definition",
-    [execute(["combined"]), retrieve(["left", "right", "combined"])],
-    ["ok", "ok"],
+    "",
+    "execute combined\nshow result left, right, combined full",
+    ["ok", "ok", "ok"],
     true
   );
   assert.equal(rows(revised.snapshot, "combined")[0].value, 63);
@@ -248,12 +263,27 @@ try {
       [1, 1]
     );
 
+  // Showing a result always asks the engine; unchanged operators come back from cache.
+  const cachedShow = await run(
+    "showing an unchanged result reuses the cache",
+    "",
+    "show result combined full",
+    ["ok", "ok"],
+    true
+  );
+  assert.ok(executeStates(cachedShow.result).every(operator => operator.state === "cached"));
+  assert.equal(
+    (cachedShow.snapshot.results.combined as any).resultVersion.id,
+    (revised.snapshot.results.combined as any).resultVersion.id
+  );
   const documented = await run(
     "documentation-only edit preserves materialization",
-    [edit("", "set scaled: scale_values(left, factor=2, doc='Preserve every source record.')"), retrieve(["combined"])],
-    ["ok", "ok"],
+    "",
+    "set scaled: scale_values(left, factor=2, doc='Preserve every source record.')",
+    ["ok"],
     false
   );
+  assert.doesNotMatch(documented.text, /stale until executed/);
   assert.equal(
     (documented.snapshot.results.combined as any).resultVersion.id,
     (revised.snapshot.results.combined as any).resultVersion.id
@@ -261,47 +291,35 @@ try {
 
   const failed = await run(
     "execution error retains independent reads",
-    [
-      edit("def scale_values(table, *, factor=1):\n    raise ValueError('synthetic conversion failure')"),
-      execute(["combined"]),
-      retrieve(["independent", "scaled"]),
-    ],
-    ["ok", "error", "error"],
+    "def scale_values(table, *, factor=1):\n    raise ValueError('synthetic conversion failure')",
+    "execute combined\nshow result independent, scaled full",
+    ["ok", "error", "error", "error"],
     true
   );
-  assert.match(renderDataflowActionsResult(failed.result), /synthetic conversion failure/);
-  assert.equal((failed.result.actions[2].output as any).results[0].status, "ok");
+  assert.match(failed.text, /synthetic conversion failure/);
+  assert.equal(shownResult(failed.result, "independent").status, "ok");
+  assert.equal(shownResult(failed.result, "scaled").status, "error");
 
   const repaired = await run(
     "replace the same function and refine its settings",
-    [
-      edit(
-        "def scale_values(table, *, factor=1):\n    result = table.copy()\n    result['value'] = result['value'].apply(_adjust) * factor\n    return result",
-        "set scaled: scale_values(left, factor=3)"
-      ),
-      execute(["combined"]),
-      retrieve(["combined"]),
-    ],
+    "def scale_values(table, *, factor=1):\n    result = table.copy()\n    result['value'] = result['value'].apply(_adjust) * factor\n    return result",
+    "set scaled: scale_values(left, factor=3)\nshow result combined full",
     ["ok", "ok", "ok"],
     true
   );
-  assert.match(renderDataflowActionsResult(repaired.result), /function scale_values updated/);
+  assert.match(repaired.text, /scale_values updated/);
   assert.equal(rows(repaired.snapshot, "combined")[0].value, 84);
 
   const rejected = await run(
     "invalid signature rejects namespace and graph together",
-    [edit("def scale_values(first, second):\n    return first", "set unpublished: load_values()")],
+    "def scale_values(first, second):\n    return first",
+    "set unpublished: load_values()",
     ["error"],
     false
   );
+  assert.match(rejected.text, /## edits rejected/);
   assert.deepEqual(rejected.snapshot.workflow?.nativeNamespace, repaired.snapshot.workflow?.nativeNamespace);
   assert.ok(!rejected.snapshot.workflow?.operators.some(op => op.operatorID === "unpublished"));
-  await run(
-    "answer is a sole content action",
-    [{ type: "answer", content: "The computed combined value is 84." }],
-    ["ok"],
-    false
-  );
   assert.deepEqual(
     await getSnapshot(agent.id, initial.snapshot.stepId!, baseUrl),
     initial.snapshot,

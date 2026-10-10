@@ -19,9 +19,9 @@
 
 /**
  * Context-parameter sweep: run ONE simple agent task under several context
- * configurations (LATEST / DELTA, compaction budgets, deck sampling, index
- * caps, turn-history indexing) and assert each configuration still produces
- * a working workflow + a non-empty final answer.
+ * configurations (LATEST / DELTA, compaction budgets, deck sampling) and
+ * assert each configuration still produces a working workflow + a non-empty
+ * final answer.
  *
  * This is a smoke matrix for the context assembler, not an accuracy
  * benchmark: pass = the agent completed the turn, built >=1 operator, the
@@ -80,15 +80,6 @@ const VARIANTS: Variant[] = [
   {
     name: "delta-sliding-6k",
     settings: { contextMode: ContextMode.DELTA, contextWindowTokens: 6000, compactionStrategy: "sliding" },
-  },
-  {
-    name: "delta-index-history-caps",
-    settings: {
-      contextMode: ContextMode.DELTA,
-      turnHistory: "index",
-      indexDetailedOperators: 6,
-      indexRichTables: 2,
-    },
   },
 ];
 

@@ -147,39 +147,6 @@ test("same revision in different executions has distinct IDs; revision lookup fo
   ).toBe(false);
 });
 
-test("rejected edits pin submitted code without changing the DAG or reusing old successful descendants", () => {
-  const storage = store();
-  storage.createSnapshot("A", workflow());
-  const success = {
-    state: "Completed",
-    inputTuples: 1,
-    outputTuples: 1,
-    resultMode: "table",
-    result: [{ value: "OLD_SUCCESS" }],
-  };
-  storage.setOperatorResult("A", "answer", success);
-  storage.setOperatorResult("A", "final", success);
-  storage.createSnapshot("B", workflow());
-  const attempted = workflow("bad-r2", "REJECTED_ATTEMPT_SOURCE").operators[1];
-  storage.captureNativeAttemptDiagnostic("B", attempted, failure("bad-r2").error!);
-  expect(storage.getWorkflow("B").operators[1].nativeOp!.revision).toBe("r1");
-  const inspection = storage.inspectNativeError("B", { operatorId: "answer" });
-  expect(inspection.summary?.phase).toBe("attempt");
-  expect(inspection.summary?.executionId).toBeNull();
-  expect(inspection.summary?.operatorRevision).toBe("bad-r2");
-  expect(inspection.text).toContain("REJECTED_ATTEMPT_SOURCE");
-  expect(inspection.text).toContain("rejected before execution");
-  expect(storage.getOperatorResult("B", "answer")?.result).toBeUndefined();
-  expect(storage.getOperatorResult("B", "final")?.result).toBeUndefined();
-  expect(storage.getOperatorResult("A", "final")?.result?.[0].value).toBe("OLD_SUCCESS");
-  const state = new WorkflowState();
-  state.setWorkflowContent(storage.getWorkflow("B"));
-  const rendered = formatOperatorResult("answer", storage.getOperatorResult("B", "answer")!, state);
-  expect(rendered).toContain("rejected edit; dataflow definition unchanged");
-  expect(rendered).not.toContain("revision");
-  expect(rendered).not.toContain("DIAGNOSTIC_BINDING_MISMATCH");
-});
-
 test("missing/pruned error records never fall back to the current source or another operator", () => {
   const storage = store();
   storage.createSnapshot("A", workflow());
@@ -234,8 +201,6 @@ test("operator IDs named like object prototype fields do not hide current execut
   storage.createSnapshot("A", wf);
   const info = failure();
   info.error = info.error!.replace('"operatorId":"answer"', '"operatorId":"constructor"');
-  storage.captureNativeAttemptDiagnostic("A", wf.operators[1], info.error);
-  storage.clearNativeRejectedEdits("A", ["constructor"]);
   storage.setOperatorResult("A", "constructor", info);
   expect(storage.inspectNativeError("A", { operatorId: "constructor" }).found).toBe(true);
 });
