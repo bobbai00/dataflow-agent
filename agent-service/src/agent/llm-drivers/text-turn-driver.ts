@@ -58,6 +58,7 @@ export interface TextTurnCallInput {
   missingSummary: boolean;
   ignoredProse: number[];
   wroteReceipt: boolean;
+  bareAnswer: boolean;
 }
 
 export class TextTurnDriver implements LLMDriver {
@@ -81,6 +82,9 @@ export class TextTurnDriver implements LLMDriver {
     const tool = input.tools[TOOL_NAME_DATAFLOW];
     if (!tool || typeof tool.execute !== "function") throw new Error("The text transport needs the dataflow tool.");
     const views = this.views?.() ?? viewsFromTool(tool);
+    // A bare "Final Answer:" line counts as the answer only once a result has
+    // been displayed; before that it is a guess, and is rejected like prose.
+    let shownResult = false;
 
     for (let stepNumber = 1; stepNumber <= input.maxSteps; stepNumber++) {
       const prepared = await input.prepareStep({ stepNumber, messages });
@@ -150,6 +154,7 @@ export class TextTurnDriver implements LLMDriver {
         missingSummary: parsed.ok ? parsed.turn.missingSummary : false,
         ignoredProse: parsed.ok ? parsed.turn.ignoredProse : [],
         wroteReceipt: parsed.ok ? parsed.turn.wroteReceipt : false,
+        bareAnswer: parsed.ok ? parsed.turn.bareAnswer : false,
       };
       let output: unknown;
       let isError = false;
@@ -162,6 +167,11 @@ export class TextTurnDriver implements LLMDriver {
         // GPT reasoning models sometimes return no visible text; a rejected
         // turn keeps the task going without spending the one correction.
         output = rejected("the reply was empty. Write a turn: a summary: line, then statements (set, execute, show).");
+        isError = true;
+      } else if (parsed.ok && parsed.turn.bareAnswer && !shownResult) {
+        output = rejected(
+          "a final answer comes after the computation: nothing has been computed or displayed yet. You do not open files yourself: the engine reads them. Begin like this, with the task's own paths:\nsummary: Read the first file.\nset data: scan(files='data/<folder>/input/<file>')\nshow result data\nThen compute in further turns, and give the final answer with answer: alone in a turn, after show result has displayed what it rests on."
+        );
         isError = true;
       } else if (!parsed.ok) {
         output = rejected(
@@ -177,6 +187,7 @@ export class TextTurnDriver implements LLMDriver {
           output = rejected(error instanceof Error ? error.message : String(error));
         }
         isError = !!(output as any)?.error;
+        if (parsed.turn.actions.some(action => action.type === "retrieve")) shownResult = true;
       }
       await input.onStepFinish({
         text: "",

@@ -233,7 +233,12 @@ test("a restated summary replaces the first; an answer inside a turn fence ends 
   if (fencedAnswer.ok) expect(fencedAnswer.turn.actions).toEqual([{ type: "answer", content: "EACC" }]);
   const bare = parse("summary: The mean is 68.1.\n\n**Final Answer: 68.1**");
   expect(bare.ok).toBe(true);
-  if (bare.ok) expect(bare.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.1**" }]);
+  if (bare.ok) {
+    expect(bare.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.1**" }]);
+    expect(bare.turn.bareAnswer).toBe(true);
+  }
+  const explicit = parse("answer: 68.1");
+  expect(explicit.ok && explicit.turn.bareAnswer).toBe(false);
   const bareOnly = parse("The analyzed samples give 68.5.\n\n**Final Answer: 68.5**");
   expect(bareOnly.ok).toBe(true);
   if (bareOnly.ok) expect(bareOnly.turn.actions).toEqual([{ type: "answer", content: "**Final Answer: 68.5**" }]);

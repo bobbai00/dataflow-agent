@@ -67,6 +67,8 @@ export interface ParsedTurn {
   ignoredProse: number[];
   /** The turn went on to write a receipt of its own; the text was cut there. */
   wroteReceipt: boolean;
+  /** The answer came from a bare `Final Answer:` line, not an `answer:` statement. */
+  bareAnswer: boolean;
   /** Python definitions from every fence, in order. */
   definitions: string;
   /** `set`/`delete` lines at their turn line numbers; other lines blank. */
@@ -176,6 +178,7 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   const ignoredProse: number[] = [];
   let answer: string | undefined;
   let answerLine = 0;
+  let bareAnswer = false;
   let fenceStart: number | undefined;
   let fenceBody: string[] = [];
   /** The backticks of a `text`/`turn` fence whose lines are read as the turn. */
@@ -252,8 +255,10 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
       summary = summaryMatch[1].trim();
       continue;
     }
-    const answerMatch = /^answer:\s*(.*)$/is.exec(trimmed) ?? (!statements.length ? /^(\**\s*Final Answer:.*)$/is.exec(trimmed) : null);
+    const explicit = /^answer:\s*(.*)$/is.exec(trimmed);
+    const answerMatch = explicit ?? (!statements.length ? /^(\**\s*Final Answer:.*)$/is.exec(trimmed) : null);
     if (answerMatch) {
+      bareAnswer = !explicit;
       let rest = lines.slice(i + 1);
       if (turnFence) {
         const close = rest.findIndex(candidate => new RegExp(`^\\s*${turnFence}\\s*$`).test(candidate));
@@ -401,6 +406,6 @@ export function parseTurn(text: string, options: TurnParseOptions): TurnParse {
   }
   return {
     ok: true,
-    turn: { summary: summary ?? "", missingSummary, ignoredProse, wroteReceipt, definitions: definitionsText, changes: changesText, statements, actions },
+    turn: { summary: summary ?? "", missingSummary, ignoredProse, wroteReceipt, bareAnswer, definitions: definitionsText, changes: changesText, statements, actions },
   };
 }

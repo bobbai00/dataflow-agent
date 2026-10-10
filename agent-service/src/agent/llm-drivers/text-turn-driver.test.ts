@@ -104,12 +104,14 @@ test("a reply that is not a turn, or an empty one, is rejected as a turn naming 
   expect(f.prompts[1].map((m: any) => m.role)).toEqual(["system", "user", "assistant", "user"]);
   expect(text(f.prompts[1][2])).toBe("I'm sorry, but I can't access the data file in this environment.");
   expect(text(f.prompts[1][3])).toContain("## turn rejected");
-  // A bare Final Answer line is the answer: the task ends there.
-  const bare = fixture([{ text: "**Final Answer: 10**" }]);
-  const ended = await bare.agent.sendMessage("How many?");
-  expect(ended.error).toBeUndefined();
-  expect(ended.response).toBe("**Final Answer: 10**");
-  expect(bare.calls()).toBe(1);
+  // A bare Final Answer line before any result is shown is a guess: rejected, not the answer.
+  const guess = fixture([{ text: "**Final Answer: 10**" }, { text: ANSWER }]);
+  const notYet = await guess.agent.sendMessage("How many?");
+  expect(notYet.error).toBeUndefined();
+  expect(notYet.response).toBe("The function is registered.");
+  expect(guess.calls()).toBe(2);
+  const first = guess.agent.getVisibleReActSteps().filter(s => s.role === "agent" && s.toolCalls?.length)[0];
+  expect((first.toolResults![0].output as any).error).toContain("a final answer comes after the computation");
 
   // An empty reply is retried once silently; a second empty reply is a rejected turn.
   const g = fixture([{ text: "" }, { text: ANSWER }]);
