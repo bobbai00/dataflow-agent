@@ -8,6 +8,12 @@ survives a correction for the 15 comparisons. For each model, the four settings 
 outcome on 84 to 91 of the 104 tasks. Where they disagree, the disagreement follows the task, not
 the setting.
 
+Every dataflow setting beats the smolagents baseline: 365–373 passes against 325 of 520. smolagents
+ran the day before, on the same tasks, files, models and judge. On the GPT models the margin is
+large and we cost less: at baseline, Luna passes 18 more tasks at 0.72× smolagents' cost, Sol 13
+more at 0.54× and Terra 6 more at 0.45×. On Opus 4.8 and DeepSeek the two agents are level (+2
+each), and we cost 1.3× as much.
+
 The two options do change cost, in opposite directions. The statistics settings cost 1–11% less per
 task. They also make a five-row sample the default view, so receipts are 22–30% shorter. Flow
 evidence costs 4–10% more, mostly because its guidance adds 2,658 characters to the system prompt,
@@ -36,6 +42,16 @@ directories are named `20261011-matrix-*`, although the runs took place on 2026-
 | Sol | gpt-5.6-sol | 2 | 900 s |
 | Opus 4.8 | claude-opus-4.8 | 2 | 900 s |
 | DeepSeek | deepseek-v4.1-flash via OpenRouter | 3, then 2–3 per setting | 1,800 s |
+
+**smolagents baseline.** These are the runs from the 2026-10-09 campaign
+(`20261009-smolagents-*` in the campaign worktree's `benchmark/retrieval/runs/`): smolagents
+`CodeAgent` with KramaBench's custom instructions, 25 steps, a 5,000-character limit on printed
+output and a 1,200 s limit per attempt. It ran in a bubblewrap sandbox that holds only the task's
+input files and has no network. DeepSeek's six timeouts were rerun at 1,800 s; one of the reruns
+passed, and the reruns replace the originals, as in that day's report. It used the same 104 tasks,
+the same file subset, the same gateway routes and the same evaluator and judge (gpt-5-mini, before
+the outage). The task text is the same except for the final-answer instruction. The dataflow agent
+is priced with the same frozen rates, applied to each recorded model response.
 
 The settings differ only in what a result shows the agent:
 
@@ -89,14 +105,14 @@ to per-setting runners at 02:47 and 03:37, and the two slowest settings split on
 Each cell gives the passes out of 104. In brackets are the tasks gained and lost against the same
 model's baseline, and the exact McNemar p-value. Timeouts count as failures.
 
-| Model | baseline | +statistics | +flow | +both |
-|---|---|---|---|---|
-| Luna | **75** | **73** (+4/−6, p=0.75) | **71** (+4/−8, p=0.39) | **67** (+2/−10, p=0.04) |
-| Terra | **69** | **72** (+8/−5, p=0.58) | **75** (+8/−2, p=0.11) | **71** (+5/−3, p=0.73) |
-| Sol | **74** | **76** (+4/−2, p=0.69) | **78** (+5/−1, p=0.22) | **74** (+4/−4, p=1.00) |
-| Opus 4.8 | **75** | **74** (+4/−5, p=1.00) | **74** (+2/−3, p=1.00) | **78** (+6/−3, p=0.51) |
-| DeepSeek | **73** | **78** (+7/−2, p=0.18) | **73** (+7/−7, p=1.00) | **75** (+6/−4, p=0.75) |
-| All five (of 520) | **366** | **373** | **371** | **365** |
+| Model | smolagents | baseline | +statistics | +flow | +both |
+|---|---|---|---|---|---|
+| Luna | 57 | **75** | **73** (+4/−6, p=0.75) | **71** (+4/−8, p=0.39) | **67** (+2/−10, p=0.04) |
+| Terra | 63 | **69** | **72** (+8/−5, p=0.58) | **75** (+8/−2, p=0.11) | **71** (+5/−3, p=0.73) |
+| Sol | 61 | **74** | **76** (+4/−2, p=0.69) | **78** (+5/−1, p=0.22) | **74** (+4/−4, p=1.00) |
+| Opus 4.8 | 73 | **75** | **74** (+4/−5, p=1.00) | **74** (+2/−3, p=1.00) | **78** (+6/−3, p=0.51) |
+| DeepSeek | 71 | **73** | **78** (+7/−2, p=0.18) | **73** (+7/−7, p=1.00) | **75** (+6/−4, p=0.75) |
+| All five (of 520) | 325 | **366** | **373** | **371** | **365** |
 
 With 15 comparisons, a difference needs p < 0.0033 to count, and none comes close. The smallest
 p-value is Luna with both options, 0.04 (2 gained, 10 lost). Pooled over the five models, the
@@ -105,6 +121,25 @@ options change little: +statistics gains 27 tasks and loses 20 (p=0.38), +flow g
 measured a standard deviation of about 3 points between repeated runs of the same setting. That
 puts the noise on the difference between two runs at about 4 points, and every difference in this
 table is within two of those.
+
+**Against smolagents.** The paired comparison uses the same 104 tasks per model. In each cell
+below, the first number counts tasks only the dataflow agent passed, the second counts tasks only
+smolagents passed, and p is the exact McNemar p-value. With 20 comparisons, a result needs
+p < 0.0025 to count.
+
+| Model | baseline | +statistics | +flow | +both |
+|---|---|---|---|---|
+| Luna | +24/−6, p=0.001 | +22/−6, p=0.004 | +21/−7, p=0.01 | +18/−8, p=0.08 |
+| Terra | +13/−7, p=0.26 | +16/−7, p=0.09 | +18/−6, p=0.02 | +15/−7, p=0.13 |
+| Sol | +17/−4, p=0.007 | +19/−4, p=0.003 | +20/−3, p=0.0005 | +17/−4, p=0.007 |
+| Opus 4.8 | +5/−3, p=0.73 | +4/−3, p=1.00 | +4/−3, p=1.00 | +8/−3, p=0.23 |
+| DeepSeek | +6/−4, p=0.75 | +9/−2, p=0.07 | +7/−5, p=0.77 | +9/−5, p=0.42 |
+
+Pooled over the five models, the baseline passes 65 tasks that smolagents fails and fails 24 that
+smolagents passes (p=0.00002). The other three settings give the same picture. Two cells clear the
+corrected threshold on their own: Luna at baseline and Sol with flow. Every Luna and Sol cell
+favours the dataflow agent. The runs are one repetition each, and smolagents ran a day earlier,
+so provider drift between the days is not controlled.
 
 ## 3. Where the settings disagree
 
@@ -128,21 +163,32 @@ count is 3 and 3.
 
 ## 4. Cost
 
-| Model | baseline | +statistics | +flow | +both |
-|---|---|---|---|---|
-| Luna | $0.0030 | $0.0027 (−8%) | $0.0032 (+9%) | $0.0031 (+3%) |
-| Terra | $0.0268 | $0.0240 (−11%) | $0.0279 (+4%) | $0.0260 (−3%) |
-| Sol | $0.0538 | $0.0494 (−8%) | $0.0583 (+8%) | $0.0501 (−7%) |
-| Opus 4.8 | $0.1144 | $0.1128 (−1%) | $0.1240 (+8%) | $0.1212 (+6%) |
-| DeepSeek | $0.0191 | $0.0187 (−2%) | $0.0210 (+10%) | $0.0167 (−13%) |
+| Model | smolagents | baseline | +statistics | +flow | +both |
+|---|---|---|---|---|---|
+| Luna | $0.0041 | $0.0030 (0.72×) | $0.0027 (−8%) | $0.0032 (+9%) | $0.0031 (+3%) |
+| Terra | $0.0600 | $0.0268 (0.45×) | $0.0240 (−11%) | $0.0279 (+4%) | $0.0260 (−3%) |
+| Sol | $0.0995 | $0.0538 (0.54×) | $0.0494 (−8%) | $0.0583 (+8%) | $0.0501 (−7%) |
+| Opus 4.8 | $0.0872 | $0.1144 (1.31×) | $0.1128 (−1%) | $0.1240 (+8%) | $0.1212 (+6%) |
+| DeepSeek | $0.0145 | $0.0191 (1.32×) | $0.0187 (−2%) | $0.0210 (+10%) | $0.0167 (−13%) |
 
-| Model | Calls per task (base / stat / flow / both) | Input tokens per task, thousands | Input read from cache |
-|---|---|---|---|
-| Luna | 4.58 / 4.70 / 4.72 / 4.85 | 31.3 / 30.0 / 35.5 / 35.5 | 83% / 86% / 84% / 87% |
-| Terra | 4.20 / 4.26 / 4.11 / 4.25 | 27.4 / 25.5 / 29.5 / 28.2 | 82% / 85% / 83% / 86% |
-| Sol | 4.20 / 4.40 / 4.38 / 4.39 | 28.8 / 28.2 / 33.4 / 30.2 | 82% / 85% / 83% / 86% |
-| Opus 4.8 | 5.30 / 5.91 / 5.40 / 5.88 | 56.1 / 59.5 / 62.0 / 66.7 | 86% / 89% / 86% / 89% |
-| DeepSeek | 9.81 / 10.17 / 9.47 / 9.97 | 133.1 / 123.9 / 134.1 / 121.8 | 88% / 89% / 87% / 89% |
+The baseline column shows the cost relative to smolagents. The evidence columns show the change
+from the dataflow baseline.
+
+| Model | Calls per task (base / stat / flow / both; smolagents) | Input tokens per task, thousands | Output tokens per task (baseline; smolagents) | Input read from cache |
+|---|---|---|---|---|
+| Luna | 4.58 / 4.70 / 4.72 / 4.85; 5.00 | 31.3 / 30.0 / 35.5 / 35.5; 25.7 | 1,175; 2,438 | 83% / 86% / 84% / 87%; 88% |
+| Terra | 4.20 / 4.26 / 4.11 / 4.25; 5.42 | 27.4 / 25.5 / 29.5 / 28.2; 28.0 | 1,039; 3,908 | 82% / 85% / 83% / 86%; 88% |
+| Sol | 4.20 / 4.40 / 4.38 / 4.39; 5.82 | 28.8 / 28.2 / 33.4 / 30.2; 34.7 | 1,157; 3,367 | 82% / 85% / 83% / 86%; 89% |
+| Opus 4.8 | 5.30 / 5.91 / 5.40 / 5.88; 6.95 | 56.1 / 59.5 / 62.0 / 66.7; 59.4 | 1,587; 1,162 | 86% / 89% / 86% / 89%; 92% |
+| DeepSeek | 9.81 / 10.17 / 9.47 / 9.97; 11.29 | 133.1 / 123.9 / 134.1 / 121.8; 94.4 | 11,507; 8,673 | 88% / 89% / 87% / 89%; 87% |
+
+On the GPT models, smolagents writes two to four times as many output tokens per task, about half
+of them hidden reasoning. Output costs five to six times as much as input on these models and makes
+up 68–78% of smolagents' bill, which is why we cost 45–72% of smolagents there. Opus is the other
+way round. Each of our calls adds a receipt that has to be written to the prompt cache, at 1.25×
+the input rate: 8,110 cache-write tokens per task against smolagents' 4,939. We also write more
+output, 1,587 tokens against 1,162. On DeepSeek we generate more reasoning, 9,047 tokens per task
+against 7,066.
 
 The statistics settings change two things at once: they add statistics, and they make the 2,000-
 character sample the default view in place of the 5,000-character full view. The agent read
@@ -282,3 +328,6 @@ Run directories, under `benchmark/retrieval/runs/`:
   `evidence_full_flow0` and `evidence_full_flow1` were stopped at 04:33, after 31 attempts each, and
   continued in `rest3`.
 - `20261011-matrix-rerun-*`: the nine reruns.
+- smolagents: `20261009-smolagents-{luna,terra,sol,opus48,deepseek41flash}` and
+  `20261009-smolagents-deepseek41flash-rerun1800`, in the campaign worktree's
+  `benchmark/retrieval/runs/`.
