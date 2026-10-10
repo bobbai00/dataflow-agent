@@ -62,6 +62,9 @@ DATA_TABLE = re.compile(r"^\s*statistics: (?:full table|partial profile), [\d,]+
 RECEIPT_HEADING = re.compile(r"^## (edits (?:applied|rejected)|execute\b[^\n]*|show (?:result|schema|operator|function|builtin)\b[^\n]*|(?:call|turn) rejected)\s*$", re.MULTILINE)
 STATEMENT_VIEW = re.compile(r"^[ \t]*show[ \t]+result[ \t]+[A-Za-z_]\w*[^\n]*[ \t]+(full|sample_stats|sample)[ \t]*$", re.MULTILINE)
 FULL_STATISTICS = re.compile(r"statistics: full table, ([\d,]+) of ([\d,]+) rows, ([\d,]+) of ([\d,]+) columns")
+# The evidence guidance sentences of the system prompt, current and earlier wordings.
+DATA_PROMPT = re.compile(r"Column statistics (?:are collected|in `sample_stats`)")
+FLOW_PROMPT = re.compile(r"Flow (?:statistics (?:describe measured|report measured)|lines report what upstream steps did)")
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
 
@@ -129,9 +132,9 @@ def audit_attempt(path, settings):
             issue("registered_prompt_missing", location)
         if "`statements`" not in system:
             issue("dataflow_prompt_missing", location)
-        if bool(re.search(r"Column statistics (?:are collected|in `sample_stats`)", system)) != data_enabled:
+        if bool(DATA_PROMPT.search(system)) != data_enabled:
             issue("data_prompt_mismatch", location)
-        if bool(re.search(r"Flow statistics (?:describe measured|report measured)", system)) != flow_enabled:
+        if bool(FLOW_PROMPT.search(system)) != flow_enabled:
             issue("flow_prompt_mismatch", location)
         example_views = STATEMENT_VIEW.findall(system)
         # Example calls carry their statements inside JSON strings.

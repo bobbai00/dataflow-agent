@@ -295,6 +295,15 @@ class MatrixAuditTests(unittest.TestCase):
         self.assertEqual(result["attempts_expected"], 1)
         self.assertIsNone(result["rows"][0]["audit"])
 
+    def test_evidence_prompt_checks_match_the_shipped_prompt(self):
+        # The runner pauses a campaign on these checks: they must follow the prompt's wording.
+        from benchmark.retrieval.matrix_audit import DATA_PROMPT, FLOW_PROMPT
+        root = Path(__file__).resolve().parents[2]
+        evidence = (root / "native-mode/SYSTEM_PROMPT_WITH_EVIDENCE.txt").read_text()
+        plain = (root / "native-mode/SYSTEM_PROMPT.txt").read_text()
+        self.assertTrue(DATA_PROMPT.search(evidence) and FLOW_PROMPT.search(evidence))
+        self.assertFalse(FLOW_PROMPT.search(plain))
+
     def test_a_timed_out_attempt_is_audited_from_the_watchdog_trace(self):
         self.write("manifest.json", {"settings": self.settings, "arms": {"data0flow0": {}}, "jobs": [
             {"model": "test", "arm": "data0flow0", "sut": "sut", "task": "task", "rep": 1}]})
