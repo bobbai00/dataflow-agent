@@ -83,9 +83,15 @@ class RetrievalSystem(_NativeExpressionBase):
         assert all(recorded[k] == value for k, value in settings.items()), "Settings drift"
         info = json.loads((base / "system-info.json").read_text())
         tool = next(t for t in info["tools"] if t["name"] == "dataflow")
-        retrieval = next(a for a in tool["inputSchema"]["properties"]["actions"]["items"]["anyOf"]
-                         if a["properties"]["type"]["const"] == "retrieve")
-        assert retrieval["properties"]["view"]["enum"] == arm["retrievalViews"]
+        properties = tool["inputSchema"]["properties"]
+        if "actions" in properties:
+            retrieval = next(a for a in properties["actions"]["items"]["anyOf"]
+                             if a["properties"]["type"]["const"] == "retrieve")
+            assert retrieval["properties"]["view"]["enum"] == arm["retrievalViews"]
+        else:
+            # The turn tool carries statements; its views are checked by the
+            # parser against the recorded settings, which the drift check covers.
+            assert set(properties) == {"summary", "python", "statements"}, sorted(properties)
 
     def serve_query(self, query, query_id="default-0", subset_files=None):
         answer = super().serve_query(query, query_id, subset_files)
