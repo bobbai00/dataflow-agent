@@ -65,6 +65,8 @@ test("the gateway receives the same absolute deadline without modifying prompt b
   expect(sent.get("Authorization")).toBe("Bearer test");
   expect(observed?.body).toBe('{"messages":[]}');
   expect(headers.get(LLM_DEADLINE_HEADER)).toBe("1");
+  // Bun's own request sweep is off, so the deadline is the only limit.
+  expect((observed as { timeout?: unknown }).timeout).toBe(false);
 });
 
 test("a Request's own headers and cancellation remain effective", async () => {

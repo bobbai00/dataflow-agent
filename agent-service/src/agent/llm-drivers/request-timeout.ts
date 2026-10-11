@@ -49,7 +49,10 @@ export function withRequestTimeout(
     // spent in transit and bounds gateway work even if disconnect notification
     // is unavailable. Cancellation of remote provider work remains best effort.
     headers.set(LLM_DEADLINE_HEADER, String(Date.now() + timeoutMs));
-    return fetchImpl(input, { ...init, headers, signal: AbortSignal.any(signals) });
+    // Bun's fetch drops a request older than 240-300 s on a periodic sweep
+    // unless `timeout: false` (see executionRequestLimits); the deadline above
+    // must be the only limit, or a long thinking call fails at about 280 s.
+    return fetchImpl(input, { ...init, headers, signal: AbortSignal.any(signals), timeout: false } as RequestInit);
   };
   return timed as typeof fetch;
 }
