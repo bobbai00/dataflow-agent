@@ -229,6 +229,56 @@ describe("buildNativeFrames", () => {
     expect(last.content).toContain("# Operators needing attention");
   });
 
+  // The model's own reply is rendered verbatim as `Thought: <reply>`, so the
+  // structure lines it may contain (a `# ` comment or heading, `Action:`,
+  // `Observation:`, `## Agent Event N`) are its words, never section bounds.
+  // From DeepSeek astronomy-hard-7 (2026-10-10): the reply's `# load` comment
+  // was read as a trailing section, the reply was cut at 391 of 3,235
+  // characters, and the next request rebuilt it whole (prefix changed).
+  const registered = (reply: string, observation: string) => {
+    const recorded = step("registered", []);
+    recorded.content = reply;
+    recorded.toolCalls = [{ toolCallId: "call", toolName: "dataflow", input: { statements: "show result raw" } }];
+    recorded.toolResults = [{ toolCallId: "call", output: { kind: "dataflow-actions", status: "completed" } }];
+    const text = `# User Task\nForecast density.\n\n## Agent Event 1\nThought: ${reply}\nAction:\ndataflow\nObservation:\n${observation}`;
+    return buildNativeFrames(text, new Map([[1, recorded]]));
+  };
+  const observation = "## show result raw\nresult raw (scan): 3 rows × 2 columns\n| file | bytes |\n|---|---|\n| a.csv | 10 |";
+
+  test.each([
+    ["a fenced comment", 'The solution likely:\n\n```python\nimport pandas as pd\n\n# load\n...\n# context = last 16 hours\n```\n\nHmm.'],
+    ["a Markdown heading", "Read the files first.\n\n# Plan\n\n1. List them."],
+    ["structure labels", "Steps so far.\nAction:\nObservation:\n## Agent Event 7\nNext, list the files."],
+  ])("the latest reply keeps %s as its own text", (_, reply) => {
+    const { messages } = registered(reply, observation);
+    expect(messages.map(m => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect((messages[1].content as any[])[0]).toEqual({ type: "text", text: reply });
+    expect((messages[2].content as any[])[0].output.value).toBe(observation);
+  });
+
+  test("the latest reply renders the same whether or not an event follows it", () => {
+    const reply = "```python\n# load\ndf = read()\n```\n# Plan\nCompare the counts.";
+    const recorded = step("registered", []);
+    recorded.content = reply;
+    recorded.toolCalls = [{ toolCallId: "call", toolName: "dataflow", input: {} }];
+    recorded.toolResults = [{ toolCallId: "call", output: { kind: "dataflow-actions", status: "completed" } }];
+    const first = `# User Task\nForecast density.\n\n## Agent Event 1\nThought: ${reply}\nAction:\ndataflow\nObservation:\n${observation}`;
+    const map = new Map([[1, recorded], [2, step("s2", [["call2", "op"]])]]);
+    const a = buildNativeFrames(first, map);
+    const b = buildNativeFrames(`${first}\n\n## Agent Event 2\nThought: next\nAction:\ndataflow\nObservation:\nok`, map);
+    for (let i = 0; i < a.messages.length; i++) expect(JSON.stringify(b.messages[i])).toBe(JSON.stringify(a.messages[i]));
+  });
+
+  test("a final reply with a heading stays one assistant turn", () => {
+    const reply = "The density is 2.4e-12.\n\n# Check\n\nUnits are kg/m³.\n\n**Final Answer: 2.4e-12**";
+    const text = `# User Task\nFind the answer.\n\n## Agent Event 1\nThought: ${reply}`;
+    const recorded = step("s1", []);
+    recorded.content = reply;
+    const { messages } = buildNativeFrames(text, new Map([[1, recorded]]));
+    expect(messages.map(m => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(messages[1].content).toBe(reply);
+  });
+
   test("APPEND-ONLY: adding an event leaves earlier messages byte-identical", () => {
     const short = CTX.slice(0, CTX.indexOf("## Agent Event 3")).trimEnd();
     const a = buildNativeFrames(short, MAP);

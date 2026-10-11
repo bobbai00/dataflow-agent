@@ -26,6 +26,13 @@ import type { ReActStep } from "../../../types/agent";
 const EVENT_RE = /^## Agent Event (\d+)\s*$/gm;
 /** A top-level section rendered after the last event (current state, not history). */
 const TRAILING_SECTION_RE = /^# [^\n]+$/m;
+/**
+ * The sections the renderer places after the last event (renderContextCore).
+ * In a native transcript only these headings end an event: any other `# ` line
+ * there is the model's reply or a result, such as a Python comment.
+ */
+const AGENT_SECTION_RE =
+  /^# (?:Current Dataflow|Inspections|Agent Turns|Reasoning|Operators needing attention)\b[^\n]*$/m;
 
 export interface NativeFramesResult {
   messages: ModelMessage[];
@@ -89,10 +96,14 @@ export function splitTrailingState(text: string): { head: string; tail: string }
  * text turn instead — thought-only turns stay visible without breaking pairing.
  */
 export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActStep>): NativeFramesResult {
-  const marks: Array<{ at: number; index: number }> = [];
+  const marks: Array<{ at: number; index: number; body: number; reply?: string }> = [];
   EVENT_RE.lastIndex = 0;
   for (let m = EVENT_RE.exec(text); m !== null; m = EVENT_RE.exec(text)) {
-    marks.push({ at: m.index, index: Number(m[1]) });
+    const index = Number(m[1]);
+    const mark = { at: m.index, index, ...replySpan(text, m.index + m[0].length, stepByEvent.get(index)) };
+    marks.push(mark);
+    // A reply may contain an event heading of its own; resume after the reply.
+    EVENT_RE.lastIndex = Math.max(EVENT_RE.lastIndex, mark.body);
   }
   if (marks.length === 0) {
     // No events yet: end the message exactly where later steps' prefix ends
@@ -108,23 +119,29 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
   for (let i = 0; i < marks.length; i++) {
     const end = i + 1 < marks.length ? marks[i + 1].at : text.length;
     let chunk = text.slice(marks[i].at, end);
+    // Structure is looked for only after the model's reply, which may contain
+    // any line (a `# ` comment, `Observation:`) and is never parsed.
+    const bodyAt = Math.max(marks[i].body - marks[i].at, chunk.indexOf("\n") + 1);
+    const after = (re: RegExp) => {
+      const at = chunk.slice(bodyAt).search(re);
+      return at < 0 ? -1 : bodyAt + at;
+    };
 
     // Split off a trailing top-level section: it is CURRENT state, re-rendered
     // every step, so it must sit last or it would break the append-only prefix.
     let trailing = "";
     if (i === marks.length - 1) {
-      const nl = chunk.indexOf("\n") + 1;
-      const t = chunk.slice(nl).search(TRAILING_SECTION_RE);
+      const t = after(AGENT_SECTION_RE);
       if (t >= 0) {
-        trailing = chunk.slice(nl + t).trimEnd();
-        chunk = chunk.slice(0, nl + t);
+        trailing = chunk.slice(t).trimEnd();
+        chunk = chunk.slice(0, t);
       }
     }
 
     // An earlier user turn (`## User Event N`) is rendered between agent events;
     // it belongs to the user, not to the previous tool result.
     let userTurn = "";
-    const userAt = chunk.search(/^## User Event \d+\s*$/m);
+    const userAt = after(/^## User Event \d+\s*$/m);
     if (userAt >= 0) {
       userTurn = chunk
         .slice(userAt)
@@ -133,7 +150,7 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
       chunk = chunk.slice(0, userAt);
     }
 
-    const obsAt = chunk.search(/^Observation:\s*$/m);
+    const obsAt = after(/^Observation:\s*$/m);
     const head = (obsAt >= 0 ? chunk.slice(0, obsAt) : chunk).trimEnd();
     const observation =
       obsAt >= 0
@@ -149,7 +166,8 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     // `Thought:` is the model's own reasoning; keep it as the assistant's text.
     // The `Action:` render is dropped here — the tool-call parts below ARE the
     // action, and repeating it as prose is what caused the narration failure.
-    const thought = extractThought(head);
+    const reply = marks[i].reply;
+    const thought = reply !== undefined ? reply.trim() : extractThought(head);
 
     if (calls.length === 0) {
       const body = thought || head;
@@ -207,6 +225,20 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
   if (last && last.role === "assistant") messages.push({ role: "user", content: "Continue." });
 
   return { messages, events: converted };
+}
+
+/**
+ * Where the model's reply ends in an event rendered from `from`, just past its
+ * heading. The renderer writes `Thought: ${step.content}` verbatim
+ * (serializeTurn), so the recorded step gives the reply's exact extent. An
+ * event without a reply, or rendered differently, ends its reply at `from`.
+ */
+function replySpan(text: string, from: number, step: ReActStep | undefined): { body: number; reply?: string } {
+  const reply = typeof step?.content === "string" ? step.content : "";
+  if (!reply) return { body: from };
+  const start = from + (/^\n*/.exec(text.slice(from, from + 4))?.[0].length ?? 0);
+  const rendered = `Thought: ${reply}`;
+  return text.startsWith(rendered, start) ? { body: start + rendered.length, reply } : { body: from };
 }
 
 /** The `Thought: …` body of a rendered event, up to the `Action:` block. */
