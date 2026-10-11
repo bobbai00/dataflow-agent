@@ -14,13 +14,17 @@
 
 One agent, one workflow and one computing unit serve the whole session, so
 later requests build on the Dataflow and functions earlier ones left. The arm
-is the agent's `multiRequest` setting:
+fixes the agent's multi-request settings:
 - off: the single-request agent, sent each request in turn (earlier requests
   stay in its transcript);
 - transcript: the same layout, with the multi-request prompt section, function
   signatures in receipts, and notes on constant columns;
 - catalog: as transcript, but each earlier request appears as its request and
-  one catalog entry.
+  one catalog entry;
+- catalog-compact: as catalog, with entries listing documented functions by
+  signature and docstring instead of source;
+- hybrid: as catalog-compact, keeping the 5 to 9 most recent requests as
+  transcript.
 
 Every request is sent once; a request that ends without an answer is recorded
 as incomplete and the session goes on. The stack comes from the environment
@@ -49,7 +53,13 @@ import requests
 from benchmark.longds.common import ROOT, load, save
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule, final_reply, normalize_usage
 
-ARMS = {"off": "off", "transcript": "transcript", "catalog": "catalog"}
+ARMS = {
+    "off": {"multiRequest": "off"},
+    "transcript": {"multiRequest": "transcript"},
+    "catalog": {"multiRequest": "catalog"},
+    "catalog-compact": {"multiRequest": "catalog", "catalogSource": "docstring"},
+    "hybrid": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 5},
+}
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).
 BASE_SETTINGS = {"agentMode": "native", "contextMode": "delta"}
@@ -172,7 +182,7 @@ def request_record(turn, prompt, steps, model, elapsed, watchdog):
 def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
     out.mkdir(parents=True, exist_ok=False)
     prompts = load(prepared / "prompts.json")[:turns]
-    settings = {**BASE_SETTINGS, "multiRequest": ARMS[arm]}
+    settings = {**BASE_SETTINGS, **ARMS[arm]}
     save(out / "protocol.json", {
         "prepared": str(prepared.resolve()), "arm": arm, "model": model, "settings": settings,
         "turns": len(prompts), "spend_limit_usd": spend_limit, "question_minutes": minutes,
