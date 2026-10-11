@@ -278,7 +278,7 @@ test("lambda conditions are checked before execution and fail at their own sourc
   for (const [condition, message] of [
     ["lambda row, other: True", "one parameter"],
     ["lambda row: True, settings={'x': 1}", "settings belong to a registered predicate"],
-    ["lambda row: True, predicate='keep'", "either a lambda or predicate="],
+    ["lambda row: True, predicate='keep'", "one lambda, not also predicate="],
   ])
     await expect(inline(condition, "def keep(row):\n    return True")).rejects.toThrow(message);
   await expect(

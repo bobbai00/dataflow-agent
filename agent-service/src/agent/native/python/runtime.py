@@ -1134,7 +1134,14 @@ def _scan_format(path, requested):
 
 
 def _validate_scan_options(spec, fmt):
-    props = spec["properties"]
+    props = dict(spec["properties"])
+    if fmt == "lines":
+        # Raw lines have no header and always yield (line_no, line): header=False
+        # and those column names restate that and change nothing, so they are no-ops.
+        if props.get("header") is False:
+            props.pop("header")
+        if props.get("names") in (["line"], ["line_no", "line"]):
+            props.pop("names")
 
     def reject(message):
         raise _error(spec, "SCAN_OPTIONS", message, stage="validate")
@@ -1697,7 +1704,7 @@ def _scan(spec, operations):
     return result
 
 
-def _map_dtype(spec, name, values, fallback, func, entry):
+def _map_dtype(spec, name, values, fallback, func, entry, field="func"):
     """Infer one output column's type from the values a map produced.
     bool only when every value is bool (True is an int in Python); int64 and
     float64 mix to float64; anything else must be one kind; an all-None
@@ -1722,7 +1729,7 @@ def _map_dtype(spec, name, values, fallback, func, entry):
                     f"map column {name!r} at row {index} is a timezone-naive datetime; "
                     "attach a timezone (e.g. datetime.timezone.utc) or return an ISO-8601 string.",
                     stage="contract",
-                    field="func",
+                    field=field,
                     source=_location(func, entry, 1),
                 )
             kind = "datetime"
@@ -1733,7 +1740,7 @@ def _map_dtype(spec, name, values, fallback, func, entry):
                 f"map column {name!r} at row {index} is a {type(value).__name__}; return scalar cells "
                 "(str, int, float, bool, datetime or None) and serialize nested data as JSON strings.",
                 stage="contract",
-                field="func",
+                field=field,
                 source=_location(func, entry, 1),
             )
         kinds.setdefault(kind, (index, value))
@@ -1752,7 +1759,7 @@ def _map_dtype(spec, name, values, fallback, func, entry):
         f"map column {name!r} mixes types: row {first_at} has {first_value!r} ({first_kind}) but row {other_at} has "
         f"{other_value!r} ({other_kind}). Return one type per column (None is allowed) or convert explicitly.",
         stage="contract",
-        field="func",
+        field=field,
         source=_location(func, entry, 1),
     )
 
@@ -1762,10 +1769,16 @@ def _map(spec, source, operations):
     output table. Exactly one row out per row in, in order; every row returns
     the same keys; values are scalars or None; column types are inferred from
     the values (see `_map_dtype`). `{**row, "x": ...}` keeps the input columns.
-    The columns the function read are recorded as measured dependencies."""
+    The columns the function read are recorded as measured dependencies.
+    A registered map is the statement's inline lambda, run over the definitions."""
     props = spec["properties"]
-    entry = props.get("entry", "apply")
-    function = _function(spec, props["func"], "func", entry)
+    registered = "registered" in props
+    if registered:
+        code, entry, field = props["registered"]["lambda"], "lambda", "python"
+        function = registered_callable(spec)
+    else:
+        code, entry, field = props["func"], props.get("entry", "apply"), "func"
+        function = _function(spec, code, field, entry)
     reads = set()
     keys = None
     columns = {}
@@ -1779,8 +1792,8 @@ def _map(spec, source, operations):
                 f"map must return the new row as a dict, got {type(value).__name__} at row {index}. "
                 'Use {**row, "column": value} to keep the input columns and add one.',
                 stage="contract",
-                field="func",
-                source=_location(props["func"], entry, 1),
+                field=field,
+                source=_location(code, entry, 1),
             )
         row_keys = list(value.keys())
         if keys is None:
@@ -1790,8 +1803,8 @@ def _map(spec, source, operations):
                     "MAP_SCHEMA",
                     "map must return a dict with at least one non-empty string key; the keys are the output columns.",
                     stage="contract",
-                    field="func",
-                    source=_location(props["func"], entry, 1),
+                    field=field,
+                    source=_location(code, entry, 1),
                 )
             keys = row_keys
             columns = {key: [] for key in keys}
@@ -1802,14 +1815,22 @@ def _map(spec, source, operations):
                 f"map returned columns {sorted(row_keys)!r} at row {index} but {sorted(keys)!r} at row 0; "
                 "every row must return the same keys.",
                 stage="contract",
-                field="func",
-                source=_location(props["func"], entry, 1),
+                field=field,
+                source=_location(code, entry, 1),
             )
         for key in keys:
             columns[key].append(_scalar(value[key]))
 
     for index, row in enumerate(_rows(source, reads)):
-        accept(index, function(row))
+        try:
+            value = function(row)
+        except NativeError:
+            raise
+        except Exception as error:
+            if registered:
+                raise _registered_failure(spec, error) from error
+            raise
+        accept(index, value)
     if keys is None:
         # Empty input: learn the keys from one probe call on an all-None row;
         # if the function cannot run on that, the output keeps the input schema.
@@ -1829,7 +1850,7 @@ def _map(spec, source, operations):
     output = pd.DataFrame(index=range(len(source)))
     for key in keys:
         fallback = _dtype(source[key]) if key in source.columns else None
-        dtype = _map_dtype(spec, key, columns[key], fallback, props["func"], entry)
+        dtype = _map_dtype(spec, key, columns[key], fallback, code, entry, field)
         try:
             output[key] = _series(columns[key], dtype)
         except (ValueError, TypeError) as error:
@@ -1838,7 +1859,7 @@ def _map(spec, source, operations):
                 "OUTPUT_VALUE_TYPE",
                 f"map column {key!r}: {error}. Datetimes must carry a timezone.",
                 stage="contract",
-                field="func",
+                field=field,
             ) from error
     operations["readColumns"] = sorted(reads)
     operations["columnDependencies"] = {key: ([key] if key in source.columns else sorted(reads)) for key in keys}
@@ -1894,13 +1915,13 @@ def _cast(spec, source, operations):
 def _registered_failure(spec, error):
     """Point runtime failures at the shared authored definition, not the adapter."""
     frames = [frame for frame in traceback.extract_tb(error.__traceback__)
-              if frame.filename.startswith(("<definitions:", "<filter:"))]
+              if frame.filename.startswith(("<definitions:", "<lambda:"))]
     location = None
     if frames:
         frame = frames[-1]
         registration = spec["properties"]["registered"]
-        if frame.filename.startswith("<filter:"):
-            # The failing code is the filter's inline lambda in its statement.
+        if frame.filename.startswith("<lambda:"):
+            # The failing code is the operator's inline lambda in its statement.
             location = _location(registration["lambda"], "lambda", frame.lineno)
         else:
             cell = int(frame.filename.removeprefix("<definitions:").removesuffix(">"))

@@ -37,7 +37,7 @@ set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})
 set report: sort(totals, by=['group'])
 ```
 
-`records`, `totals`, and `report` are operator IDs. Positional arguments are input IDs, except a filter's condition; keyword arguments are literal settings. `set` creates or fully replaces an operator, so restate the settings you keep; `delete id` removes one. Write each ID once per edit; no nested operator calls.
+`records`, `totals`, and `report` are operator IDs. Positional arguments are input IDs, except the lambda of a filter or map; keyword arguments are literal settings. `set` creates or fully replaces an operator, so restate the settings you keep; `delete id` removes one. Write each ID once per edit; no nested operator calls.
 
 The statements, one per line:
 
@@ -63,7 +63,7 @@ Prefer built-ins for supported selection, conversion, joins, grouping, ordering,
 
 {{OPERATOR_CATALOG}}
 
-`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`; the lambda can call registered functions.
+`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions.
 
 ### Python functions
 

@@ -119,12 +119,14 @@ test("show schema pages from an offset, and a malformed page is refused before a
   expect(call("show schema data/source.csv").error).toContain("takes the ID of an operator, not a path or a call");
 });
 
-test("show builtin reads a built-in contract; retired map and process are not built-ins", () => {
+test("show builtin reads a built-in contract; retired process is not a built-in", () => {
   expect(registeredReferenceText({ topic: "operators", operator_names: ["filter"] })).toContain(
     "filter(t, lambda row: condition)"
   );
-  for (const name of ["map", "process"])
-    expect(() => registeredReferenceText({ topic: "operators", operator_names: [name] })).toThrow(
-      `Unknown built-in operator ${name}.`
-    );
+  expect(registeredReferenceText({ topic: "operators", operator_names: ["map"] })).toContain(
+    'map(t, lambda row: {**row, "new": value})'
+  );
+  expect(() => registeredReferenceText({ topic: "operators", operator_names: ["process"] })).toThrow(
+    "Unknown built-in operator process."
+  );
 });

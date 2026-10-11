@@ -70,7 +70,7 @@ function declarationError(statement: { id: string; line: number }, error: unknow
     `Changes line ${statement.line}, operator ${statement.id}: ${error instanceof Error ? error.message : error}`
   );
 }
-const retired = new Set(["map", "process"]);
+const retired = new Set(["process"]);
 export const REGISTERED_OPERATOR_NAMES = NATIVE_OPERATORS.filter(d => !retired.has(d.name)).map(d => d.name);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
@@ -248,6 +248,32 @@ function normalizeRegisteredFilter(
   };
 }
 
+/** A map is one lambda from a row to its new row: the returned dict is that
+ * row of the output table. It runs over the definitions, like a filter's
+ * lambda, so it can call registered functions and its reads are measured. */
+function normalizeRegisteredMap(statement: SetStatement, cells: string[], options: RegisteredStageInput): NativeOpView {
+  const invalid = (message: string): never => {
+    throw new Error(`${message} Signature: ${signatures.map}`);
+  };
+  if (statement.inputs.length !== 1) invalid("map requires exactly one input table.");
+  const fn = statement.kwargs.fn;
+  if (Object.keys(statement.kwargs).some(key => key !== "fn") || fn?.kind !== "lambda")
+    return invalid("map takes its input and one lambda that returns the new row as a dict.");
+  if (fn.params.length !== 1) invalid("A map's lambda takes one parameter, the row: lambda row: {...}");
+  return {
+    type: "Map",
+    inputs: statement.inputs,
+    source: statement.source,
+    graph: { inputPorts: ["input-0"] },
+    properties: {
+      registered: { cells, lambda: fn.source, names: fn.names ?? [], settings: {}, namespaceRevision: hash(cells) },
+    },
+    ...(options.profileCollection
+      ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
+      : {}),
+  };
+}
+
 /** `def load(*):` and `def summarize(df, *):` are syntax errors that mean "no
  * settings": a function with no table inputs or no keyword settings keeps the
  * `*` the settings convention puts before them. A parameter list that ends in
@@ -351,6 +377,8 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       let view: NativeOpView;
       if (statement.op === "filter") {
         view = normalizeRegisteredFilter({ ...statement, kwargs }, cells, options);
+      } else if (statement.op === "map") {
+        view = normalizeRegisteredMap({ ...statement, kwargs }, cells, options);
       } else if (REGISTERED_OPERATOR_NAMES.includes(statement.op)) {
         view = normalizeBuiltin({ ...statement, kwargs }, options);
       } else {
@@ -430,7 +458,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       .filter(([, view]) => view.properties.registered)
       .map(([id, view]) => ({
         id,
-        kind: view.type === "Filter" ? "filter" : "process",
+        kind: view.type.toLowerCase(),
         inputs: view.inputs,
         ...(view.properties.registered as object),
       })),
@@ -457,6 +485,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
 const signatures: Record<string, string> = {
   scan: 'scan(files=..., format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)',
   filter: "filter(t, lambda row: condition)",
+  map: 'map(t, lambda row: {**row, "new": value})',
   project: "project(t, keep=None, drop=None, rename=None)",
   cast: 'cast(t, columns={"column": dtype}, errors="raise")',
   aggregate: 'aggregate(t, by=[], outputs={"output": reducer(...)})',
@@ -473,6 +502,7 @@ const briefOverrides: Record<string, string> = {
   scan: "Read local files/globs or lists: CSV/TSV, text, Excel, HTML tables, tabular JSON/JSONL, or Parquet. names requires header=False; all_text preserves codes; sheet selects a sheet/table. preview is an integer 1..200 for raw layout/metadata, not ordinary result samples.",
   filter:
     'Keep the rows for which the condition over a read-only row mapping returns True; False or null drops. A registered predicate with settings also works: filter(t, predicate="name", settings={...}). Preserves columns and order; measures kept/rejected/null counts and bounded rejected-value frequencies.',
+  map: "Turn each row into a new row: the dict the lambda returns is that row of the output. {**row, ...} keeps the input columns; returning only some keys keeps only those. One row out per row in, in order.",
   cast: 'Convert named columns to str, int64, float64, bool, or datetime(format=..., tz=...). Failed conversions raise, or become null with errors="null"; naive timestamps require a timezone. Normalize text in a custom function before casting.',
   aggregate:
     "One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.",
@@ -482,6 +512,7 @@ const briefOverrides: Record<string, string> = {
 const fullExtras: Record<string, string> = {
   filter:
     ' Example: set adults: filter(people, lambda row: row["age"] is not None and row["age"] >= 21). The lambda can call registered functions. A condition reused with different values can be registered instead: def keep(row, *, minimum=18): return row["age"] is not None and row["age"] >= minimum, then set adults: filter(people, predicate="keep", settings={"minimum": 21}). Only bool or a scalar missing value is accepted; numbers, strings, arrays, and Series fail. Missing input values appear as None. Functions share authored definitions; one fresh namespace per operator invocation is shared across its rows. The predicate cannot mutate the row mapping. Rejected includes null verdicts. When profiles are collected, frequencies describe source values among all rejected rows for up to eight actually-read columns, with three first-encountered values each and an other count; they are not top frequencies or causal explanations. Updating a definition the condition uses invalidates this filter and its descendants.',
+  map: ' Example: set priced: map(orders, lambda row: {**row, "unit_price": None if row["quantity"] in (None, 0) else row["amount"] / row["quantity"]}). Every row must return the same keys; values are scalars or None, and each column\'s type is inferred from them (ints and floats mix to float64; datetimes need a timezone). Missing input values appear as None. The lambda can call registered functions; logic across rows (grouping, differences between rows) belongs in aggregate, window, or a registered table function. The columns the lambda reads are measured, and the receipt lists added and dropped columns.',
   project:
     " Provide at least one of keep, drop, or rename; keep and drop are mutually exclusive. keep preserves the requested column order. Missing columns and name collisions fail.",
   cast: ' columns is a nonempty mapping from column names to unquoted dtype descriptors, including names such as doc or errors. datetime(format="%Y-%m-%d", tz="UTC") accepts an explicit format and timezone.',
@@ -510,7 +541,7 @@ export function registeredCatalogText(
       let extra = detail === "full" ? (fullExtras[name] ?? "") : "";
       if (detail === "full" && name === "scan")
         extra =
-          ' format: auto, csv, lines, fwf, whitespace, excel, html, json, parquet. TSV uses auto or csv with delim="\\t". Multiple sources are deduplicated, sorted by resolved path, and column-aligned. header=True takes column names from the first retained row; names supplies one name per column and requires header=False. skip_lines is a nonnegative count of initial physical lines/rows to skip. delim is one character or "whitespace"; omission sniffs comma, tab, semicolon, or pipe. widths is a list of positive field widths for fwf. encoding is a text codec name. sheet is an Excel sheet name or zero-based index, or an HTML table zero-based index; full reads default to the first sheet/table. file_column names a new provenance column containing each source basename. Optional None settings equal omission. preview=1..200 returns raw layout; Parquet and recognized binary/compressed files return metadata only. Full Parquet is supported; specialized binary/compressed sources need custom loaders. comment is a one-character reader setting, not documentation: delimited/whitespace and inferred-width readers ignore text from the marker onward; explicit-width fwf skips lines beginning with it after whitespace. Raw lines/previews preserve source text. Format-specific settings: csv/whitespace allow header,names,skip_lines,encoding,delim,comment; fwf substitutes widths for delim; lines allows skip_lines,encoding; excel allows header,names,skip_lines,sheet; html additionally allows encoding; json allows encoding; parquet has no additional reader settings. preview also accepts skip_lines except for binary/Parquet metadata. Inapplicable settings fail. JSON accepts records, one object, or column arrays; nested dictionaries flatten to dotted names.';
+          ' format: auto, csv, lines, fwf, whitespace, excel, html, json, parquet. TSV uses auto or csv with delim="\\t". Multiple sources are deduplicated, sorted by resolved path, and column-aligned. header=True takes column names from the first retained row; names supplies one name per column and requires header=False. skip_lines is a nonnegative count of initial physical lines/rows to skip. delim is one character or "whitespace"; omission sniffs comma, tab, semicolon, or pipe. widths is a list of positive field widths for fwf. encoding is a text codec name. sheet is an Excel sheet name or zero-based index, or an HTML table zero-based index; full reads default to the first sheet/table. file_column names a new provenance column containing each source basename. Optional None settings equal omission. preview=1..200 returns raw layout; Parquet and recognized binary/compressed files return metadata only. Full Parquet is supported; specialized binary/compressed sources need custom loaders. comment is a one-character reader setting, not documentation: delimited/whitespace and inferred-width readers ignore text from the marker onward; explicit-width fwf skips lines beginning with it after whitespace. Raw lines/previews preserve source text. Format-specific settings: csv/whitespace allow header,names,skip_lines,encoding,delim,comment; fwf substitutes widths for delim; lines allows skip_lines,encoding and yields line_no and line (header=False and names=["line"] restate that and are accepted); excel allows header,names,skip_lines,sheet; html additionally allows encoding; json allows encoding; parquet has no additional reader settings. preview also accepts skip_lines except for binary/Parquet metadata. Inapplicable settings fail. JSON accepts records, one object, or column arrays; nested dictionaries flatten to dotted names.';
       const signature =
         name === "scan" && detail === "index"
           ? 'scan(files=..., format="auto", header=True, names=None, sheet=None, all_text=False, preview=None)'

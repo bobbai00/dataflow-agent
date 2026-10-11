@@ -189,16 +189,17 @@ def parse_registered_changes(source):
                 raise ValueError(f"Changes line {error_line}, operator {identifier}: {error.msg}") from error
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 raise ValueError(f"Line {line}: the definition must call an operator type by name.")
-            # A filter's condition may follow its input inline, as `lambda row: ...`;
-            # it is carried as the filter's predicate.
+            # A filter's condition and a map's row function follow the input inline,
+            # as `lambda row: ...`; they are carried as `predicate` and `fn`.
+            slot = {"filter": "predicate", "map": "fn"}.get(node.func.id)
             condition = None
-            if node.func.id == "filter" and node.args and isinstance(node.args[-1], ast.Lambda):
+            if slot and node.args and isinstance(node.args[-1], ast.Lambda):
                 condition = node.args[-1]
                 node.args = node.args[:-1]
-                if any(kw.arg == "predicate" for kw in node.keywords):
-                    raise ValueError(f"Line {line}: give filter either a lambda or predicate=, not both.")
-            elif node.func.id == "filter":
-                spelled = [kw for kw in node.keywords if kw.arg == "predicate" and isinstance(kw.value, ast.Lambda)]
+                if any(kw.arg == slot for kw in node.keywords):
+                    raise ValueError(f"Line {line}: give {node.func.id} one lambda, not also {slot}=.")
+            elif slot:
+                spelled = [kw for kw in node.keywords if kw.arg == slot and isinstance(kw.value, ast.Lambda)]
                 if spelled:
                     condition = spelled[0].value
                     node.keywords = [kw for kw in node.keywords if kw is not spelled[0]]
@@ -206,9 +207,24 @@ def parse_registered_changes(source):
             # would be rejected for its position; name what works instead.
             if any(isinstance(part, ast.Lambda)
                    for value in [*node.args, *(kw.value for kw in node.keywords)] for part in ast.walk(value)):
-                raise ValueError(f"Line {line}: a lambda is only a filter's condition. To count or sum the rows that meet "
-                                 "a condition, filter them first and aggregate the kept rows, or add a flag column in a "
-                                 "registered function.")
+                raise ValueError(f"Line {line}: a lambda is only a filter's condition or a map's row function. To count "
+                                 "or sum the rows that meet a condition, filter them first and aggregate the kept rows, "
+                                 "or add a flag column with map(t, lambda row: {**row, 'flag': ...}).")
+            # A join's tables bind like Python arguments: positionally as (left,
+            # right), or by name as left= and right=.
+            if node.func.id == "join" and any(kw.arg in ("left", "right") for kw in node.keywords):
+                tables = dict(zip(("left", "right"), node.args))
+                for keyword in [kw for kw in node.keywords if kw.arg in ("left", "right")]:
+                    if keyword.arg in tables:
+                        raise ValueError(f"Line {line}: join got two values for its {keyword.arg} table.")
+                    if not isinstance(keyword.value, ast.Name):
+                        raise ValueError(f"Line {line}: left= and right= name the input tables by operator ID; "
+                                         "key columns go in on=, e.g. on=[('left_column', 'right_column')].")
+                    tables[keyword.arg] = keyword.value
+                if len(node.args) > 2 or set(tables) != {"left", "right"}:
+                    raise ValueError(f"Line {line}: join takes a left and a right table, positionally or as left= and right=.")
+                node.args = [tables["left"], tables["right"]]
+                node.keywords = [kw for kw in node.keywords if kw.arg not in ("left", "right")]
             if any(not isinstance(arg, ast.Name) for arg in node.args):
                 raise ValueError(f"Line {line}: positional arguments must be input operator IDs; settings use keywords. "
                                  "Declare a nested call as its own set statement and pass its ID.")
@@ -218,7 +234,7 @@ def parse_registered_changes(source):
             if len(keys) != len(set(keys)):
                 raise ValueError(f"Line {line}: a setting is supplied more than once.")
             if condition is not None:
-                node.keywords.append(ast.keyword(arg="predicate", value=condition))
+                node.keywords.append(ast.keyword(arg=slot, value=condition))
             for keyword in node.keywords:
                 if isinstance(keyword.value, ast.Lambda):
                     continue
@@ -232,7 +248,7 @@ def parse_registered_changes(source):
             for keyword in node.keywords:
                 kwargs[keyword.arg] = _encode(expression, keyword.value)
                 if isinstance(keyword.value, ast.Lambda):
-                    # The names a condition uses tie the filter to the definitions it calls.
+                    # The names a lambda uses tie the operator to the definitions it calls.
                     parameters = {arg.arg for arg in keyword.value.args.args}
                     kwargs[keyword.arg]["names"] = sorted(
                         {part.id for part in ast.walk(keyword.value.body) if isinstance(part, ast.Name)} - parameters)
@@ -268,7 +284,7 @@ def registered_request(request):
                 try:
                     inspect.signature(_condition(node, scope)).bind(object())
                 except TypeError as error:
-                    raise ValueError(f"{node['id']}: a filter's lambda takes one parameter, the row.") from error
+                    raise ValueError(f"{node['id']}: the lambda takes one parameter, the row.") from error
                 continue
             name = node["entry"]
             if name not in functions or not functions[name]["exported"]:
@@ -297,9 +313,9 @@ def registered_callable(spec):
 
 
 def _condition(registration, scope, operator_id=None):
-    """A filter's inline lambda, evaluated over the definitions so it can call them."""
-    name = operator_id or registration.get("id", "filter")
-    return eval(compile(registration["lambda"], f"<filter:{name}>", "eval"), scope)
+    """A filter's or map's inline lambda, evaluated over the definitions so it can call them."""
+    name = operator_id or registration.get("id", "operator")
+    return eval(compile(registration["lambda"], f"<lambda:{name}>", "eval"), scope)
 
 
 def execute_registered(spec, inputs):
