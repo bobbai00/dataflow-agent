@@ -90,16 +90,20 @@ def parse_set(block):
         return None
     if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
         return None
+    inputs = [arg.id for arg in call.args if isinstance(arg, ast.Name)]
     settings = {}
     for keyword in call.keywords:
         if keyword.arg is None:
+            continue
+        # A join's tables can be named: join(left=a, right=b, on=...).
+        if call.func.id == "join" and keyword.arg in ("left", "right") and isinstance(keyword.value, ast.Name):
+            inputs.insert(0 if keyword.arg == "left" else len(inputs), keyword.value.id)
             continue
         try:
             settings[keyword.arg] = ast.literal_eval(keyword.value)
         except ValueError:
             settings[keyword.arg] = ast.unparse(keyword.value)
-    return {"id": target, "op": call.func.id,
-            "inputs": [arg.id for arg in call.args if isinstance(arg, ast.Name)], "settings": settings}
+    return {"id": target, "op": call.func.id, "inputs": inputs, "settings": settings}
 
 
 def parse_delete(block):
@@ -107,11 +111,20 @@ def parse_delete(block):
     return match.group(1) if match else None
 
 
+_TRAILING_STAR = re.compile(r"(\(|,)\s*\*\s*,?\s*\)\s*(?=(->[^:]*)?:)")
+
+
+def without_trailing_star(source):
+    """`def f(df, *):` means "no settings" to models and to the agent, which
+    reads it without the `*`; Python rejects it, so analysis drops it too."""
+    return _TRAILING_STAR.sub(lambda m: "()" if m.group(1) == "(" else ")", source or "")
+
+
 def python_functions(source):
     """Public top-level functions in a call's `python`: name -> keyword-only
     parameter names (the settings a statement can pass)."""
     try:
-        tree = ast.parse(source or "")
+        tree = ast.parse(without_trailing_star(source))
     except SyntaxError:
         return {}
     return {node.name: [arg.arg for arg in node.args.kwonlyargs]
