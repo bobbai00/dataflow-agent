@@ -209,11 +209,11 @@ export function buildRegisteredNativeSystemPrompt(
         ? `Records with up to ${format.keyValueColumns} columns use ${table}; wider records use one \`column: value\` line per field.`
         : `Records use ${table} at any width.`,
     DATA_STATISTICS: views.includes("sample_stats")
-      ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Use them to check missing values, codes, and populations; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics." +
+      ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Read `values` for flags, codes, and spellings that define the population, and ranges and nulls for units and fill values; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics." +
         (views.includes("full") ? " The `full` view does not request table statistics." : "")
       : "",
     FLOW_STATISTICS: options.flowEvidence
-      ? "Flow lines report what upstream steps did that row counts do not show: rejected filter values, unmatched join keys, cast failures, nulls left out of an aggregate, input columns no step used, and values a Python step dropped from a column. Compare them with the requested population."
+      ? "Flow lines report what upstream steps did that row counts do not show: rejected filter values, unmatched join keys, cast failures, nulls left out of an aggregate, and values a Python step dropped from a column. Before answering, read the flow lines of the operators the answer depends on, and fix or explain unmatched join keys and filters that rejected requested values."
       : "",
   };
   // The examples already use the actual renderers with the enabled views.
