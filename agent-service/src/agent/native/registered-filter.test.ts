@@ -231,3 +231,82 @@ test.each([
   expect(result.native.operations.predicateColumns).toEqual(["x"]);
   expect(result.native.operations.filterRejectedValues.columns.x.examples[0].count).toBe(1);
 });
+
+async function inline(condition: string, python = "", profileCollection = true) {
+  return stageRegisteredEdit({
+    operators: {},
+    python,
+    changes: `set raw: scan(files='unused.csv')\nset kept: filter(raw, ${condition})`,
+    profileCollection,
+  });
+}
+
+test("an inline lambda filters and measures exactly like a registered predicate", async () => {
+  const rows = "pd.DataFrame({'x':[3,1,None,1,2], 'label':['a','b','c','d','e']})";
+  const named = execute(await fixture("def keep(row):\n    return None if row['x'] is None else row['x'] >= 2"), rows);
+  const lambda = execute(await inline("lambda row: None if row['x'] is None else row['x'] >= 2"), rows);
+  expect(lambda.rows).toEqual(named.rows);
+  for (const key of ["keptRows", "rejectedRows", "nullPredicates", "predicateColumns", "filterRejectedValues"])
+    expect(lambda.native.operations[key]).toEqual(named.native.operations[key]);
+  expect(lambda.native.operations.predicateColumns).toEqual(["x"]);
+});
+
+test("a lambda calls registered helpers, and only a change to a helper it uses re-runs it", async () => {
+  const state = await inline(
+    "lambda row: norm(row['x']) == 'keep'",
+    "def norm(value):\n    return str(value).strip().lower()"
+  );
+  expect(execute(state, "pd.DataFrame({'x':[' Keep','drop','KEEP']})").rows).toEqual([{ x: " Keep" }, { x: "KEEP" }]);
+  const unrelated = await stageRegisteredEdit({ ...state, python: "def other(df):\n    return df", changes: "" });
+  expect(unrelated.changedIds).not.toContain("kept");
+  const changed = await stageRegisteredEdit({
+    ...unrelated,
+    python: "def norm(value):\n    return str(value).lower()",
+    changes: "",
+  });
+  expect(changed.changedIds).toContain("kept");
+  expect(execute(changed, "pd.DataFrame({'x':[' Keep','keep']})").rows).toEqual([{ x: "keep" }]);
+  // predicate= spells the same condition.
+  const keyword = await inline(
+    "predicate=lambda row: norm(row['x']) == 'keep'",
+    "def norm(value):\n    return str(value).strip().lower()"
+  );
+  expect(keyword.operators.kept.revision).toBe(state.operators.kept.revision);
+});
+
+test("lambda conditions are checked before execution and fail at their own source", async () => {
+  for (const [condition, message] of [
+    ["lambda row, other: True", "one parameter"],
+    ["lambda row: True, settings={'x': 1}", "settings belong to a registered predicate"],
+    ["lambda row: True, predicate='keep'", "either a lambda or predicate="],
+  ])
+    await expect(inline(condition, "def keep(row):\n    return True")).rejects.toThrow(message);
+  await expect(
+    stageRegisteredEdit({
+      operators: {},
+      python: "",
+      changes: "set raw: scan(files='u.csv')\nset s: sort(raw, by=lambda row: 1)",
+    })
+  ).rejects.toThrow("only a filter takes a lambda");
+  await expect(
+    stageRegisteredEdit({
+      operators: {},
+      python: "",
+      changes: "set raw: scan(files='u.csv')\nset p: project(raw, lambda row: True)",
+    })
+  ).rejects.toThrow("positional arguments must be input operator IDs");
+  const failing = execute(await inline("lambda row: row['missing'] > 0"), "pd.DataFrame({'x':[1]})").error;
+  expect(failing).toContain("CALLBACK_RUNTIME");
+  expect(failing).toContain('"entry":"lambda"');
+  expect(failing).toContain("row['missing'] > 0");
+});
+
+test("a named predicate that was never defined points to the inline form", async () => {
+  await expect(
+    stageRegisteredEdit({
+      operators: {},
+      python: "",
+      changes: "set raw: scan(files='u.csv')\nset kept: filter(raw, predicate='is_marine')",
+    })
+  ).rejects.toThrow("filter(t, lambda row: ...)");
+});

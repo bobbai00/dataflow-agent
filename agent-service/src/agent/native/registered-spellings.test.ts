@@ -125,3 +125,15 @@ test("a rejected edit names the public functions it did not register", async () 
   const accepted = await stageRegisteredEdit({ operators: {}, python, changes: "set raw: scan(files='d.csv')\nset c: classify(raw)" });
   expect(accepted.registrations).toEqual([{ name: "classify", kind: "registered" }]);
 });
+
+test("a trailing bare * in a definition means no settings, as written", async () => {
+  const state = await stageRegisteredEdit({
+    operators: {},
+    python:
+      "import pandas as pd\n\ndef load_all(*):\n    return pd.DataFrame({'x': [1]})\n\ndef summarize(df, *):\n    return df\n\ndef scaled(df, *, factor=2):\n    return df",
+    changes: "set raw: load_all()\nset same: summarize(raw)\nset big: scaled(raw, factor=3)",
+  });
+  expect(state.namespace.functions.load_all.signature).toBe("()");
+  expect(state.namespace.functions.summarize.signature).toBe("(df)");
+  expect(state.namespace.functions.scaled.signature).toBe("(df, *, factor=2)");
+});

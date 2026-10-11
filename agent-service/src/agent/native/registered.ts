@@ -75,19 +75,25 @@ export const REGISTERED_OPERATOR_NAMES = NATIVE_OPERATORS.filter(d => !retired.h
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
 /** The definitions an operator's function depends on: the sources of its entry
- * and of every binding it reaches by name, in name order. A new or changed
+ * (or a filter's lambda) and of every binding it reaches by name, in name order. A new or changed
  * definition outside this set leaves the fingerprint, and so the operator's
  * cells, revision and stored result, unchanged. */
-function dependencyRevision(entry: string, declared: Record<string, RegisteredBinding>): string {
+function dependencyRevision(
+  registration: Record<string, unknown>,
+  declared: Record<string, RegisteredBinding>
+): string {
   const reached = new Set<string>();
-  const pending = [entry];
+  // A filter's lambda is its own source; it reaches the definitions it names.
+  const inline = typeof registration.lambda === "string" ? registration.lambda : undefined;
+  const pending = inline ? ((registration.names as string[] | undefined) ?? []).slice() : [String(registration.entry)];
   while (pending.length) {
     const name = pending.pop()!;
     if (reached.has(name) || !Object.hasOwn(declared, name)) continue;
     reached.add(name);
     pending.push(...(declared[name].references ?? []));
   }
-  return hash([...reached].sort().map(name => [name, declared[name].source]));
+  const sources = [...reached].sort().map(name => [name, declared[name].source]);
+  return hash(inline === undefined ? sources : [inline, sources]);
 }
 
 function literal(value: ParsedValue): unknown {
@@ -211,25 +217,78 @@ function normalizeRegisteredFilter(
   if (statement.inputs.length !== 1) invalid("filter requires exactly one input table.");
   const kwargs = statement.kwargs;
   if (Object.keys(kwargs).some(key => !["predicate", "settings"].includes(key)))
-    invalid("filter accepts predicate, settings, and doc only; inline callbacks are not supported.");
-  // The function may be named bare, as in a custom call, or quoted.
-  const predicate =
-    kwargs.predicate?.kind === "name" ? kwargs.predicate.name : kwargs.predicate && literal(kwargs.predicate);
-  if (typeof predicate !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(predicate))
-    invalid("filter predicate must name a registered public function, for example predicate='keep'.");
-  const settings = kwargs.settings ? literal(kwargs.settings) : {};
-  if (!settings || typeof settings !== "object" || Array.isArray(settings))
-    invalid("filter settings must be a dictionary of keyword arguments.");
+    invalid("filter takes its input and a lambda, or predicate= and settings= for a registered predicate.");
+  const condition = kwargs.predicate;
+  let registration: Record<string, unknown>;
+  if (condition?.kind === "lambda") {
+    // An inline condition runs over the same definitions as a registered
+    // predicate, so its reads, measurements and diagnostics are the same.
+    if (condition.params.length !== 1) invalid("A filter's lambda takes one parameter, the row: lambda row: ...");
+    if (kwargs.settings) invalid("settings belong to a registered predicate; write the values into the lambda.");
+    registration = { cells, lambda: condition.source, names: condition.names ?? [], settings: {} };
+  } else {
+    // The function may be named bare, as in a custom call, or quoted.
+    const predicate = condition?.kind === "name" ? condition.name : condition && literal(condition);
+    if (typeof predicate !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(predicate))
+      invalid("filter needs a condition: lambda row: ..., or predicate='name' for a registered public function.");
+    const settings = kwargs.settings ? literal(kwargs.settings) : {};
+    if (!settings || typeof settings !== "object" || Array.isArray(settings))
+      invalid("filter settings must be a dictionary of keyword arguments.");
+    registration = { cells, entry: predicate, settings };
+  }
   return {
     type: "Filter",
     inputs: statement.inputs,
     source: statement.source,
     graph: { inputPorts: ["input-0"] },
-    properties: { registered: { cells, entry: predicate, settings, namespaceRevision: hash(cells) } },
+    properties: { registered: { ...registration, namespaceRevision: hash(cells) } },
     ...(options.profileCollection
       ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
       : {}),
   };
+}
+
+/** `def load(*):` and `def summarize(df, *):` are syntax errors that mean "no
+ * settings": a function with no table inputs or no keyword settings keeps the
+ * `*` the settings convention puts before them. A parameter list that ends in
+ * a bare `*` is never valid Python, so dropping it changes no valid source.
+ * Qwen 3.8 lost 45 calls to this on 2026-10-11. */
+export function withoutTrailingBareStar(python: string): string {
+  const header = /^[ \t]*(?:async[ \t]+)?def[ \t]+[A-Za-z_]\w*[ \t]*\(/gm;
+  let result = "";
+  let copied = 0;
+  for (let match = header.exec(python); match; match = header.exec(python)) {
+    const open = match.index + match[0].length;
+    let depth = 1;
+    let at = open;
+    while (at < python.length && depth > 0) {
+      const char = python[at];
+      if (char === "#") {
+        while (at < python.length && python[at] !== "\n") at++;
+        continue;
+      }
+      if (char === "'" || char === '"') {
+        const quote = python.startsWith(char.repeat(3), at) ? char.repeat(3) : char;
+        at += quote.length;
+        while (at < python.length && !python.startsWith(quote, at)) at += python[at] === "\\" ? 2 : 1;
+        at += quote.length;
+        continue;
+      }
+      if (char === "(" || char === "[" || char === "{") depth++;
+      else if (char === ")" || char === "]" || char === "}") depth--;
+      at++;
+    }
+    if (depth !== 0) break;
+    const close = at - 1;
+    const parameters = python.slice(open, close);
+    const star = /(^|,)\s*\*(?:\s*,)?(?=\s*$)/.exec(parameters);
+    if (!star) continue;
+    result +=
+      python.slice(copied, open) + parameters.slice(0, star.index) + parameters.slice(star.index + star[0].length);
+    copied = close;
+    header.lastIndex = close;
+  }
+  return copied ? result + python.slice(copied) : python;
 }
 
 /** Build and validate a complete candidate without mutating any session state. */
@@ -240,8 +299,9 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   // A cell identical to the last one replays to the same namespace, so it is
   // neither appended nor treated as a definition change: resending source
   // unchanged must not invalidate every custom result.
-  const pythonChanged = options.python.trim().length > 0 && priorCells.at(-1) !== options.python;
-  const cells = [...priorCells, ...(pythonChanged ? [options.python] : [])];
+  const python = withoutTrailingBareStar(options.python);
+  const pythonChanged = python.trim().length > 0 && priorCells.at(-1) !== python;
+  const cells = [...priorCells, ...(pythonChanged ? [python] : [])];
   const parsed = (await runNativePython({ registered: true, phase: "parse", cells, changes: options.changes })) as {
     ok: boolean;
     error?: string;
@@ -352,7 +412,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
   for (const [id, view] of Object.entries(operators)) {
     if (!view.properties.registered) continue;
     const registration = view.properties.registered as Record<string, unknown>;
-    const fingerprint = dependencyRevision(String(registration.entry), declared);
+    const fingerprint = dependencyRevision(registration, declared);
     // An operator whose definitions are unchanged keeps its cells byte for
     // byte: its result stays current and the engine's cache still matches.
     // Otherwise a new definition re-ran every Python step, slow loaders too.
@@ -368,7 +428,12 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
     cells,
     operators: Object.entries(operators)
       .filter(([, view]) => view.properties.registered)
-      .map(([id, view]) => ({ id, inputs: view.inputs, ...(view.properties.registered as object) })),
+      .map(([id, view]) => ({
+        id,
+        kind: view.type === "Filter" ? "filter" : "process",
+        inputs: view.inputs,
+        ...(view.properties.registered as object),
+      })),
   })) as {
     ok: boolean;
     error?: string;
@@ -391,7 +456,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
 
 const signatures: Record<string, string> = {
   scan: 'scan(files=..., format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)',
-  filter: 'filter(t, predicate="name", settings={})',
+  filter: "filter(t, lambda row: condition)",
   project: "project(t, keep=None, drop=None, rename=None)",
   cast: 'cast(t, columns={"column": dtype}, errors="raise")',
   aggregate: 'aggregate(t, by=[], outputs={"output": reducer(...)})',
@@ -407,7 +472,7 @@ const signatures: Record<string, string> = {
 const briefOverrides: Record<string, string> = {
   scan: "Read local files/globs or lists: CSV/TSV, text, Excel, HTML tables, tabular JSON/JSONL, or Parquet. names requires header=False; all_text preserves codes; sheet selects a sheet/table. preview is an integer 1..200 for raw layout/metadata, not ordinary result samples.",
   filter:
-    "Apply a registered predicate to each read-only row mapping, forwarding settings as keyword arguments. True keeps; False or null drops. Preserves columns and order; measures kept/rejected/null counts and bounded rejected-value frequencies.",
+    'Keep the rows for which the condition over a read-only row mapping returns True; False or null drops. A registered predicate with settings also works: filter(t, predicate="name", settings={...}). Preserves columns and order; measures kept/rejected/null counts and bounded rejected-value frequencies.',
   cast: 'Convert named columns to str, int64, float64, bool, or datetime(format=..., tz=...). Failed conversions raise, or become null with errors="null"; naive timestamps require a timezone. Normalize text in a custom function before casting.',
   aggregate:
     "One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.",
@@ -416,7 +481,7 @@ const briefOverrides: Record<string, string> = {
 };
 const fullExtras: Record<string, string> = {
   filter:
-    ' Example: register def keep(row, *, minimum=18): return row["age"] is not None and row["age"] >= minimum; then set adults: filter(people, predicate="keep", settings={"minimum": 21}). Only bool or a scalar missing value is accepted; numbers, strings, arrays, and Series fail. Missing input values appear as None. Functions share authored definitions; one fresh namespace per operator invocation is shared across its rows. The predicate cannot mutate the row mapping. Rejected includes null verdicts. When profiles are collected, frequencies describe source values among all rejected rows for up to eight actually-read columns, with three first-encountered values each and an other count; they are not top frequencies or causal explanations. Updating Python definitions invalidates this filter and its descendants.',
+    ' Example: set adults: filter(people, lambda row: row["age"] is not None and row["age"] >= 21). The lambda can call registered functions. A condition reused with different values can be registered instead: def keep(row, *, minimum=18): return row["age"] is not None and row["age"] >= minimum, then set adults: filter(people, predicate="keep", settings={"minimum": 21}). Only bool or a scalar missing value is accepted; numbers, strings, arrays, and Series fail. Missing input values appear as None. Functions share authored definitions; one fresh namespace per operator invocation is shared across its rows. The predicate cannot mutate the row mapping. Rejected includes null verdicts. When profiles are collected, frequencies describe source values among all rejected rows for up to eight actually-read columns, with three first-encountered values each and an other count; they are not top frequencies or causal explanations. Updating a definition the condition uses invalidates this filter and its descendants.',
   project:
     " Provide at least one of keep, drop, or rename; keep and drop are mutually exclusive. keep preserves the requested column order. Missing columns and name collisions fail.",
   cast: ' columns is a nonempty mapping from column names to unquoted dtype descriptors, including names such as doc or errors. datetime(format="%Y-%m-%d", tz="UTC") accepts an explicit format and timezone.',

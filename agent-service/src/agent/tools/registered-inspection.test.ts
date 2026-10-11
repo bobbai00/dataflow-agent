@@ -121,7 +121,7 @@ test("show schema pages from an offset, and a malformed page is refused before a
 
 test("show builtin reads a built-in contract; retired map and process are not built-ins", () => {
   expect(registeredReferenceText({ topic: "operators", operator_names: ["filter"] })).toContain(
-    'filter(t, predicate="name", settings={})'
+    "filter(t, lambda row: condition)"
   );
   for (const name of ["map", "process"])
     expect(() => registeredReferenceText({ topic: "operators", operator_names: [name] })).toThrow(

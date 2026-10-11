@@ -93,7 +93,7 @@ export type ParsedValue =
   | { kind: "dict"; entries: Array<[string, ParsedValue]> }
   | { kind: "name"; name: string }
   | { kind: "call"; name: string; args: ParsedValue[]; kwargs: Record<string, ParsedValue>; source: string }
-  | { kind: "lambda"; params: string[]; body: string; source: string };
+  | { kind: "lambda"; params: string[]; body: string; source: string; names?: string[] };
 
 export interface ParsedFunction {
   name: string;

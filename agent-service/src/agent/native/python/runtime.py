@@ -1894,13 +1894,18 @@ def _cast(spec, source, operations):
 def _registered_failure(spec, error):
     """Point runtime failures at the shared authored definition, not the adapter."""
     frames = [frame for frame in traceback.extract_tb(error.__traceback__)
-              if frame.filename.startswith("<definitions:")]
+              if frame.filename.startswith(("<definitions:", "<filter:"))]
     location = None
     if frames:
         frame = frames[-1]
-        cell = int(frame.filename.removeprefix("<definitions:").removesuffix(">"))
-        location = _location(spec["properties"]["registered"]["cells"][cell - 1], frame.name, frame.lineno)
-        location["cell"] = cell
+        registration = spec["properties"]["registered"]
+        if frame.filename.startswith("<filter:"):
+            # The failing code is the filter's inline lambda in its statement.
+            location = _location(registration["lambda"], "lambda", frame.lineno)
+        else:
+            cell = int(frame.filename.removeprefix("<definitions:").removesuffix(">"))
+            location = _location(registration["cells"][cell - 1], frame.name, frame.lineno)
+            location["cell"] = cell
     hint = getattr(error, "_native_column_hint", "")
     return _error(spec, "CALLBACK_RUNTIME", f"{type(error).__name__}: {error}{hint}", field="python", source=location)
 

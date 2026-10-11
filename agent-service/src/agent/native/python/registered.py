@@ -189,6 +189,14 @@ def parse_registered_changes(source):
                 raise ValueError(f"Changes line {error_line}, operator {identifier}: {error.msg}") from error
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 raise ValueError(f"Line {line}: the definition must call an operator type by name.")
+            # A filter's condition may follow its input inline, as `lambda row: ...`;
+            # it is carried as the filter's predicate.
+            condition = None
+            if node.func.id == "filter" and node.args and isinstance(node.args[-1], ast.Lambda):
+                condition = node.args[-1]
+                node.args = node.args[:-1]
+                if any(kw.arg == "predicate" for kw in node.keywords):
+                    raise ValueError(f"Line {line}: give filter either a lambda or predicate=, not both.")
             if any(not isinstance(arg, ast.Name) for arg in node.args):
                 raise ValueError(f"Line {line}: positional arguments must be input operator IDs; settings use keywords. "
                                  "Declare a nested call as its own set statement and pass its ID.")
@@ -197,17 +205,30 @@ def parse_registered_changes(source):
             keys = [kw.arg for kw in node.keywords]
             if len(keys) != len(set(keys)):
                 raise ValueError(f"Line {line}: a setting is supplied more than once.")
+            if condition is not None:
+                node.keywords.append(ast.keyword(arg="predicate", value=condition))
             for keyword in node.keywords:
+                if isinstance(keyword.value, ast.Lambda):
+                    continue
                 for value in ast.walk(keyword.value):
                     if isinstance(value, ast.Constant):
                         if type(value.value) is int and abs(value.value) > 2 ** 53 - 1:
                             raise ValueError(f"Line {line}: integer settings must be faithfully representable (within ±(2**53-1)).")
                         if type(value.value) is float and not math.isfinite(value.value):
                             raise ValueError(f"Line {line}: numeric settings must be finite.")
+            kwargs = {}
+            for keyword in node.keywords:
+                if isinstance(keyword.value, ast.Lambda) and (node.func.id != "filter" or keyword.arg != "predicate"):
+                    raise ValueError(f"Line {line}: only a filter takes a lambda, as its condition.")
+                kwargs[keyword.arg] = _encode(expression, keyword.value)
+                if isinstance(keyword.value, ast.Lambda):
+                    # The names a condition uses tie the filter to the definitions it calls.
+                    parameters = {arg.arg for arg in keyword.value.args.args}
+                    kwargs[keyword.arg]["names"] = sorted(
+                        {part.id for part in ast.walk(keyword.value.body) if isinstance(part, ast.Name)} - parameters)
             statement = {
                 "kind": "set", "id": identifier, "op": node.func.id, "line": line,
-                "source": text, "inputs": [arg.id for arg in node.args],
-                "kwargs": {kw.arg: _encode(expression, kw.value) for kw in node.keywords},
+                "source": text, "inputs": [arg.id for arg in node.args], "kwargs": kwargs,
             }
         if identifier in seen:
             raise ValueError(f"Line {line}: operator {identifier!r} appears more than once in this edit.")
@@ -233,9 +254,17 @@ def registered_request(request):
             return {"ok": True, "statements": statements, "declarations": declarations}
         scope, functions, bindings = registered_namespace(cells)
         for node in request.get("operators", []):
+            if "lambda" in node:
+                try:
+                    inspect.signature(_condition(node, scope)).bind(object())
+                except TypeError as error:
+                    raise ValueError(f"{node['id']}: a filter's lambda takes one parameter, the row.") from error
+                continue
             name = node["entry"]
             if name not in functions or not functions[name]["exported"]:
-                raise ValueError(f"{node['id']}: {name!r} is not a registered public function.")
+                hint = (" Define it in this call's python, or write the condition inline: filter(t, lambda row: ...)."
+                        if node.get("kind") == "filter" else "")
+                raise ValueError(f"{node['id']}: {name!r} is not a registered public function.{hint}")
             try:
                 inspect.signature(scope[name]).bind(*[object() for _ in node["inputs"]], **node["settings"])
             except TypeError as error:
@@ -252,7 +281,15 @@ def registered_callable(spec):
 
     registration = spec["properties"]["registered"]
     scope, _, _ = registered_namespace(registration["cells"])
+    if "lambda" in registration:
+        return _condition(registration, scope, spec.get("id", "filter"))
     return functools.partial(scope[registration["entry"]], **copy.deepcopy(registration["settings"]))
+
+
+def _condition(registration, scope, operator_id=None):
+    """A filter's inline lambda, evaluated over the definitions so it can call them."""
+    name = operator_id or registration.get("id", "filter")
+    return eval(compile(registration["lambda"], f"<filter:{name}>", "eval"), scope)
 
 
 def execute_registered(spec, inputs):

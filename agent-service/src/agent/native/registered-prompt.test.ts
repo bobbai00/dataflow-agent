@@ -248,7 +248,7 @@ test("synthetic teaching edits compile and their calculations and repair run in 
         const op = stage.operators[id];
         if (!op) continue;
         const key =
-          id === "kept" || id === "total" ? `${id}_${action.python.includes(" >= ") ? "fixed" : "first"}` : id;
+          id === "kept" || id === "total" ? `${id}_${action.changes.includes(" >= ") ? "fixed" : "first"}` : id;
         compiled[key] ??= compileNativeOp(op, id).code;
       }
     }

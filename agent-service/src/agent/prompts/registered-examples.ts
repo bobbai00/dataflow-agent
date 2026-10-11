@@ -317,17 +317,14 @@ export function registeredExamples(options: Options): string {
     add(exampleTable("total", "Aggregate", [{ total: 40 }], ["kept"]));
     parts.push(
       "### Use upstream measurements to repair a condition",
-      "Request: sum readings at least 10. Suppose the first predicate mistakenly uses a strict comparison:",
+      "Request: sum readings at least 10. Suppose the first condition mistakenly uses a strict comparison:",
       call(
-        `def eligible(row, *, minimum=10):\n    """Select readings above the threshold."""\n    return row['value'] > minimum`,
-        `set readings: scan(files='data/readings.csv')\nset kept: filter(readings, predicate='eligible', settings={'minimum': 10})\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
+        "",
+        `set readings: scan(files='data/readings.csv')\nset kept: filter(readings, lambda row: row['value'] > 10)\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
         true
       ),
-      "The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the predicate; the existing graph keeps its connections:",
-      call(
-        `def eligible(row, *, minimum=10):\n    """Select readings at or above the threshold."""\n    return row['value'] >= minimum`,
-        show("total", true)
-      ),
+      "The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the filter; the existing graph keeps its connections:",
+      call("", `set kept: filter(readings, lambda row: row['value'] >= 10)\n${show("total", true)}`),
       "The new result is total=60. Check the returned result before ending the task.",
       reply("60")
     );
