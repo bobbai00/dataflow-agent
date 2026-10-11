@@ -142,6 +142,10 @@ class CampaignTests(unittest.TestCase):
             stopped = {**final, "content": "Generation stopped by user."}
             (path / "react_steps.json").write_text(json.dumps([call, stopped]))
             self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
+            # Newer traces mark a failed turn's last step, whatever its text.
+            marked = {**final, "endReason": "error"}
+            (path / "react_steps.json").write_text(json.dumps([call, marked]))
+            self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
 
     def test_haiku_55_prices_and_its_long_prompt_rate(self):
         from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule

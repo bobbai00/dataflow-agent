@@ -29,7 +29,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { ContextMode, type LocalToolDialect, type RetrievalSettings } from "../types/agent";
+import { ContextMode, type LocalToolDialect, type MultiRequestMode, type RetrievalSettings } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
@@ -159,6 +159,8 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
    * so `flowEvidence` leaves the prompt unchanged. */
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  /** Several requests in one session (AgentSettings.multiRequest). */
+  multiRequest?: MultiRequestMode;
 }
 
 const nativeFragment = (name: string) =>
@@ -198,11 +200,16 @@ export function buildRegisteredNativeSystemPrompt(
   const views = availableRetrievalViews(options);
   const format = observationFormat(options);
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
+  const multiRequest = options.multiRequest ?? "off";
   const fields: Record<string, string> = {
     CONTEXT_LAYOUT:
       contextMode === ContextMode.LATEST
         ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
-        : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
+        : multiRequest === "catalog"
+          ? "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: the functions it registered or changed, with their signatures and source; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
+          : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
+    // Only sessions with several requests; a single request's prompt is unchanged.
+    MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
     EXAMPLES: registeredExamples(options),
     RETRIEVAL: nativeRetrievalText(options),

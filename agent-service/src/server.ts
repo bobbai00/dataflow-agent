@@ -205,6 +205,8 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       summarizePatch: settings.summarizeParams,
       // Global request numbers for the renderer.
       turnNumberByMessageId,
+      // Earlier requests as catalog entries ("catalog") or as the transcript.
+      multiRequest: settings.multiRequest,
     };
     const evidenceSettings = {
       data: settings.dataEvidence,
@@ -474,6 +476,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     sourceProvenanceHint: agentSettings.sourceProvenanceHint,
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
+    multiRequest: agentSettings.multiRequest,
   };
 }
 
@@ -723,6 +726,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             staticCompaction: (settings as any).staticCompaction,
             userTaskPlacement: (settings as any).userTaskPlacement,
             messageLayout: (settings as any).messageLayout,
+            multiRequest: (settings as any).multiRequest,
             tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
           });
         }
@@ -804,6 +808,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             staticCompaction: t.Optional(t.Boolean()),
             userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
             messageLayout: t.Optional(t.String()),
+            multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1156,6 +1161,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         enableRenderPrefs: (settings as any).enableRenderPrefs,
         sourceProvenanceHint: (settings as any).sourceProvenanceHint,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
+        multiRequest: settings.multiRequest,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -1225,6 +1231,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         enableRenderPrefs: t.Optional(t.Boolean()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
+        multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
       }),
     }
   );

@@ -193,10 +193,18 @@ function editLines(item: ActionItem): string[] {
     ];
   }
   const lines = ["## edits applied"];
-  const functions = ((output?.registrations ?? []) as Array<{ name: string; kind: string }>).map(
-    r => `${r.name} ${r.kind}`
-  );
-  if (functions.length) lines.push(`functions: ${functions.join(", ")}`);
+  const registrations = (output?.registrations ?? []) as Array<{ name: string; kind: string; signature?: string }>;
+  const functions = registrations.map(r => `${r.name} ${r.kind}`);
+  // With signatures (sessions with several requests), one line per function
+  // says what a later call can vary; a function without settings says so.
+  if (registrations.some(r => r.signature !== undefined))
+    lines.push(
+      "functions:",
+      ...registrations.map(
+        r => `- ${r.name}${r.signature ?? ""} ${r.kind}${/[*=]/.test(r.signature ?? "") ? "" : " (no settings)"}`
+      )
+    );
+  else if (functions.length) lines.push(`functions: ${functions.join(", ")}`);
   const operators = ((output?.changes ?? []) as GraphChangeReceipt[])
     .filter(change => change.change === "operator")
     .map(
