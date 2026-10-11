@@ -143,6 +143,14 @@ export function validateEvidenceSettings(settings: object): void {
   const { contextMode, messageLayout } = settings as Record<string, unknown>;
   if (multiRequest === "catalog" && ((contextMode ?? "delta") !== "delta" || (messageLayout ?? "native") !== "native"))
     throw new NativeCatalogSettingsError('multiRequest "catalog" needs contextMode "delta" and messageLayout "native"');
+  const { catalogSource, catalogRecent } = settings as Record<string, unknown>;
+  if (catalogSource !== undefined && catalogSource !== "full" && catalogSource !== "docstring")
+    throw new NativeCatalogSettingsError('catalogSource must be "full" or "docstring"');
+  if (
+    catalogRecent !== undefined &&
+    (!Number.isInteger(catalogRecent) || Number(catalogRecent) < 0 || Number(catalogRecent) > 50)
+  )
+    throw new NativeCatalogSettingsError("catalogRecent must be an integer between 0 and 50");
 }
 
 /** Shared by creation (before allocating an agent) and atomic settings updates. */
