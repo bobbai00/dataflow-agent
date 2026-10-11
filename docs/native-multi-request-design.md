@@ -195,3 +195,35 @@ the first constant-column rule). Agent cost $3.66, judge $0.65.
   and the signatures in receipts did not change this, as prompt teaching did
   not in two earlier attempts.
 
+### Six more sessions, 2026-10-11
+
+Two repetitions of each arm on six more Lite sessions, with the current
+constant-column rule (which fired 0 times in these 36 runs); run root
+`/var/tmp/longds-catalog-luna-lite-20261011`. Agent cost $5.09, judge $3.89.
+Mean correct answers over the repetitions, all eight sessions; smolagents is the
+2026-10-08 single run that received the same request text:
+
+| session (questions) | `off` | `transcript` | `catalog` | smolagents |
+|---|---:|---:|---:|---:|
+| NFL t1 (42) | 9.7 | 17.0 | 18.3 | 23 |
+| Netflix t4 (32) | 12.3 | 11.0 | 9.7 | – |
+| Netflix t2 (34) | 3.0 | 5.5 | 3.5 | 9 |
+| Marmara t1 (36) | 13.5 | 15.5 | 10.5 | 13 |
+| Water potability t1 (34) | 21.0 | 19.0 | 21.0 | – |
+| NYC restaurants t2 (33) | 14.0 | 10.0 | 15.5 | – |
+| PASSNYC t1 (30) | 18.5 | 17.0 | 13.0 | – |
+| Kaggle survey 2022 t2 (30) | 13.0 | 23.5 | 21.5 | – |
+| **all eight (271)** | **105.0 (38.7%)** | **118.5 (43.7%)** | **113.0 (41.7%)** | |
+| cost of one pass of all eight | $1.17 | $1.28 | $1.31 | |
+
+- The arms are within noise of each other. Runs of the same arm differ by up
+  to 15 answers on one session (PASSNYC `off` 11 and 26, Kaggle `off` 20 and
+  6), so the 13.5-answer lead of `transcript` over `off` is about one standard
+  error, and `catalog` against `transcript` (−5.5) is none.
+- The catalog is cheaper than the transcript on four of the six new sessions,
+  but costs the most over all eight; `off` is cheapest.
+- On the three sessions smolagents also ran, it scores 45 of 112 at $0.93,
+  against 38.0 for `transcript`, 32.3 for `catalog` and 26.2 for `off` at
+  $0.57 to $0.67. That is one smolagents run; an earlier smolagents run with
+  the benchmark's own wording scored 23 on the same three sessions.
+
