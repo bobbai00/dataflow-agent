@@ -103,7 +103,7 @@ describe("record views", () => {
     for (const text of ["Florida", "District of Columbia", "are not ranked", "Reports per 100K Population"])
       expect(sample.text).toContain(text);
     expect(sample.text).toContain(
-      "records: sample; 5 of 58 rows, 4 of 4 columns (one row per pattern of missing, numeric and text cells, then first and last retained records; … marks omitted rows)"
+      "records: sample; 5 of 58 rows, 4 of 4 columns (one row per cell pattern, then first and last retained records; … marks omitted rows)"
     );
     // Rows print in table order, with gaps where rows were skipped.
     const lines = sample.text.split("\n");

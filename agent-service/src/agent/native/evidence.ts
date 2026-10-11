@@ -113,6 +113,10 @@ const json = (x: unknown) => JSON.stringify(x);
 const fraction = (n: number, d: number) => `${n}/${d}${d === 0 ? " (no rows)" : ""}`;
 const scalarText = (x: ProfileScalar) => (x.type === "int64" ? x.value : json(x.value));
 const lexical = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** A frequent value in a statistics row is clipped here: it names a category,
+ * and one long text value would otherwise crowd the columns after it out of
+ * the shared statistics budget. Ranges are never clipped. */
+const VALUE_CHARS = 40;
 
 /** Validate optional diagnostics separately: bad examples must never suppress
  * valid counts. They describe a bounded subset, not the complete key domain. */
@@ -230,25 +234,11 @@ function columnCount(info: OperatorInfo, column: string, c: ProfileColumn): Nati
   };
 }
 
-/** Columns an operator reads, as declared or as measured at execution; a
- * map's pass-through columns are not reads. Undefined for a process, whose
- * reads are not known. */
-function readColumns(op: OperatorPredicate, info: OperatorInfo | undefined): string[] | undefined {
-  const type = op.nativeOp?.type;
-  if (type === "Process") return undefined;
-  const operations = record(info?.tableProfile?.native?.operations);
-  if (type === "Map") return [...declaredColumns(op), ...names(operations.readColumns)];
-  if (type === "Filter") return [...declaredColumns(op), ...names(operations.predicateColumns)];
-  return declaredColumns(op);
-}
-
 /** Facts derived from an aggregate's meaning over the rows it reduced:
  *  - a distinct count of a column that is unique per input row counts rows,
  *    and the input has coarser columns that may be the intended unit;
  *  - the group key almost always determines a column but not in some groups
- *    (measured by the runtime), so those groups pool distinct entities;
- *  - low-cardinality columns that no operator on the way here has read,
- *    with their values over the rows being reduced (an unapplied flag). */
+ *    (measured by the runtime), so those groups pool distinct entities. */
 function aggregateSemantics(
   context: NativeEvidenceContext,
   input: OperatorInfo | undefined,
@@ -287,48 +277,6 @@ function aggregateSemantics(
         .map(v => json(v))
         .join(", ")}; those rows are pooled into one group.`,
     ]);
-  }
-  // Columns never read on the way here: over the rows this aggregate reduces
-  // when they are still in its input, else in the source they were dropped
-  // from. Only flag-like columns (two or three values, repeated) qualify.
-  const flagLike = (info: OperatorInfo, c: ProfileColumn, rows: number) =>
-    rows >= 10 &&
-    fullColumn(info, c) &&
-    !!c.frequencies &&
-    !c.frequencies.truncated &&
-    !c.frequencies.otherCount &&
-    c.frequencies.values.length >= 2 &&
-    c.frequencies.values.length <= 3;
-  const values = (c: ProfileColumn) => c.frequencies!.values.map(v => `${scalarText(v.value)}:${v.count}`).join(", ");
-  if (profile) {
-    const read = new Set<string>([...keys, ...aggregations.flatMap(a => (typeof a.col === "string" ? [a.col] : []))]);
-    const sources: NativeEvidenceContext[] = [];
-    const pending = [...boundInputs(context)];
-    for (let seen = 0; pending.length && seen < 32; seen++) {
-      const ancestor = pending.shift()!;
-      const columns = readColumns(ancestor.op, ancestor.info);
-      if (!columns) return facts;
-      columns.forEach(name => read.add(name));
-      if (ancestor.op.nativeOp?.type === "Scan" && !ancestor.op.nativeOp.properties.preview) sources.push(ancestor);
-      pending.push(...boundInputs(ancestor));
-    }
-    const lines: Array<[string, string]> = [];
-    for (const [name, c] of Object.entries(profile.columns))
-      if (!read.has(name) && flagLike(input!, c, rowsIn))
-        lines.push([
-          `flow.aggregate.unread.${name}`,
-          `input column ${json(name)} was read by no operator on the way here; over the ${rowsIn} rows reduced it is ${values(c)}.`,
-        ]);
-    for (const source of sources) {
-      const sourceProfile = validProfile(source.info) ? source.info.tableProfile! : undefined;
-      for (const [name, c] of Object.entries(sourceProfile?.columns ?? {}))
-        if (!read.has(name) && !(name in profile.columns) && flagLike(source.info, c, source.info.totalRowCount ?? 0))
-          lines.push([
-            `flow.aggregate.dropped.${source.op.operatorID}.${name}`,
-            `source \`${context.displayName?.(source.op.operatorID) ?? source.op.operatorID}\` column ${json(name)} (${values(c)}) was dropped on the way here without any operator reading it.`,
-          ]);
-    }
-    facts.push(...lines.slice(0, 2));
   }
   return facts;
 }
@@ -1088,6 +1036,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
           // Bounds are actual observed values, not approximations: preserve
           // their precision so an equality filter can use them unchanged.
           const display = (v: ProfileScalar) => displayValue(v.value, v.type, format.tableFormat).text;
+          const named = (v: ProfileScalar) => displayValue(v.value, v.type, format.tableFormat, VALUE_CHARS).text;
           const ranged = ["int64", "float64", "datetime"].includes(column.type) && column.min && column.max;
           let values = ranged ? `${display(column.min!)} to ${display(column.max!)}` : "";
           const frequencies = column.frequencies;
@@ -1097,7 +1046,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
               !frequencies.truncated && frequencies.otherCount === 0 && shown.length === frequencies.values.length;
             values =
               (values ? values + "; " : "") +
-              `${exhaustive ? "all:" : "top:"} ${shown.map(item => `${display(item.value)} ${formatCount(item.count)}`).join("; ")}${exhaustive ? "" : `; other: ${formatCount(c.nonnull - shown.reduce((n, item) => n + item.count, 0))} (not exhaustive)`}`;
+              `${exhaustive ? "all:" : "top:"} ${shown.map(item => `${named(item.value)} ${formatCount(item.count)}`).join("; ")}${exhaustive ? "" : `; other: ${formatCount(c.nonnull - shown.reduce((n, item) => n + item.count, 0))} (not exhaustive)`}`;
           }
           const row = [
             displayValue(c.column, "str", format.tableFormat).text,

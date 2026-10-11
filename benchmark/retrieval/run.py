@@ -155,7 +155,7 @@ def main():
         "working_tree_sources_sha256": source_hash.hexdigest(),
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
         "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
-                     "maxSteps": 25, "maxOperatorResultCharLimit": args.sample_char_limit, "maxResultRows": 5,
+                     "maxSteps": 25, "maxOperatorResultCharLimit": args.sample_char_limit, "maxResultRows": 3,
                      "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
                      "thoughtReplay": False, "enableCodeInSnapshot": False},
         "selection": args.selection,

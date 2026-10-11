@@ -225,7 +225,7 @@ function recordCaption(view: FrozenRecords, rows: FrozenRecords["rows"], shapeOn
         ? ["all rows"]
         : [
             gaps
-              ? `${view.shapes ? "one row per pattern of missing, numeric and text cells, then " : ""}first and last retained records; … marks omitted rows`
+              ? `${view.shapes ? "one row per cell pattern, then " : ""}first and last retained records; … marks omitted rows`
               : "retained records, not a random sample",
           ]),
     ...(view.columnsRequested ? ["columns requested"] : []),

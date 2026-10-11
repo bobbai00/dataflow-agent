@@ -425,7 +425,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   errorReflection: false,
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
-  maxResultRows: 0,
+  // Sample rows per `show result`: three keep a pattern or both ends in view
+  // at about half the tokens of five (2026-10-11 cost study).
+  maxResultRows: 3,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
   enableRenderPrefs: false,

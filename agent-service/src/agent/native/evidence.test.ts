@@ -1245,7 +1245,7 @@ test("an empty grouped aggregate reports nothing beyond its empty table", () => 
   expect(collectNativeEvidence(f).omissions).not.toContain("invalid_aggregate_counters");
 });
 
-test("aggregate semantics: what a distinct count counts, a key that pools entities, an unread flag", () => {
+test("aggregate semantics: what a distinct count counts and a key that pools entities", () => {
   const str = (distinct: number, values?: Array<[string, number]>): ProfileColumn => ({
     ...column(12, 0),
     type: "str",
@@ -1291,12 +1291,9 @@ test("aggregate semantics: what a distinct count counts, a key that pools entiti
     '"areas" = count_distinct("GlobalID"): "GlobalID" is unique on every one of the 12 input rows, so it counts rows; input columns with fewer values: "GACCName" (2)'
   );
   expect(text).toContain('group key ["state"] determines "Community" in most groups but not in 1 of 3');
-  expect(text).toContain(
-    'input column "Case_excluded" was read by no operator on the way here; over the 12 rows reduced it is "No":11, "Yes":1.'
-  );
-  // A flag the lineage filtered on has been read: no line.
-  f.workflow.operators[0].nativeOp!.properties = { keep: ["Case_excluded", "GlobalID", "GACCName", "state"] };
-  expect(factText(f)).not.toContain("was read by no operator");
+  // Unread input columns are not flow lines: models never acted on them
+  // (0 of 167 Claude receipts, 2026-10-11); `values` statistics show a flag.
+  expect(text).not.toContain("was read by no operator");
 });
 
 test("scan coverage and per-file header findings are scan notes, not flow lines", () => {
