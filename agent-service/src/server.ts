@@ -207,6 +207,8 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       turnNumberByMessageId,
       // Earlier requests as catalog entries ("catalog") or as the transcript.
       multiRequest: settings.multiRequest,
+      catalogSource: settings.catalogSource,
+      catalogRecent: settings.catalogRecent,
     };
     const evidenceSettings = {
       data: settings.dataEvidence,
@@ -477,6 +479,8 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
     multiRequest: agentSettings.multiRequest,
+    catalogSource: agentSettings.catalogSource,
+    catalogRecent: agentSettings.catalogRecent,
   };
 }
 
@@ -727,6 +731,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             userTaskPlacement: (settings as any).userTaskPlacement,
             messageLayout: (settings as any).messageLayout,
             multiRequest: (settings as any).multiRequest,
+            catalogSource: (settings as any).catalogSource,
+            catalogRecent: (settings as any).catalogRecent,
             tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
           });
         }
@@ -809,6 +815,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
             messageLayout: t.Optional(t.String()),
             multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
+            catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+            catalogRecent: t.Optional(t.Integer()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1162,6 +1170,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         sourceProvenanceHint: (settings as any).sourceProvenanceHint,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         multiRequest: settings.multiRequest,
+        catalogSource: settings.catalogSource,
+        catalogRecent: settings.catalogRecent,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -1232,6 +1242,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
         multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
+        catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+        catalogRecent: t.Optional(t.Integer()),
       }),
     }
   );

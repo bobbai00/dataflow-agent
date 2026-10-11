@@ -19,11 +19,11 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { AgentMode, ContextMode, type MultiRequestMode } from "../types/agent";
+import { AgentMode, ContextMode, type CatalogSource, type MultiRequestMode } from "../types/agent";
 import { VercelToolUseDriver } from "./llm-drivers/vercel-tool-use-driver";
 import { NativeCatalogSettingsError } from "./native/settings";
 import { TexeraAgent } from "./texera-agent";
-import { assembleContext } from "./util/context-utils";
+import { assembleContext, catalogedRequests } from "./util/context-utils";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
 type Reply = { text?: string; call?: { python: string; statements: string } };
@@ -41,7 +41,11 @@ const TABLES: Record<string, { columns: string[]; rows: number }> = {
 const TYPES: Record<string, string> = { order_id: "int64", value: "float64", unit: "string", orders: "int64" };
 
 /** A native session whose model replies with the given calls and texts in order, across requests. */
-function session(multiRequest: MultiRequestMode, replies: Reply[]) {
+function session(
+  multiRequest: MultiRequestMode,
+  replies: Reply[],
+  catalog: { catalogSource?: CatalogSource; catalogRecent?: number } = {}
+) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
   const prompts: any[][] = [];
@@ -79,6 +83,7 @@ function session(multiRequest: MultiRequestMode, replies: Reply[]) {
         agentMode: AgentMode.NATIVE,
         messageLayout: "native",
         multiRequest,
+        ...catalog,
         turnNumberByMessageId: agent.turnNumberMap(),
       }),
   });
@@ -88,6 +93,7 @@ function session(multiRequest: MultiRequestMode, replies: Reply[]) {
     thoughtReplay: false,
     retrievalViews: ["sample", "full"],
     multiRequest,
+    ...catalog,
   });
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators()) {
@@ -298,4 +304,95 @@ test("the transcript layout keeps every earlier call; the choice is fixed once a
   expect(prompts[2].map(message => message.role)).toEqual(["system", "user", "assistant", "tool", "assistant", "user"]);
   expect(() => agent.updateSettings({ multiRequest: "catalog" })).toThrow(NativeCatalogSettingsError);
   expect(() => agent.updateSettings({ multiRequest: "transcript" })).not.toThrow();
+});
+
+test("compact entries list a documented function by its signature and docstring, and keep the rest's source", async () => {
+  const python = `${RULES}
+
+LIMIT = 3
+
+def _rank_pct(values):
+    return values.rank(pct=True)
+
+def raw_counts(orders):
+    return orders.groupby('unit', as_index=False).size()`;
+  const { agent, prompts } = session(
+    "catalog",
+    [
+      {
+        call: {
+          python,
+          statements:
+            "set orders: scan(files='data/x/input/orders.csv')\nset units: eligible_units(orders, min_orders=5)\nshow result units",
+        },
+      },
+      { text: "Final Answer: 8" },
+      { call: { python: "", statements: "show result units" } },
+      { text: "Final Answer: 8" },
+    ],
+    { catalogSource: "docstring" }
+  );
+  await agent.sendMessage(FIRST);
+  await agent.sendMessage(SECOND);
+  const entry = textOf(prompts[2][2]);
+  expect(entry).toStartWith(`## Task 1 (answered)
+functions:
+- \`eligible_units(orders, *, min_orders=5)\` — Units with at least min_orders orders, with their share of orders and their volume.
+- \`unit_scores(units, *, rate_weight=0.5)\` — Score per unit: rate_weight times the rate percentile plus the rest times the volume percentile.
+- \`raw_counts(orders)\`
+helpers: \`_rank_pct(values)\`
+\`\`\`python
+LIMIT = 3
+
+def raw_counts(orders):
+    return orders.groupby('unit', as_index=False).size()
+\`\`\`
+\`show function <name>\` reads a function's source.
+operators:`);
+  expect(entry).not.toContain("units['orders'] >= min_orders");
+  expect(agent.getSystemInfo().systemPrompt).toContain(
+    "with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
+  );
+});
+
+test("a catalog keeps the most recent K to 2K-1 requests as transcript and adds entries K at a time", async () => {
+  expect([0, 1, 3, 4, 5, 6, 7, 8].map(n => catalogedRequests(n, 2))).toEqual([0, 0, 0, 2, 2, 4, 4, 6]);
+  expect([9, 10, 14, 15, 21].map(n => catalogedRequests(n, 5))).toEqual([0, 5, 5, 10, 15]);
+  expect(catalogedRequests(7)).toBe(7);
+  const replies: Reply[] = [
+    { call: { python: "", statements: "set orders: scan(files='data/x/input/orders.csv')\nshow result orders" } },
+    { text: "Final Answer: 1" },
+  ];
+  for (let i = 2; i <= 7; i++)
+    replies.push({ call: { python: "", statements: "show result orders" } }, { text: `Final Answer: ${i}` });
+  const { agent, prompts } = session("catalog", replies, { catalogRecent: 2 });
+  for (let i = 1; i <= 7; i++) expect((await agent.sendMessage(`request ${i}`)).error).toBeUndefined();
+  // The first call of request q is prompts[2 * (q - 1)].
+  const firstCall = (q: number) => prompts[2 * (q - 1)];
+  const entries = (q: number) =>
+    firstCall(q)
+      .filter(message => message.role === "assistant")
+      .map(textOf)
+      .filter(text => text.startsWith("## Task"))
+      .map(text => text.split("\n")[0]);
+  const calls = (q: number) => firstCall(q).filter(message => message.role === "tool").length;
+  // Up to request 4 every earlier request is transcript; at 5 requests 1-2 become entries; at 7, 3-4 join them.
+  expect([3, 4, 5, 6, 7].map(entries)).toEqual([
+    [],
+    [],
+    ["## Task 1 (answered)", "## Task 2 (answered)"],
+    ["## Task 1 (answered)", "## Task 2 (answered)"],
+    ["## Task 1 (answered)", "## Task 2 (answered)", "## Task 3 (answered)", "## Task 4 (answered)"],
+  ]);
+  expect([4, 5, 6, 7].map(calls)).toEqual([3, 2, 3, 2]);
+  expect(textOf(firstCall(5).find(message => message.role === "user" && textOf(message).includes("request 3")))).toBe(
+    "request 3"
+  );
+  // Between additions the context only grows: request 6 starts with all of request 5's first prompt.
+  expect(JSON.stringify(firstCall(6).slice(0, firstCall(5).length))).toBe(JSON.stringify(firstCall(5)));
+  expect(agent.getSystemInfo().systemPrompt).toContain(
+    "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears"
+  );
+  expect(() => agent.updateSettings({ catalogRecent: 5 })).toThrow(NativeCatalogSettingsError);
+  expect(() => agent.updateSettings({ catalogSource: "docstring" })).toThrow(NativeCatalogSettingsError);
 });

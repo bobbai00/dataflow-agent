@@ -129,6 +129,10 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   /** Several requests in one session (AgentSettings.multiRequest): "catalog"
    *  shows each earlier request as its request and one catalog entry. */
   multiRequest?: AgentSettings["multiRequest"];
+  /** Catalog entries' functions (AgentSettings.catalogSource). */
+  catalogSource?: AgentSettings["catalogSource"];
+  /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
+  catalogRecent?: AgentSettings["catalogRecent"];
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
@@ -459,10 +463,21 @@ export function assembleContext(
 }
 
 /**
- * Earlier requests as request and catalog-entry pairs, then the current
- * request's own transcript. Request frames are framed as the transcript frames
- * them, the first under its heading and later ones as plain user turns, and a
- * finished request's entry never changes, so the prefix only grows.
+ * Requests a catalog shows as entries when `earlier` requests precede the
+ * current one: all of them, or with `recent` = K, all but the most recent K to
+ * 2K-1. Entries are added K at a time, so the layout, and with it the cached
+ * prefix, changes once every K requests.
+ */
+export function catalogedRequests(earlier: number, recent = 0): number {
+  return recent > 0 ? Math.max(0, recent * (Math.floor(earlier / recent) - 1)) : earlier;
+}
+
+/**
+ * Earlier requests as request and catalog-entry pairs, then the transcript of
+ * the requests not yet in the catalog, the current one last. Request frames
+ * are framed as the transcript frames them, the first under its heading and
+ * later ones as plain user turns, and a finished request's entry never
+ * changes, so the prefix only grows between catalog additions.
  */
 function catalogContext(
   requests: readonly SessionRequest[],
@@ -474,10 +489,12 @@ function catalogContext(
   const inner: AssembleContextOptions = { ...options, multiRequest: undefined };
   const opening = (request: SessionRequest) =>
     request.steps.find(step => step.role === "user" && step.isBegin) ?? request.steps[0];
-  const earlier = requests.slice(0, -1);
-  const entries = requestEntries(snapshotStorage, earlier);
+  const cataloged = requests.slice(0, catalogedRequests(requests.length - 1, options.catalogRecent ?? 0));
+  const transcript = requests.slice(cataloged.length).flatMap(request => request.steps);
+  if (!cataloged.length) return assembleContext(transcript, workflowState, snapshotStorage, mode, inner);
+  const entries = requestEntries(snapshotStorage, cataloged, options.catalogSource ?? "full");
   const messages: ModelMessage[] = [];
-  earlier.forEach((request, i) => {
+  cataloged.forEach((request, i) => {
     messages.push(
       ...(i === 0
         ? assembleContext([opening(request)], workflowState, snapshotStorage, mode, inner)
@@ -485,7 +502,7 @@ function catalogContext(
       { role: "assistant", content: entries[i] }
     );
   });
-  const own = assembleContext(requests[requests.length - 1].steps, workflowState, snapshotStorage, mode, inner);
+  const own = assembleContext(transcript, workflowState, snapshotStorage, mode, inner);
   const first = own[0];
   if (first?.role === "user" && typeof first.content === "string")
     own[0] = { ...first, content: first.content.replace(/^# Agent Events\n\n## User Event \d+\n\n/, "") };

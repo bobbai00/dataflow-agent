@@ -158,6 +158,7 @@ export enum ContextMode {
  */
 export type CompactionStrategy = "sliding" | "compress";
 export type MultiRequestMode = "off" | "transcript" | "catalog";
+export type CatalogSource = "full" | "docstring";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
@@ -377,10 +378,24 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * entry (`agent/request-catalog.ts`) in place of its calls. Both multi-request
    * values add the prompt's working-across-requests section, and their receipts
    * name each registered function's signature and note a column a Python step
-   * left with a single value. Decided before the first request: the system
-   * prompt depends on it.
+   * left 0 or null in every row. Decided before the first request: the system
+   * prompt depends on it, as on the two catalog settings below.
    */
   multiRequest: MultiRequestMode;
+  /**
+   * How a catalog entry shows the functions its request registered or changed.
+   * "full" (default): signature, the docstring's first line, then the source.
+   * "docstring": signature and docstring; the source only for a function with
+   * no docstring, and `show function` reads any source on demand.
+   */
+  catalogSource: CatalogSource;
+  /**
+   * Earlier requests a catalog session keeps as their full transcript: the
+   * most recent K to 2K-1. Older ones become entries K at a time, so the
+   * cached prefix changes once every K requests rather than at every one.
+   * 0 (default): every earlier request is an entry.
+   */
+  catalogRecent: number;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
@@ -450,6 +465,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   staticCompaction: false,
   userTaskPlacement: "top",
   multiRequest: "off",
+  catalogSource: "full",
+  catalogRecent: 0,
 };
 
 /**
@@ -568,6 +585,10 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   userTaskPlacement?: "top" | "bottom";
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
+  /** Catalog entries' functions (see AgentSettings.catalogSource). */
+  catalogSource?: CatalogSource;
+  /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
+  catalogRecent?: number;
 }
 
 export interface AgentInfo {
@@ -651,4 +672,8 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   tunerConfig?: TunerConfig;
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
+  /** Catalog entries' functions (see AgentSettings.catalogSource). */
+  catalogSource?: CatalogSource;
+  /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
+  catalogRecent?: number;
 }
