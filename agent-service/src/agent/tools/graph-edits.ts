@@ -68,7 +68,8 @@ export interface GraphEditPlan {
   changes: GraphChangeReceipt[];
   unconnected_inputs: string[];
   invalidated_results: string[];
-  registrations?: Array<{ name: string; kind: "registered" | "updated" }>;
+  /** `signature` is set in sessions with several requests (AgentSettings.multiRequest). */
+  registrations?: Array<{ name: string; kind: "registered" | "updated"; signature?: string }>;
 }
 
 const edgeKey = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;

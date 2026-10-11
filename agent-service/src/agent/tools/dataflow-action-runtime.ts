@@ -28,7 +28,7 @@ import { resultScope } from "../native/result-scope";
 import { nativeAssignmentText } from "../native/catalog";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import { observationFormat, describeOperator, topologicalOperators, columnEntries } from "../native/observation-format";
-import { nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
+import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { edgeEnds, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { inspectRegisteredNamespace, inspectRegisteredSchema, registeredInspectionName } from "./registered-inspection";
 import { EMPTY_DATAFLOW_ERROR, runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
@@ -77,6 +77,9 @@ export async function executeDataflowActionBatch(
 ): Promise<void> {
   const { state, storage, stepId, context, signal } = runtime;
   const settings = { ...runtime.settings };
+  // Sessions with several requests reuse functions and build on earlier
+  // results: receipts name each function's signature and note degenerate columns.
+  const multiRequest = (settings.multiRequest ?? "off") !== "off";
   result.format = observationFormat(settings);
   const options = {
     ...result.format,
@@ -181,6 +184,11 @@ export async function executeDataflowActionBatch(
       storage.updatePendingWorkflow(stepId, plan.workflow);
       result.operators.push(...plan.operators);
       const { workflow: _workflow, ...output } = plan;
+      if (multiRequest && output.registrations)
+        output.registrations = output.registrations.map(registration => ({
+          ...registration,
+          signature: plan.workflow.nativeNamespace?.functions[registration.name]?.signature ?? "",
+        }));
       return { status: "ok", output };
     }
     if (action.type === "execute") {
@@ -237,6 +245,13 @@ export async function executeDataflowActionBatch(
           ...(rows === 0 ? ["note: empty table."] : []),
           ...(settings.nativeChecks ? nativeCheckLines(op, info) : []),
           ...nativeAdjustmentLines(op, info),
+          ...(multiRequest
+            ? constantColumnLines(
+                op,
+                info,
+                (op.nativeOp?.inputs ?? []).map(id => current(id))
+              )
+            : []),
         ];
         return {
           id: op.operatorID,

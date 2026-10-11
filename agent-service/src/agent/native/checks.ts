@@ -204,3 +204,39 @@ export function nativeAdjustmentLines(op: OperatorPredicate, info: OperatorInfo)
     );
   return lines;
 }
+
+/**
+ * Columns a Python step added that hold one value in every row, or no value at
+ * all. A ranking, gap or comparison built on such a column inherits a
+ * degenerate input (a list of "largest gaps" that are all 0), so the receipt
+ * says so where the column first appears. Only a profile of the whole table
+ * settles it; a partial profile says nothing.
+ */
+export function constantColumnLines(
+  op: OperatorPredicate,
+  info: OperatorInfo,
+  inputs: readonly (OperatorInfo | undefined)[]
+): string[] {
+  const view = op.nativeOp;
+  const profile = info.tableProfile;
+  const rows = info.totalRowCount ?? info.outputTuples;
+  if (!view?.properties.registered || view.type === "Filter" || !profile || !(rows >= 2)) return [];
+  if (profile.status !== "available" || !profile.coverage.complete || profile.rowCount !== rows) return [];
+  const inherited = new Set(inputs.flatMap(input => (input?.resultSchema ?? []).map(field => field.name)));
+  const count = rows.toLocaleString("en-US");
+  const found = (info.resultSchema ?? [])
+    .filter(field => !inherited.has(field.name))
+    .flatMap(field => {
+      const column = Object.hasOwn(profile.columns, field.name) ? profile.columns[field.name] : undefined;
+      if (!column || column.rowsProcessed !== rows) return [];
+      if (column.nonnullCount === 0) return [`${json(field.name)} is null in all ${count} rows`];
+      if (column.nullCount === 0 && column.distinctCount === 1)
+        return [`${json(field.name)} has the same value, ${json(column.min)}, in all ${count} rows`];
+      return [];
+    });
+  if (!found.length) return [];
+  const shown = found.slice(0, 3);
+  return [
+    `note: column ${shown.join("; column ")}${found.length > shown.length ? `; and ${found.length - shown.length} more such columns` : ""}.`,
+  ];
+}
