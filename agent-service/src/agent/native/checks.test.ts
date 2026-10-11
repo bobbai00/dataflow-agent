@@ -189,49 +189,62 @@ describe("constantColumnLines", () => {
       operatorType: "DataProcessing",
       nativeOp: { type, properties: registered ? { registered: { entry: "gaps" } } : {}, inputs: ["teams"] },
     }) as any as OperatorPredicate;
-  const column = (rows: number, nulls: number, distinct: number | null, min: unknown = null) => ({
-    type: "integer",
+  // Profile scalars are encoded as the engine reports them: int64 as a string.
+  const float = (value: number) => ({ type: "float64", value });
+  const int = (value: number) => ({ type: "int64", value: String(value) });
+  const column = (rows: number, nulls: number, min: unknown = null, max: unknown = min) => ({
+    type: "float64",
     rowsProcessed: rows,
     nullCount: nulls,
     nonnullCount: rows - nulls,
-    distinctCount: distinct,
+    distinctCount: nulls === rows ? 0 : JSON.stringify(min) === JSON.stringify(max) ? 1 : 2,
     min,
+    max,
   });
-  const result = (columns: Record<string, unknown>, rows = 12, complete = true): OperatorInfo =>
+  const result = (columns: Record<string, unknown>, rows = 86, complete = true): OperatorInfo =>
     ({
       state: "Completed",
       totalRowCount: rows,
-      resultSchema: ["team", ...Object.keys(columns)].map(name => ({ name, type: "int64", encoding: "" })),
+      resultSchema: ["team", ...Object.keys(columns)].map(name => ({ name, type: "float64", encoding: "" })),
       tableProfile: {
         status: "available",
         coverage: { scope: "full", complete, rowsProcessed: rows },
         rowCount: rows,
-        columns: { team: column(rows, 0, rows), ...columns },
+        columns: { team: column(rows, 0, { type: "str", value: "ATL" }, { type: "str", value: "WAS" }), ...columns },
       },
     }) as any;
   const teams = { state: "Completed", resultSchema: [{ name: "team", type: "string", encoding: "" }] } as any;
 
-  test("a column the step added with one value, or none, in every row", () => {
+  test("a column the step added to a working table that is 0, or null, in every row", () => {
     // An NFL session ranked "largest gaps" that were all 0 and never noticed.
-    expect(constantColumnLines(step(), result({ gap: column(12, 0, 1, 0), note: column(12, 12, 0) }), [teams])).toEqual(
-      ['note: column "gap" has the same value, 0, in all 12 rows; column "note" is null in all 12 rows.']
+    const gaps = result({ gap: column(86, 0, float(0)), moves: column(86, 0, int(0)), note: column(86, 86) });
+    expect(constantColumnLines(step(), gaps, [teams])).toEqual([
+      'note: column "gap" is 0 in all 86 rows; column "moves" is 0 in all 86 rows; column "note" is null in all 86 rows.',
+    ]);
+  });
+
+  test("labels, thresholds, small answer tables, inherited or partly profiled columns, filters and built-ins say nothing", () => {
+    const threshold = result({ cut: column(86, 0, float(0.75)), label: column(86, 0, { type: "str", value: "LT" }) });
+    expect(constantColumnLines(step(), threshold, [teams])).toEqual([]);
+    expect(constantColumnLines(step(), result({ gap: column(86, 0, float(-3), float(2)) }), [teams])).toEqual([]);
+    // Equal deltas among a handful of leaders are often the answer.
+    expect(constantColumnLines(step(), result({ delta: column(6, 0, float(0)) }, 6), [teams])).toEqual([]);
+    const inherited = {
+      ...teams,
+      resultSchema: [...teams.resultSchema, { name: "gap", type: "float64", encoding: "" }],
+    };
+    expect(constantColumnLines(step(), result({ gap: column(86, 0, float(0)) }), [inherited])).toEqual([]);
+    expect(constantColumnLines(step(), result({ gap: column(86, 0, float(0)) }, 86, false), [teams])).toEqual([]);
+    expect(constantColumnLines(step("Filter"), result({ gap: column(86, 0, float(0)) }), [teams])).toEqual([]);
+    expect(constantColumnLines(step("Aggregate", false), result({ gap: column(86, 0, float(0)) }), [teams])).toEqual(
+      []
     );
   });
 
-  test("varied, inherited or partly profiled columns, filters, built-ins and one-row results say nothing", () => {
-    expect(constantColumnLines(step(), result({ gap: column(12, 0, 5, -3) }), [teams])).toEqual([]);
-    const constantTeam = result({ team: column(12, 0, 1, "Bills") });
-    expect(constantColumnLines(step(), constantTeam, [teams])).toEqual([]);
-    expect(constantColumnLines(step(), result({ gap: column(12, 0, 1, 0) }, 12, false), [teams])).toEqual([]);
-    expect(constantColumnLines(step("Filter"), result({ gap: column(12, 0, 1, 0) }), [teams])).toEqual([]);
-    expect(constantColumnLines(step("Aggregate", false), result({ gap: column(12, 0, 1, 0) }), [teams])).toEqual([]);
-    expect(constantColumnLines(step(), result({ gap: column(1, 0, 1, 0) }, 1), [teams])).toEqual([]);
-  });
-
   test("more than three such columns are counted", () => {
-    const columns = Object.fromEntries(["a", "b", "c", "d", "e"].map(name => [name, column(4, 4, 0)]));
-    expect(constantColumnLines(step(), result(columns, 4), [teams])).toEqual([
-      'note: column "a" is null in all 4 rows; column "b" is null in all 4 rows; column "c" is null in all 4 rows; and 2 more such columns.',
+    const columns = Object.fromEntries(["a", "b", "c", "d", "e"].map(name => [name, column(40, 40)]));
+    expect(constantColumnLines(step(), result(columns, 40), [teams])).toEqual([
+      'note: column "a" is null in all 40 rows; column "b" is null in all 40 rows; column "c" is null in all 40 rows; and 2 more such columns.',
     ]);
   });
 });
