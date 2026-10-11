@@ -26,7 +26,7 @@ variant with the current result. One native agent serves a whole session, with
 one workflow and one computing unit, so later requests read the Dataflow and
 functions that earlier ones left.
 
-The arm is the agent's `multiRequest` setting
+The arm fixes the agent's multi-request settings
 ([design](../../docs/native-multi-request-design.md)):
 
 | arm | earlier requests in context | prompt section 5, signatures, constant-column notes |
@@ -34,6 +34,8 @@ The arm is the agent's `multiRequest` setting
 | `off` | their full transcript (stable's single-request agent) | no |
 | `transcript` | their full transcript | yes |
 | `catalog` | request text plus one catalog entry each | yes |
+| `catalog-compact` | as `catalog`; documented functions by signature and docstring | yes |
+| `hybrid` | as `catalog-compact`, but the 5 to 9 most recent requests as transcript | yes |
 
 ## Inputs
 
