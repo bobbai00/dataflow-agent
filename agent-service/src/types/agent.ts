@@ -87,6 +87,8 @@ export interface ReActStep {
   reasoningText?: string;
   isBegin: boolean;
   isEnd: boolean;
+  /** Set on a last step that is not an answer: the turn failed, or the user stopped it. */
+  endReason?: "error" | "stopped";
   toolCalls?: Array<{
     toolName: string;
     toolCallId: string;
@@ -155,6 +157,7 @@ export enum ContextMode {
  *     delta for the fresh suffix (rolling compaction).
  */
 export type CompactionStrategy = "sliding" | "compress";
+export type MultiRequestMode = "off" | "transcript" | "catalog";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
@@ -367,6 +370,17 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * request closest to the generation point, which is where recency helps.
    */
   userTaskPlacement: "top" | "bottom";
+  /**
+   * Sessions that answer several requests. "off" (default): one request, as
+   * before. "transcript": a later request follows the whole earlier transcript.
+   * "catalog": each earlier request appears as its request and one catalog
+   * entry (`agent/request-catalog.ts`) in place of its calls. Both multi-request
+   * values add the prompt's working-across-requests section, and their receipts
+   * name each registered function's signature and note a column a Python step
+   * left with a single value. Decided before the first request: the system
+   * prompt depends on it.
+   */
+  multiRequest: MultiRequestMode;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
@@ -433,6 +447,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   sourceProvenanceHint: false,
   staticCompaction: false,
   userTaskPlacement: "top",
+  multiRequest: "off",
 };
 
 /**
@@ -549,6 +564,8 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   tunerConfig?: TunerConfig;
   /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
   userTaskPlacement?: "top" | "bottom";
+  /** Sessions with several requests (see AgentSettings.multiRequest). */
+  multiRequest?: MultiRequestMode;
 }
 
 export interface AgentInfo {
@@ -630,4 +647,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
+  /** Sessions with several requests (see AgentSettings.multiRequest). */
+  multiRequest?: MultiRequestMode;
 }

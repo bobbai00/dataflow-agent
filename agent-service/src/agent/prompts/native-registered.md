@@ -102,3 +102,5 @@ Keep reusable working tables separate from limited answer tables. Check meaningf
 ## 4. Worked examples
 
 {{EXAMPLES}}
+
+{{MULTI_REQUEST}}
