@@ -114,16 +114,19 @@ functions:
 - tidy(table) updated (no settings)
 ```
 
-An executed Python step whose whole-table profile shows a column it added that
-holds one value in every row, or no value at all, gets a note:
+An executed Python step that adds a column which is 0, or null, in every row of
+a working table (at least 10 rows, profiled in full) gets a note:
 
 ```text
-note: column "gap" has the same value, 0, in all 12 rows.
+note: column "player_move" is 0 in all 86 rows.
 ```
 
 On 2026-10-09 an NFL session ranked "largest gaps" that were all 0, and nearly
-every later score inherited them. Filters, built-ins, one-row results and partial
-profiles get no note.
+every later score inherited them. Constant labels, broadcast thresholds, small
+answer tables, filters, built-ins and partial profiles get no note. The first
+version took any single value and flagged 157 columns in the 2026-10-11 Luna
+campaign, two thirds of them in tables of five rows or fewer; under the current
+rule about 3 of those remain.
 
 ## Prompt
 
@@ -152,3 +155,43 @@ text, byte-identical prefixes across requests, restores, changed functions,
 failed requests, transcript mode, the setting guard), `checks.test.ts`,
 `turn-receipt.test.ts`, `evidence-settings.test.ts`, and
 `benchmark/longds/test_longds.py`.
+
+## Results: GPT-5.6 Luna, 2026-10-11
+
+Two LongDS Lite sessions, NFL task 1 (42 requests) and Netflix task 4 (32),
+three repetitions of each arm, judged by deepseek-v4-pro. Run root
+`/var/tmp/longds-catalog-luna-20261011` (commits f1a1b0e9c and 0d862fd2b, with
+the first constant-column rule). Agent cost $3.66, judge $0.65.
+
+| session | `off` | `transcript` | `catalog` |
+|---|---|---|---|
+| NFL (of 42) | 5, 9, 15 | 17, 19, 15 | 19, 14, 22 |
+| Netflix (of 32) | 13, 12, 12 | 14, 12, 7 | 12, 3, 14 |
+| both (of 222) | 66 (29.7%) | 84 (37.8%) | 84 (37.8%) |
+| cost per session, NFL / Netflix | $0.244 / $0.158 | $0.242 / $0.138 | $0.274 / $0.165 |
+| input per call, NFL / Netflix | 63.3k / 41.5k | 61.7k / 37.4k | 50.5k / 30.4k |
+| cached input share | 97.7–98.5% | 97.4–98.5% | 95.0–95.7% |
+| output per request, NFL / Netflix | 1,528 / 1,971 | 1,452 / 1,820 | 2,326 / 2,319 |
+
+- **Accuracy: the catalog ties the transcript.** Both beat the single-request
+  agent by 18 answers, all on NFL. No mechanism was found for that NFL gap: no arm
+  overwrites earlier operators or reuses rules. With per-session spreads of 2 to 6
+  answers it is suggestive, not established. Netflix collapses from question 14
+  in every arm (questions 14 to 31 are almost all 0 of 3).
+- **Where the catalog differs:** late NFL Rollbacks and Counterfactuals that reach back
+  20 or more questions (q26, q27, q29, q33: 2 of 3 each against 0 of 3 for
+  the transcript), which is what an entry per request is for. The transcript is better in
+  mid-session (q11: 3 of 3 against 1 of 3).
+- **Cost: the catalog is not cheaper on Luna.** It cuts input per call by 20 to 27%,
+  but stable's transcript is already lean and almost all of it is cached at a
+  tenth of the price. The catalog arm writes more: 5.0k to 5.4k characters of
+  Python per request against 3.0k to 4.5k, and about twice the reasoning tokens.
+  At request 42 the NFL entries hold about 360k characters, 38 to 43% of them code.
+- **Rule reuse: none.** In 18 runs no operator was set again with new settings;
+  an earlier request's function was called 2.3 times per session on average in
+  the NFL transcript arm, and less often elsewhere. New functions per request
+  stayed at 1.2 to 2.2, mostly answer-shaped (`maturity_review_answer`,
+  `task29_raw_shortcut`), and at most 29% of them took settings. Prompt section 5
+  and the signatures in receipts did not change this, as prompt teaching did
+  not in two earlier attempts.
+
