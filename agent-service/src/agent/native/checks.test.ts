@@ -20,7 +20,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
-import { nativeAdjustmentLines, nativeCheckLines, scanNoteLines } from "./checks";
+import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines, scanNoteLines } from "./checks";
 
 const op = (type: string, properties: Record<string, unknown> = {}): OperatorPredicate =>
   ({ operatorID: "x", operatorType: "DataProcessing", nativeOp: { type, properties, inputs: [] } }) as any;
@@ -177,6 +177,61 @@ describe("nativeAdjustmentLines", () => {
     ]);
     expect(nativeAdjustmentLines(op("Union"), info({ widened: { value: ["float64", "int64"] } }))).toEqual([
       'note: column "value" is integer in some inputs and decimal in others; read as decimal (float64).',
+    ]);
+  });
+});
+
+describe("constantColumnLines", () => {
+  /** A registered step's result whose whole-table profile has the given added columns. */
+  const step = (type = "Process", registered = true) =>
+    ({
+      operatorID: "gaps",
+      operatorType: "DataProcessing",
+      nativeOp: { type, properties: registered ? { registered: { entry: "gaps" } } : {}, inputs: ["teams"] },
+    }) as any as OperatorPredicate;
+  const column = (rows: number, nulls: number, distinct: number | null, min: unknown = null) => ({
+    type: "integer",
+    rowsProcessed: rows,
+    nullCount: nulls,
+    nonnullCount: rows - nulls,
+    distinctCount: distinct,
+    min,
+  });
+  const result = (columns: Record<string, unknown>, rows = 12, complete = true): OperatorInfo =>
+    ({
+      state: "Completed",
+      totalRowCount: rows,
+      resultSchema: ["team", ...Object.keys(columns)].map(name => ({ name, type: "int64", encoding: "" })),
+      tableProfile: {
+        status: "available",
+        coverage: { scope: "full", complete, rowsProcessed: rows },
+        rowCount: rows,
+        columns: { team: column(rows, 0, rows), ...columns },
+      },
+    }) as any;
+  const teams = { state: "Completed", resultSchema: [{ name: "team", type: "string", encoding: "" }] } as any;
+
+  test("a column the step added with one value, or none, in every row", () => {
+    // An NFL session ranked "largest gaps" that were all 0 and never noticed.
+    expect(constantColumnLines(step(), result({ gap: column(12, 0, 1, 0), note: column(12, 12, 0) }), [teams])).toEqual(
+      ['note: column "gap" has the same value, 0, in all 12 rows; column "note" is null in all 12 rows.']
+    );
+  });
+
+  test("varied, inherited or partly profiled columns, filters, built-ins and one-row results say nothing", () => {
+    expect(constantColumnLines(step(), result({ gap: column(12, 0, 5, -3) }), [teams])).toEqual([]);
+    const constantTeam = result({ team: column(12, 0, 1, "Bills") });
+    expect(constantColumnLines(step(), constantTeam, [teams])).toEqual([]);
+    expect(constantColumnLines(step(), result({ gap: column(12, 0, 1, 0) }, 12, false), [teams])).toEqual([]);
+    expect(constantColumnLines(step("Filter"), result({ gap: column(12, 0, 1, 0) }), [teams])).toEqual([]);
+    expect(constantColumnLines(step("Aggregate", false), result({ gap: column(12, 0, 1, 0) }), [teams])).toEqual([]);
+    expect(constantColumnLines(step(), result({ gap: column(1, 0, 1, 0) }, 1), [teams])).toEqual([]);
+  });
+
+  test("more than three such columns are counted", () => {
+    const columns = Object.fromEntries(["a", "b", "c", "d", "e"].map(name => [name, column(4, 4, 0)]));
+    expect(constantColumnLines(step(), result(columns, 4), [teams])).toEqual([
+      'note: column "a" is null in all 4 rows; column "b" is null in all 4 rows; column "c" is null in all 4 rows; and 2 more such columns.',
     ]);
   });
 });

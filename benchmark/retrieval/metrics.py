@@ -101,10 +101,13 @@ STOPPED_STEP = "Generation stopped by user."
 
 
 def final_reply(steps):
-    """The answer: the last agent step ends the task with text and no tool call."""
+    """The answer: the last agent step ends the task with text and no tool call.
+    A failed or stopped turn's last step says so in `endReason`; traces from
+    before that field are recognized by their text."""
     agents = [step for step in steps if step.get("role") == "agent"]
     final = agents[-1] if agents else None
     return bool(final and final.get("isEnd") and not final.get("toolCalls") and final.get("content")
+                and not final.get("endReason")
                 and not str(final["content"]).startswith("Error:") and final["content"] != STOPPED_STEP)
 
 

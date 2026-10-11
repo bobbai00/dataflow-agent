@@ -571,6 +571,7 @@ export class TexeraAgent {
         maxResultRows: this.settings.maxResultRows,
         dataEvidenceCharLimit: this.settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: this.settings.flowEvidenceCharLimit,
+        multiRequest: this.settings.multiRequest,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -986,6 +987,7 @@ export class TexeraAgent {
       userTaskPlacement?: "top" | "bottom";
       messageLayout?: AgentSettings["messageLayout"];
       tunerConfig?: TunerConfig | null;
+      multiRequest?: AgentSettings["multiRequest"];
     } & RetrievalSettings &
       ObservationFormatOptions
   ): void {
@@ -1003,7 +1005,19 @@ export class TexeraAgent {
         "Changing profile collection or scope requires a fresh agent and workflow; existing operators retain their compiled setting"
       );
     }
+    // The system prompt and the layout of earlier requests depend on it, so
+    // it is decided before the first request and kept for the session.
+    if (
+      updates.multiRequest !== undefined &&
+      updates.multiRequest !== this.settings.multiRequest &&
+      this.turnOrder().length > 0
+    )
+      throw new NativeCatalogSettingsError("multiRequest is decided before the first request of a session");
     let promptNeedsRebuild = false;
+    if (updates.multiRequest !== undefined && updates.multiRequest !== this.settings.multiRequest) {
+      this.settings.multiRequest = updates.multiRequest;
+      promptNeedsRebuild = true;
+    }
     const formatUpdates = observationFormatPatch(updates);
     if (Object.keys(formatUpdates).length) {
       Object.assign(this.settings, formatUpdates);
@@ -1721,6 +1735,7 @@ export class TexeraAgent {
           content: "Generation stopped by user.",
           isBegin: false,
           isEnd: true,
+          endReason: "stopped",
         };
         this.addStep(stoppedStep);
         this.head = stoppedStepId;
@@ -1745,6 +1760,7 @@ export class TexeraAgent {
         content: `Error: ${error.message || String(error)}`,
         isBegin: false,
         isEnd: true,
+        endReason: "error",
       };
       this.addStep(errorStep);
       this.head = errorStepId;

@@ -118,7 +118,7 @@ export function validateEvidenceSettings(settings: object): void {
   for (const key of REMOVED_PROTOCOL_SETTINGS) {
     if (Object.hasOwn(settings, key))
       throw new NativeCatalogSettingsError(
-        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and no multi-task state`
+        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and multiRequest for a session with several requests`
       );
   }
   for (const key of [
@@ -135,6 +135,14 @@ export function validateEvidenceSettings(settings: object): void {
   const scope = (settings as Record<string, unknown>).nativeProfileScope;
   if (scope !== undefined && scope !== "prefix" && scope !== "full")
     throw new NativeCatalogSettingsError('nativeProfileScope must be "prefix" or "full"');
+  const multiRequest = (settings as Record<string, unknown>).multiRequest;
+  if (multiRequest !== undefined && !["off", "transcript", "catalog"].includes(String(multiRequest)))
+    throw new NativeCatalogSettingsError('multiRequest must be "off", "transcript" or "catalog"');
+  // Catalog entries replace earlier requests in the replayed transcript, which
+  // only the delta context with the native message layout has.
+  const { contextMode, messageLayout } = settings as Record<string, unknown>;
+  if (multiRequest === "catalog" && ((contextMode ?? "delta") !== "delta" || (messageLayout ?? "native") !== "native"))
+    throw new NativeCatalogSettingsError('multiRequest "catalog" needs contextMode "delta" and messageLayout "native"');
 }
 
 /** Shared by creation (before allocating an agent) and atomic settings updates. */

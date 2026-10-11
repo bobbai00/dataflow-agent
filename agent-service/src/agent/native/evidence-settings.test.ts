@@ -145,6 +145,25 @@ test("settings of the removed protocols and multi-task state are refused with th
   ])
     for (const value of [true, false, "text"])
       expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(
-        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and no multi-task state`
+        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and multiRequest for a session with several requests`
       );
+});
+
+test("multiRequest is off, transcript or catalog", () => {
+  const key: string = "multiRequest";
+  for (const value of ["off", "transcript", "catalog"])
+    expect(() => validateNativeSettings({ ...native, [key]: value })).not.toThrow();
+  for (const value of ["on", true, "dependencies"])
+    expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(
+      'multiRequest must be "off", "transcript" or "catalog"'
+    );
+  // Entries replace earlier requests in the delta context's native transcript only.
+  expect(() => validateNativeSettings({ ...native, [key]: "catalog", contextMode: "delta" } as object)).not.toThrow();
+  for (const other of [{ contextMode: "latest" }, { messageLayout: "opSplit" }])
+    expect(() => validateNativeSettings({ ...native, [key]: "catalog", ...other } as object)).toThrow(
+      'multiRequest "catalog" needs contextMode "delta" and messageLayout "native"'
+    );
+  expect(() =>
+    validateNativeSettings({ ...native, [key]: "transcript", contextMode: "latest" } as object)
+  ).not.toThrow();
 });

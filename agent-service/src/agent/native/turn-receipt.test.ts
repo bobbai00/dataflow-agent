@@ -142,6 +142,33 @@ statistics: full table, 2 of 2 rows, 3 of 3 columns
 | band | str | 0 | 2 | all: high 1; low 1 |`);
 });
 
+test("with several requests, each registered function shows its signature, and one without settings says so", () => {
+  const turn = turnOf(
+    "set units: eligible_units(orders, min_orders=5)",
+    "def eligible_units(orders, *, min_orders=5):\n    return orders\n\ndef tidy(table):\n    return table"
+  );
+  const result = resultOf(turn, [
+    {
+      status: "ok",
+      output: {
+        operators: [],
+        registrations: [
+          { name: "eligible_units", kind: "registered", signature: "(orders, *, min_orders=5)" },
+          { name: "tidy", kind: "updated", signature: "(table)" },
+        ],
+        changes: [{ change: "operator", operator_id: "units", operator: "eligible_units", action: "created" }],
+        unconnected_inputs: [],
+        invalidated_results: [],
+      },
+    },
+  ]);
+  expect(renderTurnReceipt(result, turn)).toBe(`## edits applied
+functions:
+- eligible_units(orders, *, min_orders=5) registered
+- tidy(table) updated (no settings)
+operators: units created (eligible_units)`);
+});
+
 test("a rejected edit names the line and nothing else runs", () => {
   const turn = turnOf(`set records: scan(files='data/a.csv')
 set totals: aggregate(records, outputs={'n': avg('value')})
