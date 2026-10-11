@@ -572,6 +572,8 @@ export class TexeraAgent {
         dataEvidenceCharLimit: this.settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: this.settings.flowEvidenceCharLimit,
         multiRequest: this.settings.multiRequest,
+        catalogSource: this.settings.catalogSource,
+        catalogRecent: this.settings.catalogRecent,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -990,6 +992,8 @@ export class TexeraAgent {
       messageLayout?: AgentSettings["messageLayout"];
       tunerConfig?: TunerConfig | null;
       multiRequest?: AgentSettings["multiRequest"];
+      catalogSource?: AgentSettings["catalogSource"];
+      catalogRecent?: AgentSettings["catalogRecent"];
     } & RetrievalSettings &
       ObservationFormatOptions
   ): void {
@@ -1007,17 +1011,23 @@ export class TexeraAgent {
         "Changing profile collection or scope requires a fresh agent and workflow; existing operators retain their compiled setting"
       );
     }
-    // The system prompt and the layout of earlier requests depend on it, so
-    // it is decided before the first request and kept for the session.
-    if (
-      updates.multiRequest !== undefined &&
-      updates.multiRequest !== this.settings.multiRequest &&
-      this.turnOrder().length > 0
-    )
-      throw new NativeCatalogSettingsError("multiRequest is decided before the first request of a session");
+    // The system prompt and the layout of earlier requests depend on these,
+    // so they are decided before the first request and kept for the session.
+    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent"] as const;
+    for (const key of sessionLayout)
+      if (updates[key] !== undefined && updates[key] !== this.settings[key] && this.turnOrder().length > 0)
+        throw new NativeCatalogSettingsError(`${key} is decided before the first request of a session`);
     let promptNeedsRebuild = false;
     if (updates.multiRequest !== undefined && updates.multiRequest !== this.settings.multiRequest) {
       this.settings.multiRequest = updates.multiRequest;
+      promptNeedsRebuild = true;
+    }
+    if (updates.catalogSource !== undefined && updates.catalogSource !== this.settings.catalogSource) {
+      this.settings.catalogSource = updates.catalogSource;
+      promptNeedsRebuild = true;
+    }
+    if (updates.catalogRecent !== undefined && updates.catalogRecent !== this.settings.catalogRecent) {
+      this.settings.catalogRecent = updates.catalogRecent;
       promptNeedsRebuild = true;
     }
     const formatUpdates = observationFormatPatch(updates);

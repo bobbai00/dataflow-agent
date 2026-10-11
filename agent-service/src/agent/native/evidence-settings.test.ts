@@ -149,6 +149,21 @@ test("settings of the removed protocols and multi-task state are refused with th
       );
 });
 
+test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recent requests", () => {
+  const settings = (extra: Record<string, unknown>) => ({ ...native, ...extra }) as object;
+  for (const value of ["full", "docstring"])
+    expect(() => validateNativeSettings(settings({ catalogSource: value }))).not.toThrow();
+  expect(() => validateNativeSettings(settings({ catalogSource: "none" }))).toThrow(
+    'catalogSource must be "full" or "docstring"'
+  );
+  for (const value of [0, 5, 50])
+    expect(() => validateNativeSettings(settings({ catalogRecent: value }))).not.toThrow();
+  for (const value of [-1, 2.5, 51, "5"])
+    expect(() => validateNativeSettings(settings({ catalogRecent: value }))).toThrow(
+      "catalogRecent must be an integer between 0 and 50"
+    );
+});
+
 test("multiRequest is off, transcript or catalog", () => {
   const key: string = "multiRequest";
   for (const value of ["off", "transcript", "catalog"])

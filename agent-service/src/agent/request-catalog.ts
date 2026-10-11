@@ -30,7 +30,7 @@
  * Design: docs/native-multi-request-design.md.
  */
 
-import type { ReActStep } from "../types/agent";
+import type { CatalogSource, ReActStep } from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import type { NativeOpView } from "./native/catalog";
 import { columnsFromInput, describeOperator, inlineCode, operatorBlock } from "./native/observation-format";
@@ -143,10 +143,17 @@ export function settingsChange(previous: NativeOpView, now: NativeOpView): strin
     : undefined;
 }
 
+/** A docstring as an entry quotes it: one paragraph, at most this long. */
+const DOCSTRING_CHARS = 300;
+
 /** The functions section: one signature line per public function the request
  * registered or changed, then the source of every binding it registered or
- * changed, in definition order and once, as the request left it. */
-function functionsSection(start: SnapshotData, end: SnapshotData): string {
+ * changed, in definition order and once, as the request left it. With
+ * `catalogSource: "docstring"` a documented function is its signature and
+ * docstring, a private helper its signature; source remains for the rest
+ * (an undocumented function, imports, constants), and `show function` reads
+ * any source on demand. */
+function functionsSection(start: SnapshotData, end: SnapshotData, source: CatalogSource = "full"): string {
   const before = start.workflow.nativeNamespace?.bindings ?? {};
   const namespace = end.workflow.nativeNamespace;
   const cells = namespace?.cells ?? [];
@@ -157,15 +164,33 @@ function functionsSection(start: SnapshotData, end: SnapshotData): string {
     .map(binding => ({ binding, at: Math.max(0, (cells[binding.cell - 1] ?? "").indexOf(binding.source)) }))
     .sort((a, b) => a.binding.cell - b.binding.cell || a.at - b.at || a.binding.name.localeCompare(b.binding.name))
     .map(({ binding }) => binding);
+  const compact = source === "docstring";
   const api: string[] = [];
+  const helpers: string[] = [];
+  // Bindings whose source the entry leaves to `show function`.
+  const described = new Set<string>();
   for (const binding of changed) {
     const fn = namespace?.functions[binding.name];
-    if (binding.kind !== "function" || !fn?.exported) continue;
-    const doc = fn.doc.split("\n")[0].trim();
+    if (binding.kind !== "function" || !fn) continue;
+    if (!fn.exported) {
+      if (compact) {
+        helpers.push(inlineCode(`${fn.name}${fn.signature}`));
+        described.add(binding.name);
+      }
+      continue;
+    }
+    const paragraph = fn.doc.replace(/\s+/g, " ").trim();
+    const doc = compact
+      ? paragraph.length > DOCSTRING_CHARS
+        ? `${paragraph.slice(0, DOCSTRING_CHARS - 1)}…`
+        : paragraph
+      : fn.doc.split("\n")[0].trim();
     api.push(`- ${inlineCode(`${fn.name}${fn.signature}`)}${doc ? ` — ${doc}` : ""}`);
+    if (compact && doc) described.add(binding.name);
   }
   // One statement can bind several names; its source is shown once.
   const sources = changed
+    .filter(binding => !described.has(binding.name))
     .filter(binding => {
       const key = `${binding.cell}\u0000${binding.source}`;
       if (seen.has(key)) return false;
@@ -173,7 +198,7 @@ function functionsSection(start: SnapshotData, end: SnapshotData): string {
       return true;
     })
     .map(binding => binding.source.trimEnd());
-  if (!sources.length) return "";
+  if (!sources.length && !api.length && !helpers.length) return "";
   // Multi-line definitions are set apart; one-line imports and constants stay together.
   const code = sources.reduce(
     (text, source, i) =>
@@ -181,7 +206,13 @@ function functionsSection(start: SnapshotData, end: SnapshotData): string {
     ""
   );
   const fence = "`".repeat(Math.max(3, ...(code.match(/`+/g) ?? []).map(run => run.length + 1)));
-  return ["functions:", ...api, `${fence}python`, code, fence].join("\n");
+  return [
+    "functions:",
+    ...api,
+    ...(helpers.length ? [`helpers: ${helpers.join(", ")}`] : []),
+    ...(sources.length ? [`${fence}python`, code, fence] : []),
+    ...(described.size ? ["`show function <name>` reads a function's source."] : []),
+  ].join("\n");
 }
 
 /** The registered function an operator calls: its entry, or a filter's predicate. */
@@ -201,14 +232,18 @@ const entryCache = new WeakMap<WorkflowSnapshotStorage, Map<string, string>>();
  * requests up to its own and the snapshots they left, so each is rendered
  * once per storage and reused on every later call.
  */
-export function requestEntries(storage: WorkflowSnapshotStorage, requests: readonly SessionRequest[]): string[] {
+export function requestEntries(
+  storage: WorkflowSnapshotStorage,
+  requests: readonly SessionRequest[],
+  source: CatalogSource = "full"
+): string[] {
   let cache = entryCache.get(storage);
   if (!cache) entryCache.set(storage, (cache = new Map()));
-  let key = "";
+  let key = `${source}\n`;
   return requests.map((request, index) => {
     key += `${request.number}:${request.messageId}:${request.steps[request.steps.length - 1]?.id}\n`;
     let entry = cache.get(key);
-    if (entry === undefined) cache.set(key, (entry = renderRequestEntry(storage, requests, index)));
+    if (entry === undefined) cache.set(key, (entry = renderRequestEntry(storage, requests, index, source)));
     return entry;
   });
 }
@@ -217,7 +252,8 @@ export function requestEntries(storage: WorkflowSnapshotStorage, requests: reado
 export function renderRequestEntry(
   storage: WorkflowSnapshotStorage,
   requests: readonly SessionRequest[],
-  index: number
+  index: number,
+  source: CatalogSource = "full"
 ): string {
   const request = requests[index];
   // A request owns no snapshot, so it resolves to the state it inherited.
@@ -239,7 +275,7 @@ export function renderRequestEntry(
   // Functions the session started with appear in no entry.
   const initial = storage.getAssociatedSnapshot(opening(requests[0])?.id).workflow.nativeNamespace?.bindings ?? {};
   const bindings = end.workflow.nativeNamespace?.bindings ?? {};
-  const functions = functionsSection(start, end);
+  const functions = functionsSection(start, end, source);
   const blocks: string[] = [];
   const deleted: string[] = [];
   for (const id of edited) {

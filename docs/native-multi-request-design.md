@@ -137,6 +137,27 @@ tables. It shows one example in general terms (`eligible_units`, `unit_scores`).
 catalog-mode prompt is generated as
 [native-mode/SYSTEM_PROMPT_CATALOG.txt](../native-mode/SYSTEM_PROMPT_CATALOG.txt).
 
+## Compact entries and recent requests
+
+Two catalog settings, decided before the first request like `multiRequest`:
+
+- `catalogSource: "docstring"` turns a documented public function into its
+  signature and whole docstring (one paragraph, at most 300 characters), and a
+  private helper into its signature. Source stays only for an undocumented
+  function and for imports and constants; `show function <name>` reads any
+  source. In the 2026-10-11 runs, 58 to 95% of the agent's functions had a
+  docstring, with a median of 100 characters against 1.2k to 2.0k of source.
+  Today's entries are 0.80 to 0.93× the size of the transcript they replace,
+  and 38 to 43% of that is source.
+- `catalogRecent: K` keeps the most recent K to 2K−1 requests as their full
+  transcript; older ones become entries K at a time. With K = 5, requests 1–5
+  become entries at request 11 and 6–10 at request 16. A window that moved by
+  one request each time would change the context at every request, and the
+  cache would be lost for every recent request after the change. Re-pricing
+  the NFL transcript runs' own calls that way gives +24% (K = 5) and +51%
+  (K = 10) against the transcript. Converting K at a time gives −2%, and −15%
+  with docstring entries; output is held fixed in all of these estimates.
+
 ## Code
 
 - `agent-service/src/agent/request-catalog.ts`: requests on the visible path

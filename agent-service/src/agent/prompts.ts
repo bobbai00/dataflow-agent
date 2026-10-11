@@ -29,7 +29,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import { ContextMode, type LocalToolDialect, type MultiRequestMode, type RetrievalSettings } from "../types/agent";
+import {
+  ContextMode,
+  type CatalogSource,
+  type LocalToolDialect,
+  type MultiRequestMode,
+  type RetrievalSettings,
+} from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
@@ -161,6 +167,10 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   flowEvidence?: boolean;
   /** Several requests in one session (AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
+  /** Catalog entries' functions (AgentSettings.catalogSource). */
+  catalogSource?: CatalogSource;
+  /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
+  catalogRecent?: number;
 }
 
 const nativeFragment = (name: string) =>
@@ -206,7 +216,13 @@ export function buildRegisteredNativeSystemPrompt(
       contextMode === ContextMode.LATEST
         ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
         : multiRequest === "catalog"
-          ? "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: the functions it registered or changed, with their signatures and source; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
+          ? ((options.catalogRecent ?? 0) > 0
+              ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
+              : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
+            (options.catalogSource === "docstring"
+              ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
+              : "the functions it registered or changed, with their signatures and source") +
+            "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
           : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
