@@ -248,3 +248,29 @@ Mean correct answers over the repetitions, all eight sessions; smolagents is the
   $0.57 to $0.67. That is one smolagents run; an earlier smolagents run with
   the benchmark's own wording scored 23 on the same three sessions.
 
+### Hybrid, one run each, 2026-10-11 evening
+
+`catalogSource: "docstring"` with `catalogRecent: 5` on the three sessions that
+smolagents also ran, one run each; run root
+`/var/tmp/longds-catalog-luna-hybrid-20261011`, code 781b6ec92. Agent cost
+$0.52, judge $0.63. The other arms are the morning means from the table above.
+
+| session (questions) | `off` | `transcript` | `catalog` | hybrid | smolagents |
+|---|---:|---:|---:|---:|---:|
+| NFL t1 (42) | 9.7, $0.244 | 17.0, $0.242 | 18.3, $0.274 | 7, $0.233 | 23, $0.372 |
+| Netflix t2 (34) | 3.0, $0.147 | 5.5, $0.159 | 3.5, $0.191 | 3, $0.129 | 9, $0.127 |
+| Marmara t1 (36) | 13.5, $0.182 | 15.5, $0.183 | 10.5, $0.201 | 20, $0.158 | 13, $0.431 |
+| **all three (112)** | 26.2, $0.57 | 38.0, $0.58 | 32.3, $0.67 | **30, $0.52** | 45, $0.93 |
+
+- The hybrid is the cheapest arm: input per call 26k to 35k tokens against
+  47k to 62k for the transcript, peak context 39k to 65k against 88k to 113k,
+  91% cached against 98%. Its output per request is back near the
+  transcript's level, so the catalog's extra code is mostly gone.
+- Accuracy is within a single run's noise. Marmara's 20 is the best dataflow
+  run on that session. NFL collapsed at question 10 (a different
+  "reliable" population, percentile 0.762 against 0.786) before the first
+  conversion at request 11, so the window did not cause it.
+- This run also has the two stable updates of 2026-10-11 (three sample rows,
+  new prompt lines, inline lambdas) that the morning arms lack. A transcript
+  run on the same code would separate their effect from the hybrid's.
+
