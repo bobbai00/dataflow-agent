@@ -287,14 +287,22 @@ test("lambda conditions are checked before execution and fail at their own sourc
       python: "",
       changes: "set raw: scan(files='u.csv')\nset s: sort(raw, by=lambda row: 1)",
     })
-  ).rejects.toThrow("only a filter takes a lambda");
+  ).rejects.toThrow("a lambda is only a filter's condition");
   await expect(
     stageRegisteredEdit({
       operators: {},
       python: "",
       changes: "set raw: scan(files='u.csv')\nset p: project(raw, lambda row: True)",
     })
-  ).rejects.toThrow("positional arguments must be input operator IDs");
+  ).rejects.toThrow("a lambda is only a filter's condition");
+  await expect(
+    stageRegisteredEdit({
+      operators: {},
+      python: "",
+      changes:
+        "set raw: scan(files='u.csv')\nset n: aggregate(raw, by=['g'], outputs={'yes': sum(lambda row: row['v'] == 'yes')})",
+    })
+  ).rejects.toThrow("filter them first and aggregate the kept rows");
   const failing = execute(await inline("lambda row: row['missing'] > 0"), "pd.DataFrame({'x':[1]})").error;
   expect(failing).toContain("CALLBACK_RUNTIME");
   expect(failing).toContain('"entry":"lambda"');

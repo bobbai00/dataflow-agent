@@ -197,6 +197,18 @@ def parse_registered_changes(source):
                 node.args = node.args[:-1]
                 if any(kw.arg == "predicate" for kw in node.keywords):
                     raise ValueError(f"Line {line}: give filter either a lambda or predicate=, not both.")
+            elif node.func.id == "filter":
+                spelled = [kw for kw in node.keywords if kw.arg == "predicate" and isinstance(kw.value, ast.Lambda)]
+                if spelled:
+                    condition = spelled[0].value
+                    node.keywords = [kw for kw in node.keywords if kw is not spelled[0]]
+            # A lambda anywhere else (an aggregate's `sum(lambda row: ...)`, a setting)
+            # would be rejected for its position; name what works instead.
+            if any(isinstance(part, ast.Lambda)
+                   for value in [*node.args, *(kw.value for kw in node.keywords)] for part in ast.walk(value)):
+                raise ValueError(f"Line {line}: a lambda is only a filter's condition. To count or sum the rows that meet "
+                                 "a condition, filter them first and aggregate the kept rows, or add a flag column in a "
+                                 "registered function.")
             if any(not isinstance(arg, ast.Name) for arg in node.args):
                 raise ValueError(f"Line {line}: positional arguments must be input operator IDs; settings use keywords. "
                                  "Declare a nested call as its own set statement and pass its ID.")
@@ -218,8 +230,6 @@ def parse_registered_changes(source):
                             raise ValueError(f"Line {line}: numeric settings must be finite.")
             kwargs = {}
             for keyword in node.keywords:
-                if isinstance(keyword.value, ast.Lambda) and (node.func.id != "filter" or keyword.arg != "predicate"):
-                    raise ValueError(f"Line {line}: only a filter takes a lambda, as its condition.")
                 kwargs[keyword.arg] = _encode(expression, keyword.value)
                 if isinstance(keyword.value, ast.Lambda):
                     # The names a condition uses tie the filter to the definitions it calls.
