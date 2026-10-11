@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import unittest
 
 from benchmark.longds.behavior import session_behavior
-from benchmark.longds.common import committed_calls, parse_delete, parse_set, save, statement_blocks
+from benchmark.longds.common import committed_calls, parse_delete, parse_set, python_functions, save, statement_blocks
 from benchmark.longds.judge import judge_run, verdict
 from benchmark.longds.prepare import build_prompts, turn_ids
 from benchmark.longds.report import run_summary
@@ -62,6 +62,12 @@ class StatementTests(unittest.TestCase):
                                                 "settings": {"outputs": "{'n': count()}"}})
         self.assertEqual(parse_delete(blocks[2]), "c")
         self.assertIsNone(parse_set(blocks[3]))
+
+    def test_join_tables_named_by_keyword_are_inputs_and_a_bare_star_parses(self):
+        self.assertEqual(parse_set("set both: join(right=b, left=a, on=['k'])")["inputs"], ["a", "b"])
+        self.assertEqual(parse_set("set both: join(a, b, on=['k'])")["inputs"], ["a", "b"])
+        source = "def load(*):\n    return 1\n\ndef tidy(df, *) -> object:\n    return df\n\ndef keep(df, *, n=3):\n    return df"
+        self.assertEqual(python_functions(source), {"load": [], "tidy": [], "keep": ["n"]})
 
     def test_a_call_is_applied_only_when_its_edits_succeeded(self):
         calls = committed_calls([call_step(RULES, "set a: scan(files='x.csv')"),

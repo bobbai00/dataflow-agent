@@ -396,3 +396,17 @@ test("a catalog keeps the most recent K to 2K-1 requests as transcript and adds 
   expect(() => agent.updateSettings({ catalogRecent: 5 })).toThrow(NativeCatalogSettingsError);
   expect(() => agent.updateSettings({ catalogSource: "docstring" })).toThrow(NativeCatalogSettingsError);
 });
+
+test("a function written with a trailing bare * registers without settings, and its receipt says so", async () => {
+  const { agent, prompts } = session("transcript", [
+    {
+      call: {
+        python: 'def tidy(table, *):\n    """The table unchanged."""\n    return table',
+        statements: "set orders: scan(files='data/x/input/orders.csv')\nset tidied: tidy(orders)\nshow result tidied",
+      },
+    },
+    { text: "Final Answer: 40" },
+  ]);
+  expect((await agent.sendMessage(FIRST)).error).toBeUndefined();
+  expect(textOf(prompts[1][prompts[1].length - 1])).toContain("functions:\\n- tidy(table) registered (no settings)\\n");
+});

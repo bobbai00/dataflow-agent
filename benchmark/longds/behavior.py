@@ -32,15 +32,16 @@ from collections import Counter
 from pathlib import Path
 import statistics
 
-from benchmark.longds.common import committed_calls, load, parse_delete, parse_set, statement_blocks
+from benchmark.longds.common import committed_calls, load, parse_delete, parse_set, statement_blocks, without_trailing_star
 
 REVISIT = {"Update", "Rollback", "Counterfactual"}
 
 
 def function_sources(source):
     """Public top-level functions: name -> (source, keyword-only parameters)."""
+    source = without_trailing_star(source)
     try:
-        tree = ast.parse(source or "")
+        tree = ast.parse(source)
     except SyntaxError:
         return {}
     return {node.name: (ast.get_source_segment(source, node) or "", [a.arg for a in node.args.kwonlyargs])
