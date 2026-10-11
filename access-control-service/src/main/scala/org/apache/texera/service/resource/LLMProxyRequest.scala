@@ -28,7 +28,10 @@ import scala.util.control.NonFatal
 
 private[resource] object LLMProxyRequest {
   val DeadlineHeader = "X-Texera-LLM-Deadline-Ms"
-  val MaxDurationMillis = 180000L
+  // The server's upper bound per request: 180 s unless LLM_PROXY_MAX_DURATION_MS
+  // sets another positive value (long-thinking models need several minutes).
+  val MaxDurationMillis: Long =
+    sys.env.get("LLM_PROXY_MAX_DURATION_MS").flatMap(_.toLongOption).filter(_ > 0).getOrElse(180000L)
   val TimeoutBody: String =
     """{"error":{"message":"LLM gateway request timed out; provider cancellation and usage are unknown","type":"gateway_timeout"}}"""
 
