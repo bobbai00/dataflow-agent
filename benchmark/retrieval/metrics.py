@@ -26,6 +26,8 @@ def current_price_schedule(model):
         "gpt-5.6-sol": ((4, 20, .4, 5), "https://developers.openai.com/api/docs/models/gpt-5.6-sol"),
         "claude-opus-4.8": ((5, 25, .5, 6.25), "https://platform.claude.com/docs/en/models/opus-4-8/overview"),
         "qwen3.8-27b": ((.425, 2.55, .085, .53125), "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b"),
+        # The same model with thinking switched off at the gateway (qwen3.8-27b-nothink route).
+        "qwen3.8-27b-nothink": ((.425, 2.55, .085, .53125), "https://openrouter.ai/api/v1/models#qwen/qwen3.8-27b"),
         "deepseek-v4.1-flash": ((.3, 1.2, .006, None), "https://openrouter.ai/api/v1/models#deepseek/deepseek-v4.1-flash"),
         "claude-haiku-5.5": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing"),
     }
