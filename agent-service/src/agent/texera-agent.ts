@@ -575,6 +575,7 @@ export class TexeraAgent {
         catalogSource: this.settings.catalogSource,
         catalogRecent: this.settings.catalogRecent,
         answerStatement: this.settings.answerStatement,
+        answerField: this.settings.answerField,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -666,6 +667,7 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings), {
         answerStatement: this.settings.answerStatement === true,
+        answerField: this.settings.answerField === true,
       });
     }
 
@@ -996,6 +998,7 @@ export class TexeraAgent {
       catalogSource?: AgentSettings["catalogSource"];
       catalogRecent?: AgentSettings["catalogRecent"];
       answerStatement?: AgentSettings["answerStatement"];
+      answerField?: AgentSettings["answerField"];
     } & RetrievalSettings &
       ObservationFormatOptions
   ): void {
@@ -1015,7 +1018,7 @@ export class TexeraAgent {
     }
     // The system prompt and the layout of earlier requests depend on these,
     // so they are decided before the first request and kept for the session.
-    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent", "answerStatement"] as const;
+    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent", "answerStatement", "answerField"] as const;
     for (const key of sessionLayout)
       if (updates[key] !== undefined && updates[key] !== this.settings[key] && this.turnOrder().length > 0)
         throw new NativeCatalogSettingsError(`${key} is decided before the first request of a session`);
@@ -1034,6 +1037,10 @@ export class TexeraAgent {
     }
     if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
       this.settings.answerStatement = updates.answerStatement;
+      promptNeedsRebuild = true;
+    }
+    if (updates.answerField !== undefined && updates.answerField !== this.settings.answerField) {
+      this.settings.answerField = updates.answerField;
       promptNeedsRebuild = true;
     }
     const formatUpdates = observationFormatPatch(updates);
@@ -2248,6 +2255,7 @@ export class TexeraAgent {
       availableRetrievalViews(this.settings),
       {
         answerStatement: this.settings.answerStatement === true,
+        answerField: this.settings.answerField === true,
       }
     );
     if (!merged) return;

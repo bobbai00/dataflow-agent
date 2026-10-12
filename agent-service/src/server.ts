@@ -482,6 +482,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     catalogSource: agentSettings.catalogSource,
     catalogRecent: agentSettings.catalogRecent,
     answerStatement: agentSettings.answerStatement,
+    answerField: agentSettings.answerField,
   };
 }
 
@@ -735,6 +736,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             catalogSource: (settings as any).catalogSource,
             catalogRecent: (settings as any).catalogRecent,
             answerStatement: (settings as any).answerStatement,
+            answerField: (settings as any).answerField,
             tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
           });
         }
@@ -820,6 +822,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
             catalogRecent: t.Optional(t.Integer()),
             answerStatement: t.Optional(t.Boolean()),
+            answerField: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1176,6 +1179,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         catalogSource: settings.catalogSource,
         catalogRecent: settings.catalogRecent,
         answerStatement: settings.answerStatement,
+        answerField: settings.answerField,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -1249,6 +1253,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
         catalogRecent: t.Optional(t.Integer()),
         answerStatement: t.Optional(t.Boolean()),
+        answerField: t.Optional(t.Boolean()),
       }),
     }
   );

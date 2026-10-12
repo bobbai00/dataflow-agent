@@ -25,8 +25,10 @@
  * `python` holds definitions; `statements` holds `set`, `delete`, `execute`
  * and `show` lines (native/turn-syntax.ts). The call becomes an action list
  * (tools/dataflow-actions.ts) and its receipt is rendered by statement
- * (native/turn-receipt.ts). There is no answer field: the model answers by
- * replying without a tool call.
+ * (native/turn-receipt.ts). The model answers by replying without a tool
+ * call; with AgentSettings.answerField the tool also takes `answer`, an answer
+ * composed from the call's tables that ends the request (as the `answer`
+ * statement does, native/answer-statement.ts), and `""` to continue.
  */
 import { jsonSchema, tool } from "ai";
 import type { RetrievalView } from "../../types/agent";
@@ -37,6 +39,12 @@ import { prepareActions, rejectedActions, type DataflowActionsResult } from "./d
 export interface DataflowToolInput {
   python: string;
   statements: string;
+  answer?: string;
+}
+
+export interface DataflowToolOptions {
+  answerStatement?: boolean;
+  answerField?: boolean;
 }
 
 export const DATAFLOW_TOOL_DESCRIPTION =
@@ -59,6 +67,29 @@ export const DATAFLOW_TOOL_SCHEMA = {
   required: ["python", "statements"],
 } as const;
 
+export const DATAFLOW_ANSWER_TOOL_DESCRIPTION =
+  "Edit, compute and read the Dataflow, and finish a request with `answer`. Reply without this tool only for a final answer the tables cannot hold.";
+
+/** The schema with `answer`; strict tool calls send every field, so `""` means none. */
+export function dataflowToolSchema(options: DataflowToolOptions = {}) {
+  const schema = structuredClone(DATAFLOW_TOOL_SCHEMA) as any;
+  if (!options.answerField) return schema;
+  schema.properties.answer = {
+    type: "string",
+    description:
+      'The request\'s final answer over tables this call computes, e.g. {"leaders": top[market, score]} digits=4; the request ends with it. "" when the call does not finish the request.',
+  };
+  schema.required = [...schema.required, "answer"];
+  return schema;
+}
+
+/** The answer a call carries in `answer`, or undefined for none. */
+function answerFieldText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim().replace(/^answer(?:\s+|(?=[{\[]))/, "");
+  return text && !/^(?:none|null)$/i.test(text) ? text : undefined;
+}
+
 /** A provider that sends the arguments as text still yields the fields. */
 function toolFields(input: unknown): Record<string, unknown> | undefined {
   let value = input;
@@ -71,7 +102,7 @@ function toolFields(input: unknown): Record<string, unknown> | undefined {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["python", "statements"])
+  for (const key of ["python", "statements", "answer"])
     if (record[key] !== undefined && typeof record[key] !== "string") return undefined;
   return record;
 }
@@ -80,11 +111,20 @@ function toolFields(input: unknown): Record<string, unknown> | undefined {
 export function prepareDataflowCall(
   input: unknown,
   views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
-  options: { answerStatement?: boolean } = {}
+  options: DataflowToolOptions = {}
 ): DataflowActionsResult {
-  const fields = toolFields(input);
+  let fields = toolFields(input);
   if (!fields) return rejectedActions("dataflow takes an object with the strings python and statements.");
-  const parsed = parseTurn(fields, { views, answerStatement: options.answerStatement });
+  // The answer field is the call's last statement.
+  const answer = options.answerField ? answerFieldText(fields.answer) : undefined;
+  if (answer !== undefined) {
+    const statements = typeof fields.statements === "string" ? fields.statements.trimEnd() : "";
+    fields = { ...fields, statements: `${statements}${statements ? "\n" : ""}answer ${answer}` };
+  }
+  const parsed = parseTurn(fields, {
+    views,
+    answerStatement: options.answerStatement || answer !== undefined,
+  });
   if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;
   return prepareActions(actions, views, { statements, ignoredProse });
@@ -96,21 +136,27 @@ export function prepareDataflowCall(
 export function mergeDataflowCalls(
   inputs: readonly unknown[],
   views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
-  options: { answerStatement?: boolean } = {}
+  options: DataflowToolOptions = {}
 ): DataflowActionsResult | undefined {
   const fields = inputs.map(toolFields);
   if (fields.some(field => !field)) return undefined;
-  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views, options);
+  const answers = (fields as Record<string, unknown>[]).map(field => answerFieldText(field.answer)).filter(Boolean);
+  const merged = mergeTurnFields(fields as Record<string, unknown>[]);
+  return prepareDataflowCall(
+    answers.length ? { ...merged, answer: answers[answers.length - 1] } : merged,
+    views,
+    options
+  );
 }
 
 export function createDataflowTool(
   views: readonly RetrievalView[] = availableRetrievalViews(),
-  options: { answerStatement?: boolean } = {}
+  options: DataflowToolOptions = {}
 ) {
   return tool({
-    description: DATAFLOW_TOOL_DESCRIPTION,
+    description: options.answerField ? DATAFLOW_ANSWER_TOOL_DESCRIPTION : DATAFLOW_TOOL_DESCRIPTION,
     strict: true,
-    inputSchema: jsonSchema<DataflowToolInput>(structuredClone(DATAFLOW_TOOL_SCHEMA) as any),
+    inputSchema: jsonSchema<DataflowToolInput>(dataflowToolSchema(options)),
     execute: async input => prepareDataflowCall(input, views, options),
   });
 }

@@ -128,6 +128,7 @@ export function validateEvidenceSettings(settings: object): void {
     "nativeProfileCollection",
     "nativeChecks",
     "answerStatement",
+    "answerField",
   ] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")

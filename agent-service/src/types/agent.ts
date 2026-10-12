@@ -402,6 +402,12 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * after seeing them. Off by default: the answer is a reply.
    */
   answerStatement: boolean;
+  /**
+   * The `dataflow` tool also takes `answer`: an answer over the tables the
+   * call computes, in the answer statement's syntax, that ends the request
+   * without another call (`""` continues). Off by default.
+   */
+  answerField: boolean;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
@@ -474,6 +480,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   catalogSource: "full",
   catalogRecent: 0,
   answerStatement: false,
+  answerField: false,
 };
 
 /**
@@ -598,6 +605,8 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   catalogRecent?: number;
   /** Answers composed from tables (see AgentSettings.answerStatement). */
   answerStatement?: boolean;
+  /** The tool's answer field (see AgentSettings.answerField). */
+  answerField?: boolean;
 }
 
 export interface AgentInfo {
@@ -687,4 +696,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   catalogRecent?: number;
   /** Answers composed from tables (see AgentSettings.answerStatement). */
   answerStatement?: boolean;
+  /** The tool's answer field (see AgentSettings.answerField). */
+  answerField?: boolean;
 }

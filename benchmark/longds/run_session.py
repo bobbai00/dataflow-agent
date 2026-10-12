@@ -66,6 +66,8 @@ ARMS = {
                       "answerStatement": True},
     "hybrid-k3-answer": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3,
                          "answerStatement": True},
+    "hybrid-k7-answer-field": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 7,
+                               "answerField": True},
 }
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).

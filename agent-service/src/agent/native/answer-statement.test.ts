@@ -27,6 +27,7 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { buildRegisteredNativeSystemPrompt } from "../prompts";
 import { type AnswerTable, composeAnswer, parseAnswer } from "./answer-statement";
 import { parseTurn } from "./turn-syntax";
+import { createDataflowTool, dataflowToolSchema, prepareDataflowCall } from "../tools/turn-tool";
 
 const tables: Record<string, AnswerTable> = {
   top: {
@@ -124,11 +125,53 @@ describe("answer statements", () => {
   });
 });
 
-type Reply = { text?: string; call?: { python: string; statements: string } };
+describe("the answer field", () => {
+  test("a non-empty answer is the call's last statement; an empty one continues", () => {
+    const run = (answer: string, options = { answerField: true }) =>
+      prepareDataflowCall(
+        { python: "", statements: "set top: limit(ranked, n=5)", answer },
+        ["sample", "full"],
+        options
+      );
+    const types = (answer: string, options?: { answerField: boolean }) =>
+      run(answer, options).actions.map(a => a.action.type);
+    expect(types('{"leaders": top[market, score]} digits=4')).toEqual(["edit", "execute", "answer"]);
+    expect(types('answer {"leaders": top}')).toEqual(["edit", "execute", "answer"]);
+    for (const none of ["", "  ", "null", "None"]) expect(types(none)).toEqual(["edit"]);
+    expect(run('{"n": 3}')).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("names at least one table"),
+    });
+    // Without the setting the field is not read.
+    expect(types('{"a": top}', { answerField: false })).toEqual(["edit"]);
+  });
+
+  test("the schema asks for the field only with the setting, and the prompt says how to finish", () => {
+    expect(dataflowToolSchema().required).toEqual(["python", "statements"]);
+    expect(dataflowToolSchema({ answerField: true }).required).toEqual(["python", "statements", "answer"]);
+    expect(createDataflowTool(["sample"], { answerField: true }).description).toContain(
+      "finish a request with `answer`"
+    );
+    const off = buildRegisteredNativeSystemPrompt(ContextMode.DELTA);
+    expect(off).toContain("To finish, reply without calling the tool");
+    expect(off).toContain("retrieve that result before answering");
+    const on = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { answerField: true });
+    expect(on).toContain("To finish, write the answer in `answer` in the call whose statements compute its tables");
+    expect(on).toContain("and `answer` (the final answer over tables the call computes");
+    expect(on).not.toContain("To finish, reply without calling the tool");
+    expect(on).not.toContain("retrieve that result before answering");
+  });
+});
+
+type Reply = { text?: string; call?: { python: string; statements: string; answer?: string } };
 
 /** A native agent with answer statements whose model replies in order; every
  * operator "executes" to the rows below. */
-function session(replies: Reply[], rows: Record<string, unknown>[]) {
+function session(
+  replies: Reply[],
+  rows: Record<string, unknown>[],
+  answer: { answerStatement?: boolean; answerField?: boolean } = { answerStatement: true }
+) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
   const model = new MockLanguageModelV3({
@@ -171,7 +214,7 @@ function session(replies: Reply[], rows: Record<string, unknown>[]) {
     maxSteps: 25,
     thoughtReplay: false,
     retrievalViews: ["sample", "full"],
-    answerStatement: true,
+    ...answer,
   });
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators())
@@ -209,6 +252,16 @@ describe("a request that ends with an answer statement", () => {
       ["execute", "ok"],
       ["answer", "ok"],
     ]);
+  });
+
+  test("an answer field ends the request in the call that computes it", async () => {
+    const { agent, calls } = session(
+      [{ call: { python: "", statements: SCAN, answer: '{"n": totals.value}' } }],
+      [{ value: 42 }],
+      { answerField: true }
+    );
+    const result = await agent.sendMessage("How many? Answer as JSON.");
+    expect([result.error, result.response, calls()]).toEqual([undefined, '{"n":42}', 1]);
   });
 
   test("a refused answer leaves the request open for the model's reply", async () => {
