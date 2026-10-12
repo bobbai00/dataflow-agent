@@ -29,6 +29,7 @@ import { nativeAssignmentText } from "../native/catalog";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import { observationFormat, describeOperator, topologicalOperators, columnEntries } from "../native/observation-format";
 import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
+import { composeAnswer } from "../native/answer-statement";
 import { edgeEnds, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { inspectRegisteredNamespace, inspectRegisteredSchema, registeredInspectionName } from "./registered-inspection";
 import { EMPTY_DATAFLOW_ERROR, runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
@@ -327,6 +328,27 @@ export async function executeDataflowActionBatch(
           ...(failure ? { error: failure } : {}),
         },
       };
+    }
+    if (action.type === "answer") {
+      // Composed from the rows the agent holds; the request ends with it.
+      const workflow = state.getWorkflowContent();
+      const composed = composeAnswer(action.answer, id => {
+        if (!workflow.operators.some(op => op.operatorID === id))
+          throw new Error(`UNKNOWN_OPERATOR: no operator \`${id}\`.`);
+        const info = current(id);
+        if (info?.error) throw new Error(`RESULT_FAILED: the last execution of \`${id}\` failed.`);
+        if (!info || !["Completed", "CompletedFromCache"].includes(info.state))
+          throw new Error(`RESULT_NOT_RUN: \`${id}\` has no result; its execution did not complete.`);
+        const rows = (info.result ?? []) as Record<string, unknown>[];
+        return {
+          rows,
+          columns: (info.resultSchema ?? []).map(field => field.name),
+          total: info.totalRowCount ?? rows.length,
+        };
+      });
+      if (!composed.ok) return { status: "error", output: composed.error };
+      result.answer = composed.text;
+      return { status: "ok", output: { answer: composed.text } };
     }
     // Retrieve: each target has its own status, so a failed one does not hide the others.
     const readOne = (operatorId: string, view: RetrievalView, columns?: string[]) => {

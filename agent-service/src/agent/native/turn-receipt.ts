@@ -321,6 +321,28 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnRece
       sections.push([title, ...executionLines(items[0], statement.ids ?? [], false, flowMemo)].join("\n"));
       continue;
     }
+    if (statement.kind === "answer") {
+      const [execute, answer] = items;
+      const executed = executionLines(execute, statement.ids ?? [], false, flowMemo).filter(
+        line => line !== "executed: nothing (results were current)"
+      );
+      const text = (answer?.output as { answer?: string } | undefined)?.answer;
+      sections.push(
+        [
+          `## answer from ${(statement.ids ?? []).join(", ")}`,
+          ...executed,
+          ...(answer?.status === "ok" && text !== undefined
+            ? [`answer: ${text}`, "The request ends with this answer."]
+            : answer?.status === "skipped"
+              ? ["not run (an earlier statement failed)"]
+              : [
+                  `answer refused: ${String(answer?.output ?? "")}`,
+                  "The request stays open: fix the tables and answer again, or reply with the answer.",
+                ]),
+        ].join("\n")
+      );
+      continue;
+    }
     if (statement.resource === "result") {
       const [execute, retrieve] = items;
       sections.push(

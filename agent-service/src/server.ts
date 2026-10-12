@@ -481,6 +481,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     multiRequest: agentSettings.multiRequest,
     catalogSource: agentSettings.catalogSource,
     catalogRecent: agentSettings.catalogRecent,
+    answerStatement: agentSettings.answerStatement,
   };
 }
 
@@ -733,6 +734,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             multiRequest: (settings as any).multiRequest,
             catalogSource: (settings as any).catalogSource,
             catalogRecent: (settings as any).catalogRecent,
+            answerStatement: (settings as any).answerStatement,
             tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
           });
         }
@@ -817,6 +819,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
             catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
             catalogRecent: t.Optional(t.Integer()),
+            answerStatement: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1172,6 +1175,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         multiRequest: settings.multiRequest,
         catalogSource: settings.catalogSource,
         catalogRecent: settings.catalogRecent,
+        answerStatement: settings.answerStatement,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -1244,6 +1248,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
         catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
         catalogRecent: t.Optional(t.Integer()),
+        answerStatement: t.Optional(t.Boolean()),
       }),
     }
   );

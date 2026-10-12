@@ -68,7 +68,8 @@ export class VercelToolUseDriver implements LLMDriver {
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      // An answer statement ends the request after its step.
+      stopWhen: [stepCountIs(input.maxSteps), () => input.answered?.() !== undefined],
       // Never forced: a native answer is a reply without a tool call, and a
       // forced call would also rule out the model's extended reasoning.
       toolChoice: "auto",
@@ -170,6 +171,8 @@ export class VercelToolUseDriver implements LLMDriver {
       ),
       usage,
     };
+    const answer = input.answered?.();
+    if (answer !== undefined) return { ...completed, text: answer };
     if (input.requireShownResult) {
       const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
       // The answer is a reply without a tool call once a result was shown;

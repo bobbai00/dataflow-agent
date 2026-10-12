@@ -164,6 +164,12 @@ test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recen
     );
 });
 
+test("answerStatement is a boolean", () => {
+  const settings = (value: unknown) => ({ ...native, answerStatement: value }) as object;
+  expect(() => validateNativeSettings(settings(true))).not.toThrow();
+  expect(() => validateNativeSettings(settings("yes"))).toThrow("answerStatement must be a boolean");
+});
+
 test("multiRequest is off, transcript or catalog", () => {
   const key: string = "multiRequest";
   for (const value of ["off", "transcript", "catalog"])

@@ -28,6 +28,7 @@ import type { RetrievalView } from "../../types/agent";
 import type { ObservationFormatSettings } from "../native/observation-format";
 import { renderTurnReceipt } from "../native/turn-receipt";
 import type { TurnReceiptInfo } from "../native/turn-syntax";
+import type { AnswerSpec } from "../native/answer-statement";
 
 export type DataflowAction =
   | { type: "inspect"; target: "reference"; topic: "operators"; operator_names: string[] }
@@ -36,7 +37,9 @@ export type DataflowAction =
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
   | { type: "edit"; python: string; changes: string }
   | { type: "execute"; operator_ids?: string[] }
-  | { type: "retrieve"; operator_ids: string[]; view: RetrievalView; columns?: string[] };
+  | { type: "retrieve"; operator_ids: string[]; view: RetrievalView; columns?: string[] }
+  /** An answer composed from computed tables (AgentSettings.answerStatement). */
+  | { type: "answer"; operator_ids: string[]; answer: AnswerSpec };
 
 export interface ActionOutcome {
   status: "ok" | "error";
@@ -64,6 +67,8 @@ export interface DataflowActionsResult {
   turn?: TurnReceiptInfo;
   /** A later call of a response that ran as part of that response's first call. */
   mergedInto?: string;
+  /** The answer an `answer` statement composed; the request ends with it. */
+  answer?: string;
 }
 
 export const EMPTY_DATAFLOW_ERROR = "The dataflow is empty. Add an operator before execute.";
@@ -93,7 +98,7 @@ export function prepareActions(
     if (action.type === "edit" && !action.python.trim() && !action.changes.trim())
       return rejectedActions("An edit needs definitions or statements.", turn);
     const selected =
-      action.type === "execute" || action.type === "retrieve"
+      action.type === "execute" || action.type === "retrieve" || action.type === "answer"
         ? action.operator_ids
         : action.type === "inspect" && action.target === "namespace"
           ? action.names

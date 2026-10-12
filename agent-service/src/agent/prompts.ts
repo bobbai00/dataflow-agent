@@ -169,6 +169,8 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   catalogSource?: CatalogSource;
   /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** A call may end with `answer {...}` (AgentSettings.answerStatement). */
+  answerStatement?: boolean;
 }
 
 const nativeFragment = (name: string) =>
@@ -222,6 +224,9 @@ export function buildRegisteredNativeSystemPrompt(
               : "the functions it registered or changed, with their signatures and source") +
             "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
           : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
+    ANSWER_STATEMENT: options.answerStatement
+      ? 'Or end the call with an answer statement when the tables it computes hold the answer: `answer {"key": table, "key2": table.column}`, optionally followed by `digits=4`. A table becomes its rows (`table[col1, col2]` keeps those columns); `table.column` is the value of a one-row table, or the column\'s values; literals are allowed. The request then ends with that answer, without a reply. It is refused, and the request stays open, when a table it names is empty, has more than 50 rows, or a column it picks is null throughout. Reply with text instead when the answer needs a judgment the tables do not hold.'
+      : "There is no answer statement.",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),

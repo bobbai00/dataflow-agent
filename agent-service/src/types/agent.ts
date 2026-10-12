@@ -396,6 +396,12 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * 0 (default): every earlier request is an entry.
    */
   catalogRecent: number;
+  /**
+   * A call may end its request with `answer {...}`, an answer composed from
+   * the tables it computed (native/answer-statement.ts), instead of a reply
+   * after seeing them. Off by default: the answer is a reply.
+   */
+  answerStatement: boolean;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
@@ -467,6 +473,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   multiRequest: "off",
   catalogSource: "full",
   catalogRecent: 0,
+  answerStatement: false,
 };
 
 /**
@@ -589,6 +596,8 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   catalogSource?: CatalogSource;
   /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** Answers composed from tables (see AgentSettings.answerStatement). */
+  answerStatement?: boolean;
 }
 
 export interface AgentInfo {
@@ -676,4 +685,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   catalogSource?: CatalogSource;
   /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** Answers composed from tables (see AgentSettings.answerStatement). */
+  answerStatement?: boolean;
 }

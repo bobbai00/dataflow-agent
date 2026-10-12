@@ -116,6 +116,9 @@ export interface DriverRunTurnInput {
   requireShownResult?: boolean;
   /** Whether a result of this task has been displayed (a retrieval succeeded). */
   resultShown?: () => boolean;
+  /** The answer an `answer` statement composed in this task, if any: the
+   *  request ends after that step, with it as the reply. */
+  answered?: () => string | undefined;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool

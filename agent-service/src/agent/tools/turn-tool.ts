@@ -79,11 +79,12 @@ function toolFields(input: unknown): Record<string, unknown> | undefined {
 /** Parse a call into the action list the agent runs; a rejected call runs nothing. */
 export function prepareDataflowCall(
   input: unknown,
-  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
+  options: { answerStatement?: boolean } = {}
 ): DataflowActionsResult {
   const fields = toolFields(input);
   if (!fields) return rejectedActions("dataflow takes an object with the strings python and statements.");
-  const parsed = parseTurn(fields, { views });
+  const parsed = parseTurn(fields, { views, answerStatement: options.answerStatement });
   if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;
   return prepareActions(actions, views, { statements, ignoredProse });
@@ -94,18 +95,22 @@ export function prepareDataflowCall(
  * run in call order. Undefined when a call is not a well-formed dataflow call. */
 export function mergeDataflowCalls(
   inputs: readonly unknown[],
-  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
+  options: { answerStatement?: boolean } = {}
 ): DataflowActionsResult | undefined {
   const fields = inputs.map(toolFields);
   if (fields.some(field => !field)) return undefined;
-  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views);
+  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views, options);
 }
 
-export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews()) {
+export function createDataflowTool(
+  views: readonly RetrievalView[] = availableRetrievalViews(),
+  options: { answerStatement?: boolean } = {}
+) {
   return tool({
     description: DATAFLOW_TOOL_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowToolInput>(structuredClone(DATAFLOW_TOOL_SCHEMA) as any),
-    execute: async input => prepareDataflowCall(input, views),
+    execute: async input => prepareDataflowCall(input, views, options),
   });
 }

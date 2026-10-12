@@ -34,11 +34,16 @@
  * The parser turns the fields into an action list: one edit holding the
  * definitions and every `set`/`delete` line at its own line number (so a
  * validation error names the line of `statements`), then the requests in the
- * order written. There is no answer statement: a reply without a tool call is
- * the answer.
+ * order written. The answer is a reply without a tool call; with
+ * `answerStatement`, a call may instead end with
+ *
+ *                 answer {"key": table, "key2": table.column, ...} [digits=N]
+ *
+ * which composes the answer from computed tables (native/answer-statement.ts).
  */
 import type { DataflowAction } from "../tools/dataflow-actions";
 import type { RetrievalView } from "../../types/agent";
+import { answerTables, parseAnswer } from "./answer-statement";
 
 export type TurnResource = "result" | "schema" | "operator" | "function" | "builtin";
 
@@ -47,7 +52,7 @@ export interface TurnStatement {
   line: number;
   /** The statement as written (its first line). */
   text: string;
-  kind: "edit" | "execute" | "show";
+  kind: "edit" | "execute" | "show" | "answer";
   resource?: TurnResource;
   ids?: string[];
   view?: RetrievalView;
@@ -76,6 +81,8 @@ export type TurnParse = { ok: true; turn: ParsedTurn } | { ok: false; line?: num
 export interface TurnParseOptions {
   /** Retrieval views this session allows; the first sample view is the default. */
   views: readonly RetrievalView[];
+  /** A call may end with `answer ...` (AgentSettings.answerStatement). */
+  answerStatement?: boolean;
 }
 
 /** The arguments of a `dataflow` call. */
@@ -253,6 +260,7 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
   /** The backticks of a `text`/`turn` fence whose lines are read in place. */
   let blockFence: string | undefined;
   let pendingSet: { line: number; scan: DeclarationScan } | undefined;
+  let answered = false;
   const defaultView: RetrievalView = options.views.includes("sample_stats")
     ? "sample_stats"
     : options.views.includes("sample")
@@ -315,6 +323,34 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
     }
     if (!trimmed) continue;
 
+    if (answered) return fail(number, "answer is the call's last statement; nothing follows it.");
+    const answerMatch = options.answerStatement ? /^answer(?:\s+|(?=[{\[]))(.*)$/s.exec(trimmed) : null;
+    if (answerMatch) {
+      // The value may run over several lines until its brackets close.
+      let text = answerMatch[1];
+      const scan: DeclarationScan = { depth: 0 };
+      scanDeclaration(text, scan);
+      while ((scan.depth > 0 || scan.quote) && i + 1 < lines.length) {
+        text += "\n" + lines[++i];
+        scanDeclaration(lines[i], scan);
+      }
+      let spec;
+      try {
+        spec = parseAnswer(text);
+      } catch (error) {
+        return fail(number, `answer: ${error instanceof Error ? error.message : String(error)}.`);
+      }
+      const ids = answerTables(spec.value);
+      const statement: TurnStatement = { line: number, text: trimmed, kind: "answer", ids, actionIndexes: [] };
+      // The tables the answer reads are computed first, as show result does.
+      actions.push({ type: "execute", operator_ids: ids });
+      statement.actionIndexes.push(actions.length);
+      actions.push({ type: "answer", operator_ids: ids, answer: spec });
+      statement.actionIndexes.push(actions.length);
+      statements.push(statement);
+      answered = true;
+      continue;
+    }
     if (/^(?:answer:|\**\s*Final Answer:)/i.test(trimmed)) return fail(number, ANSWER_IS_A_REPLY);
     const setMatch = /^(set\s+([A-Za-z_]\w*)\s*:|delete\s+([A-Za-z_]\w*))(.*)$/s.exec(trimmed);
     if (setMatch) {

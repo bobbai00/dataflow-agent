@@ -574,6 +574,7 @@ export class TexeraAgent {
         multiRequest: this.settings.multiRequest,
         catalogSource: this.settings.catalogSource,
         catalogRecent: this.settings.catalogRecent,
+        answerStatement: this.settings.answerStatement,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -663,7 +664,9 @@ export class TexeraAgent {
         this.isCodeShownToAgent()
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings));
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings), {
+        answerStatement: this.settings.answerStatement === true,
+      });
     }
 
     // When parallel tool calls are enabled the model can emit N tool calls in
@@ -992,6 +995,7 @@ export class TexeraAgent {
       multiRequest?: AgentSettings["multiRequest"];
       catalogSource?: AgentSettings["catalogSource"];
       catalogRecent?: AgentSettings["catalogRecent"];
+      answerStatement?: AgentSettings["answerStatement"];
     } & RetrievalSettings &
       ObservationFormatOptions
   ): void {
@@ -1011,7 +1015,7 @@ export class TexeraAgent {
     }
     // The system prompt and the layout of earlier requests depend on these,
     // so they are decided before the first request and kept for the session.
-    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent"] as const;
+    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent", "answerStatement"] as const;
     for (const key of sessionLayout)
       if (updates[key] !== undefined && updates[key] !== this.settings[key] && this.turnOrder().length > 0)
         throw new NativeCatalogSettingsError(`${key} is decided before the first request of a session`);
@@ -1026,6 +1030,10 @@ export class TexeraAgent {
     }
     if (updates.catalogRecent !== undefined && updates.catalogRecent !== this.settings.catalogRecent) {
       this.settings.catalogRecent = updates.catalogRecent;
+      promptNeedsRebuild = true;
+    }
+    if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
+      this.settings.answerStatement = updates.answerStatement;
       promptNeedsRebuild = true;
     }
     const formatUpdates = observationFormatPatch(updates);
@@ -1423,6 +1431,7 @@ export class TexeraAgent {
           parallelToolCalls: this.settings.parallelToolCalls,
           requireShownResult: this.settings.agentMode === AgentMode.NATIVE,
           resultShown: () => this.resultShownInMessage(messageId),
+          answered: () => this.answerInMessage(messageId),
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
@@ -1716,7 +1725,25 @@ export class TexeraAgent {
       const result = await runDriverWithRetry(currentUserMessage);
 
       const msgSteps = this.reActStepsByMessageId.get(messageId);
-      if (msgSteps && msgSteps.length > 0) {
+      const answer = this.answerInMessage(messageId);
+      if (answer !== undefined) {
+        // An answer statement ended the request: its answer is the reply, as
+        // if the model had written it, so transcripts and catalogs read it so.
+        stepIndex++;
+        const answerStepId = this.generateStepId();
+        this.addStep({
+          id: answerStepId,
+          parentId: this.head,
+          messageId,
+          stepId: stepIndex,
+          timestamp: Date.now(),
+          role: "agent",
+          content: answer,
+          isBegin: false,
+          isEnd: true,
+        });
+        this.head = answerStepId;
+      } else if (msgSteps && msgSteps.length > 0) {
         const lastStep = msgSteps[msgSteps.length - 1];
         if (lastStep.role === "agent") {
           lastStep.isEnd = true;
@@ -2181,6 +2208,16 @@ export class TexeraAgent {
    */
   /** Has a retrieval of this task succeeded? A reply without a tool call ends
    * the task as its answer only then. */
+  /** The answer an `answer` statement of this request composed, if any. */
+  private answerInMessage(messageId: string): string | undefined {
+    for (const step of this.reActStepsByMessageId.get(messageId) ?? [])
+      for (const tr of step.toolResults ?? []) {
+        const answer = asDataflowActionsResult(tr.output)?.answer;
+        if (answer !== undefined) return answer;
+      }
+    return undefined;
+  }
+
   private resultShownInMessage(messageId: string): boolean {
     return (this.reActStepsByMessageId.get(messageId) ?? []).some(step =>
       (step.toolResults ?? []).some(tr =>
@@ -2208,7 +2245,10 @@ export class TexeraAgent {
     if (results.some(result => !result)) return;
     const merged = mergeDataflowCalls(
       calls.map(tc => tc.input),
-      availableRetrievalViews(this.settings)
+      availableRetrievalViews(this.settings),
+      {
+        answerStatement: this.settings.answerStatement === true,
+      }
     );
     if (!merged) return;
     const replace = (target: DataflowActionsResult, source: DataflowActionsResult) => {

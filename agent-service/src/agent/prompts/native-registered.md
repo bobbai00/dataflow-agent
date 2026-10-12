@@ -55,7 +55,7 @@ Optional `view` is one of the enabled retrieval views listed below; omitting it 
 
 The tool result is the receipt, one section per statement: `## edits applied` (or `## edits rejected`, with the line), `## execute ...` and `## show result ...` with the operators that ran and their measured effects under `upstream:`, then the result's shape and records, plus enabled statistics; `## show schema|operator|function|builtin ...` with what was asked. An error names the statement and the cause.
 
-To finish, reply without calling the tool: that reply is the answer, verbatim, in the user's requested format; it may span lines and contain Markdown. There is no answer statement. A reply without the tool before any `show result` has succeeded computes nothing.
+To finish, reply without calling the tool: that reply is the answer, verbatim, in the user's requested format; it may span lines and contain Markdown. {{ANSWER_STATEMENT}} A reply without the tool before any `show result` has succeeded computes nothing.
 
 ### Built-in operators
 
