@@ -24,7 +24,7 @@ fixes the agent's multi-request settings:
 - catalog-compact: as catalog, with entries listing documented functions by
   signature and docstring instead of source;
 - hybrid: as catalog-compact, keeping the 5 to 9 most recent requests as
-  transcript.
+  transcript; hybrid-k3 keeps the 3 to 5 most recent.
 
 Every request is sent once; a request that ends without an answer is recorded
 as incomplete and the session goes on. The stack comes from the environment
@@ -59,6 +59,7 @@ ARMS = {
     "catalog": {"multiRequest": "catalog"},
     "catalog-compact": {"multiRequest": "catalog", "catalogSource": "docstring"},
     "hybrid": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 5},
+    "hybrid-k3": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3},
 }
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).
