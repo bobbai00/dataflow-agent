@@ -66,6 +66,9 @@ ARMS = {
                       "answerStatement": True},
     "hybrid-k3-answer": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3,
                          "answerStatement": True},
+    "hybrid-k7": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 7},
+    "hybrid-answer-field": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 5,
+                            "answerField": True},
     "hybrid-k7-answer-field": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 7,
                                "answerField": True},
 }
