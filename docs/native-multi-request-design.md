@@ -274,3 +274,37 @@ $0.52, judge $0.63. The other arms are the morning means from the table above.
   new prompt lines, inline lambdas) that the morning arms lack. A transcript
   run on the same code would separate their effect from the hybrid's.
 
+### Hybrid, three runs on all eight sessions, 2026-10-11 night
+
+The same eight sessions, three runs each of the hybrid (`catalogSource:
+"docstring"`, `catalogRecent: 5`), on its own stack; run root
+`/var/tmp/longds-catalog-luna-hybrid-20261011`, code 781b6ec92 (the three
+earlier runs included). Agent cost $3.50 for 24 runs; judge $2.97.
+
+| session (questions) | `off` | `transcript` | `catalog` | hybrid |
+|---|---:|---:|---:|---:|
+| NFL t1 (42) | 9.7 | 17.0 | 18.3 | 13.3 (7, 17, 16) |
+| Netflix t4 (32) | 12.3 | 11.0 | 9.7 | 12.7 (16, 14, 8) |
+| Netflix t2 (34) | 3.0 | 5.5 | 3.5 | 5.7 (3, 10, 4) |
+| Marmara t1 (36) | 13.5 | 15.5 | 10.5 | 16.0 (20, 17, 11) |
+| Water potability t1 (34) | 21.0 | 19.0 | 21.0 | 21.0 (24, 22, 17) |
+| NYC restaurants t2 (33) | 14.0 | 10.0 | 15.5 | 12.7 (14, 9, 15) |
+| PASSNYC t1 (30) | 18.5 | 17.0 | 13.0 | 14.3 (26, 4, 13) |
+| Kaggle survey 2022 t2 (30) | 13.0 | 23.5 | 21.5 | 18.7 (17, 19, 20) |
+| **all eight (271)** | 105.0 (38.7%) | 118.5 (43.7%) | 113.0 (41.7%) | **114.3 (42.2%)** |
+| cost of one pass | $1.17 | $1.28 | $1.31 | **$1.17** |
+| input per call | 43.7k | 46.3k | 34.4k | **28.2k** |
+| peak input | 80.9k | 86.7k | 72.3k | **46.8k** |
+| cached share | 97.9% | 97.9% | 95.2% | 91.9% |
+| output per request | 1,454 | 1,544 | 1,928 | 1,421 |
+
+- Accuracy: the hybrid sits between the catalog and the transcript, within
+  noise of both. Its three passes total 127, 112 and 104 of 271.
+- Cost: as cheap as `off`, 9% below the transcript and 11% below the
+  catalog. It sends 39% less input per call than the transcript, and its
+  largest context is about half. A lower cached share (each conversion is
+  sent once uncached) gives back part of the input saving. Its output per
+  request is the lowest of the four arms: the catalog's extra code is gone.
+- The hybrid ran on newer code than the other three arms (the two stable
+  updates of 2026-10-11), so part of the difference may come from those.
+
