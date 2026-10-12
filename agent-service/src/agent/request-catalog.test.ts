@@ -278,6 +278,46 @@ test("an entry says when an update restores an earlier version or follows a chan
   expect(entries[4]).toBe("## Task 5 (incomplete)\nNo functions or operators changed.\nanswer: No completed answer.");
 });
 
+test("operators updated only through a changed helper are named on one line; their own function's change keeps the block", async () => {
+  const HELPERS = [
+    "def clean(df):",
+    '    """Rows with a unit."""',
+    "    return df[df['unit'].notna()]",
+    "",
+    "def unit_counts(orders):",
+    '    """Orders per unit."""',
+    "    return clean(orders).groupby('unit', as_index=False).size()",
+  ].join("\n");
+  const { agent, prompts } = session("catalog", [
+    {
+      call: {
+        python: HELPERS,
+        statements:
+          "set orders: scan(files='data/x/input/orders.csv')\nset per_unit: unit_counts(orders)\nshow result per_unit",
+      },
+    },
+    { text: "Final Answer: 8" },
+    {
+      call: {
+        python: HELPERS.replace("df['unit'].notna()]", "df['unit'].notna() & (df['value'] > 0)]"),
+        statements: "set top: limit(per_unit, n=3)\nshow result top",
+      },
+    },
+    { text: "Final Answer: u1" },
+    { text: "Final Answer: done" },
+  ]);
+  for (const request of ["count units", "positive orders only", "anything else"]) await agent.sendMessage(request);
+  const entries = prompts[prompts.length - 1]
+    .filter(message => message.role === "assistant")
+    .map(textOf)
+    .filter(text => text.startsWith("## Task"));
+  expect(entries[1]).toContain(
+    "also updated, as definitions their functions use changed (results stale until executed, or unchanged): `per_unit`"
+  );
+  expect(entries[1]).not.toContain("- **per_unit**");
+  expect(entries[1]).toContain("- **top** (limit, created)");
+});
+
 test("receipts name each function's signature, and the prompt gains the section on working across requests", async () => {
   const { agent, prompts } = session("catalog", REPLIES);
   await agent.sendMessage(FIRST);

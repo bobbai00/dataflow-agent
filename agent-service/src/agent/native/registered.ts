@@ -344,7 +344,8 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
           .filter(d => d.kind === "function" && d.cell === cells.length && !d.name.startsWith("_"))
           .map(d => d.name)
       : [];
-    if (!names.length || message.startsWith("NATIVE_ERROR_V2:")) return error instanceof Error ? error : new Error(message);
+    if (!names.length || message.startsWith("NATIVE_ERROR_V2:"))
+      return error instanceof Error ? error : new Error(message);
     return new Error(
       `${message} Nothing from this edit was registered, including ${names.join(", ")}; resend the definitions with the corrected changes.`
     );
@@ -494,7 +495,7 @@ const signatures: Record<string, string> = {
   distinct: 'distinct(t, columns=None, keep="first")',
   sort: 'sort(t, by=[...], nulls="last")',
   limit: "limit(t, n=..., offset=0)",
-  window: 'window(t, partition_by=[], order_by=[...], outputs={"output": window_spec(...)})',
+  window: 'window(t, partition_by=[], order_by=[], outputs={"output": window_spec(...)})',
   unpivot: 'unpivot(t, columns=[...], name="variable", value="value")',
   pivot: 'pivot(t, index=[...], columns="...", values="...")',
 };
@@ -505,9 +506,9 @@ const briefOverrides: Record<string, string> = {
   map: "Turn each row into a new row: the dict the lambda returns is that row of the output. {**row, ...} keeps the input columns; returning only some keys keeps only those. One row out per row in, in order.",
   cast: 'Convert named columns to str, int64, float64, bool, or datetime(format=..., tz=...). Failed conversions raise, or become null with errors="null"; naive timestamps require a timezone. Normalize text in a custom function before casting.',
   aggregate:
-    "One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.",
+    "One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation, quantile(column, q) interpolates linearly.",
   window:
-    "Add named outputs using lag, lead, row_number, rank, or dense_rank within ordered partitions; ranks start at 1 and output retains input row order.",
+    "Add per-row outputs within partitions, keeping input row order. In order_by order: lag, lead, row_number, rank, dense_rank (ranks start at 1). Over the whole partition, no order needed: pct_rank(column, desc=False), the average rank among non-null values over their count, and the reducers count, count_distinct, sum, mean, min, max, median, stddev and quantile(column, q), each partition's value repeated on its rows.",
 };
 const fullExtras: Record<string, string> = {
   filter:
@@ -517,13 +518,13 @@ const fullExtras: Record<string, string> = {
     " Provide at least one of keep, drop, or rename; keep and drop are mutually exclusive. keep preserves the requested column order. Missing columns and name collisions fail.",
   cast: ' columns is a nonempty mapping from column names to unquoted dtype descriptors, including names such as doc or errors. datetime(format="%Y-%m-%d", tz="UTC") accepts an explicit format and timezone.',
   aggregate:
-    " Reducers: count(), count(column), count_distinct(column), sum(column), mean(column), min(column), max(column), median(column), stddev(column), first(column). count_distinct excludes nulls; null group keys form a group. Output names must not duplicate group keys. Numeric reducers require numeric columns.",
+    " Reducers: count(), count(column), count_distinct(column), sum(column), mean(column), min(column), max(column), median(column), stddev(column), quantile(column, q), first(column). quantile takes q from 0 to 1 (0.75 is the 75th percentile) and interpolates linearly between values, as pandas does. count_distinct excludes nulls; null group keys form a group. Output names must not duplicate group keys. Numeric reducers require numeric columns.",
   union:
     ' schema="strict" requires matching column names and types; schema="align" uses first-seen column order and fills absent cells with null. Incompatible types still require explicit conversion.',
   limit:
     " n must be an integer >= 1 and offset an integer >= 0. An offset past the end returns an empty table with the same schema.",
   window:
-    " lag(column, offset=1), lead(column, offset=1), row_number(), rank(), dense_rank(). Null partition keys share a partition; null order values sort last. Add tie-break keys when required.",
+    ' Ordered (order_by required): lag(column, offset=1), lead(column, offset=1), row_number(), rank(), dense_rank(); add tie-break keys when required. Whole partition (order_by not needed): pct_rank(column, desc=False) gives the lowest of n non-null values 1/n and the highest 1, ties sharing their average rank, nulls null; desc=True ranks from the highest, for lower-is-better scores. count(), count(column), count_distinct, sum, mean, min, max, median, stddev(column) and quantile(column, q) give every row its partition\'s value, with the semantics of aggregate\'s reducers. Example: set graded: window(players, partition_by=["side"], outputs={"speed_pct": pct_rank("speed"), "side_median_plays": median("plays"), "p75_gap": quantile("gap", 0.75)}). Null partition keys share a partition; null order values sort last.',
 };
 
 /** Registered protocol reference from retained catalog contracts and fixed-map signatures. */

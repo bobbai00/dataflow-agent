@@ -296,20 +296,17 @@ def validate_native(spec):
             raise _error(spec, "AGGREGATE_ARGUMENT", "Provide at least one aggregation.", stage="validate")
         names = list(props.get("groupBy", []))
         for item in aggregates:
-            if item.get("fn") not in (
-                "count",
-                "count_distinct",
-                "sum",
-                "mean",
-                "min",
-                "max",
-                "median",
-                "stddev",
-                "first",
-            ):
+            if item.get("fn") not in AGGREGATE_REDUCERS:
                 raise _error(spec, "AGGREGATE_ARGUMENT", "Unknown aggregation function.", stage="validate")
             if item["fn"] != "count" and not item.get("col"):
                 raise _error(spec, "AGGREGATE_ARGUMENT", "Only count may omit col (to count rows).", stage="validate")
+            if (item["fn"] == "quantile") != ("q" in item) or (item["fn"] == "quantile" and not _fraction(item["q"])):
+                raise _error(
+                    spec,
+                    "AGGREGATE_ARGUMENT",
+                    "quantile needs q, a fraction from 0 to 1, such as quantile('col', 0.75); no other reducer takes q.",
+                    stage="validate",
+                )
             if not item.get("as"):
                 raise _error(
                     spec, "AGGREGATE_ARGUMENT", "Each aggregation needs an output name (as).", stage="validate"
@@ -324,22 +321,30 @@ def validate_native(spec):
     elif kind == "Scan":
         _validate_scan_options(spec, None if props.get("format", "auto") == "auto" else props["format"])
     elif kind == "Window":
-        if not props.get("orderBy") or not props.get("columns"):
-            raise _error(spec, "WINDOW_ARGUMENT", "Provide nonempty orderBy and columns.", stage="validate")
+        if not props.get("columns"):
+            raise _error(spec, "WINDOW_ARGUMENT", "Provide nonempty columns.", stage="validate")
+        if any(item.get("fn") in WINDOW_ORDERED for item in props["columns"]) and not props.get("orderBy"):
+            raise _error(
+                spec, "WINDOW_ARGUMENT", "lag, lead, row_number, rank and dense_rank need orderBy.", stage="validate"
+            )
         outputs = []
         for i, item in enumerate(props["columns"]):
             fn = item.get("fn")
-            valid = fn in ("lag", "lead", "row_number", "rank", "dense_rank") and bool(item.get("as"))
+            valid = fn in (*WINDOW_ORDERED, *WINDOW_PARTITION) and bool(item.get("as"))
             if fn in ("lag", "lead"):
                 offset = item.get("offset", 1)
                 valid = valid and bool(item.get("col")) and type(offset) is int and offset > 0
-            else:
+            elif fn in WINDOW_ORDERED:
                 valid = valid and "col" not in item and "offset" not in item
+            else:
+                valid = valid and "offset" not in item and (fn == "count" or bool(item.get("col")))
+            valid = valid and ("desc" not in item or (fn == "pct_rank" and type(item["desc"]) is bool))
+            valid = valid and (fn == "quantile") == ("q" in item) and (fn != "quantile" or _fraction(item["q"]))
             if not valid:
                 raise _error(
                     spec,
                     "WINDOW_ARGUMENT",
-                    "lag/lead require col and a positive offset (default 1); row_number/rank/dense_rank forbid col/offset. Each output needs as.",
+                    "lag/lead need col and a positive offset (default 1) and row_number/rank/dense_rank take nothing, all ordered by orderBy; pct_rank(col, desc=False) and the reducers count(), count(col), count_distinct, sum, mean, min, max, median, stddev(col) and quantile(col, q) with q from 0 to 1 cover the whole partition. Each output needs as.",
                     stage="validate",
                     field=f"columns[{i}]",
                 )
@@ -706,6 +711,51 @@ def _groups(frame, columns):
     return list(groups.items())
 
 
+AGGREGATE_REDUCERS = ("count", "count_distinct", "sum", "mean", "min", "max", "median", "stddev", "quantile", "first")
+NUMERIC_REDUCERS = ("sum", "mean", "median", "stddev", "quantile")
+# Window functions ordered by orderBy within a partition, and those that cover
+# the whole partition: a percentile rank, or a reducer repeated on every row.
+WINDOW_ORDERED = ("lag", "lead", "row_number", "rank", "dense_rank")
+WINDOW_PARTITION = ("pct_rank", *(fn for fn in AGGREGATE_REDUCERS if fn != "first"))
+
+
+def _fraction(value):
+    return isinstance(value, numbers.Real) and not isinstance(value, bool) and 0 <= value <= 1
+
+
+def _reduce(fn, column, size, q=None):
+    """One reducer over a group's values (aggregate) or a partition's (window):
+    the value and the number of non-null inputs it read."""
+    present = column.dropna() if column is not None else None
+    count = len(present) if present is not None else size
+    if fn == "count":
+        value = count
+    elif fn == "count_distinct":
+        value = int(present.nunique())
+    elif fn == "first":
+        value = _scalar(column.iloc[0]) if len(column) else None
+    elif not count or (fn == "stddev" and count < 2):
+        value = None
+    elif fn == "sum":
+        # NumPy's int64 sum wraps on overflow; Python integers do not.
+        value = sum(map(int, present)) if _dtype(column) == "int64" else math.fsum(map(float, present))
+    elif fn == "quantile":
+        # Linear interpolation between order statistics, as pandas and NumPy default.
+        value = float(present.astype("float64").quantile(q))
+    else:
+        value = _scalar(present.std(ddof=1) if fn == "stddev" else getattr(present, fn)())
+    return value, count
+
+
+def _reducer_dtype(fn, column):
+    """The output type of a reducer over `column`, as aggregate reports it."""
+    if fn in ("count", "count_distinct"):
+        return "int64"
+    if fn in ("mean", "median", "stddev", "quantile"):
+        return "float64"
+    return "int64" if fn == "sum" and _dtype(column) == "bool" else _dtype(column)
+
+
 def _aggregate(spec, frame, operations):
     props = spec["properties"]
     keys, aggregates = props.get("groupBy", []), props["aggregations"]
@@ -714,7 +764,7 @@ def _aggregate(spec, frame, operations):
     for item in aggregates:
         if "col" in item:
             _columns(spec, frame, [item["col"]], "aggregations")
-        if item["fn"] in ("sum", "mean", "median", "stddev"):
+        if item["fn"] in NUMERIC_REDUCERS:
             kind = _dtype(frame[item["col"]])
             if kind == "bool":
                 # True counts 1 and False 0, as pandas sums and averages booleans.
@@ -743,38 +793,20 @@ def _aggregate(spec, frame, operations):
         for item in aggregates:
             fn, name = item["fn"], item["as"]
             column = frame[item["col"]].iloc[positions] if "col" in item else None
-            present = column.dropna() if column is not None else None
-            count = len(present) if present is not None else len(positions)
+            value, count = _reduce(fn, column, len(positions), item.get("q"))
             counter = denominators[name]
             counter["total"] += count
             counter["min"] = count if counter["min"] is None else min(count, counter["min"])
             counter["max"] = count if counter["max"] is None else max(count, counter["max"])
-            if fn == "count":
-                value = count
-            elif fn == "count_distinct":
-                value = int(present.nunique())
-            elif fn == "first":
-                value = _scalar(column.iloc[0]) if len(column) else None
-            elif not count or (fn == "stddev" and count < 2):
-                value = None
-            elif fn == "sum":
-                # NumPy's int64 sum wraps on overflow; Python integers do not.
-                value = sum(map(int, present)) if _dtype(column) == "int64" else math.fsum(map(float, present))
-            else:
-                value = _scalar(present.std(ddof=1) if fn == "stddev" else getattr(present, fn)())
             values[name].append(value)
     output = pd.DataFrame()
     for name in keys:
         output[name] = pd.Series(values[name], dtype=_nullable(frame[name]).dtype)
     for item in aggregates:
         fn, name = item["fn"], item["as"]
-        dtype = (
-            "int64"
-            if fn in ("count", "count_distinct")
-            else "float64" if fn in ("mean", "median", "stddev") else _dtype(frame[item["col"]])
-        )
+        dtype = _reducer_dtype(fn, frame[item["col"]] if "col" in item else None)
         try:
-            if fn in ("count", "count_distinct", "sum", "mean", "median", "stddev"):
+            if fn in ("count", "count_distinct", *NUMERIC_REDUCERS):
                 output[name] = _series([_convert(value, dtype) for value in values[name]], dtype)
             else:
                 output[name] = pd.Series(values[name], dtype=_nullable(frame[item["col"]]).dtype)
@@ -2029,58 +2061,118 @@ def _new_columns(spec, frame, names, field):
 
 def _window(spec, source, operations):
     props = spec["properties"]
-    partitions, ordering, columns = props.get("partitionBy", []), props["orderBy"], props["columns"]
+    partitions, ordering, columns = props.get("partitionBy", []), props.get("orderBy", []), props["columns"]
     _columns(spec, source, partitions, "partitionBy")
     _columns(spec, source, [item["col"] for item in ordering], "orderBy")
     replaced = _new_columns(spec, source, [item["as"] for item in columns], "columns")
     for i, item in enumerate(columns):
         if "col" in item:
             _columns(spec, source, [item["col"]], f"columns[{i}].col")
+            if item["fn"] in NUMERIC_REDUCERS and _dtype(source[item["col"]]) not in ("int64", "float64", "bool"):
+                raise _error(
+                    spec,
+                    "WINDOW_TYPE",
+                    f"{item['fn']} requires numeric {item['col']!r}; cast it explicitly.",
+                    field=f"columns[{i}].col",
+                )
     # Private positional identity, independent of arbitrary/duplicate user indexes.
     # Restore this order after calculating within each stably sorted partition.
     frame = source.reset_index(drop=True)
     output = frame.drop(columns=replaced)
     if replaced:
         operations["replacedColumns"] = replaced
+    ordered = [item for item in columns if item["fn"] in WINDOW_ORDERED]
+    whole = [item for item in columns if item["fn"] in WINDOW_PARTITION]
+    # Partition functions read booleans as 1 and 0, as aggregate's reducers do;
+    # the output keeps the input columns as they were.
+    readable = {}
+    for item in whole:
+        name = item.get("col")
+        if name and name not in readable:
+            column = frame[name]
+            readable[name] = (
+                pd.Series([None if _scalar(v) is None else int(_scalar(v)) for v in column], dtype="Int64")
+                if _dtype(column) == "bool"
+                else column
+            )
     values = {item["as"]: [None] * len(frame) for item in columns}
     counters = {item["as"]: {"boundaryNulls": 0, "nullOutputs": 0} for item in columns if item["fn"] in ("lag", "lead")}
+    counters.update({item["as"]: {"nullOutputs": 0} for item in whole})
     groups = _groups(frame, partitions) if len(frame) else []
     tie_rows = 0
     for _, positions in groups:
-        ordered = frame.iloc[positions]
-        for item in reversed(ordering):
-            ordered = ordered.sort_values(
-                item["col"], ascending=not item.get("desc", False), na_position="last", kind="stable"
-            )
-        order = ordered.index.tolist()
-        order_keys = _key_rows(ordered, [item["col"] for item in ordering])
-        ranks, dense_ranks, rank, dense = [], [], 0, 0
-        for i, key in enumerate(order_keys):
-            if i == 0 or key != order_keys[i - 1]:
-                rank, dense = i + 1, dense + 1
-            else:
-                tie_rows += 1
-            ranks.append(rank)
-            dense_ranks.append(dense)
-        for item in columns:
-            fn, name = item["fn"], item["as"]
-            for i, position in enumerate(order):
-                if fn in ("lag", "lead"):
-                    other = i + item.get("offset", 1) * (-1 if fn == "lag" else 1)
-                    boundary = not 0 <= other < len(order)
-                    value = None if boundary else _scalar(frame[item["col"]].iloc[order[other]])
-                    counters[name]["boundaryNulls"] += int(boundary)
-                    counters[name]["nullOutputs"] += int(value is None)
+        if ordered:
+            rows = frame.iloc[positions]
+            for item in reversed(ordering):
+                rows = rows.sort_values(
+                    item["col"], ascending=not item.get("desc", False), na_position="last", kind="stable"
+                )
+            order = rows.index.tolist()
+            order_keys = _key_rows(rows, [item["col"] for item in ordering])
+            ranks, dense_ranks, rank, dense = [], [], 0, 0
+            for i, key in enumerate(order_keys):
+                if i == 0 or key != order_keys[i - 1]:
+                    rank, dense = i + 1, dense + 1
                 else:
-                    value = i + 1 if fn == "row_number" else ranks[i] if fn == "rank" else dense_ranks[i]
-                values[name][position] = value
+                    tie_rows += 1
+                ranks.append(rank)
+                dense_ranks.append(dense)
+            for item in ordered:
+                fn, name = item["fn"], item["as"]
+                for i, position in enumerate(order):
+                    if fn in ("lag", "lead"):
+                        other = i + item.get("offset", 1) * (-1 if fn == "lag" else 1)
+                        boundary = not 0 <= other < len(order)
+                        value = None if boundary else _scalar(frame[item["col"]].iloc[order[other]])
+                        counters[name]["boundaryNulls"] += int(boundary)
+                        counters[name]["nullOutputs"] += int(value is None)
+                    else:
+                        value = i + 1 if fn == "row_number" else ranks[i] if fn == "rank" else dense_ranks[i]
+                    values[name][position] = value
+        for item in whole:
+            fn, name = item["fn"], item["as"]
+            column = readable[item["col"]].iloc[positions] if "col" in item else None
+            if fn == "pct_rank":
+                # Average rank among the partition's non-null values over their
+                # count: the lowest value of n gets 1/n and the highest 1 (with
+                # desc=True the highest gets 1/n); nulls stay null.
+                known = [i for i, v in enumerate(column.tolist()) if _scalar(v) is not None]
+                present = column.iloc[known]
+                ranked = present.rank(method="average", ascending=not item.get("desc", False))
+                shares = [None] * len(positions)
+                for i, rank_value in zip(known, ranked.tolist()):
+                    shares[i] = float(rank_value) / len(known)
+                for position, share in zip(positions, shares):
+                    values[name][position] = share
+                counters[name]["nullOutputs"] += shares.count(None)
+            else:
+                value, _ = _reduce(fn, column, len(positions), item.get("q"))
+                for position in positions:
+                    values[name][position] = value
+                counters[name]["nullOutputs"] += len(positions) * int(value is None)
     for item in columns:
-        dtype = _nullable(frame[item["col"]]).dtype if item["fn"] in ("lag", "lead") else "Int64"
-        output[item["as"]] = pd.Series(values[item["as"]], dtype=dtype)
+        fn, name = item["fn"], item["as"]
+        if fn in ("lag", "lead"):
+            output[name] = pd.Series(values[name], dtype=_nullable(frame[item["col"]]).dtype)
+        elif fn in WINDOW_ORDERED:
+            output[name] = pd.Series(values[name], dtype="Int64")
+        else:
+            column = readable.get(item.get("col"))
+            dtype = "float64" if fn == "pct_rank" else _reducer_dtype(fn, column)
+            if fn in ("min", "max"):
+                output[name] = pd.Series(values[name], dtype=_nullable(column).dtype)
+            else:
+                output[name] = _series([_convert(value, dtype) for value in values[name]], dtype)
     operations["window"] = {"partitions": len(groups), "tieRows": tie_rows, "outputs": counters}
     operations["columnDependencies"] = {
         item["as"]: list(
-            dict.fromkeys([*partitions, *(key["col"] for key in ordering), *([item["col"]] if "col" in item else [])])
+            dict.fromkeys(
+                [
+                    *partitions,
+                    *((key["col"] for key in ordering) if item["fn"] in WINDOW_ORDERED else ()),
+                    *([item["col"]] if "col" in item else []),
+                ]
+            )
         )
         for item in columns
     }

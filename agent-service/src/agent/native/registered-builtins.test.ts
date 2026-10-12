@@ -220,6 +220,56 @@ def above(row, *, minimum=1):
     expect(state.getAllLinks()).toHaveLength(4);
   });
 
+  test("window gives percentile ranks and group values without order_by, and aggregate takes quantile", async () => {
+    const state = new WorkflowState();
+    await edit(
+      state,
+      "import pandas as pd\n\ndef load():\n    return pd.DataFrame({'side': ['LT', 'LT', 'LT', 'RT', 'RT'], 'plays': [10, 20, 20, 5, None], 'pressure': [0.1, 0.3, 0.2, 0.4, 0.5]})",
+      [
+        "set players: load()",
+        "set graded: window(players, partition_by=['side'], outputs={'plays_pct': pct_rank('plays'), 'pressure_pct': pct_rank('pressure', desc=True), 'side_median': median('plays'), 'p75': quantile('pressure', 0.75), 'n': count()})",
+        "set cutoffs: aggregate(players, by=['side'], outputs={'p75': quantile('pressure', q=0.75)})",
+      ].join("\n")
+    );
+    const rounded = (rows: any[]) =>
+      rows.map(row =>
+        Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [
+            key,
+            typeof value === "number" ? Math.round(value * 1e6) / 1e6 : value,
+          ])
+        )
+      );
+    const out = execute(state, ["graded", "cutoffs"]);
+    expect(
+      rounded(out.graded).map(({ plays_pct, pressure_pct, side_median, p75, n }) => [
+        plays_pct,
+        pressure_pct,
+        side_median,
+        p75,
+        n,
+      ])
+    ).toEqual([
+      [0.333333, 1, 20, 0.25, 3],
+      [0.833333, 0.333333, 20, 0.25, 3],
+      [0.833333, 0.666667, 20, 0.25, 3],
+      [1, 1, 5, 0.475, 2],
+      [null, 0.5, 5, 0.475, 2],
+    ]);
+    expect(rounded(out.cutoffs)).toEqual([
+      { side: "LT", p75: 0.25 },
+      { side: "RT", p75: 0.475 },
+    ]);
+    for (const [statement, message] of [
+      ["set r: window(players, outputs={'r': rank()})", "rank and dense_rank need order_by"],
+      ["set r: window(players, outputs={'q': quantile('plays')})", "quantile() needs q, a fraction from 0 to 1"],
+      ["set r: window(players, outputs={'q': quantile('plays', 75)})", "must be a fraction from 0 to 1"],
+      ["set r: window(players, outputs={'p': pct_rank()})", "pct_rank() takes the column"],
+      ["set r: aggregate(players, outputs={'q': quantile('plays', 1.5)})", "must be a fraction from 0 to 1"],
+    ])
+      await expect(edit(state, "", statement)).rejects.toThrow(message);
+  });
+
   test("invalid options are rejected atomically before anything changes", async () => {
     const state = new WorkflowState();
     await edit(state, "", "set source: scan(files='data/placeholder.csv')");

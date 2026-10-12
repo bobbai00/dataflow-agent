@@ -178,9 +178,18 @@ export const AGGREGATE_FUNCTIONS = [
   "max",
   "median",
   "stddev",
+  "quantile",
   "first",
 ] as const;
-export const WINDOW_FUNCTIONS = ["lag", "lead", "row_number", "rank", "dense_rank"] as const;
+/** Window functions computed in `order_by` order within a partition. */
+export const WINDOW_ORDERED = ["lag", "lead", "row_number", "rank", "dense_rank"] as const;
+/** Window functions over the whole partition: a percentile rank, or a reducer
+ * whose value every row of the partition receives. */
+export const WINDOW_PARTITION = [
+  "pct_rank",
+  ...AGGREGATE_FUNCTIONS.filter((fn): fn is Exclude<(typeof AGGREGATE_FUNCTIONS)[number], "first"> => fn !== "first"),
+] as const;
+export const WINDOW_FUNCTIONS = [...WINDOW_ORDERED, ...WINDOW_PARTITION] as const;
 
 const fail = (message: string, field?: string): never => {
   throw new NativeArgumentError(message, field);
@@ -224,6 +233,33 @@ function int(value: ParsedValue, field: string, minimum = Number.NEGATIVE_INFINI
     `${field} must be an integer${Number.isFinite(minimum) ? ` >= ${minimum}` : ""}, got ${show(value)}.`,
     field
   );
+}
+
+function fraction(value: ParsedValue, field: string): number {
+  if (value.kind === "const" && typeof value.value === "number" && value.value >= 0 && value.value <= 1)
+    return value.value;
+  return fail(`${field} must be a fraction from 0 to 1 (0.75 for the 75th percentile), got ${show(value)}.`, field);
+}
+
+/** A reducer call in aggregate or window: count() or count(col), quantile(col, q), else fn(col). */
+function reducerItem(call: Extract<ParsedValue, { kind: "call" }>, key: string): Record<string, unknown> {
+  const item: Record<string, unknown> = { fn: call.name, as: key };
+  if (call.name === "quantile") {
+    keywords("quantile()", call.kwargs, ["q"]);
+    if (call.args.length < 1 || call.args.length > 2)
+      fail(`quantile() takes a column and q: ${key}=quantile("col", 0.75).`, key);
+    item.col = str(call.args[0], key);
+    const q = call.args[1] ?? call.kwargs.q;
+    if (!q) fail(`quantile() needs q, a fraction from 0 to 1: ${key}=quantile("col", 0.75).`, key);
+    item.q = fraction(q, `${key}.q`);
+    return item;
+  }
+  if (Object.keys(call.kwargs).length || call.args.length > 1)
+    fail(`${call.name}() takes at most one column name.`, key);
+  if (call.name !== "count" && call.args.length !== 1)
+    fail(`${call.name}() needs the column to reduce: ${key}=${call.name}("col").`, key);
+  if (call.args.length) item.col = str(call.args[0], key);
+  return item;
 }
 
 function strList(value: ParsedValue, field: string, minItems = 0): string[] {
@@ -617,17 +653,25 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "aggregate",
     brief:
-      "One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.",
+      "One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, quantile(col, q), first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation; quantile interpolates linearly, q from 0 to 1.",
     type: "Aggregate",
     inputs: 1,
     rowEffect: "collapse",
     signature: 'aggregate(T, by=[], name=reducer("col"), ...)',
-    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
+    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column; quantile("col", 0.75) is the 75th percentile, interpolated linearly as pandas does. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
     schema: object(
       {
         groupBy: NAMES,
         aggregations: list(
-          object({ fn: { type: "string", enum: [...AGGREGATE_FUNCTIONS] }, col: S, as: S }, ["fn", "as"])
+          object(
+            {
+              fn: { type: "string", enum: [...AGGREGATE_FUNCTIONS] },
+              col: S,
+              as: S,
+              q: { type: "number", minimum: 0, maximum: 1 },
+            },
+            ["fn", "as"]
+          )
         ),
       },
       ["aggregations"]
@@ -646,14 +690,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
             `aggregate output \`${key}\` must be a reducer call such as ${key}=mean("col"); reducers: ${AGGREGATE_FUNCTIONS.join(", ")}.`,
             key
           );
-        const call = value as Extract<ParsedValue, { kind: "call" }>;
-        if (Object.keys(call.kwargs).length || call.args.length > 1)
-          fail(`${call.name}() takes at most one column name.`, key);
-        if (call.name !== "count" && call.args.length !== 1)
-          fail(`${call.name}() needs the column to reduce: ${key}=${call.name}("col").`, key);
-        const item: Record<string, unknown> = { fn: call.name, as: key };
-        if (call.args.length) item.col = str(call.args[0], key);
-        aggregations.push(item);
+        aggregations.push(reducerItem(value as Extract<ParsedValue, { kind: "call" }>, key));
       }
       if (!aggregations.length) fail('aggregate needs at least one output such as total=sum("amount").');
       props.aggregations = aggregations;
@@ -803,12 +840,12 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "window",
     brief:
-      'Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.',
+      'Output keywords name columns: prev=lag("value") creates prev. Ordered: lag, lead, row_number, rank, dense_rank. Whole partition: pct_rank(col, desc=False) and the reducers count, sum, mean, min, max, median, stddev, quantile(col, q). Keeps input row order.',
     type: "Window",
     inputs: 1,
     rowEffect: "none",
     signature: "window(T, partition_by=[], order_by=[...], name=fn, ...)",
-    doc: 'Adds columns computed within partitions in the given order, then restores the input row order: `window(t, partition_by=["team"], order_by=["date"], prev=lag("score", 1), rank=dense_rank())`. Functions: lag(col, offset=1), lead(col, offset=1), row_number(), rank(), dense_rank(). Ranks are 1-based; ties follow the order keys, so add a tie-break key when it matters. Null partition keys form one partition; null order values sort last.',
+    doc: 'Adds columns computed within partitions, keeping the input row order: `window(t, partition_by=["team"], order_by=["date"], prev=lag("score", 1), rank=dense_rank())`. Ordered by order_by (required for these): lag(col, offset=1), lead(col, offset=1), row_number(), rank(), dense_rank(); ranks are 1-based and ties follow the order keys, so add a tie-break key when it matters. Over the whole partition (no order_by needed): pct_rank(col) is the average rank of the row\'s value among the non-null values divided by their count (the lowest of n gets 1/n, the highest 1; desc=True reverses it for lower-is-better), and count(), count(col), count_distinct, sum, mean, min, max, median, stddev and quantile(col, q) repeat the partition\'s value on every row: `window(players, partition_by=["side"], speed_pct=pct_rank("speed"), side_median=median("plays"))`. Null partition keys form one partition; null order values sort last.',
     schema: object(
       {
         partitionBy: NAMES,
@@ -820,12 +857,14 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
               col: S,
               as: S,
               offset: { type: "integer", minimum: 1 },
+              desc: { type: "boolean" },
+              q: { type: "number", minimum: 0, maximum: 1 },
             },
             ["fn", "as"]
           )
         ),
       },
-      ["orderBy", "columns"]
+      ["columns"]
     ),
     normalize(rest, kwargs) {
       noPositional("window", rest, "one input table");
@@ -846,7 +885,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
             key
           );
         const call = value as Extract<ParsedValue, { kind: "call" }>;
-        const item: Record<string, unknown> = { fn: call.name, as: key };
+        let item: Record<string, unknown> = { fn: call.name, as: key };
         if (call.name === "lag" || call.name === "lead") {
           if (!call.args.length) fail(`${call.name}() needs the column: ${key}=${call.name}("col", 1).`, key);
           item.col = str(call.args[0], key);
@@ -854,11 +893,18 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           if (offset) item.offset = int(offset, `${key}.offset`, 1);
           keywords(`${call.name}()`, call.kwargs, ["offset"]);
           if (call.args.length > 2) fail(`${call.name}() takes a column and an offset.`, key);
-        } else if (call.args.length || Object.keys(call.kwargs).length) fail(`${call.name}() takes no arguments.`, key);
+        } else if (call.name === "pct_rank") {
+          keywords("pct_rank()", call.kwargs, ["desc"]);
+          if (call.args.length !== 1) fail(`pct_rank() takes the column: ${key}=pct_rank("col"), or desc=True.`, key);
+          item.col = str(call.args[0], key);
+          if (call.kwargs.desc) item.desc = bool(call.kwargs.desc, `${key}.desc`);
+        } else if ((WINDOW_PARTITION as readonly string[]).includes(call.name)) item = reducerItem(call, key);
+        else if (call.args.length || Object.keys(call.kwargs).length) fail(`${call.name}() takes no arguments.`, key);
         columns.push(item);
       }
-      if (!props.orderBy) fail('window needs order_by=["col"].', "order_by");
       if (!columns.length) fail('window needs at least one output such as prev=lag("value", 1).');
+      if (!props.orderBy && columns.some(item => (WINDOW_ORDERED as readonly string[]).includes(item.fn as string)))
+        fail('lag, lead, row_number, rank and dense_rank need order_by=["col"].', "order_by");
       props.columns = columns;
       return props;
     },

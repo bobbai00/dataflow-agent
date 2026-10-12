@@ -47,7 +47,7 @@ To finish, reply without calling the tool: that reply is the answer, verbatim, i
 
 ### Built-in operators
 
-Prefer built-ins for supported selection, conversion, joins, grouping, ordering, and reshaping. Use Python for specialized loading, normalization, and calculations. Preserve the task's tie, null, and cardinality rules when composing operations.
+Use a built-in for every step one covers: `filter` selects rows, `map` computes columns and row formulas, `aggregate` summarizes groups, `window` ranks rows and gives each row values of its group such as a percentile rank, a group median, or a 75th-percentile cutoff, and `join`, `sort`, and `limit` combine and order tables. A chain of built-ins keeps every intermediate table measured and visible. Write a Python function only for what they cannot express, such as loading an irregular file, normalizing text, or logic that walks ordered rows, and keep each function to one rule. Preserve the task's tie, null, and cardinality rules when composing operations.
 
 scan(files=..., format="auto", header=True, names=None, sheet=None, all_text=False, preview=None)
     Read local files/globs or lists: CSV/TSV, text, Excel, HTML tables, tabular JSON/JSONL, or Parquet. names requires header=False; all_text preserves codes; sheet selects a sheet/table. preview is an integer 1..200 for raw layout/metadata, not ordinary result samples.
@@ -65,7 +65,7 @@ map(t, lambda row: {**row, "new": value})
     Turn each row into a new row: the dict the lambda returns is that row of the output. {**row, ...} keeps the input columns; returning only some keys keeps only those. One row out per row in, in order.
 
 aggregate(t, by=[], outputs={"output": reducer(...)})
-    One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.
+    One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation, quantile(column, q) interpolates linearly.
 
 join(left, right, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
     on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.
@@ -82,8 +82,8 @@ sort(t, by=[...], nulls="last")
 limit(t, n=..., offset=0)
     Keep n rows from offset. Sort first when selecting a top-k.
 
-window(t, partition_by=[], order_by=[...], outputs={"output": window_spec(...)})
-    Add named outputs using lag, lead, row_number, rank, or dense_rank within ordered partitions; ranks start at 1 and output retains input row order.
+window(t, partition_by=[], order_by=[], outputs={"output": window_spec(...)})
+    Add per-row outputs within partitions, keeping input row order. In order_by order: lag, lead, row_number, rank, dense_rank (ranks start at 1). Over the whole partition, no order needed: pct_rank(column, desc=False), the average rank among non-null values over their count, and the reducers count, count_distinct, sum, mean, min, max, median, stddev and quantile(column, q), each partition's value repeated on its rows.
 
 unpivot(t, columns=[...], name="variable", value="value")
     Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.
@@ -91,7 +91,7 @@ unpivot(t, columns=[...], name="variable", value="value")
 pivot(t, index=[...], columns="...", values="...")
     Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.
 
-`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions.
+`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, `quantile('column', q)` with q from 0 to 1, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions. A window gives every row values computed over its partition, without collapsing rows: `set graded: window(players, partition_by=['side'], outputs={'speed_pct': pct_rank('speed'), 'side_median': median('plays')})`; `pct_rank('pressure', desc=True)` scores a lower-is-better column, its lowest value getting 1.
 
 ### Python functions
 
@@ -111,7 +111,7 @@ def load_records(*, path, field='records'):
 set records: load_records(path='data/example.json')
 ```
 
-Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Keep data loading and computation inside functions, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
+Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Put the code in `python` inside function bodies, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
 
 ### Reading results
 

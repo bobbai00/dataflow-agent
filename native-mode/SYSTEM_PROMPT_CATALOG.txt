@@ -40,7 +40,7 @@ To finish, reply without calling the tool: that reply is the answer, verbatim, i
 
 ### Built-in operators
 
-Prefer built-ins for supported selection, conversion, joins, grouping, ordering, and reshaping. Use Python for specialized loading, normalization, and calculations. Preserve the task's tie, null, and cardinality rules when composing operations.
+Use a built-in for every step one covers: `filter` selects rows, `map` computes columns and row formulas, `aggregate` summarizes groups, `window` ranks rows and gives each row values of its group such as a percentile rank, a group median, or a 75th-percentile cutoff, and `join`, `sort`, and `limit` combine and order tables. A chain of built-ins keeps every intermediate table measured and visible. Write a Python function only for what they cannot express, such as loading an irregular file, normalizing text, or logic that walks ordered rows, and keep each function to one rule. Preserve the task's tie, null, and cardinality rules when composing operations.
 
 scan(files=..., format="auto", header=True, names=None, sheet=None, all_text=False, preview=None)
     Read local files/globs or lists: CSV/TSV, text, Excel, HTML tables, tabular JSON/JSONL, or Parquet. names requires header=False; all_text preserves codes; sheet selects a sheet/table. preview is an integer 1..200 for raw layout/metadata, not ordinary result samples.
@@ -58,7 +58,7 @@ map(t, lambda row: {**row, "new": value})
     Turn each row into a new row: the dict the lambda returns is that row of the output. {**row, ...} keeps the input columns; returning only some keys keeps only those. One row out per row in, in order.
 
 aggregate(t, by=[], outputs={"output": reducer(...)})
-    One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation.
+    One row per group; by=[] gives one overall row. outputs maps names to reducers. count() counts rows, count(column) non-null values; reductions skip nulls except first, all-null sum is null, stddev is sample standard deviation, quantile(column, q) interpolates linearly.
 
 join(left, right, on=None, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")
     on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.
@@ -75,8 +75,8 @@ sort(t, by=[...], nulls="last")
 limit(t, n=..., offset=0)
     Keep n rows from offset. Sort first when selecting a top-k.
 
-window(t, partition_by=[], order_by=[...], outputs={"output": window_spec(...)})
-    Add named outputs using lag, lead, row_number, rank, or dense_rank within ordered partitions; ranks start at 1 and output retains input row order.
+window(t, partition_by=[], order_by=[], outputs={"output": window_spec(...)})
+    Add per-row outputs within partitions, keeping input row order. In order_by order: lag, lead, row_number, rank, dense_rank (ranks start at 1). Over the whole partition, no order needed: pct_rank(column, desc=False), the average rank among non-null values over their count, and the reducers count, count_distinct, sum, mean, min, max, median, stddev and quantile(column, q), each partition's value repeated on its rows.
 
 unpivot(t, columns=[...], name="variable", value="value")
     Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.
@@ -84,7 +84,7 @@ unpivot(t, columns=[...], name="variable", value="value")
 pivot(t, index=[...], columns="...", values="...")
     Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.
 
-`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions.
+`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, `quantile('column', q)` with q from 0 to 1, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions. A window gives every row values computed over its partition, without collapsing rows: `set graded: window(players, partition_by=['side'], outputs={'speed_pct': pct_rank('speed'), 'side_median': median('plays')})`; `pct_rank('pressure', desc=True)` scores a lower-is-better column, its lowest value getting 1.
 
 ### Python functions
 
@@ -104,7 +104,7 @@ def load_records(*, path, field='records'):
 set records: load_records(path='data/example.json')
 ```
 
-Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Keep data loading and computation inside functions, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
+Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Put the code in `python` inside function bodies, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
 
 ### Reading results
 
@@ -192,44 +192,51 @@ If the user asks for a `Final Answer:` label, put it in the reply, for example `
 
 Requests in this session are tasks, numbered from 1, that share one Dataflow and its registered functions. A later request usually changes one rule of the earlier work and keeps the others, or compares two versions of a rule.
 
-Write functions that later requests can reuse. Write each rule a request states as its own small function, named for what it computes and with the rule's choices as keyword settings, and compose the rules with statements; do not write one function per request that does all of its work (`task12_report`). Before you write a function, look for a registered one that already computes the step (task entries and receipts list them with their signatures) and call it with the settings the request needs; when a request needs a variant, add a keyword setting whose default keeps the earlier behavior. A later request that changes one rule then needs one statement: set the rule's operator again with the new setting when the change holds from now on, so everything built on it follows, or give it a new ID when it is an alternative to compare, and build only the steps the question needs on it. Earlier tables keep their IDs; build on them or `show result` them rather than rebuilding them.
+Build each rule a request states as its own step, with the rule's choices written out as settings: a built-in when one covers the rule (a threshold in a filter, weights in a map, percentiles and group cutoffs in a window, groups in an aggregate), otherwise a small Python function named for what it computes, with the rule's choices as keyword settings. Do not write one function per request that does all of its work (`task12_report`). Before you write a function, look for a registered one that already computes the step (task entries and receipts list them with their signatures) and call it with the settings the request needs; when a request needs a variant, add a keyword setting whose default keeps the earlier behavior. A later request that changes one rule then needs one statement: set the rule's operator again with the new setting when the change holds from now on, so everything built on it follows, or give it a new ID when it is an alternative to compare, and build only the steps the question needs on it. Earlier tables keep their IDs; build on them or `show result` them rather than rebuilding them.
 
-For example, a first request asks for the three units with the highest score, counting only units with at least five orders and weighting the order rate and the volume equally:
-
-```python
-def eligible_units(orders, *, min_orders=5):
-    """Units with at least min_orders orders, with their share of orders and their volume."""
-    units = orders.groupby('unit', as_index=False).agg(orders=('order_id', 'count'), volume=('value', 'sum'))
-    units = units[units['orders'] >= min_orders]
-    return units.assign(rate=units['orders'] / units['orders'].sum())
-
-def unit_scores(units, *, rate_weight=0.5):
-    """Score per unit: rate_weight times the rate percentile plus the rest times the volume percentile."""
-    rate, volume = units['rate'].rank(pct=True), units['volume'].rank(pct=True)
-    return units.assign(score=rate_weight * rate + (1 - rate_weight) * volume)
-```
+For example, a first request asks for the three units with the highest score, counting only units with at least five orders and weighting the order-count and volume percentiles equally:
 
 ```text
 set orders: scan(files='data/orders.csv')
-set units: eligible_units(orders, min_orders=5)
-set scores: unit_scores(units, rate_weight=0.5)
-set ranked: sort(scores, by=[('score', 'desc')])
+set units: aggregate(orders, by=['unit'], outputs={'orders': count(), 'volume': sum('value')})
+set eligible: filter(units, lambda row: row['orders'] >= 5)
+set graded: window(eligible, outputs={'orders_pct': pct_rank('orders'), 'volume_pct': pct_rank('volume')})
+set scores: map(graded, lambda row: {**row, 'score': 0.5 * row['orders_pct'] + 0.5 * row['volume_pct']})
+set ranked: sort(scores, by=[('score', 'desc'), 'unit'])
 set top: limit(ranked, n=3)
 show result top
 ```
 
-A later request says that from now on a unit needs ten orders. The eligibility rule changes for everything after it, so set it again; `scores`, `ranked`, and `top` follow:
+A later request says that from now on a unit needs ten orders. The eligibility rule changes for everything after it, so set it again; `graded`, `scores`, `ranked`, and `top` follow:
 
 ```text
-set units: eligible_units(orders, min_orders=10)
+set eligible: filter(units, lambda row: row['orders'] >= 10)
 show result top
 ```
 
-Another asks how the leaders would change if the rate counted 70%. That is an alternative to compare, so the same function runs under new IDs beside the current ones:
+Another asks how the leaders would change if the order count weighed 70%. That is an alternative to compare, so the new weights get new IDs beside the current ones:
 
 ```text
-set scores_rate70: unit_scores(units, rate_weight=0.7)
-set ranked_rate70: sort(scores_rate70, by=[('score', 'desc')])
-set top_rate70: limit(ranked_rate70, n=3)
-show result top, top_rate70
+set scores_orders70: map(graded, lambda row: {**row, 'score': 0.7 * row['orders_pct'] + 0.3 * row['volume_pct']})
+set ranked_orders70: sort(scores_orders70, by=[('score', 'desc'), 'unit'])
+set top_orders70: limit(ranked_orders70, n=3)
+show result top, top_orders70
+```
+
+A rule the built-ins cannot express, such as each unit's longest run of orders, becomes a function whose choices are settings, so a later request passes new ones:
+
+```python
+import pandas as pd
+
+def order_runs(orders, *, gap_days=7):
+    """Each unit's longest run of orders placed at most gap_days apart."""
+    rows = []
+    for unit, group in orders.sort_values('date').groupby('unit'):
+        breaks = group['date'].diff().dt.days.gt(gap_days).cumsum()
+        rows.append({'unit': unit, 'longest_run': int(breaks.value_counts().max())})
+    return pd.DataFrame(rows)
+```
+
+```text
+set runs: order_runs(orders, gap_days=7)
 ```

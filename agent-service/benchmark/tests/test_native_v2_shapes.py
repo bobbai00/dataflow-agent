@@ -20,6 +20,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -117,6 +118,121 @@ def test_window_preserves_shift_domain_and_empty_schema(dtype, value):
 def test_window_actionable_errors(column, code):
     with pytest.raises(runtime.NativeError, match=code):
         run("Window", pd.DataFrame({"v": [1]}), orderBy=[{"col": "v"}], columns=[column])
+
+
+def test_window_pct_rank_is_the_average_rank_over_non_null_values_and_desc_mirrors_it():
+    rng = np.random.default_rng(7)
+    frame = pd.DataFrame(
+        {
+            "side": rng.choice(["LT", "RT"], 60),
+            "score": pd.array([None if x < 3 else int(x) for x in rng.integers(0, 12, 60)], dtype="Int64"),
+        }
+    )
+    result = run(
+        "Window",
+        frame,
+        partitionBy=["side"],
+        columns=[
+            {"fn": "pct_rank", "col": "score", "as": "up"},
+            {"fn": "pct_rank", "col": "score", "desc": True, "as": "down"},
+        ],
+    )
+    for side, group in frame.groupby("side"):
+        rows = group.index
+        expected = group["score"].astype("float64").rank(pct=True)
+        n = int(group["score"].notna().sum())
+        for row in rows:
+            got_up, got_down = values(result.iloc[[row]], "up")[0], values(result.iloc[[row]], "down")[0]
+            if pd.isna(frame.loc[row, "score"]):
+                assert got_up is None and got_down is None
+            else:
+                assert got_up == pytest.approx(expected[row])
+                # Lower-is-better: 1 minus the higher-is-better percentile plus 1/n; the lowest value gets 1.
+                assert got_down == pytest.approx(1 - expected[row] + 1 / n)
+    assert str(result["up"].dtype) == "Float64"
+    assert result.attrs["native_v2"]["operations"]["window"]["outputs"]["up"]["nullOutputs"] == int(frame["score"].isna().sum())
+    pd.testing.assert_frame_equal(result[frame.columns], frame)
+
+
+def test_window_partition_reducers_repeat_the_group_value_on_every_row_like_aggregate():
+    frame = pd.DataFrame(
+        {
+            "g": ["a", "b", "a", "a", "b", None],
+            "v": pd.array([1, 10, 4, None, 20, 7], dtype="Int64"),
+            "f": [True, False, True, None, True, False],
+            "w": [0.5, 2.0, 1.5, 3.0, None, 1.0],
+        }
+    )
+    reducers = [
+        {"fn": "count", "as": "rows"},
+        {"fn": "count", "col": "v", "as": "n"},
+        {"fn": "count_distinct", "col": "v", "as": "kinds"},
+        {"fn": "sum", "col": "v", "as": "total"},
+        {"fn": "mean", "col": "w", "as": "mean_w"},
+        {"fn": "median", "col": "v", "as": "med"},
+        {"fn": "quantile", "col": "w", "q": 0.75, "as": "p75"},
+        {"fn": "min", "col": "v", "as": "low"},
+        {"fn": "max", "col": "w", "as": "high"},
+        {"fn": "stddev", "col": "w", "as": "sd"},
+        {"fn": "sum", "col": "f", "as": "flagged"},
+    ]
+    result = run("Window", frame, partitionBy=["g"], columns=reducers)
+    summary = run("Aggregate", frame, groupBy=["g"], aggregations=reducers)
+    by_group = {runtime._scalar(key): row for key, row in zip(summary["g"], summary.to_dict("records"))}
+    for i, key in enumerate(frame["g"]):
+        expected = by_group[runtime._scalar(key)]
+        for item in reducers:
+            got = values(result, item["as"])[i]
+            want = runtime._scalar(expected[item["as"]])
+            assert got == (pytest.approx(want) if isinstance(want, float) else want), (item["as"], key)
+    assert values(result, "p75")[:1] == [pytest.approx(pd.Series([0.5, 1.5, 3.0]).quantile(0.75))]
+    assert values(result, "flagged") == [2, 1, 2, 2, 1, 0] and str(result["flagged"].dtype) == "Int64"
+    assert str(result["total"].dtype) == "Int64" and str(result["p75"].dtype) == "Float64"
+    assert values(result, "f") == [True, False, True, None, True, False]
+    assert result.attrs["native_v2"]["operations"]["columnDependencies"]["med"] == ["g", "v"]
+
+
+def test_window_mixes_ordered_and_partition_functions_and_needs_order_by_only_for_ordered_ones():
+    frame = pd.DataFrame({"g": ["a", "a", "b"], "t": [2, 1, 1], "v": [5.0, 3.0, 8.0]})
+    result = run(
+        "Window",
+        frame,
+        partitionBy=["g"],
+        orderBy=[{"col": "t"}],
+        columns=[{"fn": "rank", "as": "r"}, {"fn": "sum", "col": "v", "as": "total"}],
+    )
+    assert values(result, "r") == [2, 1, 1] and values(result, "total") == [8.0, 8.0, 8.0]
+    assert result.attrs["native_v2"]["operations"]["columnDependencies"]["total"] == ["g", "v"]
+    with pytest.raises(runtime.NativeError, match="WINDOW_ARGUMENT"):
+        run("Window", frame, columns=[{"fn": "rank", "as": "r"}])
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        {"fn": "quantile", "col": "v", "as": "q"},
+        {"fn": "quantile", "col": "v", "q": 75, "as": "q"},
+        {"fn": "mean", "col": "v", "q": 0.5, "as": "q"},
+        {"fn": "sum", "col": "v", "desc": True, "as": "q"},
+        {"fn": "pct_rank", "as": "q"},
+        {"fn": "pct_rank", "col": "v", "desc": "yes", "as": "q"},
+    ],
+)
+def test_window_partition_function_arguments_are_checked(column):
+    with pytest.raises(runtime.NativeError, match="WINDOW_ARGUMENT"):
+        run("Window", pd.DataFrame({"v": [1]}), columns=[column])
+
+
+def test_window_numeric_reducers_refuse_text_and_aggregate_quantile_interpolates():
+    with pytest.raises(runtime.NativeError, match="WINDOW_TYPE"):
+        run("Window", pd.DataFrame({"v": ["1", "2"]}), columns=[{"fn": "median", "col": "v", "as": "m"}])
+    frame = pd.DataFrame({"g": ["a", "a", "a", "b"], "v": [1, 2, 4, None]})
+    result = run(
+        "Aggregate", frame, groupBy=["g"], aggregations=[{"fn": "quantile", "col": "v", "q": 0.25, "as": "q1"}]
+    )
+    assert values(result, "q1") == [pytest.approx(1.5), None]
+    with pytest.raises(runtime.NativeError, match="AGGREGATE_ARGUMENT"):
+        run("Aggregate", frame, aggregations=[{"fn": "quantile", "col": "v", "as": "q1"}])
 
 
 def test_unpivot_order_null_cells_types_and_zero_key_columns():

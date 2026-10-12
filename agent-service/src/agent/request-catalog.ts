@@ -215,6 +215,13 @@ function functionsSection(start: SnapshotData, end: SnapshotData, source: Catalo
   ].join("\n");
 }
 
+/** Whether two completed results have the same row count and columns. */
+function sameShape(a: OperatorInfo, b: OperatorInfo): boolean {
+  const columns = (info: OperatorInfo) =>
+    JSON.stringify((info.resultSchema ?? []).map(column => [column.name, column.type]));
+  return (a.totalRowCount ?? a.outputTuples) === (b.totalRowCount ?? b.outputTuples) && columns(a) === columns(b);
+}
+
 /** The registered function an operator calls: its entry, or a filter's predicate. */
 function functionOf(view: NativeOpView): string | undefined {
   const predicate =
@@ -278,6 +285,10 @@ export function renderRequestEntry(
   const functions = functionsSection(start, end, source);
   const blocks: string[] = [];
   const deleted: string[] = [];
+  // Operators updated only because definitions their functions use changed,
+  // whose results are now stale or came out the same: named on one line.
+  const dependents: string[] = [];
+  const startBindings = start.workflow.nativeNamespace?.bindings ?? {};
   for (const id of edited) {
     const was = before.get(id);
     const op = after.get(id);
@@ -298,6 +309,16 @@ export function renderRequestEntry(
         state = "updated: the definitions its function uses changed";
     }
     const info = end.results.get(id)?.info;
+    if (state === "updated: the definitions its function uses changed") {
+      const own = functionOf(op.nativeOp!);
+      const ownUnchanged = !own || bindings[own]?.source === startBindings[own]?.source;
+      const startInfo = start.results.get(id)?.info;
+      const sameResult = completed(info) && completed(startInfo) && sameShape(info, startInfo);
+      if (ownUnchanged && (!completed(info) || sameResult)) {
+        dependents.push(id);
+        continue;
+      }
+    }
     const block = describeOperator(op, info, {
       state,
       columnsShown: 0,
@@ -349,8 +370,15 @@ export function renderRequestEntry(
     `## Task ${request.number} (${answer !== undefined ? "answered" : "incomplete"})`,
     ...(functions ? [functions] : []),
     ...(blocks.length ? ["operators:", ...blocks] : []),
+    ...(dependents.length
+      ? [
+          `also updated, as definitions their functions use changed (results stale until executed, or unchanged): ${dependents.map(inlineCode).join(", ")}`,
+        ]
+      : []),
     ...(deleted.length ? [`deleted: ${deleted.map(inlineCode).join(", ")}`] : []),
-    ...(!functions && !blocks.length && !deleted.length ? ["No functions or operators changed."] : []),
+    ...(!functions && !blocks.length && !dependents.length && !deleted.length
+      ? ["No functions or operators changed."]
+      : []),
     ...(shown.length ? [`shown: ${shown.map(inlineCode).join(", ")}`] : []),
     `answer: ${answer ?? "No completed answer."}`,
   ].join("\n");

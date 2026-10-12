@@ -92,13 +92,16 @@ export const REPAIR_HINTS: Record<string, string> = {
   PROJECT_OPTIONS: "Use keep OR drop (not both) and/or rename; each names existing columns.",
   CAST_OPTIONS: 'format and timezone apply to datetime only; errors is "raise" or "null".',
   AGGREGATE_ARGUMENT: "Every output is name=reducer(col); only count() may omit the column.",
-  JOIN_ARGUMENT: "how is inner/left/right/full/cross/semi/anti; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
+  JOIN_ARGUMENT:
+    "how is inner/left/right/full/cross/semi/anti; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
   JOIN_KEYS: "Name the keys explicitly with on=; a cross join takes none. Keys are never inferred.",
   UNION_ARGUMENT: 'schema is "strict" (identical columns) or "align" (absent columns become null).',
   DISTINCT_ARGUMENT: 'keep is "first" or "last"; columns lists the key columns, or omit it for whole-row distinct.',
   SORT_ARGUMENT: 'by lists column names or (column, "asc"|"desc") pairs; nulls is "first" or "last".',
   LIMIT_ARGUMENT: "n is a positive integer and offset a non-negative one; sort first for a top-k.",
-  WINDOW_ARGUMENT: "Outputs are name=lag/lead(col, offset) or name=row_number/rank/dense_rank(); order_by is required.",
+  WINDOW_ARGUMENT:
+    "Outputs are name=lag/lead(col, offset) or name=row_number/rank/dense_rank(), which need order_by, or name=pct_rank(col, desc=False) or a reducer such as median(col) or quantile(col, 0.75) over the partition.",
+  WINDOW_TYPE: "Numeric reducers need numeric columns; cast first.",
   UNPIVOT_ARGUMENT: "List the columns to unpivot; name and value are the two new columns.",
   PIVOT_ARGUMENT: "index, columns and values must be distinct existing columns; aggregate first if pairs repeat.",
   SCAN_OPTIONS: "Check the scan options against the signature; names needs header=False.",
@@ -374,9 +377,17 @@ export function nativeDiagnosticIssue(diagnostic: NativeDiagnostic): string {
   const source = diagnostic.source;
   return [
     `- error ${diagnostic.code}: ${clipped(sanitizeDiagnosticText(diagnostic.message), 400)}`,
-    ...(source ? [`  - at: ${source.entry} line ${source.line}${source.column === undefined ? "" : ` column ${source.column}`}: ${inlineCode(clipped(sanitizeDiagnosticText(source.excerpt.trim()), 180))}`] : []),
+    ...(source
+      ? [
+          `  - at: ${source.entry} line ${source.line}${source.column === undefined ? "" : ` column ${source.column}`}: ${inlineCode(clipped(sanitizeDiagnosticText(source.excerpt.trim()), 180))}`,
+        ]
+      : []),
     ...(diagnostic.field && !source ? [`  - at: ${clipped(sanitizeDiagnosticText(diagnostic.field), 100)}`] : []),
     ...(hint ? [`  - fix: ${clipped(sanitizeDiagnosticText(hint), 220)}`] : []),
-    ...(diagnostic.retryable !== undefined ? [`  - note: ${diagnostic.stage === "infrastructure" ? "infrastructure retryable" : "retryable unchanged"}: ${diagnostic.retryable}`] : []),
+    ...(diagnostic.retryable !== undefined
+      ? [
+          `  - note: ${diagnostic.stage === "infrastructure" ? "infrastructure retryable" : "retryable unchanged"}: ${diagnostic.retryable}`,
+        ]
+      : []),
   ].join("\n");
 }

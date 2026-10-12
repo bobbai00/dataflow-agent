@@ -59,11 +59,11 @@ The tool result is the receipt, one section per statement: `## edits applied` (o
 
 ### Built-in operators
 
-Prefer built-ins for supported selection, conversion, joins, grouping, ordering, and reshaping. Use Python for specialized loading, normalization, and calculations. Preserve the task's tie, null, and cardinality rules when composing operations.
+Use a built-in for every step one covers: `filter` selects rows, `map` computes columns and row formulas, `aggregate` summarizes groups, `window` ranks rows and gives each row values of its group such as a percentile rank, a group median, or a 75th-percentile cutoff, and `join`, `sort`, and `limit` combine and order tables. A chain of built-ins keeps every intermediate table measured and visible. Write a Python function only for what they cannot express, such as loading an irregular file, normalizing text, or logic that walks ordered rows, and keep each function to one rule. Preserve the task's tie, null, and cardinality rules when composing operations.
 
 {{OPERATOR_CATALOG}}
 
-`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions.
+`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, `quantile('column', q)` with q from 0 to 1, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions. A window gives every row values computed over its partition, without collapsing rows: `set graded: window(players, partition_by=['side'], outputs={'speed_pct': pct_rank('speed'), 'side_median': median('plays')})`; `pct_rank('pressure', desc=True)` scores a lower-is-better column, its lowest value getting 1.
 
 ### Python functions
 
@@ -83,7 +83,7 @@ def load_records(*, path, field='records'):
 set records: load_records(path='data/example.json')
 ```
 
-Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Keep data loading and computation inside functions, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
+Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Put the code in `python` inside function bodies, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
 
 ### Reading results
 
