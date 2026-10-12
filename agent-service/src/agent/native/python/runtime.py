@@ -531,9 +531,10 @@ def _json_text(value):
 def _normalize_output(value, operations):
     """Accept common Python-step outputs instead of refusing them.
 
-    A dict is an answer value: it becomes a one-row table whose only column,
-    `answer`, holds it as JSON, which an `answer` statement submits as the
-    request's answer. A list of row dicts is a table. Timezone-naive datetimes
+    A dict, or JSON text spelling an object or array, is an answer value: it
+    becomes a one-row table whose only column, `answer`, holds it as JSON,
+    which an `answer` statement submits as the request's answer. A list of
+    row dicts is a table. Timezone-naive datetimes
     are read as UTC: results display instants in UTC, so the shown wall-clock
     values are the ones the function produced. A column mixing numbers and
     text keeps every value as text. Both are recorded, so the receipt can say
@@ -542,6 +543,12 @@ def _normalize_output(value, operations):
     """
     if isinstance(value, Mapping):
         return pd.DataFrame([{ANSWER_COLUMN: _json_text(value)}])
+    if isinstance(value, str) and value.lstrip()[:1] in ("{", "["):
+        # JSON text, such as json.dumps(answer), is the answer value it spells.
+        try:
+            return pd.DataFrame([{ANSWER_COLUMN: _json_text(json.loads(value))}])
+        except ValueError:
+            return value
     if isinstance(value, list) and value and all(isinstance(item, Mapping) for item in value):
         value = pd.DataFrame(value)
     if (

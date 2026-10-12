@@ -307,6 +307,10 @@ def test_process_returns_a_dict_as_an_answer_value_and_row_dicts_as_a_table():
         "when": "2025-04-23T13:02:32+00:00",
         "ids": ["u1", "u2"],
     }
+    text = run("Process", source, code="def process(source):\n    import json\n    return json.dumps({'n': len(source)})")
+    assert json.loads(text["answer"].iloc[0]) == {"n": 2}
+    with pytest.raises(runtime.NativeError, match="PROCESS_RETURN_TYPE"):
+        run("Process", source, code="def process(source):\n    return 'two rows'")
     rows = run("Process", source, code="def process(source):\n    return [{'unit': u} for u in source['unit']]")
     assert rows["unit"].tolist() == ["u1", "u2"]
     with pytest.raises(runtime.NativeError, match="PROCESS_RETURN_TYPE"):
