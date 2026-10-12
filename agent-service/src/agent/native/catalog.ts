@@ -663,7 +663,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "join",
     brief:
-      'on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the receipt lists renames); output order is unspecified.',
+      'on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross, semi, anti. semi keeps the left rows with a match, anti those without, each once, left columns only. For a cross join, omit on or use None/[]; join(how="cross") attaches a single-row benchmark to every input row. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one; cross uses many_to_many. A colliding right column gets suffix, repeated until free (the tool result lists renames); output order is unspecified.',
     type: "Join",
     inputs: 2,
     rowEffect: "multiply",

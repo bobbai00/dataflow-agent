@@ -74,7 +74,9 @@ test("instructions describe receipts by statement, without cache bookkeeping", (
   expect(prompt).toContain("operator ID");
   expect(prompt).toContain("one section per statement");
   expect(prompt).toContain("An error names the statement and the cause.");
-  expect(prompt).toContain("if one line is rejected, nothing changes and the receipt names the line");
+  expect(prompt).toContain("if one line is rejected, nothing changes and the tool result names the line");
+  // The prompt calls what a call returns the tool result.
+  expect(prompt.toLowerCase()).not.toContain("receipt");
   const schema = asSchema(createDataflowTool().inputSchema).jsonSchema;
   expect(JSON.stringify(schema)).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
 });
@@ -175,7 +177,9 @@ for (const data of [false, true])
         expect(result.status).toBe("pending");
       }
       // The receipts are real renderer output, introduced as tool results.
-      expect(prompt.match(/^Tool result \(the receipt\):$/gm)).toHaveLength(flow ? 3 : 2);
+      expect(prompt.match(/^Tool result:$/gm)).toHaveLength(flow ? 3 : 2);
+      // Every example call carries the plain text the model writes with it.
+      expect(prompt.match(/^Text with the call: /gm)).toHaveLength(flow ? 4 : 2);
       const receipts = exampleReceipts(prompt);
       expect(receipts).toContain("## edits applied");
       expect(receipts).toContain("## show result report full");
