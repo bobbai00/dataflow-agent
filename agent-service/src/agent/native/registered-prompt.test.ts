@@ -178,8 +178,6 @@ for (const data of [false, true])
       }
       // The receipts are real renderer output, introduced as tool results.
       expect(prompt.match(/^Tool result:$/gm)).toHaveLength(flow ? 3 : 2);
-      // Every example call carries the plain text the model writes with it.
-      expect(prompt.match(/^Text with the call: /gm)).toHaveLength(flow ? 4 : 2);
       const receipts = exampleReceipts(prompt);
       expect(receipts).toContain("## edits applied");
       expect(receipts).toContain("## show result report full");

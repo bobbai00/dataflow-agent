@@ -140,13 +140,12 @@ export function registeredExamples(options: Options): string {
   const block = (text: string) => `\`\`\`text\n${text}\n\`\`\``;
   // The answer is a reply without the tool, never a statement.
   const reply = (text: string) => `Reply, without the tool: \`${text}\``;
-  // `text` is the plain text the model writes with the call; the transcript keeps it as the step's reasoning.
-  const call = (python: string, statements: string, receipt = false, text = ""): string => {
+  const call = (python: string, statements: string, receipt = false): string => {
     const fields = { python, statements };
     const parsed = parseTurn(fields, { views });
     if (!parsed.ok) throw new Error(`Invalid teaching example: ${parsed.error}`);
     const { actions } = parsed.turn;
-    const authored = `${text ? `Text with the call: ${text}\n\n` : ""}\`\`\`json\n${JSON.stringify(fields, null, 2)}\n\`\`\``;
+    const authored = `\`\`\`json\n${JSON.stringify(fields, null, 2)}\n\`\`\``;
     if (!receipt) return authored;
     const workflow: WorkflowContent = {
       operators: [...tables.values()].map(t => t.op),
@@ -281,12 +280,7 @@ export function registeredExamples(options: Options): string {
       ? "Request: report the total value for every group in alphabetical order. These synthetic tool results use 2,000-character budgets; your session budgets are listed above."
       : "Request: report the total value for every group in alphabetical order. These synthetic tool results use two sample rows and 2,000-character budgets to make the difference between records and evidence visible; your session budgets are listed above.",
     "Check the source's columns and values before choosing the grouping:",
-    call(
-      "",
-      `set records: scan(files='data/example.csv')\n${show("records")}`,
-      true,
-      "The source is unfamiliar, so this call scans it and shows its columns and values."
-    ),
+    call("", `set records: scan(files='data/example.csv')\n${show("records")}`, true),
     sample === "sample_stats"
       ? "Both displayed rows belong to A, but the full-table statistics also contain B. A sample does not define the population; aggregate the whole source."
       : sample === "sample"
@@ -295,8 +289,7 @@ export function registeredExamples(options: Options): string {
     call(
       "",
       `set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\n${show("report", true)}`,
-      true,
-      "This call totals the value of every group over the whole source and sorts the groups alphabetically."
+      true
     ),
     reply("Group A: 60; group B: 70."),
   ];
@@ -328,16 +321,10 @@ export function registeredExamples(options: Options): string {
       call(
         "",
         `set readings: scan(files='data/readings.csv')\nset kept: filter(readings, lambda row: row['value'] > 10)\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
-        true,
-        "This call keeps the readings of at least 10 and sums them."
+        true
       ),
       "The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the filter; the existing graph keeps its connections:",
-      call(
-        "",
-        `set kept: filter(readings, lambda row: row['value'] >= 10)\n${show("total", true)}`,
-        false,
-        "The filter rejected the readings of exactly 10, which the request includes, so this call makes the comparison inclusive."
-      ),
+      call("", `set kept: filter(readings, lambda row: row['value'] >= 10)\n${show("total", true)}`),
       "The new result is total=60. Check the returned result before ending the task.",
       reply("60")
     );
