@@ -118,9 +118,8 @@ describe("answer statements", () => {
   test("the prompt says how to answer only when the setting is on", () => {
     expect(buildRegisteredNativeSystemPrompt(ContextMode.DELTA)).toContain("There is no answer statement.");
     const on = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { answerStatement: true });
-    expect(on).toContain(
-      'end the call with an answer statement when the tables it computes hold the answer: `answer {"key": table'
-    );
+    expect(on).toContain("Prefer to finish in the call that computes the answer: end it with an answer statement");
+    expect(on).toContain("end a request with an `answer` statement over the tables that hold the answer");
     expect(on).not.toContain("There is no answer statement.");
   });
 });
