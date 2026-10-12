@@ -388,7 +388,12 @@ export function renderRecords(
   const build = (fields: typeof allowed, cellLimit?: number): FrozenRecords => {
     const layout =
       config.keyValueColumns > 0 && fields.length > config.keyValueColumns ? "key-value" : config.tableFormat;
-    const cap = cellLimit ?? (options.view === "full" || (options.preview && rows.length === 1) ? 0 : config.cellChars);
+    // A function's answer value (one row, one `answer` cell of JSON) is read
+    // whole in every view, so no second look at it is needed.
+    const answerValue = rows.length === 1 && fields.length === 1 && fields[0].name === "answer";
+    const cap =
+      cellLimit ??
+      (options.view === "full" || (options.preview && rows.length === 1) || answerValue ? 0 : config.cellChars);
     const rendered = ordered.slice(0, rowLimit).map(index => {
       const values = fields.map(field => displayValue(rows[index][field.name], field.type, layout, cap));
       const cells = values.map(value => value.text);

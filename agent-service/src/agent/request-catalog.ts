@@ -24,10 +24,10 @@
  * the functions it registered or changed, as signatures and then source; the
  * operators it created, changed or deleted, as the canonical operator blocks
  * `show operator` prints, with every column; the results it showed; and its
- * answer. With `catalogSource: "ledger"` an operator is one line, its
- * statement, and only the tables the request ended with or showed carry rows
- * and columns; the answer names the operator that computed it, with a
- * preview. Entries read two saved snapshots, the state the request inherited
+ * answer. With `catalogSource: "ledger"` an operator is one line: its
+ * statement, rows and columns (relative to its input's where shorter); the
+ * answer names the operator that computed it, with a preview; functions are
+ * signatures and docstrings, never source. Entries read two saved snapshots, the state the request inherited
  * and the state it left, so a finished request's entry never changes and the
  * conversation prefix stays cacheable.
  * Design: docs/native-multi-request-design.md.
@@ -338,9 +338,6 @@ export function renderRequestEntry(
   const ledger = source === "ledger";
   const shown = shownResults(request.steps);
   const answerId = answerOperator(request.steps);
-  // In a ledger, rows and columns go only to the tables the request ended
-  // with: those no operator reads, those it showed, and its answer.
-  const consumed = new Set([...after.values()].flatMap(op => op.nativeOp?.inputs ?? []));
   const blocks: string[] = [];
   const deleted: string[] = [];
   // Operators updated only because definitions their functions use changed,
@@ -430,20 +427,14 @@ export function renderRequestEntry(
       blocks.push(operatorBlock(block));
       continue;
     }
-    // One line: the statement, how it changed, and for a table the request
-    // ended with, its rows and columns.
-    const described = !consumed.has(id) || shown.includes(id) || id === answerId;
+    // One line: the statement, how it changed, its rows and columns (a later
+    // step's columns relative to its input's), so no table needs a look-up.
     const columns = block.columnsFromInput ?? (block.columns?.length ? block.columns.join(", ") : "");
-    const result =
-      block.result && (described || !completed(info))
-        ? ` → ${block.result}${described && columns ? `; columns: ${columns}` : ""}`
-        : "";
-    // An intermediate table's notes stay in the receipts, except that it is empty.
-    const issues = (block.issues ?? []).filter(issue => described || issue.includes("empty"));
+    const result = block.result ? ` → ${block.result}${columns ? `; columns: ${columns}` : ""}` : "";
     blocks.push(
       `- ${inlineCode(block.definition ?? id)}${state === "created" ? "" : ` (${state})`}${result}` +
         (block.description ? ` — ${block.description.replace(/\n/g, " ")}` : "") +
-        issues.map(issue => ` ${issue}`).join("")
+        (block.issues ?? []).map(issue => ` ${issue}`).join("")
     );
   }
   const answerLine = ledger

@@ -406,7 +406,7 @@ operators:`);
   );
 });
 
-test("a ledger entry is one line per operator, rows and columns only for the tables the request ended with, and the answer by its operator", async () => {
+test("a ledger entry is one line per operator with its rows and columns, functions without source, and the answer by its operator", async () => {
   const { agent, prompts } = session(
     "catalog",
     [
@@ -455,18 +455,18 @@ functions:
 - \`raw_counts(orders)\`
 \`show function <name>\` reads a function's source.
 operators:
-- \`set orders: scan(files='data/x/input/orders.csv')\`
-- \`set units: eligible_units(orders, min_orders=5)\`
+- \`set orders: scan(files='data/x/input/orders.csv')\` → 40 rows × 3 columns; columns: order_id int64, unit str, value float64
+- \`set units: eligible_units(orders, min_orders=5)\` → 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64
 - \`set n_units: aggregate(units, outputs={'n': count()})\` → 1 row × 1 column; columns: n float64 note: one-row aggregate.
-- \`set scores: unit_scores(units, rate_weight=0.5)\`
-- \`set ranked: sort(scores, by=[('score', 'desc')])\`
-- \`set top: limit(ranked, n=3)\`
+- \`set scores: unit_scores(units, rate_weight=0.5)\` → 8 rows × 5 columns; columns: same as \`units\`; plus score float64
+- \`set ranked: sort(scores, by=[('score', 'desc')])\` → 8 rows × 5 columns; columns: same as \`scores\`
+- \`set top: limit(ranked, n=3)\` → 3 rows × 5 columns; columns: same as \`ranked\` note: limited table; its input has 8 rows.
 - \`set answer_1: leaders_answer(top, units)\` → 1 row × 1 column; columns: answer str
 answer: \`answer_1\` = {"leaders": [3 items × {unit, score}], "eligible_units": 8, "note": "ties broken by unit"}`);
   // The second request's entry: an update, a deletion, and a reply as the answer.
   expect(textOf(prompts[3][4])).toBe(`## Task 2 (answered)
 operators:
-- \`set units: eligible_units(orders, min_orders=10)\` (updated: min_orders 5 → 10)
+- \`set units: eligible_units(orders, min_orders=10)\` (updated: min_orders 5 → 10) → 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64
 deleted: \`n_units\`
 answer: Final Answer: u1, u3, u4`);
   expect(agent.getSystemInfo().systemPrompt).toContain("one line per operator it set, with rows and columns for the tables it ended with or showed");
