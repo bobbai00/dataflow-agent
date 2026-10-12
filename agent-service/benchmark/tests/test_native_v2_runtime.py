@@ -288,6 +288,31 @@ def test_process_float_compatibility_preserves_integer_precision_and_other_colum
     assert result.amount.iloc[0] == 1.25 and pd.isna(result.amount.iloc[1])
 
 
+def test_process_returns_a_dict_as_an_answer_value_and_row_dicts_as_a_table():
+    source = pd.DataFrame({"unit": ["u1", "u2"], "score": [0.703331, np.nan]})
+    code = (
+        "def process(source):\n"
+        "    top = source.head(1)\n"
+        "    return {'leaders': [{'unit': r.unit, 'score': round(r.score, 4)} for r in top.itertuples()],\n"
+        "            'n': len(source), 'gap': source['score'].iloc[1], 'best': source['score'].max(),\n"
+        "            'when': pd.Timestamp('2025-04-23T13:02:32Z'), 'ids': source['unit'].values}"
+    )
+    result = run("Process", source, code=code)
+    assert list(result.columns) == [runtime.ANSWER_COLUMN] and len(result) == 1
+    assert json.loads(result["answer"].iloc[0]) == {
+        "leaders": [{"unit": "u1", "score": 0.7033}],
+        "n": 2,
+        "gap": None,
+        "best": 0.703331,
+        "when": "2025-04-23T13:02:32+00:00",
+        "ids": ["u1", "u2"],
+    }
+    rows = run("Process", source, code="def process(source):\n    return [{'unit': u} for u in source['unit']]")
+    assert rows["unit"].tolist() == ["u1", "u2"]
+    with pytest.raises(runtime.NativeError, match="PROCESS_RETURN_TYPE"):
+        run("Process", source, code="def process(source):\n    return [{'a': 1}, 2]")
+
+
 def test_process_wrong_shape_and_signature_have_explicit_diagnostics():
     with pytest.raises(runtime.NativeError, match="PROCESS_RETURN_TYPE"):
         runtime.execute_native(

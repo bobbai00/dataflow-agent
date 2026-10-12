@@ -24,7 +24,10 @@
  * the functions it registered or changed, as signatures and then source; the
  * operators it created, changed or deleted, as the canonical operator blocks
  * `show operator` prints, with every column; the results it showed; and its
- * answer. Entries read two saved snapshots, the state the request inherited
+ * answer. With `catalogSource: "ledger"` an operator is one line, its
+ * statement, and only the tables the request ended with or showed carry rows
+ * and columns; the answer names the operator that computed it, with a
+ * preview. Entries read two saved snapshots, the state the request inherited
  * and the state it left, so a finished request's entry never changes and the
  * conversation prefix stays cacheable.
  * Design: docs/native-multi-request-design.md.
@@ -107,6 +110,52 @@ function answerOf(steps: readonly ReActStep[]): string | undefined {
     : undefined;
 }
 
+/** The operator an `answer` statement submitted, when the request ended that way. */
+function answerOperator(steps: readonly ReActStep[]): string | undefined {
+  let id: string | undefined;
+  for (const receipt of receipts(steps))
+    for (const item of receipt.actions)
+      if (item.action.type === "answer" && item.status === "ok") id = item.action.operator_ids[0];
+  return id;
+}
+
+/** Characters an answer preview may take in a ledger entry. */
+const PREVIEW_CHARS = 400;
+/** Columns a ledger entry lists for a table before "+N more". */
+const LEDGER_COLUMNS = 12;
+
+const clip = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit - 1)}…` : text);
+
+/** An answer at depth one: scalars as they are, lists by length and the keys
+ * of their first object, nested objects by their keys. Text that is not JSON
+ * is shown as it is, clipped. */
+export function answerPreview(text: string, limit = PREVIEW_CHARS): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return clip(text.replace(/\s+/g, " "), limit);
+  }
+  const keys = (v: object) => Object.keys(v).slice(0, 8).join(", ") + (Object.keys(v).length > 8 ? ", …" : "");
+  const scalar = (v: unknown) => (typeof v === "string" ? JSON.stringify(clip(v, 40)) : JSON.stringify(v));
+  const brief = (v: unknown): string => {
+    if (Array.isArray(v)) {
+      const first = v[0];
+      const shape = first && typeof first === "object" && !Array.isArray(first) ? ` × {${keys(first)}}` : "";
+      return `[${v.length} item${v.length === 1 ? "" : "s"}${shape}]`;
+    }
+    if (v && typeof v === "object") return `{${keys(v)}}`;
+    return scalar(v);
+  };
+  const preview =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? `{${Object.entries(value)
+          .map(([key, item]) => `${JSON.stringify(key)}: ${brief(item)}`)
+          .join(", ")}}`
+      : brief(value);
+  return clip(preview, limit);
+}
+
 /** A setting value as a statement spells it. */
 function pyLiteral(value: unknown): string {
   if (value === null || value === undefined) return "None";
@@ -164,7 +213,7 @@ function functionsSection(start: SnapshotData, end: SnapshotData, source: Catalo
     .map(binding => ({ binding, at: Math.max(0, (cells[binding.cell - 1] ?? "").indexOf(binding.source)) }))
     .sort((a, b) => a.binding.cell - b.binding.cell || a.at - b.at || a.binding.name.localeCompare(b.binding.name))
     .map(({ binding }) => binding);
-  const compact = source === "docstring";
+  const compact = source !== "full";
   const api: string[] = [];
   const helpers: string[] = [];
   // Bindings whose source the entry leaves to `show function`.
@@ -283,6 +332,12 @@ export function renderRequestEntry(
   const initial = storage.getAssociatedSnapshot(opening(requests[0])?.id).workflow.nativeNamespace?.bindings ?? {};
   const bindings = end.workflow.nativeNamespace?.bindings ?? {};
   const functions = functionsSection(start, end, source);
+  const ledger = source === "ledger";
+  const shown = shownResults(request.steps);
+  const answerId = answerOperator(request.steps);
+  // In a ledger, rows and columns go only to the tables the request ended
+  // with: those no operator reads, those it showed, and its answer.
+  const consumed = new Set([...after.values()].flatMap(op => op.nativeOp?.inputs ?? []));
   const blocks: string[] = [];
   const deleted: string[] = [];
   // Operators updated only because definitions their functions use changed,
@@ -321,7 +376,7 @@ export function renderRequestEntry(
     }
     const block = describeOperator(op, info, {
       state,
-      columnsShown: 0,
+      columnsShown: ledger ? LEDGER_COLUMNS : 0,
       implementation: false,
       namespace: end.workflow.nativeNamespace,
       stale: !completed(info) && completed(start.results.get(id)?.info),
@@ -348,7 +403,12 @@ export function renderRequestEntry(
     const first = op.nativeOp!.inputs[0];
     const firstInfo = first ? end.results.get(first)?.info : undefined;
     if (completed(info) && completed(firstInfo)) {
-      const relative = columnsFromInput(info.resultSchema ?? [], firstInfo.resultSchema ?? [], first, 0);
+      const relative = columnsFromInput(
+        info.resultSchema ?? [],
+        firstInfo.resultSchema ?? [],
+        first,
+        ledger ? LEDGER_COLUMNS : 0
+      );
       if (relative) block.columnsFromInput = relative;
     }
     if (completed(info)) {
@@ -363,9 +423,31 @@ export function renderRequestEntry(
               : undefined;
       if (note) block.issues = [...(block.issues ?? []), `note: ${note}.`];
     }
-    blocks.push(operatorBlock(block));
+    if (!ledger) {
+      blocks.push(operatorBlock(block));
+      continue;
+    }
+    // One line: the statement, how it changed, and for a table the request
+    // ended with, its rows and columns.
+    const described = !consumed.has(id) || shown.includes(id) || id === answerId;
+    const columns = block.columnsFromInput ?? (block.columns?.length ? block.columns.join(", ") : "");
+    const result =
+      block.result && (described || !completed(info))
+        ? ` → ${block.result}${described && columns ? `; columns: ${columns}` : ""}`
+        : "";
+    // An intermediate table's notes stay in the receipts, except that it is empty.
+    const issues = (block.issues ?? []).filter(issue => described || issue.includes("empty"));
+    blocks.push(
+      `- ${inlineCode(block.definition ?? id)}${state === "created" ? "" : ` (${state})`}${result}` +
+        (block.description ? ` — ${block.description.replace(/\n/g, " ")}` : "") +
+        issues.map(issue => ` ${issue}`).join("")
+    );
   }
-  const shown = shownResults(request.steps);
+  const answerLine = ledger
+    ? answer === undefined
+      ? "answer: No completed answer."
+      : `answer: ${answerId ? `${inlineCode(answerId)} = ` : ""}${answerPreview(answer)}`
+    : `answer: ${answer ?? "No completed answer."}`;
   return [
     `## Task ${request.number} (${answer !== undefined ? "answered" : "incomplete"})`,
     ...(functions ? [functions] : []),
@@ -379,7 +461,7 @@ export function renderRequestEntry(
     ...(!functions && !blocks.length && !dependents.length && !deleted.length
       ? ["No functions or operators changed."]
       : []),
-    ...(shown.length ? [`shown: ${shown.map(inlineCode).join(", ")}`] : []),
-    `answer: ${answer ?? "No completed answer."}`,
+    ...(shown.length && !ledger ? [`shown: ${shown.map(inlineCode).join(", ")}`] : []),
+    answerLine,
   ].join("\n");
 }

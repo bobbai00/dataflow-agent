@@ -40,8 +40,17 @@ const tables: Record<string, AnswerTable> = {
   },
   check: { rows: [{ matches: true, note: null }], columns: ["matches", "note"], total: 1 },
   empty: { rows: [], columns: ["x"], total: 0 },
-  cut: { rows: [{ x: 1 }], columns: ["x"], total: 3 },
+  partial: { rows: [{ x: 1 }], columns: ["x"], total: 3 },
   big: { rows: Array.from({ length: 51 }, (_, x) => ({ x })), columns: ["x"], total: 51 },
+  // A function returned a dict: the runtime holds it as a one-row `answer` table.
+  leaders: {
+    rows: [{ answer: '{"leaders":[{"unit":"u1","score":0.70333}],"eligible_units":8}' }],
+    columns: ["answer"],
+    total: 1,
+  },
+  nothing: { rows: [{ answer: "{}" }], columns: ["answer"], total: 1 },
+  cut: { rows: [{ answer: '{"leaders":[{"unit":"u1",...[truncated]...' }], columns: ["answer"], total: 1 },
+  plain: { rows: [{ answer: "yes" }], columns: ["answer"], total: 1 },
 };
 const table = (id: string) => {
   if (!tables[id]) throw new Error(`UNKNOWN_OPERATOR: no operator \`${id}\`.`);
@@ -70,6 +79,24 @@ describe("answer statements", () => {
     expect(answer("[top.n, None, 1.5]")).toMatchObject({ text: "[[576,956],null,1.5]" });
   });
 
+  test("answer <id> of an operator whose function returned a dict answers with that dict", () => {
+    expect(answer("leaders")).toEqual({
+      ok: true,
+      text: '{"leaders":[{"unit":"u1","score":0.70333}],"eligible_units":8}',
+      value: { leaders: [{ unit: "u1", score: 0.70333 }], eligible_units: 8 },
+    });
+    expect(answer("leaders digits=2")).toMatchObject({ text: '{"leaders":[{"unit":"u1","score":0.7}],"eligible_units":8}' });
+    expect(answer('{"first": leaders, "n": check.matches}')).toMatchObject({
+      text: '{"first":{"leaders":[{"unit":"u1","score":0.70333}],"eligible_units":8},"n":true}',
+    });
+    expect(answer("nothing")).toEqual({ ok: false, error: "ANSWER_EMPTY: `nothing` returned an empty answer." });
+    expect(answer("cut")).toMatchObject({ ok: false, error: expect.stringContaining("ANSWER_INCOMPLETE") });
+    // A one-column text table that is not JSON answers as rows, like any table.
+    expect(answer("plain")).toMatchObject({ text: '[{"answer":"yes"}]' });
+    // Picking the column reads the text itself.
+    expect(answer("leaders.answer")).toMatchObject({ text: '"{\\"leaders\\":[{\\"unit\\":\\"u1\\",\\"score\\":0.70333}],\\"eligible_units\\":8}"' });
+  });
+
   test("an answer reads at least one table and is written as a value", () => {
     expect(() => parseAnswer('{"n": 3}')).toThrow("an answer names at least one table");
     expect(() => parseAnswer("{leaders: top}")).toThrow("object keys are quoted strings");
@@ -79,7 +106,10 @@ describe("answer statements", () => {
 
   test("an empty, cut, oversized or unknown table, an unknown column, or an all-null pick is refused", () => {
     expect(answer('{"a": empty}')).toEqual({ ok: false, error: "ANSWER_EMPTY: `empty` has no rows." });
-    expect(answer('{"a": cut}')).toEqual({ ok: false, error: "ANSWER_INCOMPLETE: only 1 of `cut`'s 3 rows are held." });
+    expect(answer('{"a": partial}')).toEqual({
+      ok: false,
+      error: "ANSWER_INCOMPLETE: only 1 of `partial`'s 3 rows are held.",
+    });
     expect(answer('{"a": big}')).toMatchObject({
       ok: false,
       error: expect.stringContaining("ANSWER_TOO_LARGE: `big` has 51 rows"),
@@ -119,8 +149,8 @@ describe("answer statements", () => {
   test("the prompt says how to answer only when the setting is on", () => {
     expect(buildRegisteredNativeSystemPrompt(ContextMode.DELTA)).toContain("There is no answer statement.");
     const on = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { answerStatement: true });
-    expect(on).toContain("Prefer to finish in the call that computes the answer: end it with an answer statement");
-    expect(on).toContain("end a request with an `answer` statement over the tables that hold the answer");
+    expect(on).toContain("To finish, end the call that computes the answer with `answer <id>`");
+    expect(on).toContain("end a request with `answer <id>`, naming the operator whose function returned the answer");
     expect(on).not.toContain("There is no answer statement.");
   });
 });

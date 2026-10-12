@@ -29,7 +29,7 @@ import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 type Reply = { text?: string; call?: { python: string; statements: string } };
 
 /** Columns and rows each operator "executes" to; there is no engine in a unit test. */
-const TABLES: Record<string, { columns: string[]; rows: number }> = {
+const TABLES: Record<string, { columns: string[]; rows: number; cells?: Record<string, unknown> }> = {
   orders: { columns: ["order_id", "unit", "value"], rows: 40 },
   units: { columns: ["unit", "orders", "volume", "rate"], rows: 8 },
   n_units: { columns: ["n"], rows: 1 },
@@ -37,14 +37,25 @@ const TABLES: Record<string, { columns: string[]; rows: number }> = {
   ranked: { columns: ["unit", "orders", "volume", "rate", "score"], rows: 8 },
   top: { columns: ["unit", "orders", "volume", "rate", "score"], rows: 3 },
   scores_rate70: { columns: ["unit", "orders", "volume", "rate", "score"], rows: 8 },
+  answer_1: {
+    columns: ["answer"],
+    rows: 1,
+    cells: { answer: '{"leaders":[{"unit":"u1","score":0.7033},{"unit":"u2","score":0.6817},{"unit":"u3","score":0.65}],"eligible_units":8,"note":"ties broken by unit"}' },
+  },
 };
-const TYPES: Record<string, string> = { order_id: "int64", value: "float64", unit: "string", orders: "int64" };
+const TYPES: Record<string, string> = {
+  order_id: "int64",
+  value: "float64",
+  unit: "string",
+  orders: "int64",
+  answer: "string",
+};
 
 /** A native session whose model replies with the given calls and texts in order, across requests. */
 function session(
   multiRequest: MultiRequestMode,
   replies: Reply[],
-  catalog: { catalogSource?: CatalogSource; catalogRecent?: number } = {}
+  catalog: { catalogSource?: CatalogSource; catalogRecent?: number; answerStatement?: boolean } = {}
 ) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
@@ -104,7 +115,7 @@ function session(
         outputTuples: table.rows,
         totalRowCount: table.rows,
         resultMode: "table",
-        result: [Object.fromEntries(table.columns.map(column => [column, 1]))],
+        result: [Object.fromEntries(table.columns.map(column => [column, table.cells?.[column] ?? 1]))],
         resultSchema: table.columns.map(name => ({ name, type: TYPES[name] ?? "float64", encoding: "" })),
       });
     }
@@ -393,6 +404,68 @@ operators:`);
   expect(agent.getSystemInfo().systemPrompt).toContain(
     "with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
   );
+});
+
+test("a ledger entry is one line per operator, rows and columns only for the tables the request ended with, and the answer by its operator", async () => {
+  const { agent, prompts } = session(
+    "catalog",
+    [
+      {
+        call: {
+          python: `${RULES}
+
+def leaders_answer(top, units):
+    """The leaders and the eligible count, in the requested shape."""
+    return {'leaders': [{'unit': r.unit, 'score': round(r.score, 4)} for r in top.itertuples()], 'eligible_units': int(len(units))}`,
+          statements: `set orders: scan(files='data/x/input/orders.csv')
+set units: eligible_units(orders, min_orders=5)
+set n_units: aggregate(units, outputs={'n': count()})
+set scores: unit_scores(units, rate_weight=0.5)
+set ranked: sort(scores, by=[('score', 'desc')])
+set top: limit(ranked, n=3)
+set answer_1: leaders_answer(top, units)
+show result n_units
+answer answer_1`,
+        },
+      },
+      {
+        call: {
+          python: "",
+          statements: "set units: eligible_units(orders, min_orders=10)\ndelete n_units\nshow result top",
+        },
+      },
+      { text: "Final Answer: u1, u3, u4" },
+      { call: { python: "", statements: "show result top" } },
+      { text: "Final Answer: u1, u3, u4" },
+    ],
+    { catalogSource: "ledger", answerStatement: true }
+  );
+  await agent.sendMessage(FIRST);
+  await agent.sendMessage(SECOND);
+  await agent.sendMessage(THIRD);
+  const entry = textOf(prompts[3][2]);
+  expect(entry).toBe(`## Task 1 (answered)
+functions:
+- \`eligible_units(orders, *, min_orders=5)\` — Units with at least min_orders orders, with their share of orders and their volume.
+- \`unit_scores(units, *, rate_weight=0.5)\` — Score per unit: rate_weight times the rate percentile plus the rest times the volume percentile.
+- \`leaders_answer(top, units)\` — The leaders and the eligible count, in the requested shape.
+\`show function <name>\` reads a function's source.
+operators:
+- \`set orders: scan(files='data/x/input/orders.csv')\`
+- \`set units: eligible_units(orders, min_orders=5)\`
+- \`set n_units: aggregate(units, outputs={'n': count()})\` → 1 row × 1 column; columns: n float64 note: one-row aggregate.
+- \`set scores: unit_scores(units, rate_weight=0.5)\`
+- \`set ranked: sort(scores, by=[('score', 'desc')])\`
+- \`set top: limit(ranked, n=3)\`
+- \`set answer_1: leaders_answer(top, units)\` → 1 row × 1 column; columns: answer str
+answer: \`answer_1\` = {"leaders": [3 items × {unit, score}], "eligible_units": 8, "note": "ties broken by unit"}`);
+  // The second request's entry: an update, a deletion, and a reply as the answer.
+  expect(textOf(prompts[3][4])).toBe(`## Task 2 (answered)
+operators:
+- \`set units: eligible_units(orders, min_orders=10)\` (updated: min_orders 5 → 10)
+deleted: \`n_units\`
+answer: Final Answer: u1, u3, u4`);
+  expect(agent.getSystemInfo().systemPrompt).toContain("one line per operator it set, with rows and columns for the tables it ended with or showed");
 });
 
 test("a catalog keeps the most recent K to 2K-1 requests as transcript and adds entries K at a time", async () => {

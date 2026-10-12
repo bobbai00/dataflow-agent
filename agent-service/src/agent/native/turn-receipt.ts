@@ -213,6 +213,11 @@ function editLines(item: ActionItem): string[] {
     );
   if (operators.length) lines.push(`operators: ${operators.join(", ")}`);
   if (!functions.length && !operators.length) lines.push("nothing changed");
+  if (output?.column_checks?.length)
+    lines.push(
+      "column checks (these operators will fail as written):",
+      ...(output.column_checks as string[]).map(check => `- ${check}`)
+    );
   if (output?.invalidated_results?.length) lines.push(`stale until executed: ${output.invalidated_results.join(", ")}`);
   for (const input of (output?.unconnected_inputs ?? []) as string[]) lines.push(`unconnected input: ${input}`);
   if (output?.version_notes?.length) lines.push(...output.version_notes.map((note: string) => `note: ${note}`));

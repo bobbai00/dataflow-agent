@@ -819,7 +819,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
             messageLayout: t.Optional(t.String()),
             multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
-            catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+            catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring"), t.Literal("ledger")])),
             catalogRecent: t.Optional(t.Integer()),
             answerStatement: t.Optional(t.Boolean()),
             answerField: t.Optional(t.Boolean()),
@@ -1250,7 +1250,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
         multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
-        catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+        catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring"), t.Literal("ledger")])),
         catalogRecent: t.Optional(t.Integer()),
         answerStatement: t.Optional(t.Boolean()),
         answerField: t.Optional(t.Boolean()),

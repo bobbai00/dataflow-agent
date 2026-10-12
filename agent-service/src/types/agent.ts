@@ -158,7 +158,7 @@ export enum ContextMode {
  */
 export type CompactionStrategy = "sliding" | "compress";
 export type MultiRequestMode = "off" | "transcript" | "catalog";
-export type CatalogSource = "full" | "docstring";
+export type CatalogSource = "full" | "docstring" | "ledger";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
@@ -387,6 +387,10 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * "full" (default): signature, the docstring's first line, then the source.
    * "docstring": signature and docstring; the source only for a function with
    * no docstring, and `show function` reads any source on demand.
+   * "ledger": functions as "docstring"; each operator the request set as its
+   * one statement line, with rows and columns only for the tables the request
+   * ended with or showed; the answer by the operator that computed it, with a
+   * preview of its value.
    */
   catalogSource: CatalogSource;
   /**

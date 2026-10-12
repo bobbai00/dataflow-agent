@@ -59,7 +59,7 @@ The tool result is the receipt, one section per statement: `## edits applied` (o
 
 ### Built-in operators
 
-Use a built-in for every step one covers: `filter` selects rows, `map` computes columns and row formulas, `aggregate` summarizes groups, `window` ranks rows and gives each row values of its group such as a percentile rank, a group median, or a 75th-percentile cutoff, and `join`, `sort`, and `limit` combine and order tables. A chain of built-ins keeps every intermediate table measured and visible. Write a Python function only for what they cannot express, such as loading an irregular file, normalizing text, or logic that walks ordered rows, and keep each function to one rule. Preserve the task's tie, null, and cardinality rules when composing operations.
+Use a built-in when it covers a step in one line: `filter` selects rows, `map` computes columns and row formulas, `aggregate` summarizes groups, `window` ranks rows and gives each row values of its group (percentile rank, group median, 75th-percentile cutoff), and `join`, `sort`, and `limit` combine and order tables. Write a Python function for multi-step logic (an irregular file, text normalization, a rule with several cases, ordered rows), with its choices as keyword settings. Preserve the task's tie, null, and cardinality rules when composing operations.
 
 {{OPERATOR_CATALOG}}
 
@@ -67,7 +67,7 @@ Use a built-in for every step one covers: `filter` selects rows, `map` computes 
 
 ### Python functions
 
-Public top-level functions in `python` become operator types. A function receives one pandas DataFrame per input edge and returns one DataFrame; a loader has no table inputs. Settings are keyword-only parameters after `*`. A loader can open engine-accessible files when file I/O is enabled; prefer `scan` for its supported formats:
+Public top-level functions in `python` become operator types. A function receives one pandas DataFrame per input edge and returns a table (a DataFrame or row dicts) or a dict, an answer value (a one-row JSON table); a loader has no table inputs. Settings are keyword-only parameters after `*`, with defaults a later call can change. A loader can open engine-accessible files when file I/O is enabled; prefer `scan` for its supported formats:
 
 ```python
 import json

@@ -442,7 +442,10 @@ def _columns(spec, frame, names, field):
 def _frame(spec, value):
     if not isinstance(value, pd.DataFrame):
         raise _error(
-            spec, "PROCESS_RETURN_TYPE", f"Expected a pandas DataFrame, got {type(value).__name__}.", stage="contract"
+            spec,
+            "PROCESS_RETURN_TYPE",
+            f"Expected a pandas DataFrame, a list of row dicts, or a dict (an answer value), got {type(value).__name__}.",
+            stage="contract",
         )
     if not all(isinstance(name, str) for name in value.columns) or value.columns.has_duplicates:
         raise _error(spec, "OUTPUT_SCHEMA", "Table columns must be unique string names.", stage="contract")
@@ -496,15 +499,51 @@ def _frame(spec, value):
     return value
 
 
-def _normalize_output(value, operations):
-    """Accept two common pandas outputs of a Python step instead of refusing them.
+ANSWER_COLUMN = "answer"
 
-    Timezone-naive datetimes are read as UTC: results display instants in UTC,
-    so the shown wall-clock values are the ones the function produced. A
-    column mixing numbers and text keeps every value as text. Both are
-    recorded, so the receipt can say what changed. Anything else (mixed
-    aware/naive datetimes, nested values, infinity) still fails the contract.
+
+def _json_ready(value):
+    """A JSON-serializable copy: numpy and pandas values as Python ones, missing values as null."""
+    if isinstance(value, Mapping):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, pd.DataFrame):
+        return [_json_ready(row) for row in value.to_dict("records")]
+    if isinstance(value, (pd.Series, pd.Index, np.ndarray)):
+        return [_json_ready(item) for item in value.tolist()]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, (datetime.datetime, datetime.date, pd.Timestamp)):
+        return value.isoformat()
+    if isinstance(value, (datetime.timedelta, pd.Timedelta)):
+        return str(value)
+    scalar = _scalar(value)
+    if isinstance(scalar, float) and not math.isfinite(scalar):
+        return None
+    if scalar is None or isinstance(scalar, (bool, int, float, str)):
+        return scalar
+    return str(scalar)
+
+
+def _json_text(value):
+    return json.dumps(_json_ready(value), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+
+
+def _normalize_output(value, operations):
+    """Accept common Python-step outputs instead of refusing them.
+
+    A dict is an answer value: it becomes a one-row table whose only column,
+    `answer`, holds it as JSON, which an `answer` statement submits as the
+    request's answer. A list of row dicts is a table. Timezone-naive datetimes
+    are read as UTC: results display instants in UTC, so the shown wall-clock
+    values are the ones the function produced. A column mixing numbers and
+    text keeps every value as text. Both are recorded, so the receipt can say
+    what changed. Anything else (mixed aware/naive datetimes, nested values,
+    infinity) still fails the contract.
     """
+    if isinstance(value, Mapping):
+        return pd.DataFrame([{ANSWER_COLUMN: _json_text(value)}])
+    if isinstance(value, list) and value and all(isinstance(item, Mapping) for item in value):
+        value = pd.DataFrame(value)
     if (
         not isinstance(value, pd.DataFrame)
         or not value.columns.is_unique

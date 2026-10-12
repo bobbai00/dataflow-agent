@@ -26,7 +26,10 @@ fixes the agent's multi-request settings:
 - hybrid: as catalog-compact, keeping the 5 to 9 most recent requests as
   transcript; hybrid-k3 keeps the 3 to 5 most recent;
 - hybrid-answer, hybrid-k3-answer: as hybrid and hybrid-k3, where a call may end
-  its request with an answer composed from its tables (answerStatement).
+  its request with an answer composed from its tables (answerStatement);
+- ledger: every earlier request is an entry of one line per operator, with
+  rows and columns only for the tables it ended with, and the answer by the
+  operator that computed it; a call ends its request with `answer <id>`.
 
 Every request is sent once; a request that ends without an answer is recorded
 as incomplete and the session goes on. The stack comes from the environment
@@ -71,6 +74,7 @@ ARMS = {
                             "answerField": True},
     "hybrid-k7-answer-field": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 7,
                                "answerField": True},
+    "ledger": {"multiRequest": "catalog", "catalogSource": "ledger", "answerStatement": True},
 }
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).

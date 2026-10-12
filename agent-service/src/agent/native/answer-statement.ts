@@ -19,8 +19,15 @@
 
 /**
  * The answer statement (AgentSettings.answerStatement): a call can end its
- * request with an answer composed from the tables it computed, instead of a
- * reply after seeing them.
+ * request with an answer computed in the Dataflow, instead of a reply after
+ * seeing it.
+ *
+ *     answer leaders
+ *
+ * names an operator. When its function returned a dict, that dict is the
+ * answer (the runtime holds it as a one-row table whose `answer` column is
+ * the JSON); an ordinary table answers with its rows. A value can also be
+ * composed:
  *
  *     answer {"leaders": top5[market, score], "match": check.matches} digits=4
  *
@@ -53,6 +60,24 @@ export interface AnswerTable {
 }
 
 export const ANSWER_MAX_ROWS = 50;
+
+/** The column of a one-row table that holds the dict a function returned as
+ * its answer, as JSON (runtime.py `_normalize_output`). */
+export const ANSWER_COLUMN = "answer";
+
+/** The value a function returned as an answer, when `t` is such a table;
+ * undefined for an ordinary table. Throws when the JSON was cut in transport. */
+export function answerValueOf(id: string, t: AnswerTable): unknown {
+  if (t.columns.length !== 1 || t.columns[0] !== ANSWER_COLUMN || t.total !== 1 || t.rows.length !== 1)
+    return undefined;
+  const cell = t.rows[0][ANSWER_COLUMN];
+  if (typeof cell !== "string" || !/^\s*[{[]/.test(cell)) return undefined;
+  try {
+    return JSON.parse(cell);
+  } catch {
+    throw new Error(`ANSWER_INCOMPLETE: the answer value of \`${id}\` was cut in transport; return a smaller answer.`);
+  }
+}
 
 type Token = { kind: "punct" | "string" | "number" | "name"; text: string; value?: string | number };
 
@@ -120,7 +145,7 @@ export function parseAnswer(text: string): AnswerSpec {
     digits = Number(digitsMatch[1]);
     body = body.slice(0, digitsMatch.index).trim();
   }
-  if (!body) throw new Error('answer needs a value: answer {"key": table, ...}');
+  if (!body) throw new Error('answer needs an operator: answer <id>, or a value such as {"key": table}');
   const tokens = tokenize(body);
   let at = 0;
   const peek = () => tokens[at];
@@ -258,6 +283,15 @@ export function composeAnswer(
       if (v.kind === "list") return v.items.map(build);
       if (v.kind === "object") return Object.fromEntries(v.entries.map(([key, item]) => [key, build(item)]));
       const t = tables.get(v.id)!;
+      if (v.kind === "table" && !v.columns) {
+        // `answer <id>` of an operator whose function returned the answer dict.
+        const returned = answerValueOf(v.id, t);
+        if (returned !== undefined) {
+          if (returned && typeof returned === "object" && !Object.keys(returned).length)
+            throw new Error(`ANSWER_EMPTY: \`${v.id}\` returned an empty answer.`);
+          return returned;
+        }
+      }
       if (v.kind === "column") {
         known(v.id, [v.column]);
         if (allNull(v.id, v.column)) throw new Error(`ANSWER_ALL_NULL: \`${v.id}.${v.column}\` is null in every row.`);

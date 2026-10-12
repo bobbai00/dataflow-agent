@@ -221,10 +221,12 @@ export function buildRegisteredNativeSystemPrompt(
           ? ((options.catalogRecent ?? 0) > 0
               ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
               : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
-            (options.catalogSource === "docstring"
-              ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
-              : "the functions it registered or changed, with their signatures and source") +
-            "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
+            (options.catalogSource === "ledger"
+              ? "the functions it registered or changed, with their signatures and docstrings (`show function` reads any source); one line per operator it set, with rows and columns for the tables it ended with or showed; and its answer, with the operator that computed it. Entries carry no records; `show result` an earlier table when you need its values, and `show schema` for columns an entry does not list. Each observation describes the graph at that time; later edits may have made its results stale."
+              : (options.catalogSource === "docstring"
+                  ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
+                  : "the functions it registered or changed, with their signatures and source") +
+                "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale.")
           : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
     TOOL_FIELDS: options.answerField
       ? '`python` (definitions, or `""`), `statements` (one per line) and `answer` (the final answer over tables the call computes, or `""`)'
@@ -232,15 +234,15 @@ export function buildRegisteredNativeSystemPrompt(
     FINAL_ANSWER_RULE: options.answerField
       ? "Never answer from memory: finish a request in the call that computes its answer, by writing that answer in `answer` over the tables that hold it. Reply without the tool instead only when the answer needs a judgment the tables cannot hold, and only after `show result` has displayed what it rests on."
       : options.answerStatement
-        ? "Never answer from memory: end a request with an `answer` statement over the tables that hold the answer, or with a reply without the tool after `show result` has displayed what the answer rests on."
+        ? "Never answer from memory: end a request with `answer <id>`, naming the operator whose function returned the answer, or with a reply without the tool after `show result` has displayed what the answer rests on."
         : "Never answer from memory: a reply without the tool is your final answer, so reply without it only after `show result` has displayed what the answer rests on.",
     FINISH: options.answerField
       ? 'To finish, write the answer in `answer` in the call whose statements compute its tables, for example `{"leaders": top[market, score], "total": summary.rows} digits=4`; `""` continues the request. A table becomes its rows (`table[col1, col2]` keeps those columns); `table.column` is the value of a one-row table, or the column\'s values; strings, numbers, true, false and null are literal; `digits=N` rounds every non-integer number. Once the tables compute, the request ends with that answer as JSON, without another call, so build answer tables in the requested shape, order and column names. The answer is refused, and the request stays open, when a table it names fails, is empty, has more than 50 rows, or a column it picks is null throughout. Do not `show result` a table only to copy it into a reply.'
-      : "To finish, reply without calling the tool: that reply is the answer, verbatim, in the user's requested format; it may span lines and contain Markdown. " +
-        (options.answerStatement
-          ? 'Prefer to finish in the call that computes the answer: end it with an answer statement instead of `show result` and a reply, for example `answer {"leaders": top[market, score], "total": summary.rows} digits=4`. A table becomes its rows (`table[col1, col2]` keeps those columns); `table.column` is the value of a one-row table, or the column\'s values; literals are allowed. The request ends with that answer. It is refused, and the request stays open, when a table it names is empty, has more than 50 rows, or a column it picks is null throughout. Show a result first only when you must read it to decide the answer, and reply with text when the answer needs a judgment the tables do not hold.'
-          : "There is no answer statement."),
-    ANSWER_SOURCE: options.answerField ? "answer from that result" : "retrieve that result before answering",
+      : options.answerStatement
+        ? "To finish, end the call that computes the answer with `answer <id>`: `<id>` is an operator whose function takes the tables the answer rests on and returns the answer as a dict in the requested shape, with the requested keys, nesting, order and rounding, for example `def leaders_answer(top, eligible): return {'leaders': [{'unit': r.unit, 'score': round(r.score, 4)} for r in top.itertuples()], 'eligible_units': int(len(eligible))}`, then `set answer_1: leaders_answer(top, eligible)` and `answer answer_1`. The request ends with that dict as JSON, without another call. `answer <id>` of an ordinary table of up to 50 rows answers with its rows. The answer is refused, and the request stays open, when the operator fails or returns nothing. Show a result first only when you must read it to decide the answer. A reply without the tool is also an answer, verbatim, in the user's requested format; use it only when the answer needs a judgment the tables do not hold, after `show result` has displayed what it rests on."
+        : "To finish, reply without calling the tool: that reply is the answer, verbatim, in the user's requested format; it may span lines and contain Markdown. There is no answer statement.",
+    ANSWER_SOURCE:
+      options.answerField || options.answerStatement ? "answer from that result" : "retrieve that result before answering",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),

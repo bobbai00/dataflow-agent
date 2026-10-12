@@ -30,6 +30,7 @@ import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import { observationFormat, describeOperator, topologicalOperators, columnEntries } from "../native/observation-format";
 import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { composeAnswer } from "../native/answer-statement";
+import { columnChecks } from "../native/column-checks";
 import { edgeEnds, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { inspectRegisteredNamespace, inspectRegisteredSchema, registeredInspectionName } from "./registered-inspection";
 import { EMPTY_DATAFLOW_ERROR, runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
@@ -190,7 +191,14 @@ export async function executeDataflowActionBatch(
           ...registration,
           signature: plan.workflow.nativeNamespace?.functions[registration.name]?.signature ?? "",
         }));
-      return { status: "ok", output };
+      // Every column error the edited operators would hit, before any of them runs.
+      const changed = new Set(
+        plan.changes
+          .filter(change => change.change === "operator" && (change.action === "created" || change.action === "updated"))
+          .map(change => (change as { operator_id: string }).operator_id)
+      );
+      const column_checks = columnChecks(plan.workflow, changed, current);
+      return { status: "ok", output: column_checks.length ? { ...output, column_checks } : output };
     }
     if (action.type === "execute") {
       const workflow = state.getWorkflowContent();

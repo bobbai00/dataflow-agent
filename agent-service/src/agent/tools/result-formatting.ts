@@ -223,11 +223,26 @@ export function formatOperatorResult(
         return `- not run: ${name}; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}). Repair that operator; this consumer did not run.`;
       }
     }
+    // A function that names a table instead of taking it as an input.
+    const undefinedName =
+      diagnostic.code === "CALLBACK_RUNTIME"
+        ? /NameError: name '([A-Za-z_]\w*)' is not defined/.exec(diagnostic.message)?.[1]
+        : undefined;
+    const namesTable =
+      !!undefinedName &&
+      (options.nativeEvidence?.workflow.operators.some(op => op.operatorID === undefinedName) ||
+        !!workflowState.getOperator(undefinedName));
+    const issue = namesTable
+      ? {
+          ...diagnostic,
+          hint: `\`${undefinedName}\` is a table in the Dataflow, not a Python name: pass it as an input of this operator and read it as a parameter.`,
+        }
+      : diagnostic;
     return (
       (diagnostic.operatorId !== operatorId
         ? `- not run: ${name}; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}).\n`
         : "") +
-      nativeDiagnosticIssue(diagnostic) +
+      nativeDiagnosticIssue(issue) +
       (opInfo.nativeError?.phase === "attempt" ? "\n- note: rejected edit; dataflow definition unchanged." : "")
     );
   }

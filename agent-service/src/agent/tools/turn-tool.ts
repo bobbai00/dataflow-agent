@@ -70,6 +70,9 @@ export const DATAFLOW_TOOL_SCHEMA = {
 export const DATAFLOW_ANSWER_TOOL_DESCRIPTION =
   "Edit, compute and read the Dataflow, and finish a request with `answer`. Reply without this tool only for a final answer the tables cannot hold.";
 
+export const DATAFLOW_ANSWER_STATEMENT_TOOL_DESCRIPTION =
+  "Edit, compute and read the Dataflow, and finish a request with the statement `answer <id>`. Reply without this tool only for a final answer the tables cannot hold.";
+
 /** The schema with `answer`; strict tool calls send every field, so `""` means none. */
 export function dataflowToolSchema(options: DataflowToolOptions = {}) {
   const schema = structuredClone(DATAFLOW_TOOL_SCHEMA) as any;
@@ -154,7 +157,11 @@ export function createDataflowTool(
   options: DataflowToolOptions = {}
 ) {
   return tool({
-    description: options.answerField ? DATAFLOW_ANSWER_TOOL_DESCRIPTION : DATAFLOW_TOOL_DESCRIPTION,
+    description: options.answerField
+      ? DATAFLOW_ANSWER_TOOL_DESCRIPTION
+      : options.answerStatement
+        ? DATAFLOW_ANSWER_STATEMENT_TOOL_DESCRIPTION
+        : DATAFLOW_TOOL_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowToolInput>(dataflowToolSchema(options)),
     execute: async input => prepareDataflowCall(input, views, options),
