@@ -308,3 +308,33 @@ earlier runs included). Agent cost $3.50 for 24 runs; judge $2.97.
 - The hybrid ran on newer code than the other three arms (the two stable
   updates of 2026-10-11), so part of the difference may come from those.
 
+### smolagents on the same eight sessions, three runs each
+
+smolagents' `CodeAgent` (`benchmark/longds/smolagents_session.py`, commit
+454c842fe) with the same request text, model, gateway and judge; run root
+`/var/tmp/longds-catalog-luna-smolagents-20261011`. Agent cost $3.13 for 24
+runs; judge $4.95.
+
+| session (questions) | `off` | `transcript` | `catalog` | hybrid | smolagents |
+|---|---:|---:|---:|---:|---:|
+| NFL t1 (42) | 9.7 | 17.0 | 18.3 | 13.3 | 17.7 (28, 6, 19) |
+| Netflix t4 (32) | 12.3 | 11.0 | 9.7 | 12.7 | 11.3 (6, 13, 15) |
+| Netflix t2 (34) | 3.0 | 5.5 | 3.5 | 5.7 | 5.7 (3, 11, 3) |
+| Marmara t1 (36) | 13.5 | 15.5 | 10.5 | 16.0 | 11.3 (17, 4, 13) |
+| Water potability t1 (34) | 21.0 | 19.0 | 21.0 | 21.0 | 19.7 (24, 18, 17) |
+| NYC restaurants t2 (33) | 14.0 | 10.0 | 15.5 | 12.7 | 10.7 (13, 5, 14) |
+| PASSNYC t1 (30) | 18.5 | 17.0 | 13.0 | 14.3 | 26.7 (29, 25, 26) |
+| Kaggle survey 2022 t2 (30) | 13.0 | 23.5 | 21.5 | 18.7 | 21.0 (23, 22, 18) |
+| **all eight (271)** | 105.0 | 118.5 | 113.0 | 114.3 | **124.0 (45.8%)** |
+| cost of one pass | $1.17 | $1.28 | $1.31 | $1.17 | **$1.04** |
+| calls per request | 2.53 | 2.59 | 2.58 | 2.54 | 1.28 |
+| input per call | 43.7k | 46.3k | 34.4k | 28.2k | 51.5k |
+
+- smolagents leads by 9.7 answers over the hybrid and 5.5 over the
+  transcript. Its passes total 143, 104 and 125, so the lead is within one
+  standard error. PASSNYC alone gives 12.4 answers of it (26.7 against
+  14.3); without PASSNYC, smolagents has 97.3 and the hybrid 100.0.
+- smolagents is the cheapest: about half the calls per request (most
+  requests are one code block that calls `final_answer`), which outweighs
+  its larger contexts (51.5k per call, 104k at the peak, never compacted).
+
