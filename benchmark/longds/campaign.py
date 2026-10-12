@@ -12,6 +12,10 @@
 # limitations under the License.
 """Run sessions x arms x repetitions, a few at a time.
 
+The arm `smolagents` runs the script-agent baseline (smolagents_session.py;
+KRAMABENCH_ROOT names a KramaBench checkout at the pinned revision); every
+other arm is a dataflow agent (run_session.py).
+
 Jobs are ordered repetition by repetition, so every arm of a session runs
 under similar load, and a job whose run folder exists is skipped (a crashed
 session is rerun from its first request after its folder is moved aside).
@@ -33,13 +37,19 @@ def jobs(root, sessions, arms, reps):
             for rep in range(1, reps + 1) for session in sessions for arm in arms]
 
 
+def command(job, model, extra):
+    """The script agent has its own runner; every other arm is a dataflow agent."""
+    common = ["--prepared", str(job["prepared"]), "--out", str(job["out"]), "--model", model, *extra]
+    if job["arm"] == "smolagents":
+        return [sys.executable, "-m", "benchmark.longds.smolagents_session", *common]
+    return [sys.executable, "-m", "benchmark.longds.run_session", "--arm", job["arm"], *common]
+
+
 def launch(job, model, extra):
     log = job["out"].parent.parent / "logs" / f"{job['out'].name}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a") as stream:
-        code = subprocess.call([sys.executable, "-m", "benchmark.longds.run_session", "--prepared", str(job["prepared"]),
-                                "--out", str(job["out"]), "--arm", job["arm"], "--model", model, *extra],
-                               stdout=stream, stderr=subprocess.STDOUT)
+        code = subprocess.call(command(job, model, extra), stdout=stream, stderr=subprocess.STDOUT)
     print(f"{job['out'].name}: exit {code}", flush=True)
     return code
 

@@ -37,6 +37,13 @@ The arm fixes the agent's multi-request settings
 | `catalog-compact` | as `catalog`; documented functions by signature and docstring | yes |
 | `hybrid` | as `catalog-compact`, but the 5 to 9 most recent requests as transcript | yes |
 
+The script-agent baseline is the arm `smolagents` (`smolagents_session.py`): smolagents'
+`CodeAgent` set up as KramaBench's `code_agent.py` sets it up (no tools, its authorized
+imports, stock system prompt, 20 steps a request), continued across the session's
+requests, sent the same prepared requests, its code run in smolagents' interpreter inside
+a sandbox that sees the session's data read-only and has no network. `KRAMABENCH_ROOT`
+names a KramaBench checkout at the revision this repository pins.
+
 ## Inputs
 
 `DataMind` links to the upstream checkout (tasks, gold, data, judge prompt).
