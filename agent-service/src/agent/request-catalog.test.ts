@@ -416,7 +416,10 @@ test("a ledger entry is one line per operator, rows and columns only for the tab
 
 def leaders_answer(top, units):
     """The leaders and the eligible count, in the requested shape."""
-    return {'leaders': [{'unit': r.unit, 'score': round(r.score, 4)} for r in top.itertuples()], 'eligible_units': int(len(units))}`,
+    return {'leaders': [{'unit': r.unit, 'score': round(r.score, 4)} for r in top.itertuples()], 'eligible_units': int(len(units))}
+
+def raw_counts(orders):
+    return orders.groupby('unit', as_index=False).size()`,
           statements: `set orders: scan(files='data/x/input/orders.csv')
 set units: eligible_units(orders, min_orders=5)
 set n_units: aggregate(units, outputs={'n': count()})
@@ -449,6 +452,7 @@ functions:
 - \`eligible_units(orders, *, min_orders=5)\` — Units with at least min_orders orders, with their share of orders and their volume.
 - \`unit_scores(units, *, rate_weight=0.5)\` — Score per unit: rate_weight times the rate percentile plus the rest times the volume percentile.
 - \`leaders_answer(top, units)\` — The leaders and the eligible count, in the requested shape.
+- \`raw_counts(orders)\`
 \`show function <name>\` reads a function's source.
 operators:
 - \`set orders: scan(files='data/x/input/orders.csv')\`

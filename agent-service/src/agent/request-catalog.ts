@@ -201,7 +201,7 @@ const DOCSTRING_CHARS = 300;
  * `catalogSource: "docstring"` a documented function is its signature and
  * docstring, a private helper its signature; source remains for the rest
  * (an undocumented function, imports, constants), and `show function` reads
- * any source on demand. */
+ * any source on demand. A ledger keeps no function source at all. */
 function functionsSection(start: SnapshotData, end: SnapshotData, source: CatalogSource = "full"): string {
   const before = start.workflow.nativeNamespace?.bindings ?? {};
   const namespace = end.workflow.nativeNamespace;
@@ -214,6 +214,9 @@ function functionsSection(start: SnapshotData, end: SnapshotData, source: Catalo
     .sort((a, b) => a.binding.cell - b.binding.cell || a.at - b.at || a.binding.name.localeCompare(b.binding.name))
     .map(({ binding }) => binding);
   const compact = source !== "full";
+  // A ledger never carries a function's source: the call that registered it
+  // showed it, and `show function` reads it again.
+  const ledger = source === "ledger";
   const api: string[] = [];
   const helpers: string[] = [];
   // Bindings whose source the entry leaves to `show function`.
@@ -235,7 +238,7 @@ function functionsSection(start: SnapshotData, end: SnapshotData, source: Catalo
         : paragraph
       : fn.doc.split("\n")[0].trim();
     api.push(`- ${inlineCode(`${fn.name}${fn.signature}`)}${doc ? ` — ${doc}` : ""}`);
-    if (compact && doc) described.add(binding.name);
+    if (compact && (doc || ledger)) described.add(binding.name);
   }
   // One statement can bind several names; its source is shown once.
   const sources = changed
