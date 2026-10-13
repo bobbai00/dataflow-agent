@@ -78,6 +78,10 @@ export interface NativeObservationOptions extends ObservationFormatOptions {
 /** The line that marks flow facts left out for the budget. */
 export const FLOW_OMITTED_NOTICE = "- note: flow facts omitted (budget).";
 
+/** Facts that only restate counts shown beside the operator's own result.
+ * They are measured for the upstream summaries of downstream results. */
+const OWN_RESTATEMENTS = new Set(["flow.aggregate"]);
+
 /** Audit metadata is not appended to model text. Full version references are
  * retained here; short prefixes in text are display labels, not cache keys. */
 export interface NativeObservation {
@@ -580,11 +584,13 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             examples.reduce((n, item) => n + item.count, 0) + details.otherCount !== rejectedRows
           )
             continue;
+          // The runtime orders the examples nearest the kept values first; an
+          // older or unscored column is in first-seen order.
           add(
             `flow.filter.rejected.${name}`,
             "flow",
             "measurement",
-            `Filter ${json(name)} among ${rejectedRows} rejected rows, including null-predicate drops: ${examples.map(item => witnessText(item)).join("; ")}; other=${details.otherCount}. Bounded first distinct values, not causes or top frequencies.`,
+            `Filter ${json(name)} among ${rejectedRows} rejected rows, including null-predicate drops, ${details.order === "nearest" ? "values nearest the kept ones" : "first values seen"}: ${examples.map(item => witnessText(item)).join("; ")}; other=${details.otherCount}. Examples, not causes.`,
             94
           );
         }
@@ -605,7 +611,10 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           size.min * out <= ns[0] &&
           size.max * out >= ns[0]))
     ) {
-      // One group's size is the input row count.
+      // One group's size is the input row count. Beside the aggregate's own
+      // result the line restates its row counts and is not shown
+      // (OWN_RESTATEMENTS); it remains for the upstream summary of a
+      // downstream result, where it names the grain that result counts.
       if (out > 1)
         add(
           "flow.aggregate",
@@ -764,13 +773,15 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       (out === 0 ? window.partitions === 0 : window.partitions >= 1 && window.partitions <= out) &&
       window.tieRows <= out - window.partitions
     ) {
-      add(
-        "flow.window",
-        "flow",
-        "measurement",
-        `Window preserved=${out} rows; partitions=${window.partitions}, ties beyond first=${window.tieRows}.`,
-        94
-      );
+      // Without ties the line restates the row and partition counts.
+      if (window.tieRows > 0)
+        add(
+          "flow.window",
+          "flow",
+          "measurement",
+          `Window preserved=${out} rows; partitions=${window.partitions}, ties beyond first=${window.tieRows}.`,
+          94
+        );
       for (const item of Array.isArray(p.columns) ? p.columns : []) {
         const c = record(item);
         if (!["lag", "lead"].includes(c.fn) || typeof c.as !== "string") continue;
@@ -805,13 +816,15 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       count(x.nullCells) &&
       x.nullCells <= out
     ) {
-      add(
-        "flow.unpivot",
-        "flow",
-        "measurement",
-        `Unpivot output=${ns[0]}*${columns.length}=${out} rows; retained null cells=${x.nullCells}.`,
-        94
-      );
+      // Without null cells the line restates the row counts.
+      if (x.nullCells > 0)
+        add(
+          "flow.unpivot",
+          "flow",
+          "measurement",
+          `Unpivot output=${ns[0]}*${columns.length}=${out} rows; retained null cells=${x.nullCells}.`,
+          94
+        );
     } else omissions.push("invalid_unpivot_counters");
   } else if (view.type === "Pivot") {
     const x = record(operations.pivot);
@@ -826,13 +839,15 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       count(out * x.generatedColumns) &&
       x.missingCells + x.uniquePairs === out * x.generatedColumns
     ) {
-      add(
-        "flow.pivot",
-        "flow",
-        "measurement",
-        `Pivot unique pairs=${x.uniquePairs}, index groups=${out}, generated columns=${x.generatedColumns}, absent cells=${x.missingCells} (filled null, separate from null input values).`,
-        94
-      );
+      // A pivot that fills every cell restates its shape.
+      if (x.missingCells > 0)
+        add(
+          "flow.pivot",
+          "flow",
+          "measurement",
+          `Pivot unique pairs=${x.uniquePairs}, index groups=${out}, generated columns=${x.generatedColumns}, absent cells=${x.missingCells} (filled null, separate from null input values).`,
+          94
+        );
     } else omissions.push("invalid_pivot_counters");
   } else if (["Distinct", "Limit"].includes(view.type)) {
     // Retained and removed rows restate the input and output row counts.
@@ -863,7 +878,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     } else omissions.push("scan_coverage_unavailable");
   }
   // A Python step's row mapping is not measured; the runtime reports values of
-  // an input column that its output column no longer contains.
+  // an input column that its output column no longer contains, those most like
+  // the kept values first (a two-state metro area among the dropped ones).
   if (view.type === "Process")
     for (const [i, raw] of (Array.isArray(operations.droppedValues) ? operations.droppedValues : []).entries()) {
       const d = record(raw);
@@ -871,11 +887,45 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       if (typeof d.inputColumn !== "string" || typeof d.outputColumn !== "string" || !missing.length) continue;
       const total = count(d.missingCount) ? d.missingCount : missing.length;
       const input = view.inputs.length > 1 && count(d.input) ? ` of input ${view.inputs[d.input] ?? d.input}` : "";
+      const order = d.order === "nearest" && total > 1 ? ", those most like the kept values first" : "";
       add(
         `flow.process.dropped.${i}`,
         "flow",
         "measurement",
-        `values of input column ${json(d.inputColumn)}${input} missing from output column ${json(d.outputColumn)}: ${missing.map(value => json(value)).join(", ")}${total > missing.length ? ", …" : ""} (${total} of ${count(d.inputDistinct) ? d.inputDistinct : "?"}).`,
+        `values of input column ${json(d.inputColumn)}${input} missing from output column ${json(d.outputColumn)}${order}: ${missing.map(value => json(value)).join(", ")}${total > missing.length ? ", …" : ""} (${total} of ${count(d.inputDistinct) ? d.inputDistinct : "?"}).`,
+        95
+      );
+    }
+  // Repeats in a column whose values otherwise identify rows: rows that a later
+  // count or mean takes more than once, whether the step created or carried them.
+  if (view.type === "Process")
+    for (const [i, raw] of (Array.isArray(operations.repeatedValues) ? operations.repeatedValues : []).entries()) {
+      const r = record(raw);
+      if (
+        typeof r.outputColumn !== "string" ||
+        ![r.rows, r.distinct, r.repeatedValues].every(count) ||
+        r.repeatedValues < 1 ||
+        r.repeatedValues > r.rows - r.distinct
+      )
+        continue;
+      const examples = witnesses(r.examples, 1, r.rows, 2);
+      // The repeated rows agree on these numeric columns: one entity counted twice.
+      const measures = names(r.sameMeasures);
+      const same = measures.length ? `, each with the same ${measures.map(name => json(name)).join(", ")}` : "";
+      const input = view.inputs.length > 1 && count(r.input) ? `input ${view.inputs[r.input] ?? r.input} ` : "";
+      const origin =
+        typeof r.inputColumn !== "string" || !count(r.inputRepeated) || r.inputRepeated > r.repeatedValues
+          ? ""
+          : r.inputRepeated === r.repeatedValues
+            ? `; ${input}column ${json(r.inputColumn)} repeats them too`
+            : r.inputRepeated === 0
+              ? `; each occurs once in ${input}column ${json(r.inputColumn)}, so this step created the repeats`
+              : `; ${r.inputRepeated} of them repeat in ${input}column ${json(r.inputColumn)} too`;
+      add(
+        `flow.process.repeated.${i}`,
+        "flow",
+        "measurement",
+        `output column ${json(r.outputColumn)} repeats ${r.repeatedValues} values (${r.rows} rows, ${r.distinct} distinct)${same}${examples.length ? `: ${examples.map(item => witnessText(item)).join("; ")}` : ""}${origin}.`,
         95
       );
     }
@@ -1095,6 +1145,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     const budget = Math.max(0, context.flowMaxChars ?? maxChars);
     const facts = evidence.facts
       .filter(f => f.family === "flow" && (context.upstream !== false || !f.upstream))
+      .filter(f => f.upstream || !OWN_RESTATEMENTS.has(f.id))
       .sort((a, b) => b.priority - a.priority);
     const notice = FLOW_OMITTED_NOTICE;
     const allText = facts.map(fact => {

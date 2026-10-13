@@ -97,8 +97,6 @@ Keep reusable working tables separate from limited answer tables. Check meaningf
 
 {{DATA_STATISTICS}}
 
-{{FLOW_STATISTICS}}
-
 ## 4. Worked examples
 
 {{EXAMPLES}}

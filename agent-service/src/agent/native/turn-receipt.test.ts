@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import type { DataflowActionsResult } from "../tools/dataflow-actions";
-import { renderTurnReceipt } from "./turn-receipt";
+import { FLOW_LINE, FLOW_NOTE, renderTurnReceipt } from "./turn-receipt";
 import { parseTurn, type ParsedTurn } from "./turn-syntax";
 
 const views = ["sample_stats", "full"] as const;
@@ -139,7 +139,41 @@ records: full; 2 of 2 rows, 3 of 3 columns (complete)
 statistics: full table, 2 of 2 rows, 3 of 3 columns
 | column | type | nulls | distinct | values |
 |---|---|---|---|---|
-| band | str | 0 | 2 | all: high 1; low 1 |`);
+| band | str | 0 | 2 | all: high 1; low 1 |
+
+${FLOW_NOTE}`);
+});
+
+test("flow lines are explained once, in the receipts that carry them", () => {
+  const turn = turnOf("execute marine, bands");
+  const executed = (issues: string[][]) =>
+    resultOf(turn, [
+      {
+        status: "ok",
+        output: {
+          operators: [
+            { id: "marine", status: "ok", state: "executed", rows: 1204 },
+            { id: "bands", status: "ok", state: "executed", rows: 611 },
+          ],
+          operator_blocks: [
+            block("marine", "filter", ["water"], "1,204 rows × 10 columns", issues[0]),
+            block("bands", "ej_band", ["marine"], "611 rows × 9 columns", issues[1]),
+          ],
+        },
+      },
+    ]);
+  const plain = renderTurnReceipt(executed([[], []]), turn);
+  expect(plain).not.toContain(FLOW_NOTE);
+  expect(FLOW_LINE.test(plain)).toBe(false);
+  const flows = renderTurnReceipt(
+    executed([
+      ["- flow: Filter \"kind\" among 2106 rejected rows, including null-predicate drops, first values seen: \"Freshwater\" × 2098; other=8. Examples, not causes."],
+      ["- flow: values of input column \"site\" missing from output column \"site\": \"A\" (1 of 9)."],
+    ]),
+    turn
+  );
+  expect(flows.split(FLOW_NOTE)).toHaveLength(2);
+  expect(flows.endsWith(`\n\n${FLOW_NOTE}`)).toBe(true);
 });
 
 test("a rejected edit names the line and nothing else runs", () => {

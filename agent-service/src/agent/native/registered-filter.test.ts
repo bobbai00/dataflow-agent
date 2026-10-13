@@ -206,9 +206,36 @@ test("conditional predicate reads still profile each observed column across all 
       { values: [null], count: 1, truncated: false },
     ],
     otherCount: 0,
+    // Every row was rejected: nothing kept to be near, so first-seen order.
+    order: "first",
   });
   expect(result.native.operations.timing.operatorBodyMs).toBeGreaterThanOrEqual(0);
   expect(result.native.operations.timing.filterRejectedValuesMs).toBeGreaterThanOrEqual(0);
+});
+
+test("rejected numbers nearest the kept range come first, with exact counts", async () => {
+  // A strict comparison that should have been inclusive rejects the boundary value.
+  const state = await fixture("def keep(row):\n    return row['x'] > 10");
+  const result = execute(state, "pd.DataFrame({'x':[-5, 3, 10, 20, 10, 20]})");
+  const values = result.native.operations.filterRejectedValues.columns.x;
+  expect(values.order).toBe("nearest");
+  expect(values.examples.map((item: any) => [Number(item.values[0].value), item.count])).toEqual([
+    [10, 2],
+    [3, 1],
+    [-5, 1],
+  ]);
+  expect(values.otherCount).toBe(0);
+});
+
+test("rejected text sharing tokens with the kept values comes before unrelated values", async () => {
+  // A padded code and a two-state code look like the kept codes; other states do not.
+  // The padded code is as long as a kept code, so it comes first.
+  const state = await fixture("def keep(row):\n    return row['state'] in ('CT', 'MA')");
+  const result = execute(state, "pd.DataFrame({'state':['AL','AK','CT','MA','AZ','MA-NH','CT ']})");
+  const values = result.native.operations.filterRejectedValues.columns.state;
+  expect(values.order).toBe("nearest");
+  expect(values.examples.map((item: any) => item.values[0].value)).toEqual(["CT ", "MA-NH", "AL"]);
+  expect(values.otherCount).toBe(2);
 });
 
 test("filter witnesses cap columns and predicates cannot mutate the input row", async () => {

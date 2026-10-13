@@ -275,8 +275,22 @@ function resultLines(item: ActionItem | undefined, memo: FlowReceiptMemo, execut
   return lines;
 }
 
+/** A flow line as rendered by selectNativeObservation: `- flow: …` or `- flow (id): …`. */
+export const FLOW_LINE = /^\s*- flow(?: \([^\n]*\))?:/m;
+
+/** What flow lines are, said once in each receipt that carries one, never in
+ * the system prompt: a prompt paragraph shifts decisions made before any flow
+ * line exists, and most receipts carry none. */
+export const FLOW_NOTE =
+  "note: `- flow:` lines show what the steps above dropped, rejected, left unmatched or repeated; compare them with the population the question asks for.";
+
 /** Render the receipt of a `dataflow` call from the executed action list. */
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {
+  const receipt = renderTurnSections(result, turn);
+  return FLOW_LINE.test(receipt) ? `${receipt}\n\n${FLOW_NOTE}` : receipt;
+}
+
+function renderTurnSections(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {
   const sections: string[] = [];
   const flowMemo = new FlowReceiptMemo();
   if (turn?.ignoredProse?.length)

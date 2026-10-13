@@ -64,7 +64,12 @@ STATEMENT_VIEW = re.compile(r"^[ \t]*show[ \t]+result[ \t]+[A-Za-z_]\w*[^\n]*[ \
 FULL_STATISTICS = re.compile(r"statistics: full table, ([\d,]+) of ([\d,]+) rows, ([\d,]+) of ([\d,]+) columns")
 # The evidence guidance sentences of the system prompt, current and earlier wordings.
 DATA_PROMPT = re.compile(r"Column statistics (?:are collected|in `sample_stats`)")
-FLOW_PROMPT = re.compile(r"Flow (?:statistics (?:describe measured|report measured)|lines report what upstream steps did)")
+# Flow guidance left the system prompt (2026-10-13): the prompt is the same with
+# flow on or off, and these earlier wordings and the flow example must not appear.
+FLOW_PROMPT = re.compile(r"Flow (?:statistics (?:describe measured|report measured)|lines report what upstream steps did)"
+                         r"|Use upstream measurements to repair a condition")
+# Its replacement: one note in each tool result that carries a flow line.
+FLOW_NOTE = re.compile(r"^note: `- flow:` lines show", re.MULTILINE)
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
 
@@ -82,7 +87,7 @@ def audit_attempt(path, settings):
     def display(text, location):
         if not isinstance(text, str):
             return
-        if not flow_enabled and FLOW_LINE.search(text):
+        if not flow_enabled and (FLOW_LINE.search(text) or FLOW_NOTE.search(text)):
             issue("flow_markdown_leak", location)
         if not data_enabled and DATA_LINE.search(text):
             issue("data_markdown_leak", location)
@@ -134,7 +139,7 @@ def audit_attempt(path, settings):
             issue("dataflow_prompt_missing", location)
         if bool(DATA_PROMPT.search(system)) != data_enabled:
             issue("data_prompt_mismatch", location)
-        if bool(FLOW_PROMPT.search(system)) != flow_enabled:
+        if FLOW_PROMPT.search(system):
             issue("flow_prompt_mismatch", location)
         example_views = STATEMENT_VIEW.findall(system)
         # Example calls carry their statements inside JSON strings.
@@ -157,6 +162,8 @@ def audit_attempt(path, settings):
             counts["characters"] += len(text)
             counts["max_characters"] = max(counts["max_characters"], len(text))
             counts["with_flow"] += bool(FLOW_LINE.search(text))
+            if flow_enabled and FLOW_LINE.search(text) and not FLOW_NOTE.search(text):
+                issue("flow_note_missing", f"{location}:{role}:{message.get('tool_call_id', '?')}")
             counts["with_statistics_caption"] += bool(DATA_LINE.search(text))
             counts["with_table_statistics"] += bool(DATA_TABLE.search(text))
             for heading in RECEIPT_HEADING.findall(text):

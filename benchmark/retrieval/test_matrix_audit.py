@@ -12,6 +12,7 @@
 # limitations under the License.
 """Offline matrix checks exercise actual wire text, not only evidence IDs."""
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -40,8 +41,7 @@ class MatrixAuditTests(unittest.TestCase):
                   "Use the `dataflow` tool: `python` and `statements` (one per line).")
         if data:
             prompt += " Column statistics in `sample_stats` describe the requested result."
-        if flow:
-            prompt += " Flow statistics report measured effects."
+        # Flow evidence leaves the prompt unchanged; flow lines carry their own note.
         return prompt
 
     def request(self, n=1, extra=None, data=False, flow=False, tools=None):
@@ -82,7 +82,7 @@ class MatrixAuditTests(unittest.TestCase):
                     if data:
                         receipt += "\nstatistics: full table, 3 of 3 rows, 1 of 1 columns"
                     if flow:
-                        receipt += "\n- flow: measured rows=3"
+                        receipt += "\n- flow: measured rows=3\n\nnote: `- flow:` lines show what the steps above dropped, rejected, left unmatched or repeated; compare them with the population the question asks for."
                     self.receipt_request(receipt, data, flow)
                     result = self.findings()
                     self.assertEqual(result["violations"], [])
@@ -153,10 +153,21 @@ class MatrixAuditTests(unittest.TestCase):
 
     def test_each_wire_request_must_keep_conditional_prompt_and_schema(self):
         self.request()
-        self.request(2, data=True, flow=True, tools=[{"type": "function", "function": {"name": "dataflow"}}])
+        request = self.request(2, data=True, flow=True, tools=[{"type": "function", "function": {"name": "dataflow"}}])
+        # The flow paragraph left the prompt: in any arm it marks a stale build.
+        request["messages"][0]["content"] += " Flow lines report what upstream steps did that row counts do not show."
+        self.write("wire/000002-request.json", request)
         result = self.findings()
         self.assertTrue({"wire_prefix_changed", "tool_schema_changed",
                          "data_prompt_mismatch", "flow_prompt_mismatch"}.issubset(result["violations"]))
+
+    def test_flow_lines_need_their_note_and_the_note_needs_flow(self):
+        self.receipt_request("## show result data\n- flow: measured rows=3", flow=True)
+        self.assertIn("flow_note_missing", self.findings()["violations"])
+        self.receipt_request("## show result data\n- flow: measured rows=3\n\nnote: `- flow:` lines show what the steps above dropped, rejected, left unmatched or repeated; compare them with the population the question asks for.", flow=True)
+        self.assertEqual(self.findings()["violations"], [])
+        self.receipt_request("## show result data\n\nnote: `- flow:` lines show what the steps above dropped, rejected, left unmatched or repeated; compare them with the population the question asks for.", flow=False)
+        self.assertIn("flow_markdown_leak", self.findings()["violations"])
 
     def test_developer_role_is_a_provider_prompt_encoding_not_a_missing_prompt(self):
         self.settings["retrievalViews"] = ["sample_stats", "full"]
@@ -297,12 +308,16 @@ class MatrixAuditTests(unittest.TestCase):
 
     def test_evidence_prompt_checks_match_the_shipped_prompt(self):
         # The runner pauses a campaign on these checks: they must follow the prompt's wording.
-        from benchmark.retrieval.matrix_audit import DATA_PROMPT, FLOW_PROMPT
+        from benchmark.retrieval.matrix_audit import DATA_PROMPT, FLOW_NOTE, FLOW_PROMPT
         root = Path(__file__).resolve().parents[2]
         evidence = (root / "native-mode/SYSTEM_PROMPT_WITH_EVIDENCE.txt").read_text()
         plain = (root / "native-mode/SYSTEM_PROMPT.txt").read_text()
-        self.assertTrue(DATA_PROMPT.search(evidence) and FLOW_PROMPT.search(evidence))
-        self.assertFalse(FLOW_PROMPT.search(plain))
+        self.assertTrue(DATA_PROMPT.search(evidence))
+        # Flow guidance lives in the receipts that carry flow lines, never in the prompt.
+        self.assertFalse(FLOW_PROMPT.search(evidence) or FLOW_PROMPT.search(plain))
+        receipt = (root / "agent-service/src/agent/native/turn-receipt.ts").read_text()
+        note = re.search(r'export const FLOW_NOTE =\s*"([^"]+)"', receipt)
+        self.assertTrue(note and FLOW_NOTE.search(note.group(1)))
 
     def test_a_timed_out_attempt_is_audited_from_the_watchdog_trace(self):
         self.write("manifest.json", {"settings": self.settings, "arms": {"data0flow0": {}}, "jobs": [

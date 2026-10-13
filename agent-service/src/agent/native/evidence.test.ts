@@ -451,11 +451,11 @@ test("shape measurements validate their row equations and reject stale or incons
     ],
     [
       "Pivot",
-      { index: [], columns: "key", values: "x" },
-      1,
-      { pivot: { uniquePairs: 5, indexGroups: 1, generatedColumns: 5, missingCells: 0 } },
+      { index: ["k"], columns: "key", values: "x" },
+      2,
+      { pivot: { uniquePairs: 5, indexGroups: 2, generatedColumns: 3, missingCells: 1 } },
       "flow.pivot",
-      { pivot: { uniquePairs: 5, indexGroups: 1, generatedColumns: 5, missingCells: 1 } },
+      { pivot: { uniquePairs: 5, indexGroups: 2, generatedColumns: 3, missingCells: 2 } },
     ],
   ] as const) {
     const f = fixture(kind, properties);
@@ -468,6 +468,28 @@ test("shape measurements validate their row equations and reject stale or incons
     f.info.tableProfile!.native!.operations = corrupt;
     expect(collectNativeEvidence(f).facts.some(fact => fact.id === validFact)).toBe(false);
     expect(collectNativeEvidence(f).omissions).toContain(`invalid_${kind.toLowerCase()}_counters`);
+  }
+});
+
+test("shape lines that only restate row counts are not flow lines", () => {
+  // No ties, no absent cells, no null cells: the line would restate the shape.
+  for (const [kind, properties, rows, operations, fact] of [
+    ["Unpivot", { columns: ["x", "y"] }, 10, { unpivot: { selectedColumns: 2, nullCells: 0 } }, "flow.unpivot"],
+    ["Window", { orderBy: [{ col: "x" }], columns: [] }, 5, { window: { partitions: 2, tieRows: 0, outputs: {} } }, "flow.window"],
+    [
+      "Pivot",
+      { index: [], columns: "key", values: "x" },
+      1,
+      { pivot: { uniquePairs: 5, indexGroups: 1, generatedColumns: 5, missingCells: 0 } },
+      "flow.pivot",
+    ],
+  ] as const) {
+    const f = fixture(kind, properties);
+    f.info.totalRowCount = f.info.tableProfile!.rowCount = rows;
+    Object.assign(f.info.tableProfile!.native!, { outputRows: rows, operations });
+    const evidence = collectNativeEvidence(f);
+    expect(evidence.facts.some(item => item.id === fact)).toBe(false);
+    expect(evidence.omissions).not.toContain(`invalid_${kind.toLowerCase()}_counters`);
   }
 });
 
@@ -702,6 +724,86 @@ test("a Python step reports values of an input column that its output column los
   // A bounded example list says how many values it left out.
   (f.info.tableProfile!.native!.operations!.droppedValues as any)[0].missingCount = 9;
   expect(factText(f)).toContain('"Puerto Rico", … (9 of 53).');
+});
+
+test("dropped values most like the kept ones come first, and the line says so", () => {
+  // legal-hard-14: a single-state pattern kept ", CT" and ", MA" areas and dropped the two-state ones.
+  const f = fixture("Process");
+  f.op.nativeOp!.registeredName = "new_england_msas";
+  const entry = {
+    input: 0,
+    inputColumn: "Metropolitan Areas",
+    outputColumn: "Metropolitan Area",
+    missing: [
+      "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+      "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+    ],
+    missingCount: 389,
+    inputDistinct: 404,
+    order: "nearest",
+  };
+  f.info.tableProfile!.native!.operations = { droppedValues: [entry] };
+  expect(factText(f)).toContain(
+    'missing from output column "Metropolitan Area", those most like the kept values first: "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area", "Providence-Warwick, RI-MA Metropolitan Statistical Area", … (389 of 404).'
+  );
+  // First-seen values (no value shares anything with the kept ones) are not ranked.
+  entry.order = "first";
+  expect(factText(f)).toContain('missing from output column "Metropolitan Area": "Boston');
+});
+
+test("a Python step reports repeats in an identifying output column and whether it created them", () => {
+  // legal-hard-1: every state's file lists its cross-state metro areas, so the cleaned table repeats them.
+  const f = fixture("Process");
+  f.op.nativeOp!.registeredName = "clean_identity";
+  const entry = {
+    outputColumn: "area",
+    rows: 452,
+    distinct: 401,
+    repeatedValues: 43,
+    examples: [
+      {
+        values: [{ type: "str", value: "Philadelphia-Camden-Wilmington, PA-NJ-DE-MD Metropolitan Statistical Area" }],
+        count: 4,
+        truncated: false,
+      },
+      { values: [{ type: "str", value: "Memphis, TN-MS-AR Metropolitan Statistical Area" }], count: 3, truncated: false },
+    ],
+    input: 0,
+    inputColumn: "Metropolitan Areas",
+    inputRepeated: 43,
+  };
+  f.info.tableProfile!.native!.operations = { repeatedValues: [entry] };
+  expect(factText(f)).toContain(
+    'output column "area" repeats 43 values (452 rows, 401 distinct): "Philadelphia-Camden-Wilmington, PA-NJ-DE-MD Metropolitan Statistical Area" × 4; "Memphis, TN-MS-AR Metropolitan Statistical Area" × 3; column "Metropolitan Areas" repeats them too.'
+  );
+  entry.inputRepeated = 0;
+  expect(factText(f)).toContain('; each occurs once in column "Metropolitan Areas", so this step created the repeats.');
+  entry.inputRepeated = 7;
+  expect(factText(f)).toContain('; 7 of them repeat in column "Metropolitan Areas" too.');
+  // Repeats whose rows agree on the numbers are one entity counted twice; the line says so.
+  Object.assign(entry, { sameMeasures: ["reports"] });
+  expect(factText(f)).toContain('repeats 43 values (452 rows, 401 distinct), each with the same "reports": "Philadelphia');
+  // Counters that cannot hold say nothing: 43 repeated values need at least 43 extra rows.
+  entry.rows = 420;
+  expect(factText(f)).not.toContain("repeats");
+});
+
+test("an aggregate's own result does not restate its group counts; downstream results keep them", () => {
+  const f = fixture("Aggregate", { groupBy: ["g"], aggregations: [{ fn: "count", as: "n" }] });
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 2;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 2,
+    operations: {
+      groupCount: 2,
+      groupSizes: { min: 2, max: 3, total: 5 },
+      aggregateNonNull: { n: { total: 5, min: 2, max: 3 } },
+    },
+  });
+  // Measured, for the upstream summary of a downstream count…
+  expect(factText(f)).toContain("Aggregate groups=2 from 5 rows");
+  // …but beside the aggregate's own two rows it restates them.
+  expect(observe(f, { data: false }).text).not.toContain("groups=2");
+  expect(observe(f, { data: false, upstream: false }).text).not.toContain("groups=2");
 });
 
 test("an author's description is never presented as an engine guarantee", () => {

@@ -355,6 +355,7 @@ def test_python_step_reports_input_values_it_dropped():
 """
     measured = runtime.execute_native({**spec("Process", code=code), "profileCollection": True}, [identity])
     assert measured["state"].tolist() == states
+    # No dropped value shares a word with a kept state name: first-seen order.
     assert measured.attrs["native_v2"]["operations"]["droppedValues"] == [{
         "input": 0,
         "inputColumn": "Unnamed: 1",
@@ -362,6 +363,7 @@ def test_python_step_reports_input_values_it_dropped():
         "missing": ["State", "District of Columbia", "Puerto Rico"],
         "missingCount": 3,
         "inputDistinct": 6,
+        "order": "first",
     }]
     # Without profile collection nothing is measured; a step that keeps every value reports nothing.
     plain = runtime.execute_native(spec("Process", code=code), [identity])
@@ -371,6 +373,98 @@ def test_python_step_reports_input_values_it_dropped():
         [pd.DataFrame({"state": ["a", "b", None]}).astype("string")],
     )
     assert "droppedValues" not in keep.attrs["native_v2"]["operations"]
+
+
+def test_python_step_lists_the_dropped_values_most_like_the_kept_ones_first():
+    # legal-hard-14: a single-state pattern keeps ", CT" and ", MA" areas and drops the two-state ones,
+    # which first-seen order buried behind every other state's areas.
+    others = [f"Town{i}, {state} Metropolitan Statistical Area" for i, state in enumerate(["AL", "AK", "AZ", "AR", "CA", "CO"] * 3)]
+    kept = ["Hartford, CT Metropolitan Statistical Area", "New Haven, CT Metropolitan Statistical Area",
+            "Worcester, MA Metropolitan Statistical Area", "Springfield, MA Metropolitan Statistical Area"]
+    near = ["Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area", "Providence-Warwick, RI-MA Metropolitan Statistical Area"]
+    areas = pd.DataFrame({"area": others + kept + near}).astype("string")
+    code = """def process(source):
+    return source[source['area'].str.contains(r', (?:CT|MA) Metropolitan Statistical Area$')].reset_index(drop=True)
+"""
+    measured = runtime.execute_native({**spec("Process", code=code), "profileCollection": True}, [areas])
+    dropped = measured.attrs["native_v2"]["operations"]["droppedValues"][0]
+    assert dropped["order"] == "nearest"
+    assert sorted(dropped["missing"][:2]) == sorted(near)
+    assert dropped["missingCount"] == len(others) + len(near)
+
+
+def test_near_order_ranks_numbers_by_distance_from_the_kept_range_and_keeps_unscored_values_last():
+    order, scored = runtime._near_order([-5, 3, None, 10, "x"], [20, 25])
+    assert scored is True
+    assert order == [3, 1, 0, 2, 4]
+    order, scored = runtime._near_order(["Puerto Rico", "State"], ["Florida", "Georgia"])
+    assert (order, scored) == ([0, 1], False)
+    # Years kept as text are numbers: the years beside the kept one come first.
+    assert runtime._near_order(["2010", "2014", "1999", "2016"], ["2015"]) == ([1, 3, 0, 2], True)
+    # Values inside the kept range were dropped for another reason: first-seen, unranked.
+    assert runtime._near_order([22, 21, 30], [20, 25]) == ([2, 0, 1], True)
+    assert runtime._near_order([22, 21], [20, 25]) == ([0, 1], False)
+
+
+def test_near_order_does_not_let_a_header_word_outrank_a_lookalike_value():
+    kept = [f"City{i}, {state} Metropolitan Statistical Area" for i, state in enumerate(["CT", "MA", "ME", "VT"] * 2)]
+    dropped = ["Metropolitan Areas are defined by the Office of Management and Budget and ranked by reports per 100,000",
+               "Town1, AL Micropolitan Statistical Area", "Boston, MA-NH Metropolitan Statistical Area"]
+    order, scored = runtime._near_order(dropped, kept)
+    assert scored is True
+    assert order[0] == 2
+
+
+def test_python_step_reports_repeats_in_an_identifying_column_and_whether_it_created_them():
+    # legal-hard-1: each state's file lists the cross-state metro areas, so stacking the files repeats them.
+    states = pd.DataFrame({
+        "area": [f"Area {i}" for i in range(20)] + ["Boston, MA-NH", "Providence, RI-MA"],
+        "reports": list(range(22)),
+    }).astype({"area": "string"})
+    stacked = pd.concat([states, states.iloc[20:]], ignore_index=True)
+    carried = runtime.execute_native(
+        {**spec("Process", code="def process(source):\n    return source[['area']]"), "profileCollection": True}, [stacked])
+    repeated = carried.attrs["native_v2"]["operations"]["repeatedValues"]
+    assert repeated == [{
+        "outputColumn": "area", "rows": 24, "distinct": 22, "repeatedValues": 2,
+        "examples": [
+            {"values": [{"type": "str", "value": "Boston, MA-NH"}], "count": 2, "truncated": False},
+            {"values": [{"type": "str", "value": "Providence, RI-MA"}], "count": 2, "truncated": False},
+        ],
+        "input": 0, "inputColumn": "area", "inputRepeated": 2,
+    }]
+    created = runtime.execute_native(
+        {**spec("Process", code="def process(source):\n    import pandas as pd\n    return pd.concat([source, source.iloc[:3]], ignore_index=True)"),
+         "profileCollection": True}, [states])
+    assert created.attrs["native_v2"]["operations"]["repeatedValues"][0]["inputRepeated"] == 0
+    # A column mostly made of repeats is a grouping column, not an identifier: no report.
+    grouped = runtime.execute_native(
+        {**spec("Process", code="def process(source):\n    import pandas as pd\n    return pd.concat([source] * 3, ignore_index=True)"),
+         "profileCollection": True}, [states])
+    assert "repeatedValues" not in grouped.attrs["native_v2"]["operations"]
+    plain = runtime.execute_native(spec("Process", code="def process(source):\n    return source[['area']]"), [stacked])
+    assert "repeatedValues" not in plain.attrs["native_v2"]["operations"]
+
+
+def test_repeats_count_only_when_the_repeated_rows_agree_on_their_numbers():
+    # archeology-hard-7: two cities named Tripoli at different coordinates are two entities.
+    cities = pd.DataFrame({
+        "city": [f"City {i}" for i in range(12)] + ["Tripoli", "Tripoli"],
+        "lat": [float(i) for i in range(12)] + [32.9, 34.4],
+        "lng": [float(i) for i in range(12)] + [13.2, 35.8],
+    }).astype({"city": "string"})
+    keep = {**spec("Process", code="def process(source):\n    return source"), "profileCollection": True}
+    distinct_entities = runtime.execute_native(keep, [cities])
+    assert "repeatedValues" not in distinct_entities.attrs["native_v2"]["operations"]
+    # The same city listed twice with the same coordinates is one entity counted twice.
+    cities.loc[13, ["lat", "lng"]] = [32.9, 13.2]
+    duplicated = runtime.execute_native(keep, [cities])
+    entry = duplicated.attrs["native_v2"]["operations"]["repeatedValues"][0]
+    assert (entry["outputColumn"], entry["repeatedValues"], entry["sameMeasures"]) == ("city", 1, ["lat", "lng"])
+    # A percentage with a Unicode minus is a number kept as text, not an identifier.
+    changes = pd.DataFrame({"change": ["−1.05%", "+0.94%"] * 2 + [f"+{i}.5%" for i in range(10)]}).astype("string")
+    measured = runtime.execute_native(keep, [changes])
+    assert "repeatedValues" not in measured.attrs["native_v2"]["operations"]
 
 
 def test_preflight_rejects_project_keep_and_drop_before_execution():

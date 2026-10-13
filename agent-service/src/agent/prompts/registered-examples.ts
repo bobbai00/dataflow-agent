@@ -29,9 +29,10 @@ import { renderTurnReceipt } from "../native/turn-receipt";
 import { parseTurn } from "../native/turn-syntax";
 
 type Row = Record<string, string | number>;
+/** No flow switch: the examples, like the rest of the prompt, are the same with
+ * flow evidence on or off (flow lines explain themselves in tool results). */
 type Options = ObservationFormatOptions & {
   retrievalViews?: RetrievalView[];
-  flowEvidence?: boolean;
 };
 
 /** Small complete synthetic materializations. Receipts use the production
@@ -163,7 +164,7 @@ export function registeredExamples(options: Options): string {
         resolveInput: name => tables.get(name)?.info,
         view,
         data: upstream && view === "sample_stats",
-        flow: !!options.flowEvidence,
+        flow: false,
         upstream,
         maxChars: 2000,
         maxRows: 2,
@@ -294,44 +295,10 @@ export function registeredExamples(options: Options): string {
     reply("Group A: 60; group B: 70."),
   ];
 
-  if (options.flowEvidence) {
-    const source = exampleTable("readings", "Scan", [{ value: 10 }, { value: 10 }, { value: 20 }, { value: 20 }]);
-    const kept = exampleTable("kept", "Filter", [{ value: 20 }, { value: 20 }], ["readings"], {
-      keptRows: 2,
-      rejectedRows: 2,
-      nullPredicates: 0,
-      predicateColumns: ["value"],
-      filterRejectedValues: {
-        rejectedRows: 2,
-        columns: {
-          value: {
-            examples: [{ values: [{ type: "int64", value: "10" }], count: 2, truncated: false }],
-            otherCount: 0,
-          },
-        },
-      },
-    });
-    kept.info.tableProfile!.native!.inputRows = [4];
-    add(source);
-    add(kept);
-    add(exampleTable("total", "Aggregate", [{ total: 40 }], ["kept"]));
-    parts.push(
-      "### Use upstream measurements to repair a condition",
-      "Request: sum readings at least 10. Suppose the first condition mistakenly uses a strict comparison:",
-      call(
-        "",
-        `set readings: scan(files='data/readings.csv')\nset kept: filter(readings, lambda row: row['value'] > 10)\nset total: aggregate(kept, outputs={'total': sum('value')})\n${show("total", true)}`,
-        true
-      ),
-      "The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the filter; the existing graph keeps its connections:",
-      call("", `set kept: filter(readings, lambda row: row['value'] >= 10)\n${show("total", true)}`),
-      "The new result is total=60. Check the returned result before ending the task.",
-      reply("60")
-    );
-  }
-
-  // One reading example, the flow repair when flow evidence is on, and the
-  // answer rule. Every example is paid for on every call of every task.
+  // One reading example and the answer rule. Every example is paid for on
+  // every call of every task. The flow-repair example that used to follow when
+  // flow evidence was on is gone: it composed a whole computation before
+  // looking, and decisions shifted before any flow line appeared (2026-10-13).
   parts.push(
     "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
   );

@@ -118,8 +118,6 @@ Keep reusable working tables separate from limited answer tables. Check meaningf
 
 Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Read `values` for flags, codes, and spellings that define the population, and ranges and nulls for units and fill values; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics. The `full` view does not request table statistics.
 
-Flow lines report what upstream steps did that row counts do not show: rejected filter values, unmatched join keys, cast failures, nulls left out of an aggregate, and values a Python step dropped from a column. Before answering, read the flow lines of the operators the answer depends on, and fix or explain unmatched join keys and filters that rejected requested values.
-
 ## 4. Worked examples
 
 ### Read unfamiliar data, then batch a known computation
@@ -187,49 +185,5 @@ records: full; 2 of 2 rows, 2 of 2 columns (complete)
 ```
 
 Reply, without the tool: `Group A: 60; group B: 70.`
-
-### Use upstream measurements to repair a condition
-
-Request: sum readings at least 10. Suppose the first condition mistakenly uses a strict comparison:
-
-```json
-{
-  "python": "",
-  "statements": "set readings: scan(files='data/readings.csv')\nset kept: filter(readings, lambda row: row['value'] > 10)\nset total: aggregate(kept, outputs={'total': sum('value')})\nshow result total full"
-}
-```
-
-Tool result:
-
-```text
-## edits applied
-operators: readings created (scan), kept created (filter), total created (aggregate)
-
-## show result total full
-executed: readings, kept, total
-upstream:
-- readings (scan): 4 rows × 1 column
-- kept (filter of readings): 2 rows × 1 column
-  - flow: Filter "value" among 2 rejected rows, including null-predicate drops: 10 × 2; other=0. Bounded first distinct values, not causes or top frequencies.
-result total (aggregate of kept): 1 row × 1 column
-columns: total int64
-records: full; 1 of 1 row, 1 of 1 column (complete)
-| total |
-|---|
-| 40 |
-```
-
-The upstream filter rejected values of 10, although the request includes them. Its measurement is useful even though only total was requested. Replace the filter; the existing graph keeps its connections:
-
-```json
-{
-  "python": "",
-  "statements": "set kept: filter(readings, lambda row: row['value'] >= 10)\nshow result total full"
-}
-```
-
-The new result is total=60. Check the returned result before ending the task.
-
-Reply, without the tool: `60`
 
 If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing.

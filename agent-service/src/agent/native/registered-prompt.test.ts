@@ -41,8 +41,8 @@ test("example calls are valid dataflow calls for every view setting", () => {
       flowEvidence: true,
     });
     const calls = exampleCalls(prompt);
-    // The reading example and the flow repair, two calls each.
-    expect(calls).toHaveLength(4);
+    // The reading example, two calls; flow evidence adds no example.
+    expect(calls).toHaveLength(2);
     for (const call of calls) {
       expect(Object.keys(call)).toEqual(["python", "statements"]);
       const result = prepareDataflowCall(call, [...retrievalViews]);
@@ -110,11 +110,10 @@ for (const data of [false, true])
       expect(prompt).not.toContain("{{");
       expect(prompt.includes("Column statistics in `sample_stats`")).toBe(data);
       expect(prompt.includes("sample_stats")).toBe(data);
-      expect(prompt.includes("Flow lines report what upstream steps did that row counts do not show")).toBe(flow);
-      if (flow) {
-        expect(prompt).toContain("cast failures");
-        expect(prompt).toContain("values a Python step dropped from a column");
-      }
+      // Flow lines explain themselves in the tool results that carry them; the
+      // prompt is the same with flow evidence on or off.
+      expect(prompt.includes("Flow lines report what upstream steps did")).toBe(false);
+      expect(prompt).toBe(buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { ...settings, flowEvidence: !flow }));
       // With statistics, one sentence: the sample and its statistics first, `full` for a small table.
       expect(
         prompt.includes(
@@ -129,7 +128,7 @@ for (const data of [false, true])
       expect(prompt).not.toContain("preview=1), execute, and inspect source");
 
       for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, retrievalViews).status).toBe("pending");
-      if (!flow) expect(exampleReceipts(prompt)).not.toMatch(/^\s*- flow\b/m);
+      expect(exampleReceipts(prompt)).not.toMatch(/^\s*- flow\b/m);
 
       const schema = asSchema(createDataflowTool(retrievalViews).inputSchema).jsonSchema;
       expect(info.tools).toHaveLength(1);
@@ -166,10 +165,11 @@ for (const data of [false, true])
       expect(prompt).not.toContain("Actions run in order.");
       expect(prompt).not.toContain("Engine receipt:");
       expect(prompt.includes("at most 5 example records and column statistics")).toBe(data);
-      expect(prompt.includes("Flow lines report what upstream steps did")).toBe(flow);
+      expect(prompt.includes("Flow lines report what upstream steps did")).toBe(false);
+      expect(prompt).not.toContain("Use upstream measurements to repair a condition");
       // Every example call is valid for this session.
       const calls = exampleCalls(prompt);
-      expect(calls).toHaveLength(flow ? 4 : 2);
+      expect(calls).toHaveLength(2);
       for (const call of calls) {
         expect(Object.keys(call)).toEqual(["python", "statements"]);
         const result = prepareDataflowCall(call, retrievalViews);
@@ -177,7 +177,7 @@ for (const data of [false, true])
         expect(result.status).toBe("pending");
       }
       // The receipts are real renderer output, introduced as tool results.
-      expect(prompt.match(/^Tool result:$/gm)).toHaveLength(flow ? 3 : 2);
+      expect(prompt.match(/^Tool result:$/gm)).toHaveLength(2);
       const receipts = exampleReceipts(prompt);
       expect(receipts).toContain("## edits applied");
       expect(receipts).toContain("## show result report full");
@@ -191,15 +191,15 @@ for (const data of [false, true])
       // Kept and rejected counts restate the row counts; the rejected values do not.
       expect(receipts).not.toContain("kept=2/4, rejected=2");
       expect(receipts).not.toContain("contract;");
-      expect(receipts.includes("10 × 2")).toBe(flow);
+      expect(receipts).not.toContain("10 × 2");
       // The answer is a reply without the tool.
       expect(prompt).toContain("Reply, without the tool: `Group A: 60; group B: 70.`");
-      expect(prompt.includes("Reply, without the tool: `60`")).toBe(flow);
+      expect(prompt).not.toContain("Reply, without the tool: `60`");
       expect(prompt).toContain(
         "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`."
       );
       const examples = prompt.slice(prompt.indexOf("## 4. Worked examples"));
-      expect(examples.length).toBeLessThan(flow ? 5000 : 2500);
+      expect(examples.length).toBeLessThan(2500);
       expect(prompt.length).toBeLessThan(18000);
     });
 
@@ -229,14 +229,14 @@ test("every context mode, evidence setting and table format keeps the section or
           expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
           expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
           const receipts = exampleReceipts(prompt);
-          expect(/^\s*- flow\b/m.test(receipts)).toBe(flow);
+          expect(/^\s*- flow\b/m.test(receipts)).toBe(false);
           expect(/^statistics: full table/m.test(receipts)).toBe(data);
           expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
           for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, views).status).toBe("pending");
         }
 });
 
-test("synthetic teaching edits compile and their calculations and repair run in isolated Python operators", async () => {
+test("synthetic teaching edits compile and their calculations run in isolated Python operators", async () => {
   const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { flowEvidence: true });
   let stage: RegisteredStageInput = { operators: {}, python: "", changes: "" };
   const compiled: Record<string, string> = {};
@@ -246,23 +246,13 @@ test("synthetic teaching edits compile and their calculations and repair run in 
     for (const { action } of prepared.actions) {
       if (action.type !== "edit") continue;
       stage = { ...(await stageRegisteredEdit({ ...stage, ...action })), python: "", changes: "" };
-      for (const id of ["totals", "report", "kept", "total"]) {
+      for (const id of ["totals", "report"]) {
         const op = stage.operators[id];
-        if (!op) continue;
-        const key =
-          id === "kept" || id === "total" ? `${id}_${action.changes.includes(" >= ") ? "fixed" : "first"}` : id;
-        compiled[key] ??= compileNativeOp(op, id).code;
+        if (op) compiled[id] ??= compileNativeOp(op, id).code;
       }
     }
   }
-  expect(Object.keys(compiled).sort()).toEqual([
-    "kept_first",
-    "kept_fixed",
-    "report",
-    "total_first",
-    "total_fixed",
-    "totals",
-  ]);
+  expect(Object.keys(compiled).sort()).toEqual(["report", "totals"]);
   const run = spawnSync(
     nativePython(),
     [
@@ -275,12 +265,6 @@ def invoke(name,*tables):
     return scope['process'](*tables)
 records=pd.DataFrame({'group':['A','A','B','B','A','A'],'value':[10,20,30,40,10,20]})
 assert invoke('report',invoke('totals',records)).to_dict('records') == [{'group':'A','total':60},{'group':'B','total':70}]
-readings=pd.DataFrame({'value':[10,10,20,20]})
-first=invoke('kept_first',readings)
-fixed=invoke('kept_fixed',readings)
-assert len(first)==2 and len(fixed)==4
-assert invoke('total_first',first)['total'].iloc[0]==40
-assert invoke('total_fixed',fixed)['total'].iloc[0]==60
 print('verified')`,
     ],
     { input: JSON.stringify(compiled), encoding: "utf8" }

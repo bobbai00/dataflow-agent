@@ -262,7 +262,9 @@ print(json.dumps(records, default=str))
     // The filter's counters restate the row counts; its nulls and rejected values do not.
     expect(facts.get("filtered")).not.toContain("kept=1/3");
     expect(facts.get("filtered")).toContain('predicate column "x": input (full=3 rows) null=2/3');
-    expect(facts.get("filtered")).toContain("among 2 rejected rows, including null-predicate drops: null × 2");
+    expect(facts.get("filtered")).toContain(
+      "among 2 rejected rows, including null-predicate drops, first values seen: null × 2"
+    );
     expect(facts.get("aggregate")).toContain('"mean" nonnull=1/3');
     expect(facts.get("joined")).toContain("matched contribution=5");
     expect(facts.get("joined")).toContain("left matched rows=3/3");
@@ -273,13 +275,14 @@ print(json.dumps(records, default=str))
     expect(facts.get("empty_groups") ?? "").not.toContain("groups=");
     expect(facts.get("empty_global") ?? "").not.toContain("groups=");
     expect(facts.get("udf")).toContain("row/column correspondence to this output unknown");
-    expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");
-    expect(facts.get("window")).toContain("partitions=3, ties beyond first=0");
+    // Shapes without null cells, ties or absent cells restate their row counts too.
+    expect(facts.get("unpivot") ?? "").not.toContain("Unpivot output");
+    expect(facts.get("window")).not.toContain("ties beyond first");
     expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');
-    expect(facts.get("pivot")).toContain("Pivot unique pairs=6, index groups=3, generated columns=2, absent cells=0");
-    expect(facts.get("empty_unpivot")).toContain("output=0*2=0");
-    expect(facts.get("empty_window")).toContain("partitions=0");
-    expect(facts.get("empty_pivot")).toContain("unique pairs=0, index groups=0, generated columns=0");
+    expect(facts.get("pivot") ?? "").not.toContain("Pivot unique pairs");
+    expect(facts.get("empty_unpivot") ?? "").not.toContain("output=0*2=0");
+    expect(facts.get("empty_window") ?? "").not.toContain("partitions=0");
+    expect(facts.get("empty_pivot") ?? "").not.toContain("unique pairs=0");
     // 1,000 ids: both scopes profile every row; only full scope counts more than 256 distinct values.
     const many = operators.find(op => op.operatorID === "many_ids")!;
     const manyInfo = storage.getOperatorResult("A", "many_ids")!;

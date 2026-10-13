@@ -29,6 +29,7 @@ import keyword
 import linecache
 import math
 import numbers
+import re
 import time
 import traceback
 from collections.abc import Mapping
@@ -695,6 +696,111 @@ def _witness(values, count):
             return None
         encoded.append({"type": kind, "value": value})
     return {"values": encoded, "count": count, "truncated": truncated}
+
+
+# Dropped and rejected values are ordered by how close they come to the values
+# that were kept: a misspelled code, a boundary year or a two-state metro area
+# is a likelier mistake than the bulk of the values a step meant to remove.
+_NEAR_LIMIT = 50_000
+_NEAR_TOKEN = re.compile(r"[^\W_]+")
+
+
+def _text_number(text):
+    """The number a numeric-looking text spells ("2015", "1,299", "−4.5%", "$5"), else None."""
+    cleaned = text.strip().replace(",", "").replace("−", "-").removesuffix("%").removeprefix("$")
+    if not cleaned or len(cleaned) > 32:
+        return None
+    try:
+        number = float(cleaned)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _near_number(value):
+    """A comparable number for a numeric, numeric-text or timestamp scalar, else None."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        # Years and amounts often arrive as text; their distance is numeric.
+        return _text_number(value)
+    if isinstance(value, numbers.Real):
+        number = float(value)
+        return number if math.isfinite(number) else None
+    # pandas Timestamps are datetimes; pandas itself is loaded only by execution.
+    if isinstance(value, datetime.datetime) or type(value).__name__ == "datetime64":
+        try:
+            stamp = pd.Timestamp(value)
+        except (TypeError, ValueError):
+            return None
+        return None if pd.isna(stamp) else float(stamp.value)
+    return None
+
+
+def _near_order(dropped, kept):
+    """Order distinct dropped values, the ones closest to the kept values first.
+
+    Numbers, numeric text and timestamps outside the kept range score their
+    distance from it: a year filter's nearest rejections are the years beside
+    it. Inside the range a value was dropped for another reason and stays
+    unscored. Other text scores the tokens it shares with the kept values, each
+    weighted by how much more often it occurs among the kept values than among
+    the dropped ones (a smoothed log ratio, positive weights only) times the
+    share of kept values that contain it, scaled by how
+    close its token count is to a typical kept value's, so a header row or a
+    footnote that repeats one kept word does not lead: when the kept names end
+    in ", MA" or ", NH", "Boston-Cambridge-Newton, MA-NH" comes before the
+    hundreds of other dropped names. Text scoring under a quarter of a typical
+    kept value's own score is no near miss. Unscored values follow in
+    first-seen order. Returns the index order and whether any value scored.
+    """
+    keys = [None] * len(dropped)
+    kept_numbers = [number for number in map(_near_number, kept) if number is not None]
+    if kept_numbers:
+        low, high = min(kept_numbers), max(kept_numbers)
+        for i, value in enumerate(dropped):
+            number = _near_number(value)
+            if number is not None and (number < low or number > high):
+                keys[i] = max(low - number, number - high)
+
+    def words(value):
+        if isinstance(value, str) and _text_number(value) is None:
+            return set(_NEAR_TOKEN.findall(value.casefold()))
+        return set()
+
+    kept_tokens = [found for found in map(words, kept) if found]
+    if kept_tokens:
+        tokens = [words(value) for value in dropped]
+        kept_counts = Counter(token for found in kept_tokens for token in found)
+        dropped_counts = Counter(token for found in tokens for token in found)
+        kept_total = len(kept_tokens) + 1
+        dropped_total = sum(bool(found) for found in tokens) + 1
+        typical = sorted(len(found) for found in kept_tokens)[len(kept_tokens) // 2]
+        weights = {}
+        for token, count in kept_counts.items():
+            weight = math.log((count + 0.5) / kept_total) - math.log((dropped_counts[token] + 0.5) / dropped_total)
+            # A word most kept values share is a pattern (", MA"); a word only one
+            # kept name has ("Auburn") is that name's identity, not a pattern.
+            if weight > 0:
+                weights[token] = weight * count / len(kept_tokens)
+
+        def score(found, pattern_only=False):
+            total = sum(weights.get(token, 0.0) for token in found
+                        if not (pattern_only and kept_counts[token] < 2))
+            return total * min(len(found), typical) / max(len(found), typical) if found else 0.0
+
+        # A near miss looks at least a quarter as much like the kept values as a
+        # typical kept value looks like the others (on the words two or more of
+        # them share); weaker lookalikes stay unscored. Kept values that share
+        # no word set no floor: any shared word (a padded code) then counts.
+        own = sorted(score(found, pattern_only=True) for found in kept_tokens)
+        floor = own[len(own) // 2] / 4
+        for i, found in enumerate(tokens):
+            similarity = score(found)
+            if similarity > 0 and similarity >= floor:
+                keys[i] = -similarity
+    order = sorted(range(len(dropped)), key=lambda i: (keys[i] is None, keys[i] or 0.0, i))
+    return order, any(key is not None for key in keys)
 
 
 def _groups(frame, columns):
@@ -1931,26 +2037,42 @@ def _registered_failure(spec, error):
     return _error(spec, "CALLBACK_RUNTIME", f"{type(error).__name__}: {error}{hint}", field="python", source=location)
 
 
-def _filter_rejected_values(source, positions, reads):
-    """Bound first-seen examples while counting their original scalar identities.
+def _filter_rejected_values(source, positions, kept, reads):
+    """Count rejected values by their original scalar identities; show the nearest.
 
-    Values come from every rejected row, including null verdicts. A column need
-    only have been read on one row; these are distributions, not explanations.
+    Values come from every rejected row, including null verdicts. Each column
+    counts its first 50,000 distinct rejected values exactly and shows three of
+    them: the ones nearest the column's kept values (`_near_order`), else the
+    first seen. A column need only have been read on one row; these are
+    distributions, not explanations.
     """
     columns = {}
     for name in sorted(reads)[:_WITNESS_WIDTH]:
-        witnessed = {}
+        counted = {}
         for raw in source[name].iloc[positions]:
             value = _scalar(raw)
             key = (type(value), value)
-            if key in witnessed:
-                witnessed[key]["count"] += 1
-            elif len(witnessed) < _WITNESS_LIMIT:
-                example = _witness([value], 1)
-                if example is not None:
-                    witnessed[key] = example
-        columns[name] = {"examples": list(witnessed.values()),
-                         "otherCount": len(positions) - sum(item["count"] for item in witnessed.values())}
+            if key in counted:
+                counted[key][1] += 1
+            elif len(counted) < _NEAR_LIMIT:
+                counted[key] = [value, 1]
+        distinct = list(counted.values())
+        reference = []
+        for raw in (pd.unique(source[name].iloc[kept]) if kept else []):
+            reference.append(_scalar(raw))
+            if len(reference) == _NEAR_LIMIT:
+                break
+        order, nearest = _near_order([value for value, _ in distinct], reference)
+        examples = []
+        for i in order:
+            example = _witness([distinct[i][0]], distinct[i][1])
+            if example is not None:
+                examples.append(example)
+                if len(examples) == _WITNESS_LIMIT:
+                    break
+        columns[name] = {"examples": examples,
+                         "otherCount": len(positions) - sum(item["count"] for item in examples),
+                         "order": "nearest" if nearest else "first"}
     return {"rejectedRows": len(positions), "columnsObserved": len(reads), "columns": columns}
 
 
@@ -1997,7 +2119,7 @@ def _filter(spec, source, operations):
     if spec.get("profileCollection") is True:
         started = time.perf_counter()
         operations["filterRejectedValues"] = _filter_rejected_values(
-            source, [i for i, keep in enumerate(mask) if not keep], reads)
+            source, [i for i, keep in enumerate(mask) if not keep], [i for i, keep in enumerate(mask) if keep], reads)
         operations["timing"] = {"filterRejectedValuesMs": (time.perf_counter() - started) * 1000}
     return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
 
@@ -2661,16 +2783,94 @@ def _dropped_values(inputs, output):
             missing = [value for value in source if value not in kept_set]
             if missing:
                 matched.add((index, column))
+                # The values most like the kept ones first: they are the likely
+                # mistakes among drops the step meant to make.
+                order, nearest = _near_order(missing[:_NEAR_LIMIT], kept[:_NEAR_LIMIT])
                 entries.append({
                     "input": index,
                     "inputColumn": column,
                     "outputColumn": name,
-                    "missing": [_scalar(value) for value in missing[:_DROP_EXAMPLES]],
+                    "missing": [_scalar(missing[i]) for i in order[:_DROP_EXAMPLES]],
                     "missingCount": len(missing),
                     "inputDistinct": len(source),
+                    "order": "nearest" if nearest else "first",
                 })
             break
         if len(entries) == _DROP_ENTRIES:
+            break
+    return entries
+
+
+_REPEAT_MIN_ROWS = 10
+_REPEAT_DISTINCT_SHARE = 0.8
+_REPEAT_ENTRIES = 2
+
+
+def _repeated_values(inputs, output):
+    """Values repeated in a text output column whose values otherwise identify rows.
+
+    Where at least 80% of a column's non-null values are distinct, a value that
+    occurs twice is a row that a later count or mean takes twice: a metro area
+    listed in the file of every state it spans. Only repeats whose rows also
+    agree on every numeric column count; two cities named Tripoli at different
+    coordinates are two entities, not a duplicate. Python steps are opaque, so
+    the input column the output came from (the same name, else one holding at
+    least 90% of its distinct values) is reported with how many of the repeated
+    values it repeats too: the step either created the repeats or carried them.
+    Bounded like `_dropped_values`.
+    """
+    if len(output) < _REPEAT_MIN_ROWS or any(len(frame) > _DROP_ROW_LIMIT for frame in [output, *inputs]):
+        return []
+    budget, entries = _DROP_CELL_BUDGET, []
+    for name in output.columns:
+        if _dtype(output[name]) != "str":
+            continue
+        present = output[name].dropna()
+        counts = present.value_counts(sort=False)
+        rows, distinct = len(present), len(counts)
+        if (rows < _REPEAT_MIN_ROWS or distinct == rows or distinct < rows * _REPEAT_DISTINCT_SHARE
+                or distinct > _DROP_DISTINCT_LIMIT):
+            continue
+        # Numbers kept as text ("236" reports per 100K) tie; they identify nothing.
+        if sum(_text_number(str(value)) is not None for value in counts.index) * 10 >= distinct * 9:
+            continue
+        repeated = counts[counts > 1]
+        measures = [column for column in output.columns
+                    if column != name and _dtype(output[column]) in ("int64", "float64")]
+        if measures:
+            rows_of = output.loc[output[name].isin(repeated.index), [name, *measures]].drop_duplicates()
+            variants = rows_of[name].value_counts()
+            repeated = repeated[repeated.index.isin(variants[variants == 1].index)]
+            if repeated.empty:
+                continue
+        first = {value: i for i, value in enumerate(pd.unique(present))}
+        ranked = sorted(repeated.index, key=lambda value: (-int(repeated[value]), first[value]))
+        examples = []
+        for value in ranked:
+            example = _witness([_scalar(value)], int(repeated[value]))
+            if example is not None:
+                examples.append(example)
+                if len(examples) == _WITNESS_LIMIT:
+                    break
+        entry = {"outputColumn": name, "rows": rows, "distinct": distinct,
+                 "repeatedValues": len(repeated), "examples": examples}
+        if measures:
+            entry["sameMeasures"] = measures[:3]
+        for index, frame in enumerate(inputs):
+            for column in sorted(frame.columns, key=lambda column: column != name):
+                if _dtype(frame[column]) != "str" or budget < len(frame):
+                    continue
+                budget -= len(frame)
+                source = frame[column].dropna().value_counts(sort=False)
+                if len(source) > _DROP_DISTINCT_LIMIT or sum(value in source.index for value in counts.index) * 10 < distinct * 9:
+                    continue
+                entry.update({"input": index, "inputColumn": column,
+                              "inputRepeated": sum(int(source.get(value, 0)) > 1 for value in repeated.index)})
+                break
+            if "inputColumn" in entry:
+                break
+        entries.append(entry)
+        if len(entries) == _REPEAT_ENTRIES:
             break
     return entries
 
@@ -2833,6 +3033,9 @@ def execute_native(spec, inputs):
         dropped = _dropped_values(inputs, output)
         if dropped:
             operations["droppedValues"] = dropped
+        repeated = _repeated_values(inputs, output)
+        if repeated:
+            operations["repeatedValues"] = repeated
     if spec.get("profileCollection") is True:
         # Operator body includes namespace initialization, source I/O and native
         # counters. Exclude the separately timed filter witness pass. Neither

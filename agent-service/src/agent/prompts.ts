@@ -154,7 +154,9 @@ export function buildCodeModeSystemPrompt(
 export interface NativePromptLayoutOptions extends RetrievalSettings, ObservationFormatOptions {
   maxOperatorResultCharLimit?: number;
   maxResultRows?: number;
-  /** Which evidence kinds observed results carry; the prompt documents exactly those. */
+  /** Which evidence kinds observed results carry. The prompt documents data
+   * statistics; flow lines are explained in the tool results that carry them,
+   * so `flowEvidence` leaves the prompt unchanged. */
   dataEvidence?: boolean;
   flowEvidence?: boolean;
 }
@@ -212,9 +214,10 @@ export function buildRegisteredNativeSystemPrompt(
       ? "Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Read `values` for flags, codes, and spellings that define the population, and ranges and nulls for units and fill values; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics." +
         (views.includes("full") ? " The `full` view does not request table statistics." : "")
       : "",
-    FLOW_STATISTICS: options.flowEvidence
-      ? "Flow lines report what upstream steps did that row counts do not show: rejected filter values, unmatched join keys, cast failures, nulls left out of an aggregate, and values a Python step dropped from a column. Before answering, read the flow lines of the operators the answer depends on, and fix or explain unmatched join keys and filters that rejected requested values."
-      : "",
+    // Flow lines explain themselves where they appear (FLOW_NOTE in
+    // turn-receipt.ts): the prompt is the same with flow evidence on or off, so
+    // a prompt paragraph or worked example cannot steer decisions made before
+    // any flow line exists (2026-10-13 study: two Luna tasks tilted that way).
   };
   // The examples already use the actual renderers with the enabled views.
   const prompt = nativeFragment("native-registered.md").replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
