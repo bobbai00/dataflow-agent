@@ -706,8 +706,9 @@ _NEAR_TOKEN = re.compile(r"[^\W_]+")
 
 
 def _text_number(text):
-    """The number a numeric-looking text spells ("2015", "1,299", "−4.5%", "$5"), else None."""
-    cleaned = text.strip().replace(",", "").replace("−", "-").removesuffix("%").removeprefix("$")
+    """The number a numeric-looking text spells ("2015", "1,299", "−4.5%", "$5", "18.3;"), else None."""
+    # Separators and footnote marks left on raw values ("18.3;", "12*") still spell a number.
+    cleaned = text.strip().strip(";:*†‡").strip().replace(",", "").replace("−", "-").removesuffix("%").removeprefix("$")
     if not cleaned or len(cleaned) > 32:
         return None
     try:

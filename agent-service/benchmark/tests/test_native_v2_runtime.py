@@ -465,6 +465,10 @@ def test_repeats_count_only_when_the_repeated_rows_agree_on_their_numbers():
     changes = pd.DataFrame({"change": ["−1.05%", "+0.94%"] * 2 + [f"+{i}.5%" for i in range(10)]}).astype("string")
     measured = runtime.execute_native(keep, [changes])
     assert "repeatedValues" not in measured.attrs["native_v2"]["operations"]
+    # astronomy-easy-4: sunspot counts read as text with a trailing separator are numbers, not identifiers.
+    readings = pd.DataFrame({"sunspots": ["18.3;", "8.3;", "26.7;"] * 2 + [f"{i}.1;" for i in range(10)]}).astype("string")
+    assert "repeatedValues" not in runtime.execute_native(keep, [readings]).attrs["native_v2"]["operations"]
+    assert (runtime._text_number("18.3;"), runtime._text_number("12*"), runtime._text_number(";")) == (18.3, 12.0, None)
 
 
 def test_preflight_rejects_project_keep_and_drop_before_execution():
