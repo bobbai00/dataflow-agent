@@ -331,6 +331,30 @@ test("a request whose sender chose earlier requests sees only those, with its ow
   expect(fourth).toContain(THIRD);
 });
 
+test("a request that names earlier tables sees one block instead of the earlier requests: instructions, every table, the named ones in full", async () => {
+  const { agent, prompts } = session("transcript", REPLIES);
+  await agent.sendMessage(FIRST);
+  await agent.sendMessage(SECOND);
+  await agent.sendMessage(THIRD, undefined, { contextTables: ["units", "nowhere"] });
+  const third = prompts[4].slice(1).map(textOf).join("\n");
+  // No earlier request or call is in view; the block stands for them.
+  expect(third).not.toContain(SECOND);
+  expect(third).not.toContain("show result top, n_units");
+  expect(third).toContain("## Context for this request");
+  expect(third).toContain(`### Session instructions (task 1)\n${FIRST}`);
+  expect(third).toContain(
+    "### Tables in the graph\n- task 1: `orders` = scan() 40 rows × 3 columns; `units` = eligible_units(orders) 8 rows × 4 columns; `scores` = unit_scores(units) 8 rows × 5 columns"
+  );
+  expect(third).toContain("#### Task 1\nanswered: Final Answer: u1, u2, u3\n- `set units: eligible_units(orders, min_orders=10)` (last set in task 2)");
+  expect(third).toContain("  reads: `orders` (task 1, 40 rows × 3 columns)");
+  expect(third).toContain("  result: 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64");
+  expect(third).toContain("def eligible_units(orders, *, min_orders=5):");
+  expect(third).toContain("Not in the graph: `nowhere`.");
+  expect(third).toContain(THIRD);
+  // The request's own later calls still see its first.
+  expect(prompts[5].slice(1).map(textOf).join("\n")).toContain("set scores_rate70: unit_scores(units, rate_weight=0.7)");
+});
+
 test("compact entries list a documented function by its signature and docstring, and keep the rest's source", async () => {
   const python = `${RULES}
 

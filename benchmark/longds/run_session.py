@@ -51,6 +51,7 @@ import time
 import requests
 
 from benchmark.longds.common import ROOT, SELECTIONS, load, save, selection_note
+from benchmark.longds.selection import dataflow_tasks, render_index, request_text, select_tables
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule, final_reply, normalize_usage
 
 ARMS = {
@@ -61,9 +62,14 @@ ARMS = {
     "hybrid": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 5},
     "hybrid-k3": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3},
     "transcript-oracle": {"multiRequest": "transcript"},
+    "tables-model": {"multiRequest": "transcript"},
 }
 # Arms whose requests show only some earlier requests (common.SELECTIONS).
 SELECT = {"transcript-oracle": "oracle"}
+# Arms whose requests name the earlier tables they build on, picked by a model
+# from the dataflow index (selection.py); the agent then shows those tables in
+# full and lists the rest, instead of the earlier requests.
+SELECT_TABLES = {"tables-model"}
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).
 BASE_SETTINGS = {"agentMode": "native", "contextMode": "delta"}
@@ -125,13 +131,15 @@ class Session:
             time.sleep(2)
         return False
 
-    def ask(self, content, minutes, context_requests=None):
+    def ask(self, content, minutes, context_requests=None, context_tables=None):
         """Send one request and return the steps it added. A request still
         running after `minutes` is stopped: its steps so far are its record.
-        `context_requests` names the earlier requests its context shows."""
+        `context_requests` names the earlier requests its context shows;
+        `context_tables` the earlier tables it builds on."""
         before = {step["id"] for step in self.get("/react-steps")["steps"]}
         watchdog = False
-        body = {"content": content, **({"contextRequests": context_requests} if context_requests is not None else {})}
+        body = {"content": content, **({"contextRequests": context_requests} if context_requests is not None else {}),
+                **({"contextTables": context_tables} if context_tables is not None else {})}
         try:
             checked(self.http.post(self.base + "/message", json=body, timeout=(30, minutes * 60)))
         except requests.exceptions.ReadTimeout:
@@ -185,15 +193,33 @@ def request_record(turn, prompt, steps, model, elapsed, watchdog):
     }
 
 
+def table_picker(model):
+    """The model call that picks a request's tables from the dataflow index,
+    through the stack's gateway; returns the tables and the call's record."""
+    from openai import OpenAI
+    client = OpenAI(base_url=os.environ["LITELLM_BASE_URL"].rstrip("/") + "/v1",
+                    api_key=os.environ["LITELLM_MASTER_KEY"], max_retries=3, timeout=600)
+    pricing = current_price_schedule(model)
+
+    def pick(index, request):
+        tables, usage, raw = select_tables(client, model, index, request)
+        usage = {**usage, "cache_creation_tokens": 0}
+        return tables, {"tables": tables, "usage": usage, "cost_usd": cost_for_usage(usage, pricing), "reply": raw[:500]}
+    return pick
+
+
 def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
     out.mkdir(parents=True, exist_ok=False)
     prompts = load(prepared / "prompts.json")[:turns]
     settings = {**BASE_SETTINGS, **ARMS[arm]}
     select = SELECTIONS[SELECT[arm]] if arm in SELECT else None
     gold = load(prepared / "gold.json") if select else None
+    picker = table_picker(model) if arm in SELECT_TABLES else None
+    texts = {p["turn_id"]: request_text(p["prompt"]) for p in prompts}
+    history, answers = {}, {}
     save(out / "protocol.json", {
         "prepared": str(prepared.resolve()), "arm": arm, "model": model, "settings": settings,
-        "selection": SELECT.get(arm),
+        "selection": SELECT.get(arm) or ("model tables" if arm in SELECT_TABLES else None),
         "turns": len(prompts), "spend_limit_usd": spend_limit, "question_minutes": minutes,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_status": subprocess.check_output(["git", "status", "--short", "--", "agent-service", "benchmark"],
@@ -209,19 +235,26 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
                 print(json.dumps({"stopped": "spend limit", "spent_usd": spent}), flush=True)
                 break
             started = time.monotonic()
-            selected = select(gold, entry["turn_id"]) if select else None
-            prompt = entry["prompt"] + selection_note(selected, entry["turn_id"])
-            steps, watchdog = session.ask(prompt, minutes, selected)
-            record = request_record(entry["turn_id"], prompt, steps, model, time.monotonic() - started, watchdog)
+            turn = entry["turn_id"]
+            selected = select(gold, turn) if select else None
+            prompt = entry["prompt"] + selection_note(selected, turn)
+            tables = picked = None
+            if picker and turn > 1:
+                tables, picked = picker(render_index("dataflow", texts, answers, turn, dataflow_tasks(history)), texts[turn])
+            steps, watchdog = session.ask(prompt, minutes, selected, tables)
+            record = request_record(turn, prompt, steps, model, time.monotonic() - started, watchdog)
             if selected is not None:
                 record["context_requests"] = selected
+            if picked is not None:
+                record["context_tables"] = picked
+            history[turn], answers[turn] = steps, record["answer"]
             folder = out / f"t{entry['turn_id']:02d}"
             save(folder / "record.json", record)
             with gzip.open(folder / "steps.json.gz", "wt") as stream:
                 json.dump(steps, stream)
             records.append(record)
             save(out / "records.json", records)
-            spent += record["cost_usd"] or 0.0
+            spent += (record["cost_usd"] or 0.0) + ((record.get("context_tables") or {}).get("cost_usd") or 0.0)
             print(json.dumps({"turn": entry["turn_id"], "completed": record["completed"], "end": record["end"],
                               "calls": record["llm_calls"], "cost_usd": record["cost_usd"],
                               "seconds": record["elapsed_seconds"]}), flush=True)
