@@ -32,6 +32,7 @@ import threading
 import time
 
 from campaign import ResourceQueue, install_provider_prices, prepare_artifacts
+from metrics import current_price_schedule, reconcile_trace
 from catalog import inventory
 from run import KB, MODEL_TYPES, ROOT, save
 from run_comparison import audit_script
@@ -287,7 +288,8 @@ def main():
                     proc.kill()
                     proc.wait()
         evaluation = json.loads((path / "evaluation.json").read_text()) if (path / "evaluation.json").exists() else {}
-        stats = json.loads((path / "stats.json").read_text()) if (path / "stats.json").exists() else {}
+        # Price every response from the request trace (provider charge where reported), as dataflow runs are.
+        stats = reconcile_trace(path, model, current_price_schedule(model) or cost_utils.price_schedule(model))
         scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
         checks = audit_script(path)
         save(path / "attempt-audit.json", checks)
