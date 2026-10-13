@@ -160,6 +160,25 @@ model_list:
       model: openai/gpt-5.6-sol
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
+  # Matched Opus 5.5 campaign: always-on adaptive thinking, pinned effort.
+  # display "summarized" returns readable thinking text (default "omitted"
+  # returns it empty), including the notes Opus 5.5 writes between tool calls,
+  # so traces keep them. Billing and the model's own thinking are unchanged;
+  # the agents keep this text out of what they send back to the model.
+  - model_name: claude-opus-5.5
+    litellm_params:
+      model: anthropic/claude-opus-5-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      thinking: {"type": "adaptive", "display": "summarized"}
+      output_config: {"effort": "medium"}
+      additional_drop_params: ["temperature", "top_p", "top_k"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
   - model_name: claude-opus-4.8
     litellm_params:
       model: anthropic/claude-opus-4-8
