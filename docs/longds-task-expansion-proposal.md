@@ -1,5 +1,9 @@
 # LongDS: a compact ledger with task expansion
 
+> Superseded on 2026-10-12 by [the focus design](longds-focus-design.md): the
+> same directory and renderer, with the model choosing which earlier tasks
+> the context shows in full instead of expanding them into receipts.
+
 Proposal, 2026-10-12. Branch `feat/longds-answer` (local), measurements from the
 Luna campaigns of 2026-10-11/12 in `/var/tmp/longds-catalog-luna-*` and
 `/var/tmp/longds-ledger-luna-20261012`.
