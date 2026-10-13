@@ -34,6 +34,15 @@ the selection names (common.oracle_selection), as run_session's
 `transcript-oracle` does for the dataflow agent; the interpreter keeps every
 variable either way.
 
+With `--pick variables` (arm `smolagents-variables`), the script's counterpart
+of the dataflow agent's table context (run_session's `tables-upstream`): after
+every request the interpreter reports its variables (state.json), and before
+each later request a model picks the earlier variables it builds on from an
+index of what each task created and changed (script_state). The request then
+sees, instead of the earlier requests, one block: the session's instructions,
+every variable in one line, the picked ones with their current values, and the
+earlier statements that made them (script_state.upstream).
+
 Usage (from the repository root, inside the stack's environment):
     python -m benchmark.longds.smolagents_session --prepared R/prepared/<key> \\
         --out R/runs/<key>__smolagents__r1 --kramabench PATH
@@ -46,12 +55,16 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import threading
 import time
 
 from benchmark.longds.common import DATA, HERE, ROOT, SELECTIONS, load, save, selection_note
+from benchmark.longds.script_state import (render_variable_context, render_variable_index, trace_statements,
+                                           upstream)
+from benchmark.longds.selection import request_text, select_variables
 from benchmark.retrieval.execution_isolation import isolated_command
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule
 
@@ -134,12 +147,31 @@ def make_interpreter_class(PythonExecutor, CodeOutput):
             if variables:
                 raise NotImplementedError("Variables are not forwarded to the sandbox")
 
-        def __call__(self, code_action):
+        def _send(self, message):
             try:
-                self.process.stdin.write(json.dumps({"code": code_action}) + "\n")
+                self.process.stdin.write(json.dumps(message) + "\n")
                 self.process.stdin.flush()
             except (BrokenPipeError, ValueError):
                 raise SessionLost("The interpreter is gone") from None
+
+        def describe(self):
+            """The session's variables (type, shape, columns, fingerprint) and the names of its functions."""
+            self._send({"describe": True})
+            reply = self._reply(600)
+            if "error" in reply:
+                raise RuntimeError(f"describe: {reply['error']}")
+            return reply
+
+        def render(self, names):
+            """Chosen variables' current values, as the context shows them."""
+            self._send({"render": list(names)})
+            reply = self._reply(600)
+            if "error" in reply:
+                raise RuntimeError(f"render: {reply['error']}")
+            return reply["rendered"]
+
+        def __call__(self, code_action):
+            self._send({"code": code_action})
             reply = self._reply(self.timeout)
             # The agent reads the partial print output from here when a step fails.
             self.state = {"_print_outputs": reply["logs"]}
@@ -184,7 +216,37 @@ def request_record(turn, prompt, calls, pricing, *, output, error, out_of_steps,
     }
 
 
-def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None, select=None):
+def function_signatures(earlier):
+    """Each function's parameters as its latest `def` wrote them (smolagents' own wrappers have none)."""
+    import ast
+    out = {}
+    for statement in earlier:
+        if statement.kind != "def":
+            continue
+        try:
+            node = ast.parse(statement.source).body[0]
+        except (SyntaxError, IndexError):
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out[node.name] = f"({ast.unparse(node.args)})"
+    return out
+
+
+def variable_picker(model):
+    """The model call that picks a request's variables from the script index, through the stack's gateway."""
+    from openai import OpenAI
+    client = OpenAI(base_url=os.environ["LITELLM_BASE_URL"].rstrip("/") + "/v1",
+                    api_key=os.environ["LITELLM_MASTER_KEY"], max_retries=3, timeout=600)
+    pricing = current_price_schedule(model)
+
+    def pick(index, request):
+        names, usage, raw = select_variables(client, model, index, request)
+        usage = {**usage, "cache_creation_tokens": 0}
+        return names, {"variables": names, "usage": usage, "cost_usd": cost_for_usage(usage, pricing), "reply": raw[:500]}
+    return pick
+
+
+def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None, select=None, pick=None):
     import smolagents
     from smolagents import CodeAgent
     from smolagents.local_python_executor import CodeOutput, PythonExecutor
@@ -221,8 +283,9 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
     agent = CodeAgent(tools=[], model=model_client, additional_authorized_imports=imports, executor=interpreter,
                       verbosity_level=LogLevel.OFF, **({"max_steps": max_steps} if max_steps else {}))
     save(out / "protocol.json", {
-        "prepared": str(prepared.resolve()), "arm": f"smolagents-{select}" if select else "smolagents", "model": model,
-        "turns": len(prompts), "selection": select,
+        "prepared": str(prepared.resolve()), "model": model, "turns": len(prompts),
+        "arm": f"smolagents-{select}" if select else "smolagents-variables" if pick else "smolagents",
+        "selection": select or ("model variables" if pick else None),
         "settings": {"smolagents": smolagents.__version__, "max_steps": agent.max_steps, "instructions": None,
                      "kramabench_revision": kb_revision, "python": sys.version.split()[0],
                      "authorized_imports": imports, "request_text": "prepared prompts.json"},
@@ -234,6 +297,12 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
     records, spent, first = [], 0.0, True
     # Each request's memory steps (its task and actions), so a selection can rebuild memory from them.
     request_steps = {}
+    # With picked variables: the interpreter's state after each request, each request's statements,
+    # the request texts and answers the index is built from.
+    picker = variable_picker(model) if pick else None
+    snapshots, statements_by_turn, answers = {}, {}, {}
+    texts = {p["turn_id"]: request_text(p["prompt"]) for p in prompts}
+    instructions = re.sub(r"\[Task \d+\]\s*", "", prompts[0]["prompt"], count=1).strip() if prompts else ""
     try:
         for entry in prompts:
             if spent >= spend_limit:
@@ -241,14 +310,35 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
                 break
             selected = selector(gold, entry["turn_id"]) if selector else None
             prompt = entry["prompt"] + selection_note(selected, entry["turn_id"])
+            sent, picked, block = prompt, None, None
             if selected is not None:
                 # Memory holds only the chosen requests; the interpreter's variables all stay.
                 agent.memory.steps = [step for turn in selected for step in request_steps.get(turn, [])]
-            start = 0 if first else len(agent.memory.steps)
             calls_before, started = len(model_client.calls), time.monotonic()
+            if picker and not first:
+                # No earlier request stays in memory; one block, built now, stands for them.
+                turn = entry["turn_id"]
+                names, picked = picker(render_variable_index(texts, answers, turn, snapshots), texts[turn])
+                last = snapshots[max(snapshots)]
+                earlier = [s for t in sorted(statements_by_turn) if t < turn for s in statements_by_turn[t]]
+                present = [n for n in names if n in last["variables"] or n in last["functions"]]
+                try:
+                    rendered = interpreter.render([n for n in present if n in last["variables"]])
+                except RuntimeError as failure:  # the block then shows the picked values' shapes only
+                    rendered, picked["render_error"] = {}, str(failure)
+                made = upstream(earlier, present)
+                signatures = function_signatures(earlier)
+                view = {t: {**snap, "functions": {f: signatures.get(f, "(...)") for f in snap["functions"]}}
+                        for t, snap in snapshots.items()}
+                block = render_variable_context(instructions, texts, answers, view, names, rendered, made)
+                picked.update({"block_chars": len(block), "statements": len(made),
+                               "steps": len({(s.task, s.step) for s in made})})
+                agent.memory.steps = []
+                sent = f"{block}\n\n{prompt}"
+            start = 0 if first else len(agent.memory.steps)
             output = error = None
             try:
-                output = agent.run(prompt, reset=first)
+                output = agent.run(sent, reset=first)
             except (Exception, SessionLost, SystemExit) as failure:
                 error = f"{type(failure).__name__}: {failure}"
             first = False
@@ -258,9 +348,11 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
             out_of_steps = bool(actions) and isinstance(actions[-1].error, AgentMaxStepsError)
             folder = out / f"t{entry['turn_id']:02d}"
             folder.mkdir(parents=True, exist_ok=True)
+            traces = [step_trace(step, TaskStep, ActionStep) for step in steps]
             with gzip.open(folder / "steps.json.gz", "wt") as stream:
-                json.dump([step_trace(step, TaskStep, ActionStep) for step in steps], stream, ensure_ascii=False,
-                          default=str)
+                json.dump(traces, stream, ensure_ascii=False, default=str)
+            if block is not None:
+                (folder / "context.md").write_text(block)
             for step in actions:
                 # Each step keeps the full messages it was sent; over a session
                 # that is quadratic. Later requests are built from the steps.
@@ -271,10 +363,21 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
                                     elapsed=time.monotonic() - started)
             if selected is not None:
                 record["context_requests"] = selected
+            if picked is not None:
+                record["context_variables"] = picked
+            if picker and not (error and error.startswith("SessionLost")):
+                statements_by_turn[entry["turn_id"]] = trace_statements(traces, entry["turn_id"])
+                answers[entry["turn_id"]] = record["answer"]
+                try:
+                    snapshots[entry["turn_id"]] = interpreter.describe()
+                except RuntimeError as failure:  # keep the last known state rather than end the session
+                    snapshots[entry["turn_id"]] = {**snapshots.get(max(snapshots, default=0), {"variables": {},
+                                                   "functions": []}), "error": str(failure)}
+                save(folder / "state.json", snapshots[entry["turn_id"]])
             save(folder / "record.json", record)
             records.append(record)
             save(out / "records.json", records)
-            spent += record["cost_usd"] or 0.0
+            spent += (record["cost_usd"] or 0.0) + ((picked or {}).get("cost_usd") or 0.0)
             print(json.dumps({"turn": entry["turn_id"], "completed": record["completed"], "end": record["end"],
                               "calls": record["llm_calls"], "cost_usd": record["cost_usd"],
                               "seconds": record["elapsed_seconds"]}), flush=True)
@@ -313,10 +416,15 @@ def main():
     parser.add_argument("--spend-limit", type=float, default=5.0)
     parser.add_argument("--max-steps", type=int, help="default: smolagents' own (20 a request)")
     parser.add_argument("--select", choices=sorted(SELECTIONS), help="show each request only these earlier requests")
+    parser.add_argument("--pick", choices=["variables"],
+                        help="a model picks each request's earlier variables; the request sees them and the code that made them")
     args = parser.parse_args()
+    if args.select and args.pick:
+        raise SystemExit("--select and --pick are alternatives")
     if current_price_schedule(args.model) is None:
         raise SystemExit(f"No price schedule for {args.model}; costs would be unknown")
-    run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps, args.select)
+    run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps, args.select,
+        args.pick)
 
 
 if __name__ == "__main__":
