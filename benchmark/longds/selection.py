@@ -30,6 +30,9 @@ smolagents_session's step traces.
 import ast
 import json
 import re
+import time
+
+import openai
 
 SET = re.compile(r"^\s*set\s+([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)\s*\((.*)\)\s*$", re.M)
 IDENT = re.compile(r"\b[A-Za-z_]\w*\b")
@@ -204,8 +207,20 @@ New request:
 {request}"""
 
 
-def _ask(client, model, prompt):
-    response = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+ATTEMPTS = 8
+
+
+def _ask(client, model, prompt, sleep=time.sleep):
+    # The gateway answers 429 while it cools a deployment down for a few seconds;
+    # wait that out (5 s, doubling, at most 60 s) rather than end the session.
+    for attempt in range(ATTEMPTS):
+        try:
+            response = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+            break
+        except (openai.RateLimitError, openai.APIConnectionError, openai.InternalServerError):
+            if attempt == ATTEMPTS - 1:
+                raise
+            sleep(min(60, 5 * 2 ** attempt))
     text = response.choices[0].message.content or ""
     usage = response.usage
     details = getattr(usage, "prompt_tokens_details", None)
