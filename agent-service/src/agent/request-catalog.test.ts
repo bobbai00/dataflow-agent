@@ -345,22 +345,68 @@ test("a request that names earlier tables sees one block instead of the earlier 
   expect(third).toContain(
     "### Tables in the graph\n- task 1: `orders` = scan() 40 rows × 3 columns; `units` = eligible_units(orders) 8 rows × 4 columns; `scores` = unit_scores(units) 8 rows × 5 columns"
   );
-  expect(third).toContain("#### Task 1\nanswered: Final Answer: u1, u2, u3\n- `set units: eligible_units(orders, min_orders=10)` (last set in task 2)");
+  expect(third).toContain(
+    "#### Task 1\nanswered: Final Answer: u1, u2, u3\n- `set units: eligible_units(orders, min_orders=10)` (last set in task 2)"
+  );
   expect(third).toContain("  reads: `orders` (task 1, 40 rows × 3 columns)");
-  expect(third).toContain("  result: 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64");
+  expect(third).toContain(
+    "  result: 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64"
+  );
   expect(third).toContain("def eligible_units(orders, *, min_orders=5):");
   expect(third).toContain("Not in the graph: `nowhere`.");
   expect(third).toContain(THIRD);
   // The request's own later calls still see its first.
-  expect(prompts[5].slice(1).map(textOf).join("\n")).toContain("set scores_rate70: unit_scores(units, rate_weight=0.7)");
+  expect(prompts[5].slice(1).map(textOf).join("\n")).toContain(
+    "set scores_rate70: unit_scores(units, rate_weight=0.7)"
+  );
   // The block is shown, not stored: the request's text stays as it was sent.
-  const third_step = agent.getReActSteps().filter(step => step.role === "user").at(-1)!;
+  const third_step = agent
+    .getReActSteps()
+    .filter(step => step.role === "user")
+    .at(-1)!;
   expect(third_step.content).toBe(THIRD);
   // So a later block quotes that request's own text, and blocks never nest.
   await agent.sendMessage("Which units lead under both weightings?", undefined, { contextTables: ["top_rate70"] });
   const fourth = prompts[prompts.length - 1].slice(1).map(textOf).join("\n");
-  expect(fourth).toContain(`#### Task 3\nasked: ${THIRD}\nanswered: Final Answer: u3, u1, u4\n- \`set top_rate70: limit(ranked_rate70, n=3)\``);
+  expect(fourth).toContain(
+    `#### Task 3\nasked: ${THIRD}\nanswered: Final Answer: u3, u1, u4\n- \`set top_rate70: limit(ranked_rate70, n=3)\``
+  );
   expect(fourth.split("## Context for this request").length).toBe(2);
+});
+
+test("with upstream, the block shows what the picked tables are built from; a rewritten import line is not a change", async () => {
+  const replies: Reply[] = [
+    {
+      call: {
+        python: "import pandas as pd\n\ndef tag(orders):\n    return orders.assign(t=pd.Series(1, index=orders.index))",
+        statements: "set orders: scan(files='data/x/input/orders.csv')\nset tagged: tag(orders)\nshow result tagged",
+      },
+    },
+    { text: "Final Answer: 1" },
+    {
+      call: {
+        python: "import pandas as pd, numpy as np\n\ndef first_rows(orders):\n    return orders.head(1)",
+        statements: "set first: first_rows(orders)\nshow result first",
+      },
+    },
+    { text: "Final Answer: 2" },
+    { call: { python: "", statements: "set n: aggregate(tagged, outputs={'n': count()})\nshow result n" } },
+    { text: "Final Answer: 3" },
+  ];
+  const { agent, prompts } = session("transcript", replies);
+  await agent.sendMessage("Tag the orders.");
+  await agent.sendMessage("Show the first order.");
+  // The second request's import line re-registers `tag`, so the engine counts `tagged` as updated ...
+  expect(textOf(prompts[3][prompts[3].length - 1])).toContain("tagged updated");
+  await agent.sendMessage("How many tagged orders?", undefined, { contextTables: ["tagged"], contextUpstream: true });
+  const third = prompts[4].slice(1).map(textOf).join("\n");
+  // ... but its statement and function are unchanged, so the block does not call it set again.
+  expect(third).toContain("#### Task 1\nanswered: Final Answer: 1\n- `set tagged: tag(orders)`\n");
+  expect(third).not.toContain("last set in task");
+  expect(third).toContain("the tables picked for this request in full, and the tables they are built from");
+  expect(third).toContain(
+    "### What the picked tables are built from\nTheir upstream tables, back to the files: each one's statement, and its function's source when it is not shown above.\n- `set orders: scan(files='data/x/input/orders.csv')` (task 1, "
+  );
 });
 
 test("compact entries list a documented function by its signature and docstring, and keep the rest's source", async () => {
