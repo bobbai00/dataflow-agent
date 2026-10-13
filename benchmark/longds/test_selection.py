@@ -64,5 +64,37 @@ class IndexTest(unittest.TestCase):
         self.assertEqual(render_index("texts", {1: "Load.", 2: "Next."}, {}, 2), "Task 1: Load.")
 
 
+class AskTest(unittest.TestCase):
+    def test_a_rate_limited_call_is_retried_after_a_wait(self):
+        import httpx
+        import openai
+        from types import SimpleNamespace
+        from benchmark.longds.selection import select_tables
+
+        limited = openai.RateLimitError("No deployments available", body=None,
+                                        response=httpx.Response(429, request=httpx.Request("POST", "http://gateway")))
+        reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"tables": ["units"]}'))],
+                                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2, prompt_tokens_details=None,
+                                                      completion_tokens_details=None))
+        outcomes = [limited, limited, reply]
+
+        def create(**_):
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        waits = []
+        import benchmark.longds.selection as selection
+        original = selection._ask
+        selection._ask = lambda c, m, p: original(c, m, p, sleep=waits.append)
+        try:
+            tables, usage, _ = select_tables(client, "luna", "Task 1: x", "y")
+        finally:
+            selection._ask = original
+        self.assertEqual((tables, usage["input_tokens"], waits), (["units"], 10, [5, 10]))
+
+
 if __name__ == "__main__":
     unittest.main()
