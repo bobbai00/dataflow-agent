@@ -1401,7 +1401,7 @@ export class TexeraAgent {
   async sendMessage(
     userMessage: string,
     messageSource?: "chat" | "feedback",
-    options: { contextRequests?: readonly number[]; contextTables?: readonly string[] } = {}
+    options: { contextRequests?: readonly number[]; contextTables?: readonly string[]; contextUpstream?: boolean } = {}
   ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     if (options.contextRequests) this.contextRequestsByMessage.set(messageId, new Set(options.contextRequests));
@@ -1424,6 +1424,7 @@ export class TexeraAgent {
         requests: earlier,
         head: this.head,
         tables: options.contextTables,
+        upstream: options.contextUpstream,
         options: observationFormatPatch(this.settings),
       });
       this.contextBlockByMessage.set(messageId, block);

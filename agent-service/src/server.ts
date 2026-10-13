@@ -988,17 +988,22 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource, contextRequests, contextTables } = body as {
+      const { content, messageSource, contextRequests, contextTables, contextUpstream } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
         contextRequests?: number[];
         contextTables?: string[];
+        contextUpstream?: boolean;
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource, { contextRequests, contextTables });
+      const result = await agent.sendMessage(content, messageSource, {
+        contextRequests,
+        contextTables,
+        contextUpstream,
+      });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
       const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
@@ -1019,6 +1024,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         contextRequests: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
         // Earlier tables this request builds on; the context then shows them, and lists the rest, instead of earlier requests.
         contextTables: t.Optional(t.Array(t.String())),
+        // With contextTables: also show what the named tables are built from, back to the files.
+        contextUpstream: t.Optional(t.Boolean()),
       }),
     }
   )
