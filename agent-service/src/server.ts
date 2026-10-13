@@ -988,15 +988,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource } = body as {
+      const { content, messageSource, contextRequests } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
+        contextRequests?: number[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource);
+      const result = await agent.sendMessage(content, messageSource, { contextRequests });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
       const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
@@ -1013,6 +1014,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       body: t.Object({
         content: t.String(),
         messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+        // Earlier requests, by number from 1, that this request's context shows; all when absent.
+        contextRequests: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
       }),
     }
   )

@@ -42,6 +42,8 @@ def command(job, model, extra):
     common = ["--prepared", str(job["prepared"]), "--out", str(job["out"]), "--model", model, *extra]
     if job["arm"] == "smolagents":
         return [sys.executable, "-m", "benchmark.longds.smolagents_session", *common]
+    if job["arm"] == "smolagents-oracle":
+        return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--select", "oracle", *common]
     return [sys.executable, "-m", "benchmark.longds.run_session", "--arm", job["arm"], *common]
 
 

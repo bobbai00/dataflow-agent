@@ -28,7 +28,11 @@ network. The model client stays outside and calls the stack's gateway
 (LITELLM_BASE_URL, LITELLM_MASTER_KEY), as the dataflow agent does.
 
 The output folder has the layout run_session.py writes, so judge.py and
-report.py read it unchanged; the arm is `smolagents`.
+report.py read it unchanged; the arm is `smolagents`. With `--select oracle`
+(arm `smolagents-oracle`) a request's memory holds only the earlier requests
+the selection names (common.oracle_selection), as run_session's
+`transcript-oracle` does for the dataflow agent; the interpreter keeps every
+variable either way.
 
 Usage (from the repository root, inside the stack's environment):
     python -m benchmark.longds.smolagents_session --prepared R/prepared/<key> \\
@@ -47,7 +51,7 @@ import sys
 import threading
 import time
 
-from benchmark.longds.common import DATA, HERE, ROOT, load, save
+from benchmark.longds.common import DATA, HERE, ROOT, SELECTIONS, load, save, selection_note
 from benchmark.retrieval.execution_isolation import isolated_command
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule
 
@@ -180,7 +184,7 @@ def request_record(turn, prompt, calls, pricing, *, output, error, out_of_steps,
     }
 
 
-def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None):
+def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None, select=None):
     import smolagents
     from smolagents import CodeAgent
     from smolagents.local_python_executor import CodeOutput, PythonExecutor
@@ -205,6 +209,8 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
                                    for key in ("input", "cached", "cache_creation", "output", "reasoning")})
 
     out.mkdir(parents=True, exist_ok=False)
+    selector = SELECTIONS[select] if select else None
+    gold = load(prepared / "gold.json") if selector else None
     manifest = load(prepared / "manifest.json")
     prompts = load(prepared / "prompts.json")[:turns]
     imports = available_imports(code_agent.AUTHORIZED_IMPORTS)
@@ -215,7 +221,8 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
     agent = CodeAgent(tools=[], model=model_client, additional_authorized_imports=imports, executor=interpreter,
                       verbosity_level=LogLevel.OFF, **({"max_steps": max_steps} if max_steps else {}))
     save(out / "protocol.json", {
-        "prepared": str(prepared.resolve()), "arm": "smolagents", "model": model, "turns": len(prompts),
+        "prepared": str(prepared.resolve()), "arm": f"smolagents-{select}" if select else "smolagents", "model": model,
+        "turns": len(prompts), "selection": select,
         "settings": {"smolagents": smolagents.__version__, "max_steps": agent.max_steps, "instructions": None,
                      "kramabench_revision": kb_revision, "python": sys.version.split()[0],
                      "authorized_imports": imports, "request_text": "prepared prompts.json"},
@@ -225,20 +232,28 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
         "started": datetime.now(timezone.utc).isoformat()})
     save(out / "system-info.json", {"systemPrompt": agent.system_prompt})
     records, spent, first = [], 0.0, True
+    # Each request's memory steps (its task and actions), so a selection can rebuild memory from them.
+    request_steps = {}
     try:
         for entry in prompts:
             if spent >= spend_limit:
                 print(json.dumps({"stopped": "spend limit", "spent_usd": spent}), flush=True)
                 break
+            selected = selector(gold, entry["turn_id"]) if selector else None
+            prompt = entry["prompt"] + selection_note(selected, entry["turn_id"])
+            if selected is not None:
+                # Memory holds only the chosen requests; the interpreter's variables all stay.
+                agent.memory.steps = [step for turn in selected for step in request_steps.get(turn, [])]
             start = 0 if first else len(agent.memory.steps)
             calls_before, started = len(model_client.calls), time.monotonic()
             output = error = None
             try:
-                output = agent.run(entry["prompt"], reset=first)
+                output = agent.run(prompt, reset=first)
             except (Exception, SessionLost, SystemExit) as failure:
                 error = f"{type(failure).__name__}: {failure}"
             first = False
             steps = agent.memory.steps[start:]
+            request_steps[entry["turn_id"]] = list(steps)
             actions = [step for step in steps if isinstance(step, ActionStep)]
             out_of_steps = bool(actions) and isinstance(actions[-1].error, AgentMaxStepsError)
             folder = out / f"t{entry['turn_id']:02d}"
@@ -250,10 +265,12 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
                 # Each step keeps the full messages it was sent; over a session
                 # that is quadratic. Later requests are built from the steps.
                 step.model_input_messages = None
-            record = request_record(entry["turn_id"], entry["prompt"], model_client.calls[calls_before:], pricing,
+            record = request_record(entry["turn_id"], prompt, model_client.calls[calls_before:], pricing,
                                     output=output, error=error, out_of_steps=out_of_steps, steps=len(actions),
                                     failed=sum(step.error is not None for step in actions) - out_of_steps,
                                     elapsed=time.monotonic() - started)
+            if selected is not None:
+                record["context_requests"] = selected
             save(folder / "record.json", record)
             records.append(record)
             save(out / "records.json", records)
@@ -295,10 +312,11 @@ def main():
     parser.add_argument("--turns", type=int)
     parser.add_argument("--spend-limit", type=float, default=5.0)
     parser.add_argument("--max-steps", type=int, help="default: smolagents' own (20 a request)")
+    parser.add_argument("--select", choices=sorted(SELECTIONS), help="show each request only these earlier requests")
     args = parser.parse_args()
     if current_price_schedule(args.model) is None:
         raise SystemExit(f"No price schedule for {args.model}; costs would be unknown")
-    run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps)
+    run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps, args.select)
 
 
 if __name__ == "__main__":

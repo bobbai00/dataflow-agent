@@ -100,6 +100,20 @@ class RecordTest(unittest.TestCase):
         self.assertIn("benchmark.longds.smolagents_session", command(job, "gpt-5.6-luna", []))
         self.assertNotIn("--arm", command(job, "gpt-5.6-luna", []))
         self.assertIn("benchmark.longds.run_session", command({**job, "arm": "hybrid"}, "gpt-5.6-luna", []))
+        oracle = command({**job, "arm": "smolagents-oracle"}, "gpt-5.6-luna", [])
+        self.assertIn("benchmark.longds.smolagents_session", oracle)
+        self.assertEqual(oracle[oracle.index("--select") + 1], "oracle")
+
+    def test_the_oracle_selection_keeps_request_one_and_the_annotated_dependencies(self):
+        from benchmark.longds.common import oracle_selection, selection_note
+        gold = {"turns": [{"turn_id": 1, "depends_tasks": []}, {"turn_id": 2, "depends_tasks": [1]},
+                          {"turn_id": 5, "depends_tasks": [3, 2]}, {"turn_id": 9, "depends_tasks": [7, 9, 12]}]}
+        self.assertEqual([oracle_selection(gold, turn) for turn in (1, 2, 5, 9)], [None, [1], [1, 2, 3], [1, 7]])
+        # Nothing left out, no note; otherwise the same sentence for both agents.
+        self.assertEqual(selection_note([1], 2), "")
+        self.assertEqual(selection_note(None, 1), "")
+        self.assertEqual(selection_note([1, 7], 9), "\n\n(Context: of the earlier tasks, this conversation shows tasks 1, 7; "
+                                                   "the others are left out of it, and what they computed still exists.)")
 
 
 if __name__ == "__main__":
