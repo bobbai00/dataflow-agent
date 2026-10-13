@@ -353,6 +353,14 @@ test("a request that names earlier tables sees one block instead of the earlier 
   expect(third).toContain(THIRD);
   // The request's own later calls still see its first.
   expect(prompts[5].slice(1).map(textOf).join("\n")).toContain("set scores_rate70: unit_scores(units, rate_weight=0.7)");
+  // The block is shown, not stored: the request's text stays as it was sent.
+  const third_step = agent.getReActSteps().filter(step => step.role === "user").at(-1)!;
+  expect(third_step.content).toBe(THIRD);
+  // So a later block quotes that request's own text, and blocks never nest.
+  await agent.sendMessage("Which units lead under both weightings?", undefined, { contextTables: ["top_rate70"] });
+  const fourth = prompts[prompts.length - 1].slice(1).map(textOf).join("\n");
+  expect(fourth).toContain(`#### Task 3\nasked: ${THIRD}\nanswered: Final Answer: u3, u1, u4\n- \`set top_rate70: limit(ranked_rate70, n=3)\``);
+  expect(fourth.split("## Context for this request").length).toBe(2);
 });
 
 test("compact entries list a documented function by its signature and docstring, and keep the rest's source", async () => {

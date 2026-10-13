@@ -334,6 +334,12 @@ export class TexeraAgent {
    * path. Kept per request, so each request's context stays what it was.
    */
   private contextRequestsByMessage = new Map<string, ReadonlySet<number>>();
+  /**
+   * The table context a request's sender asked for (sendMessage
+   * `contextTables`), rendered once as the request starts. It is shown with
+   * that request only: the request's stored text stays as it was sent.
+   */
+  private contextBlockByMessage = new Map<string, string>();
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
@@ -804,12 +810,20 @@ export class TexeraAgent {
     const chosen = current ? this.contextRequestsByMessage.get(current) : undefined;
     if (!chosen) return steps;
     const numbers = this.turnNumberMap();
-    return steps.filter(
-      step =>
-        TexeraAgent.isInitializationStep(step) ||
-        step.messageId === current ||
-        chosen.has(numbers.get(step.messageId) ?? -1)
-    );
+    const block = current ? this.contextBlockByMessage.get(current) : undefined;
+    return steps
+      .filter(
+        step =>
+          TexeraAgent.isInitializationStep(step) ||
+          step.messageId === current ||
+          chosen.has(numbers.get(step.messageId) ?? -1)
+      )
+      .map(step =>
+        // The block goes before the current request's own text, in this context only.
+        block && step.messageId === current && step.role === "user" && step.isBegin
+          ? { ...step, content: `${block}\n\n${step.content}` }
+          : step
+      );
   }
 
   /**
@@ -1412,7 +1426,7 @@ export class TexeraAgent {
         tables: options.contextTables,
         options: observationFormatPatch(this.settings),
       });
-      userMessage = `${block}\n\n${userMessage}`;
+      this.contextBlockByMessage.set(messageId, block);
       this.contextRequestsByMessage.set(messageId, new Set());
     }
 
