@@ -55,7 +55,7 @@ const TYPES: Record<string, string> = {
 function session(
   multiRequest: MultiRequestMode,
   replies: Reply[],
-  catalog: { catalogSource?: CatalogSource; catalogRecent?: number; answerStatement?: boolean } = {}
+  catalog: { catalogSource?: CatalogSource; catalogRecent?: number; answerStatement?: boolean; focusTasks?: number } = {}
 ) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
@@ -468,8 +468,47 @@ answer: \`answer_1\` = {"leaders": [3 items × {unit, score}], "eligible_units":
 operators:
 - \`set units: eligible_units(orders, min_orders=10)\` (updated: min_orders 5 → 10) → 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64
 deleted: \`n_units\`
+built on: task 1
 answer: Final Answer: u1, u3, u4`);
-  expect(agent.getSystemInfo().systemPrompt).toContain("one line per operator it set, with rows and columns for the tables it ended with or showed");
+  expect(agent.getSystemInfo().systemPrompt).toContain("one line per operator it set, with rows and columns; which earlier tasks it built on; and its answer");
+});
+
+test("the working set shows the previous task in full, a focus statement replaces it from the next call, and entries say what they built on", async () => {
+  const { agent, prompts } = session(
+    "catalog",
+    [
+      ...REPLIES.slice(0, 4),
+      { call: { python: "", statements: "focus task 1\nshow result top" } },
+      { text: "Final Answer: u3, u1, u4" },
+    ],
+    { catalogSource: "ledger", focusTasks: 2 }
+  );
+  await agent.sendMessage(FIRST);
+  await agent.sendMessage(SECOND);
+  await agent.sendMessage(THIRD);
+  const working = (prompt: any[]) => prompt.map(textOf).find(text => text.startsWith("## Working set"));
+  // Request 3, first call: the previous task alone.
+  const before = working(prompts[4])!;
+  expect(before).toStartWith("## Working set: task 2\n");
+  expect(before).toContain("### Task 2\nrequest: From now on a unit needs ten orders. Which three units lead now?");
+  expect(before).toContain("- `set units: eligible_units(orders, min_orders=10)`\n  reads: `orders` (task 1, 40 rows × 3 columns)\n  result: 8 rows × 4 columns; columns: unit str, orders int64, volume float64, rate float64");
+  expect(before).toContain("answer: Final Answer: u1, u3, u4");
+  expect(before).toContain("reads from earlier tasks: `orders` (task 1; focus task 1 for its rule)");
+  // `scores` reads `units` but was set in task 1, so it is not a later reader.
+  expect(before).not.toContain("read by later tasks");
+  expect(before).toContain("  | unit | orders | volume | rate |");
+  expect(before).not.toContain("### Task 1");
+  // The focus receipt, and the next call's working set with both tasks.
+  // Tool results are JSON in the prompt, so the receipt's newlines are escaped.
+  expect(textOf(prompts[5][prompts[5].length - 1])).toContain("## focus task 1\\nworking set from your next call: task 1.");
+  const after = working(prompts[5])!;
+  expect(after).toStartWith("## Working set: task 1, task 2\n");
+  expect(after).toContain("### Task 1\nrequest: " + FIRST);
+  expect(after).toContain("def eligible_units(orders, *, min_orders=5):");
+  expect(after).toContain("- `set units: eligible_units(orders, min_orders=5)` (set again in task 2: `set units: eligible_units(orders, min_orders=10)`)");
+  expect(after).toContain("reads from earlier tasks: `orders` (task 1, above)");
+  // Ledger entries name the tasks they built on.
+  expect(textOf(prompts[4][4])).toContain("\nbuilt on: task 1\nanswer:");
 });
 
 test("a catalog keeps the most recent K to 2K-1 requests as transcript and adds entries K at a time", async () => {

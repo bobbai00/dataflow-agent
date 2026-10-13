@@ -50,6 +50,7 @@ The statements, one per line:
     show operator <id>                             an operator's statement, inputs, and status
     show function <name>                           a registered function's source
     show builtin <name>                            a built-in's full contract
+{{FOCUS_STATEMENT}}
 
 Optional `view` is one of the enabled retrieval views listed below; omitting it selects the default view. Definitions in `python` register before any statement runs. A call's edits apply together or not at all: if one line is rejected, nothing changes and the receipt names the line (line numbers count the lines of `statements`). Requests run after the edits applied. Put the definitions, statements, and `show result` of a known computation in one call; decide on what a receipt shows in the next call. `show result` recomputes what changed, so a separate `execute` is for computing without displaying. A scanned workbook's receipt lists its sheet names; `scan(..., sheet='name')` reads one.
 

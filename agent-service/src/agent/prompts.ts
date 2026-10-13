@@ -169,6 +169,8 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   catalogSource?: CatalogSource;
   /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** Focused tasks shown in full (AgentSettings.focusTasks). */
+  focusTasks?: number;
   /** A call may end with `answer {...}` (AgentSettings.answerStatement). */
   answerStatement?: boolean;
   /** The tool takes `answer` (AgentSettings.answerField). */
@@ -222,7 +224,11 @@ export function buildRegisteredNativeSystemPrompt(
               ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
               : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
             (options.catalogSource === "ledger"
-              ? "the functions it registered or changed, with their signatures and docstrings (`show function` reads any source); one line per operator it set, with rows and columns for the tables it ended with or showed; and its answer, with the operator that computed it. Entries carry no records; `show result` an earlier table when you need its values, and `show schema` for columns an entry does not list. Each observation describes the graph at that time; later edits may have made its results stale."
+              ? "the functions it registered or changed, with their signatures and docstrings (`show function` reads any source); one line per operator it set, with rows and columns; which earlier tasks it built on; and its answer. Entries carry no records; `show result` an earlier table when you need its values." +
+                ((options.focusTasks ?? 0) > 0
+                  ? ` After the entries comes the working set: up to ${options.focusTasks} earlier tasks in full, with their request, their functions with source, their operators with every column and a sample, and their answer. It starts as the previous task and what you focused before; \`focus task 3, 7\` (or \`focus <operator>\` for its task) replaces it from your next call, and a task you stop using drops out. Before you build on an earlier task's rule or table, make sure that task is in the working set: its code is where the conventions are.`
+                  : "") +
+                " Each observation describes the graph at that time; later edits may have made its results stale."
               : (options.catalogSource === "docstring"
                   ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
                   : "the functions it registered or changed, with their signatures and source") +
@@ -241,6 +247,10 @@ export function buildRegisteredNativeSystemPrompt(
       : options.answerStatement
         ? "To finish, end the call that computes the answer with `answer <id>`: `<id>` is an operator whose function takes the tables the answer rests on and returns the answer as a dict in the requested shape, with the requested keys, nesting, order and rounding, for example `def leaders_answer(top, eligible): return {'leaders': [{'unit': r.unit, 'score': round(r.score, 4)} for r in top.itertuples()], 'eligible_units': int(len(eligible))}`, then `set answer_1: leaders_answer(top, eligible)` and `answer answer_1`. The request ends with that dict as JSON, without another call. `answer <id>` of an ordinary table of up to 50 rows answers with its rows. The answer is refused, and the request stays open, when the operator fails or returns nothing. Show a result first only when you must read it to decide the answer. A reply without the tool is also an answer, verbatim, in the user's requested format; use it only when the answer needs a judgment the tables do not hold, after `show result` has displayed what it rests on."
         : "To finish, reply without calling the tool: that reply is the answer, verbatim, in the user's requested format; it may span lines and contain Markdown. There is no answer statement.",
+    FOCUS_STATEMENT:
+      (options.focusTasks ?? 0) > 0
+        ? "    focus task <n>, ...                        the earlier tasks shown in full from the next call (or focus <id> for its task)"
+        : "",
     ANSWER_SOURCE:
       options.answerField || options.answerStatement ? "answer from that result" : "retrieve that result before answering",
     // Only sessions with several requests; a single request's prompt is unchanged.

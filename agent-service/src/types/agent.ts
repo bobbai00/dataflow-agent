@@ -401,6 +401,14 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    */
   catalogRecent: number;
   /**
+   * Working set (agent/working-set.ts): with catalog entries, the earlier
+   * tasks the model focused, plus the previous task, shown in full (request,
+   * functions with source, operators with every column and a sample, answer)
+   * before the current request, at most this many. `focus task 3, 7`
+   * replaces the set from the next call. 0 (default): no working set.
+   */
+  focusTasks: number;
+  /**
    * A call may end its request with `answer {...}`, an answer composed from
    * the tables it computed (native/answer-statement.ts), instead of a reply
    * after seeing them. Off by default: the answer is a reply.
@@ -483,6 +491,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   multiRequest: "off",
   catalogSource: "full",
   catalogRecent: 0,
+  focusTasks: 0,
   answerStatement: false,
   answerField: false,
 };
@@ -607,6 +616,8 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   catalogSource?: CatalogSource;
   /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** Focused tasks shown in full (see AgentSettings.focusTasks). */
+  focusTasks?: number;
   /** Answers composed from tables (see AgentSettings.answerStatement). */
   answerStatement?: boolean;
   /** The tool's answer field (see AgentSettings.answerField). */
@@ -698,6 +709,8 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   catalogSource?: CatalogSource;
   /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** Focused tasks shown in full (see AgentSettings.focusTasks). */
+  focusTasks?: number;
   /** Answers composed from tables (see AgentSettings.answerStatement). */
   answerStatement?: boolean;
   /** The tool's answer field (see AgentSettings.answerField). */

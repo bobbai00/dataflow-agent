@@ -78,7 +78,7 @@ function receipts(steps: readonly ReActStep[]): DataflowActionsResult[] {
 
 /** Operators a request's committed edits touched, in first-edit order. A
  * call's edits apply together or not at all, so a rejected edit touched nothing. */
-function editOrder(steps: readonly ReActStep[]): string[] {
+export function editOrder(steps: readonly ReActStep[]): string[] {
   const order = new Set<string>();
   for (const receipt of receipts(steps))
     for (const item of receipt.actions) {
@@ -103,7 +103,7 @@ function shownResults(steps: readonly ReActStep[]): string[] {
 
 /** The final reply: the reply without the tool that ended the request. A
  * request that failed or was stopped has none. */
-function answerOf(steps: readonly ReActStep[]): string | undefined {
+export function answerOf(steps: readonly ReActStep[]): string | undefined {
   const last = steps[steps.length - 1];
   return last?.role === "agent" && last.isEnd && !last.endReason && !last.toolCalls?.length && last.content?.trim()
     ? last.content
@@ -202,7 +202,7 @@ const DOCSTRING_CHARS = 300;
  * docstring, a private helper its signature; source remains for the rest
  * (an undocumented function, imports, constants), and `show function` reads
  * any source on demand. A ledger keeps no function source at all. */
-function functionsSection(start: SnapshotData, end: SnapshotData, source: CatalogSource = "full"): string {
+export function functionsSection(start: SnapshotData, end: SnapshotData, source: CatalogSource = "full"): string {
   const before = start.workflow.nativeNamespace?.bindings ?? {};
   const namespace = end.workflow.nativeNamespace;
   const cells = namespace?.cells ?? [];
@@ -281,7 +281,7 @@ function functionOf(view: NativeOpView): string | undefined {
   return view.registeredName ?? (typeof predicate === "string" ? predicate : undefined);
 }
 
-const opening = (request: SessionRequest) =>
+export const opening = (request: SessionRequest) =>
   request.steps.find(step => step.role === "user" && step.isBegin) ?? request.steps[0];
 
 const entryCache = new WeakMap<WorkflowSnapshotStorage, Map<string, string>>();
@@ -340,6 +340,8 @@ export function renderRequestEntry(
   const answerId = answerOperator(request.steps);
   const blocks: string[] = [];
   const deleted: string[] = [];
+  // Ledger entries say which earlier tasks this one built on.
+  const builtOn = new Set<number>();
   // Operators updated only because definitions their functions use changed,
   // whose results are now stale or came out the same: named on one line.
   const dependents: string[] = [];
@@ -396,7 +398,10 @@ export function renderRequestEntry(
       // left that same definition.
       const revision = after.get(input.id)?.nativeOp?.revision;
       const origin = revision && earlier.find(r => r.revisions.get(input.id) === revision);
-      if (origin) input.taskId = origin.number;
+      if (origin) {
+        input.taskId = origin.number;
+        builtOn.add(origin.number);
+      }
     }
     // Columns are listed where a chain starts; a later step says how its
     // columns differ from its first input's.
@@ -452,6 +457,7 @@ export function renderRequestEntry(
         ]
       : []),
     ...(deleted.length ? [`deleted: ${deleted.map(inlineCode).join(", ")}`] : []),
+    ...(ledger && builtOn.size ? [`built on: ${[...builtOn].sort((a, b) => a - b).map(t => `task ${t}`).join(", ")}`] : []),
     ...(!functions && !blocks.length && !dependents.length && !deleted.length
       ? ["No functions or operators changed."]
       : []),

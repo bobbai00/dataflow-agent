@@ -153,6 +153,11 @@ export function validateEvidenceSettings(settings: object): void {
     (!Number.isInteger(catalogRecent) || Number(catalogRecent) < 0 || Number(catalogRecent) > 50)
   )
     throw new NativeCatalogSettingsError("catalogRecent must be an integer between 0 and 50");
+  const { focusTasks } = settings as Record<string, unknown>;
+  if (focusTasks !== undefined && (!Number.isInteger(focusTasks) || Number(focusTasks) < 0 || Number(focusTasks) > 20))
+    throw new NativeCatalogSettingsError("focusTasks must be an integer between 0 and 20");
+  if (focusTasks && multiRequest !== undefined && multiRequest !== "catalog")
+    throw new NativeCatalogSettingsError('focusTasks needs multiRequest "catalog"');
 }
 
 /** Shared by creation (before allocating an agent) and atomic settings updates. */

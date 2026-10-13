@@ -138,6 +138,8 @@ export interface WorkflowSettings {
 export interface WorkflowContent {
   /** Session-wide authored definitions, persisted independently of graph nodes. */
   readonly nativeNamespace?: import("../agent/native/registered").RegisteredNamespace;
+  /** The earlier tasks the model focused (AgentSettings.focusTasks), and in which request. */
+  readonly nativeFocus?: { tasks: number[]; setIn: number };
   readonly operators: OperatorPredicate[];
   readonly operatorPositions: { [key: string]: Point };
   readonly links: OperatorLink[];

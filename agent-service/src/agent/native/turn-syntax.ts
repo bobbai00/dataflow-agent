@@ -52,7 +52,7 @@ export interface TurnStatement {
   line: number;
   /** The statement as written (its first line). */
   text: string;
-  kind: "edit" | "execute" | "show" | "answer";
+  kind: "edit" | "execute" | "show" | "answer" | "focus";
   resource?: TurnResource;
   ids?: string[];
   view?: RetrievalView;
@@ -83,6 +83,8 @@ export interface TurnParseOptions {
   views: readonly RetrievalView[];
   /** A call may end with `answer ...` (AgentSettings.answerStatement). */
   answerStatement?: boolean;
+  /** `focus task 3, 7` chooses the working set (AgentSettings.focusTasks). */
+  focus?: boolean;
 }
 
 /** The arguments of a `dataflow` call. */
@@ -352,6 +354,24 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
       continue;
     }
     if (/^(?:answer:|\**\s*Final Answer:)/i.test(trimmed)) return fail(number, ANSWER_IS_A_REPLY);
+    const focusMatch = options.focus ? /^focus\b(.*)$/.exec(trimmed) : null;
+    if (focusMatch) {
+      // `focus task 3, 7`, `focus combined_player_view` (its task), or both.
+      const tasks: number[] = [];
+      const operators: string[] = [];
+      for (const part of focusMatch[1].split(",")) {
+        const item = part.trim().replace(/^and\s+/, "");
+        if (!item) continue;
+        const task = /^(?:task\s*)?#?(\d+)$/i.exec(item);
+        if (task) tasks.push(Number(task[1]));
+        else if (IDENTIFIER.test(item)) operators.push(item);
+        else return fail(number, `focus names tasks (focus task 3, 7) or operators (focus scores), not ${JSON.stringify(item)}.`);
+      }
+      if (!tasks.length && !operators.length) return fail(number, "focus needs tasks (focus task 3, 7) or operators.");
+      statements.push({ line: number, text: trimmed, kind: "focus", ids: operators, actionIndexes: [actions.length + 1] });
+      actions.push({ type: "focus", tasks, operators });
+      continue;
+    }
     const setMatch = /^(set\s+([A-Za-z_]\w*)\s*:|delete\s+([A-Za-z_]\w*))(.*)$/s.exec(trimmed);
     if (setMatch) {
       changes[i] = line;

@@ -46,6 +46,10 @@ export interface DataflowActionRuntime {
   execute: (operatorIds?: readonly string[], onExecution?: (run: ExecutionRunMetrics) => void) => Promise<void>;
   isCurrent: () => boolean;
   signal?: AbortSignal;
+  /** The request being answered, from 1 (for `focus`). */
+  requestNumber?: number;
+  /** The request that created an operator (for `focus <operator>`). */
+  originTask?: (id: string) => number | undefined;
 }
 
 /** Every operator upstream of `id` in this workflow. */
@@ -336,6 +340,34 @@ export async function executeDataflowActionBatch(
           ...(failure ? { error: failure } : {}),
         },
       };
+    }
+    if (action.type === "focus") {
+      // The working set from the next call: the named tasks, and the tasks of
+      // the named operators. It travels with the workflow content, so it is
+      // versioned with the snapshots and inherited by later requests.
+      const current = runtime.requestNumber ?? 0;
+      const bad = action.tasks.filter(task => task < 1 || task >= current);
+      if (bad.length)
+        throw new Error(
+          `UNKNOWN_TASK: ${bad.map(t => `task ${t}`).join(", ")}; the earlier tasks are 1 to ${current - 1}.`
+        );
+      const workflow = state.getWorkflowContent();
+      const tasks = new Set(action.tasks);
+      for (const id of action.operators) {
+        if (!workflow.operators.some(op => op.operatorID === id)) throw new Error(`UNKNOWN_OPERATOR: no operator \`${id}\`.`);
+        const origin = runtime.originTask?.(id);
+        if (origin === undefined || origin >= current)
+          throw new Error(`\`${id}\` was set in this task; focus names earlier tasks or their operators.`);
+        tasks.add(origin);
+      }
+      const limit = settings.focusTasks ?? 0;
+      const chosen = [...tasks].sort((a, b) => a - b);
+      if (limit && chosen.length > limit)
+        throw new Error(`FOCUS_TOO_LARGE: the working set holds at most ${limit} tasks; ${chosen.length} were named.`);
+      const next = { ...workflow, nativeFocus: { tasks: chosen, setIn: current } };
+      state.setWorkflowContent(next);
+      storage.updatePendingWorkflow(stepId, next);
+      return { status: "ok", output: { tasks: chosen } };
     }
     if (action.type === "answer") {
       // Composed from the rows the agent holds; the request ends with it.

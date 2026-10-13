@@ -39,7 +39,9 @@ export type DataflowAction =
   | { type: "execute"; operator_ids?: string[] }
   | { type: "retrieve"; operator_ids: string[]; view: RetrievalView; columns?: string[] }
   /** An answer composed from computed tables (AgentSettings.answerStatement). */
-  | { type: "answer"; operator_ids: string[]; answer: AnswerSpec };
+  | { type: "answer"; operator_ids: string[]; answer: AnswerSpec }
+  /** The working set for the next calls: earlier tasks, or operators standing for their tasks (AgentSettings.focusTasks). */
+  | { type: "focus"; tasks: number[]; operators: string[] };
 
 export interface ActionOutcome {
   status: "ok" | "error";

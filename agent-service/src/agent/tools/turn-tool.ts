@@ -45,6 +45,8 @@ export interface DataflowToolInput {
 export interface DataflowToolOptions {
   answerStatement?: boolean;
   answerField?: boolean;
+  /** `focus` statements (AgentSettings.focusTasks). */
+  focus?: boolean;
 }
 
 export const DATAFLOW_TOOL_DESCRIPTION =
@@ -76,6 +78,11 @@ export const DATAFLOW_ANSWER_STATEMENT_TOOL_DESCRIPTION =
 /** The schema with `answer`; strict tool calls send every field, so `""` means none. */
 export function dataflowToolSchema(options: DataflowToolOptions = {}) {
   const schema = structuredClone(DATAFLOW_TOOL_SCHEMA) as any;
+  if (options.focus)
+    schema.properties.statements.description = schema.properties.statements.description.replace(
+      "builtin ...;",
+      "builtin ..., focus task <n>, ...;"
+    );
   if (!options.answerField) return schema;
   schema.properties.answer = {
     type: "string",
@@ -127,6 +134,7 @@ export function prepareDataflowCall(
   const parsed = parseTurn(fields, {
     views,
     answerStatement: options.answerStatement || answer !== undefined,
+    focus: options.focus,
   });
   if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;

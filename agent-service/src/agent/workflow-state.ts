@@ -57,6 +57,7 @@ export class WorkflowState {
   private commentBoxes: CommentBox[] = [];
   private settings: WorkflowSettings = { ...DEFAULT_WORKFLOW_SETTINGS };
   private nativeNamespace: WorkflowContent["nativeNamespace"];
+  private nativeFocus: WorkflowContent["nativeFocus"];
   private operatorsToViewResult: Set<string> = new Set();
 
   private operatorIdCounter: number = 0;
@@ -540,6 +541,7 @@ export class WorkflowState {
       commentBoxes: [...this.commentBoxes],
       settings: { ...this.settings },
       ...(this.nativeNamespace ? { nativeNamespace: structuredClone(this.nativeNamespace) } : {}),
+      ...(this.nativeFocus ? { nativeFocus: structuredClone(this.nativeFocus) } : {}),
     };
   }
 
@@ -565,6 +567,7 @@ export class WorkflowState {
 
     this.settings = content.settings ? { ...content.settings } : { ...DEFAULT_WORKFLOW_SETTINGS };
     this.nativeNamespace = content.nativeNamespace ? structuredClone(content.nativeNamespace) : undefined;
+    this.nativeFocus = content.nativeFocus ? structuredClone(content.nativeFocus) : undefined;
   }
 
   toLogicalPlan(targetOperatorId?: string): LogicalPlan {
@@ -616,6 +619,7 @@ export class WorkflowState {
     this.commentBoxes = [];
     this.settings = { ...DEFAULT_WORKFLOW_SETTINGS };
     this.nativeNamespace = undefined;
+    this.nativeFocus = undefined;
     this.operatorsToViewResult.clear();
     this.validationErrors = Object.create(null);
     this.workflowEmpty = true;

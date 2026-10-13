@@ -209,6 +209,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       multiRequest: settings.multiRequest,
       catalogSource: settings.catalogSource,
       catalogRecent: settings.catalogRecent,
+      focusTasks: settings.focusTasks,
     };
     const evidenceSettings = {
       data: settings.dataEvidence,
@@ -481,6 +482,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     multiRequest: agentSettings.multiRequest,
     catalogSource: agentSettings.catalogSource,
     catalogRecent: agentSettings.catalogRecent,
+    focusTasks: agentSettings.focusTasks,
     answerStatement: agentSettings.answerStatement,
     answerField: agentSettings.answerField,
   };
@@ -735,6 +737,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             multiRequest: (settings as any).multiRequest,
             catalogSource: (settings as any).catalogSource,
             catalogRecent: (settings as any).catalogRecent,
+            focusTasks: (settings as any).focusTasks,
             answerStatement: (settings as any).answerStatement,
             answerField: (settings as any).answerField,
             tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
@@ -821,6 +824,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
             catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring"), t.Literal("ledger")])),
             catalogRecent: t.Optional(t.Integer()),
+            focusTasks: t.Optional(t.Integer()),
             answerStatement: t.Optional(t.Boolean()),
             answerField: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
@@ -1178,6 +1182,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         multiRequest: settings.multiRequest,
         catalogSource: settings.catalogSource,
         catalogRecent: settings.catalogRecent,
+        focusTasks: settings.focusTasks,
         answerStatement: settings.answerStatement,
         answerField: settings.answerField,
       });
@@ -1252,6 +1257,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
         catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring"), t.Literal("ledger")])),
         catalogRecent: t.Optional(t.Integer()),
+        focusTasks: t.Optional(t.Integer()),
         answerStatement: t.Optional(t.Boolean()),
         answerField: t.Optional(t.Boolean()),
       }),

@@ -574,6 +574,7 @@ export class TexeraAgent {
         multiRequest: this.settings.multiRequest,
         catalogSource: this.settings.catalogSource,
         catalogRecent: this.settings.catalogRecent,
+        focusTasks: this.settings.focusTasks,
         answerStatement: this.settings.answerStatement,
         answerField: this.settings.answerField,
       });
@@ -668,6 +669,7 @@ export class TexeraAgent {
       tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings), {
         answerStatement: this.settings.answerStatement === true,
         answerField: this.settings.answerField === true,
+        focus: (this.settings.focusTasks ?? 0) > 0,
       });
     }
 
@@ -824,6 +826,19 @@ export class TexeraAgent {
     const m = new Map<string, number>();
     this.turnOrder().forEach((id, i) => m.set(id, i + 1));
     return m;
+  }
+
+  /** The request that created each operator: the first whose last step's snapshot holds it. */
+  originTasks(): Map<string, number> {
+    const origins = new Map<string, number>();
+    this.turnOrder().forEach((messageId, i) => {
+      const steps = this.reActStepsByMessageId.get(messageId) ?? [];
+      const last = steps[steps.length - 1];
+      if (!last) return;
+      for (const op of this.snapshotStorage.getAssociatedSnapshot(last.id).workflow.operators)
+        if (!origins.has(op.operatorID)) origins.set(op.operatorID, i + 1);
+    });
+    return origins;
   }
 
   getAllSteps(): ReActStep[] {
@@ -997,6 +1012,7 @@ export class TexeraAgent {
       multiRequest?: AgentSettings["multiRequest"];
       catalogSource?: AgentSettings["catalogSource"];
       catalogRecent?: AgentSettings["catalogRecent"];
+      focusTasks?: AgentSettings["focusTasks"];
       answerStatement?: AgentSettings["answerStatement"];
       answerField?: AgentSettings["answerField"];
     } & RetrievalSettings &
@@ -1018,7 +1034,14 @@ export class TexeraAgent {
     }
     // The system prompt and the layout of earlier requests depend on these,
     // so they are decided before the first request and kept for the session.
-    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent", "answerStatement", "answerField"] as const;
+    const sessionLayout = [
+      "multiRequest",
+      "catalogSource",
+      "catalogRecent",
+      "focusTasks",
+      "answerStatement",
+      "answerField",
+    ] as const;
     for (const key of sessionLayout)
       if (updates[key] !== undefined && updates[key] !== this.settings[key] && this.turnOrder().length > 0)
         throw new NativeCatalogSettingsError(`${key} is decided before the first request of a session`);
@@ -1033,6 +1056,10 @@ export class TexeraAgent {
     }
     if (updates.catalogRecent !== undefined && updates.catalogRecent !== this.settings.catalogRecent) {
       this.settings.catalogRecent = updates.catalogRecent;
+      promptNeedsRebuild = true;
+    }
+    if (updates.focusTasks !== undefined && updates.focusTasks !== this.settings.focusTasks) {
+      this.settings.focusTasks = updates.focusTasks;
       promptNeedsRebuild = true;
     }
     if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
@@ -2321,6 +2348,8 @@ export class TexeraAgent {
           execute: (operatorIds, onExecution) => this.executePostStepChanges([], [], true, operatorIds, onExecution),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
+          requestNumber: this.turnNumberMap().get(this.stepsById.get(stepId)?.messageId ?? "") ?? 0,
+          originTask: id => this.originTasks().get(id),
         });
       }
       const step = this.stepsById.get(stepId);

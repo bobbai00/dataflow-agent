@@ -68,6 +68,7 @@ import { nativeCheckLines } from "../native/checks";
 import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
 import { requestEntries, sessionRequests, type SessionRequest } from "../request-catalog";
+import { effectiveFocus, renderWorkingSet } from "../working-set";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
  *  (native mode's deleteOperator). Undefined for read-only tools and for the
@@ -133,6 +134,8 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   catalogSource?: AgentSettings["catalogSource"];
   /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
   catalogRecent?: AgentSettings["catalogRecent"];
+  /** Focused tasks shown in full before the current request (AgentSettings.focusTasks). */
+  focusTasks?: AgentSettings["focusTasks"];
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
@@ -506,7 +509,18 @@ function catalogContext(
   const first = own[0];
   if (first?.role === "user" && typeof first.content === "string")
     own[0] = { ...first, content: first.content.replace(/^# Agent Events\n\n## User Event \d+\n\n/, "") };
-  return [...messages, ...own];
+  // The working set: the focused tasks in full, rendered from the current
+  // graph at every call, between the entries and the current request.
+  const working =
+    (options.focusTasks ?? 0) > 0
+      ? renderWorkingSet(
+          snapshotStorage,
+          requests,
+          effectiveFocus(requests, snapshotStorage, workflowState.getWorkflowContent(), options.focusTasks!),
+          options
+        )
+      : "";
+  return [...messages, ...(working ? [{ role: "assistant" as const, content: working }] : []), ...own];
 }
 
 /**

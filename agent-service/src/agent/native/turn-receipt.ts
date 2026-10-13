@@ -326,6 +326,16 @@ export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnRece
       sections.push([title, ...executionLines(items[0], statement.ids ?? [], false, flowMemo)].join("\n"));
       continue;
     }
+    if (statement.kind === "focus") {
+      const [item] = items;
+      const tasks = (item.output as { tasks?: number[] } | undefined)?.tasks ?? [];
+      sections.push(
+        item.status === "ok"
+          ? `${title}\nworking set from your next call: ${tasks.map(t => `task ${t}`).join(", ")}.`
+          : `${title}\n${issueText(String(typeof item.output === "string" ? item.output : ((item.output as any)?.error ?? "focus failed")), "FOCUS_FAILED")}`
+      );
+      continue;
+    }
     if (statement.kind === "answer") {
       const [execute, answer] = items;
       const executed = executionLines(execute, statement.ids ?? [], false, flowMemo).filter(
