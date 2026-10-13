@@ -326,6 +326,12 @@ export class TexeraAgent {
   private reActStepsByMessageId: Map<string, ReActStep[]> = new Map();
 
   private currentMessageId: string | undefined = undefined;
+  /**
+   * Earlier requests (by global request number) a request's context shows,
+   * when its sender chose them; requests without a choice show the whole
+   * path. Kept per request, so each request's context stays what it was.
+   */
+  private contextRequestsByMessage = new Map<string, ReadonlySet<number>>();
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
@@ -783,6 +789,27 @@ export class TexeraAgent {
     return this.getAncestorPath()
       .map(id => this.stepsById.get(id)!)
       .filter(Boolean);
+  }
+
+  /**
+   * The steps the model's context is built from: the visible path, less the
+   * earlier requests the current request's sender left out of its context
+   * (sendMessage `contextRequests`). The bootstrap step and the current
+   * request always stay. Each step renders from its own snapshot, so leaving
+   * requests out changes nothing about the ones kept.
+   */
+  private contextSteps(): ReActStep[] {
+    const steps = this.getVisibleReActSteps();
+    const current = steps[steps.length - 1]?.messageId;
+    const chosen = current ? this.contextRequestsByMessage.get(current) : undefined;
+    if (!chosen) return steps;
+    const numbers = this.turnNumberMap();
+    return steps.filter(
+      step =>
+        TexeraAgent.isInitializationStep(step) ||
+        step.messageId === current ||
+        chosen.has(numbers.get(step.messageId) ?? -1)
+    );
   }
 
   /**
@@ -1357,8 +1384,13 @@ export class TexeraAgent {
     this.workflowState.addSubscription(subscription);
   }
 
-  async sendMessage(userMessage: string, messageSource?: "chat" | "feedback"): Promise<AgentMessageResult> {
+  async sendMessage(
+    userMessage: string,
+    messageSource?: "chat" | "feedback",
+    options: { contextRequests?: readonly number[] } = {}
+  ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+    if (options.contextRequests) this.contextRequestsByMessage.set(messageId, new Set(options.contextRequests));
     let stepIndex = 0;
     // Failed/stopped turns still consumed model responses. Preserve their
     // reported usage; absent provider fields remain unknown rather than zero.
@@ -1482,7 +1514,7 @@ export class TexeraAgent {
             }
             const compiled = Date.now();
 
-            const visibleSteps = this.getVisibleReActSteps();
+            const visibleSteps = this.contextSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
             // prepareStep path; cache the rendered content for the sync preview.
             const processed = await budgetContextAssembler(
@@ -1804,7 +1836,7 @@ export class TexeraAgent {
    */
   getNextStepContext(): string {
     if (this.modelInputBudget.tokens > 0 && this.lastRenderedContext !== undefined) return this.lastRenderedContext;
-    const visibleSteps = this.getVisibleReActSteps();
+    const visibleSteps = this.contextSteps();
     const processed = this.contextAssembler({
       visibleSteps,
       workflowState: this.workflowState,

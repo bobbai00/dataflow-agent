@@ -50,7 +50,7 @@ import time
 
 import requests
 
-from benchmark.longds.common import ROOT, load, save
+from benchmark.longds.common import ROOT, SELECTIONS, load, save, selection_note
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule, final_reply, normalize_usage
 
 ARMS = {
@@ -60,7 +60,10 @@ ARMS = {
     "catalog-compact": {"multiRequest": "catalog", "catalogSource": "docstring"},
     "hybrid": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 5},
     "hybrid-k3": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3},
+    "transcript-oracle": {"multiRequest": "transcript"},
 }
+# Arms whose requests show only some earlier requests (common.SELECTIONS).
+SELECT = {"transcript-oracle": "oracle"}
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).
 BASE_SETTINGS = {"agentMode": "native", "contextMode": "delta"}
@@ -122,13 +125,15 @@ class Session:
             time.sleep(2)
         return False
 
-    def ask(self, content, minutes):
+    def ask(self, content, minutes, context_requests=None):
         """Send one request and return the steps it added. A request still
-        running after `minutes` is stopped: its steps so far are its record."""
+        running after `minutes` is stopped: its steps so far are its record.
+        `context_requests` names the earlier requests its context shows."""
         before = {step["id"] for step in self.get("/react-steps")["steps"]}
         watchdog = False
+        body = {"content": content, **({"contextRequests": context_requests} if context_requests is not None else {})}
         try:
-            checked(self.http.post(self.base + "/message", json={"content": content}, timeout=(30, minutes * 60)))
+            checked(self.http.post(self.base + "/message", json=body, timeout=(30, minutes * 60)))
         except requests.exceptions.ReadTimeout:
             watchdog = True
             self.http.post(self.base + "/stop", timeout=30)
@@ -184,8 +189,11 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
     out.mkdir(parents=True, exist_ok=False)
     prompts = load(prepared / "prompts.json")[:turns]
     settings = {**BASE_SETTINGS, **ARMS[arm]}
+    select = SELECTIONS[SELECT[arm]] if arm in SELECT else None
+    gold = load(prepared / "gold.json") if select else None
     save(out / "protocol.json", {
         "prepared": str(prepared.resolve()), "arm": arm, "model": model, "settings": settings,
+        "selection": SELECT.get(arm),
         "turns": len(prompts), "spend_limit_usd": spend_limit, "question_minutes": minutes,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_status": subprocess.check_output(["git", "status", "--short", "--", "agent-service", "benchmark"],
@@ -201,8 +209,12 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
                 print(json.dumps({"stopped": "spend limit", "spent_usd": spent}), flush=True)
                 break
             started = time.monotonic()
-            steps, watchdog = session.ask(entry["prompt"], minutes)
-            record = request_record(entry["turn_id"], entry["prompt"], steps, model, time.monotonic() - started, watchdog)
+            selected = select(gold, entry["turn_id"]) if select else None
+            prompt = entry["prompt"] + selection_note(selected, entry["turn_id"])
+            steps, watchdog = session.ask(prompt, minutes, selected)
+            record = request_record(entry["turn_id"], prompt, steps, model, time.monotonic() - started, watchdog)
+            if selected is not None:
+                record["context_requests"] = selected
             folder = out / f"t{entry['turn_id']:02d}"
             save(folder / "record.json", record)
             with gzip.open(folder / "steps.json.gz", "wt") as stream:

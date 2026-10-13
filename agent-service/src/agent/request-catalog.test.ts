@@ -306,6 +306,31 @@ test("the transcript layout keeps every earlier call; the choice is fixed once a
   expect(() => agent.updateSettings({ multiRequest: "transcript" })).not.toThrow();
 });
 
+test("a request whose sender chose earlier requests sees only those, with its own calls; the next request sees what it chose", async () => {
+  const { agent, prompts } = session("transcript", REPLIES);
+  await agent.sendMessage(FIRST);
+  await agent.sendMessage(SECOND);
+  // The third request's context leaves the second request out.
+  await agent.sendMessage(THIRD, undefined, { contextRequests: [1] });
+  // The system prompt's own example mentions ten orders, so only the messages are checked.
+  const third = prompts[4].slice(1).map(textOf).join("\n");
+  expect(third).toContain(FIRST);
+  expect(third).toContain("set units: eligible_units(orders, min_orders=5)");
+  expect(third).not.toContain(SECOND);
+  expect(third).not.toContain("min_orders=10");
+  expect(third).not.toContain("Final Answer: u1, u3, u4");
+  expect(third).toContain(THIRD);
+  // Its own second call still sees its first.
+  const thirdLater = prompts[5].slice(1).map(textOf).join("\n");
+  expect(thirdLater).toContain("set scores_rate70: unit_scores(units, rate_weight=0.7)");
+  expect(thirdLater).not.toContain(SECOND);
+  // A request without a choice sees the whole path again, the second request included.
+  await agent.sendMessage("Which units are in the top three under both weightings?");
+  const fourth = prompts[prompts.length - 1].slice(1).map(textOf).join("\n");
+  expect(fourth).toContain(SECOND);
+  expect(fourth).toContain(THIRD);
+});
+
 test("compact entries list a documented function by its signature and docstring, and keep the rest's source", async () => {
   const python = `${RULES}
 
