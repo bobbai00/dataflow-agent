@@ -24,7 +24,14 @@ fixes the agent's multi-request settings:
 - catalog-compact: as catalog, with entries listing documented functions by
   signature and docstring instead of source;
 - hybrid: as catalog-compact, keeping the 5 to 9 most recent requests as
-  transcript; hybrid-k3 keeps the 3 to 5 most recent.
+  transcript; hybrid-k3 keeps the 3 to 5 most recent;
+- transcript-oracle: as transcript, each request showing only the earlier
+  requests the oracle selection names;
+- tables-model: a model picks the earlier tables each request builds on, and
+  the request sees them in full and every other table in one line instead of
+  the earlier requests; tables-upstream also shows what the picked tables are
+  built from, back to the files (smolagents_session's `--pick variables` is
+  its script counterpart).
 
 Every request is sent once; a request that ends without an answer is recorded
 as incomplete and the session goes on. The stack comes from the environment
@@ -63,13 +70,16 @@ ARMS = {
     "hybrid-k3": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3},
     "transcript-oracle": {"multiRequest": "transcript"},
     "tables-model": {"multiRequest": "transcript"},
+    "tables-upstream": {"multiRequest": "transcript"},
 }
 # Arms whose requests show only some earlier requests (common.SELECTIONS).
 SELECT = {"transcript-oracle": "oracle"}
 # Arms whose requests name the earlier tables they build on, picked by a model
 # from the dataflow index (selection.py); the agent then shows those tables in
 # full and lists the rest, instead of the earlier requests.
-SELECT_TABLES = {"tables-model"}
+SELECT_TABLES = {"tables-model", "tables-upstream"}
+# Of those, the arms whose block also shows the picked tables' upstream.
+UPSTREAM = {"tables-upstream"}
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).
 BASE_SETTINGS = {"agentMode": "native", "contextMode": "delta"}
@@ -131,7 +141,7 @@ class Session:
             time.sleep(2)
         return False
 
-    def ask(self, content, minutes, context_requests=None, context_tables=None):
+    def ask(self, content, minutes, context_requests=None, context_tables=None, context_upstream=False):
         """Send one request and return the steps it added. A request still
         running after `minutes` is stopped: its steps so far are its record.
         `context_requests` names the earlier requests its context shows;
@@ -139,7 +149,8 @@ class Session:
         before = {step["id"] for step in self.get("/react-steps")["steps"]}
         watchdog = False
         body = {"content": content, **({"contextRequests": context_requests} if context_requests is not None else {}),
-                **({"contextTables": context_tables} if context_tables is not None else {})}
+                **({"contextTables": context_tables} if context_tables is not None else {}),
+                **({"contextUpstream": True} if context_upstream and context_tables is not None else {})}
         try:
             checked(self.http.post(self.base + "/message", json=body, timeout=(30, minutes * 60)))
         except requests.exceptions.ReadTimeout:
@@ -219,7 +230,8 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
     history, answers = {}, {}
     save(out / "protocol.json", {
         "prepared": str(prepared.resolve()), "arm": arm, "model": model, "settings": settings,
-        "selection": SELECT.get(arm) or ("model tables" if arm in SELECT_TABLES else None),
+        "selection": SELECT.get(arm) or (("model tables, with upstream" if arm in UPSTREAM else "model tables")
+                                          if arm in SELECT_TABLES else None),
         "turns": len(prompts), "spend_limit_usd": spend_limit, "question_minutes": minutes,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_status": subprocess.check_output(["git", "status", "--short", "--", "agent-service", "benchmark"],
@@ -241,7 +253,7 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
             tables = picked = None
             if picker and turn > 1:
                 tables, picked = picker(render_index("dataflow", texts, answers, turn, dataflow_tasks(history)), texts[turn])
-            steps, watchdog = session.ask(prompt, minutes, selected, tables)
+            steps, watchdog = session.ask(prompt, minutes, selected, tables, arm in UPSTREAM)
             record = request_record(turn, prompt, steps, model, time.monotonic() - started, watchdog)
             if selected is not None:
                 record["context_requests"] = selected

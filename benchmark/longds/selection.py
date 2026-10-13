@@ -22,7 +22,8 @@ recorded while doing it:
   with their row counts) and the earlier tasks those tables read from.
 
 `select_tasks` asks a model which earlier tasks a new request builds on;
-`select_tables` asks which tables (dataflow only). Steps are read in the
+`select_tables` asks which tables (dataflow only), and `select_variables`
+which variables (script only; its index is script_state.render_variable_index). Steps are read in the
 formats the runners save: run_session's react steps and
 smolagents_session's step traces.
 """
@@ -192,6 +193,17 @@ New request:
 {request}"""
 
 
+VARIABLES_PROMPT = """You choose the context for a data analyst who works through a long session of requests about the same data. Below are the session's earlier tasks with the variables each created or changed in the analyst's Python session, then a new request.
+
+Pick the earlier variables the new request builds on: those it reads or must compare with. Leave out variables it does not use. Answer with JSON only: {{"variables": [variable names]}}.
+
+Earlier tasks:
+{index}
+
+New request:
+{request}"""
+
+
 def _ask(client, model, prompt):
     response = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
     text = response.choices[0].message.content or ""
@@ -217,3 +229,9 @@ def select_tasks(client, model, index, request, upto):
 def select_tables(client, model, index, request):
     parsed, usage, text = _ask(client, model, TABLES_PROMPT.format(index=index, request=request))
     return sorted({str(t) for t in parsed.get("tables", []) if isinstance(t, str)}), usage, text
+
+
+def select_variables(client, model, index, request):
+    """The script's counterpart of `select_tables`: earlier variables (and functions) the request builds on."""
+    parsed, usage, text = _ask(client, model, VARIABLES_PROMPT.format(index=index, request=request))
+    return sorted({str(v) for v in parsed.get("variables", []) if isinstance(v, str)}), usage, text
