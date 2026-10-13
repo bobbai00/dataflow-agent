@@ -154,7 +154,7 @@ test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recen
   for (const value of ["full", "docstring"])
     expect(() => validateNativeSettings(settings({ catalogSource: value }))).not.toThrow();
   expect(() => validateNativeSettings(settings({ catalogSource: "none" }))).toThrow(
-    'catalogSource must be "full", "docstring" or "ledger"'
+    'catalogSource must be "full", "docstring", "ledger" or "index"'
   );
   for (const value of [0, 5, 50])
     expect(() => validateNativeSettings(settings({ catalogRecent: value }))).not.toThrow();

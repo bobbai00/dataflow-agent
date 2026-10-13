@@ -121,6 +121,10 @@ function answerOperator(steps: readonly ReActStep[]): string | undefined {
 
 /** Characters an answer preview may take in a ledger entry. */
 const PREVIEW_CHARS = 400;
+/** Characters of the request text an index entry quotes. */
+const INDEX_REQUEST_CHARS = 160;
+/** Characters an answer preview may take in an index entry. */
+const INDEX_PREVIEW_CHARS = 160;
 /** Columns a ledger entry lists for a table before "+N more". */
 const LEDGER_COLUMNS = 12;
 
@@ -335,7 +339,8 @@ export function renderRequestEntry(
   const initial = storage.getAssociatedSnapshot(opening(requests[0])?.id).workflow.nativeNamespace?.bindings ?? {};
   const bindings = end.workflow.nativeNamespace?.bindings ?? {};
   const functions = functionsSection(start, end, source);
-  const ledger = source === "ledger";
+  const ledger = source === "ledger" || source === "index";
+  const indexEntry = source === "index";
   const shown = shownResults(request.steps);
   const answerId = answerOperator(request.steps);
   const blocks: string[] = [];
@@ -445,8 +450,35 @@ export function renderRequestEntry(
   const answerLine = ledger
     ? answer === undefined
       ? "answer: No completed answer."
-      : `answer: ${answerId ? `${inlineCode(answerId)} = ` : ""}${answerPreview(answer)}`
+      : `answer: ${answerId ? `${inlineCode(answerId)} = ` : ""}${answerPreview(answer, indexEntry ? INDEX_PREVIEW_CHARS : PREVIEW_CHARS)}`
     : `answer: ${answer ?? "No completed answer."}`;
+  if (indexEntry) {
+    // One short entry: what the task asked, what it set and with what shape,
+    // its functions by name, the tasks it built on, and its answer's preview.
+    // The working set (agent/working-set.ts) shows a focused task in full.
+    const text = (opening(request)?.content ?? "").replace(/^[\s\S]*?\[Task \d+\]\s*/, "").replace(/\s+/g, " ").trim();
+    const asked = text.length > INDEX_REQUEST_CHARS ? `${text.slice(0, INDEX_REQUEST_CHARS - 1)}…` : text;
+    const set = edited
+      .filter(id => after.has(id))
+      .map(id => {
+        const info = end.results.get(id)?.info;
+        const shape = completed(info) ? ` (${(info.totalRowCount ?? info.outputTuples)?.toLocaleString("en-US")} × ${(info.resultSchema ?? []).length})` : "";
+        const was = before.get(id);
+        return `${inlineCode(id)}${shape}${was && was.nativeOp!.revision !== after.get(id)!.nativeOp!.revision ? " (updated)" : ""}`;
+      });
+    const registered = Object.values(bindings)
+      .filter(binding => binding.kind === "function" && startBindings[binding.name]?.source !== binding.source)
+      .map(binding => inlineCode(`${binding.name}${end.workflow.nativeNamespace?.functions[binding.name]?.signature ?? "()"}`));
+    return [
+      `## Task ${request.number}${answer === undefined ? " (incomplete)" : ""}`,
+      ...(asked ? [`asked: ${asked}`] : []),
+      ...(set.length ? [`set: ${set.join(", ")}`] : []),
+      ...(registered.length ? [`functions: ${registered.join(", ")}`] : []),
+      ...(deleted.length ? [`deleted: ${deleted.map(inlineCode).join(", ")}`] : []),
+      ...(builtOn.size ? [`built on: ${[...builtOn].sort((a, b) => a - b).map(t => `task ${t}`).join(", ")}`] : []),
+      answerLine,
+    ].join("\n");
+  }
   return [
     `## Task ${request.number} (${answer !== undefined ? "answered" : "incomplete"})`,
     ...(functions ? [functions] : []),

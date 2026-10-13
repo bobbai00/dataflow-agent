@@ -223,7 +223,11 @@ export function buildRegisteredNativeSystemPrompt(
           ? ((options.catalogRecent ?? 0) > 0
               ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
               : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
-            (options.catalogSource === "ledger"
+            (options.catalogSource === "index"
+              ? "what it asked, the operators it set with their shapes, its functions, which earlier tasks it built on, and its answer's preview. The entries are an index: the detail of a task (its request, its functions with source, its operators with every column and a sample, its answer) is in the working set." +
+                ` The working set follows the entries: up to ${options.focusTasks ?? 0} earlier tasks in full. It starts as the previous task and what you focused before; \`focus task 3, 7\` (or \`focus <operator>\` for its task) replaces it from your next call, and a task you stop using drops out. Before you build on an earlier task's rule or table, focus that task: its code is where the conventions are, and the index shows only names and shapes. \`show result\`, \`show schema\` and \`show function\` still reach anything.` +
+                " Each observation describes the graph at that time; later edits may have made its results stale."
+              : options.catalogSource === "ledger"
               ? "the functions it registered or changed, with their signatures and docstrings (`show function` reads any source); one line per operator it set, with rows and columns; which earlier tasks it built on; and its answer. Entries carry no records; `show result` an earlier table when you need its values." +
                 ((options.focusTasks ?? 0) > 0
                   ? ` After the entries comes the working set: up to ${options.focusTasks} earlier tasks in full, with their request, their functions with source, their operators with every column and a sample, and their answer. It starts as the previous task and what you focused before; \`focus task 3, 7\` (or \`focus <operator>\` for its task) replaces it from your next call, and a task you stop using drops out. Before you build on an earlier task's rule or table, make sure that task is in the working set: its code is where the conventions are.`

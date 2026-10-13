@@ -32,7 +32,9 @@ fixes the agent's multi-request settings:
   operator that computed it; a call ends its request with `answer <id>`;
 - focus: ledger entries as the directory, plus a working set of up to five
   earlier tasks in full (the previous task and what `focus task n, m`
-  chose) before the current request; replies are text.
+  chose) before the current request; replies are text;
+- focus-index: as focus, with one short entry per task (what it asked, what
+  it set with shapes, its functions, its answer's preview) as the directory.
 
 Every request is sent once; a request that ends without an answer is recorded
 as incomplete and the session goes on. The stack comes from the environment
@@ -79,6 +81,7 @@ ARMS = {
                                "answerField": True},
     "ledger": {"multiRequest": "catalog", "catalogSource": "ledger", "answerStatement": True},
     "focus": {"multiRequest": "catalog", "catalogSource": "ledger", "focusTasks": 5},
+    "focus-index": {"multiRequest": "catalog", "catalogSource": "index", "focusTasks": 5},
 }
 # Everything else is stable's default (native mode, delta context, native
 # message layout, sample+stats retrieval, full-table profiles).

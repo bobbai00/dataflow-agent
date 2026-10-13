@@ -511,6 +511,29 @@ test("the working set shows the previous task in full, a focus statement replace
   expect(textOf(prompts[4][4])).toContain("\nbuilt on: task 1\nanswer:");
 });
 
+test("an index entry is one short block per task: what it asked, what it set with shapes, its functions, what it built on, its answer", async () => {
+  const { agent, prompts } = session("catalog", REPLIES, { catalogSource: "index", focusTasks: 5 });
+  await agent.sendMessage(FIRST);
+  await agent.sendMessage(SECOND);
+  await agent.sendMessage(THIRD);
+  const entries = prompts[prompts.length - 1]
+    .filter(message => message.role === "assistant")
+    .map(textOf)
+    .filter(text => text.startsWith("## Task"));
+  expect(entries[0]).toBe(`## Task 1
+asked: ${FIRST}
+set: \`orders\` (40 × 3), \`units\` (8 × 4), \`n_units\` (1 × 1), \`scores\` (8 × 5), \`ranked\` (8 × 5), \`top\` (3 × 5)
+functions: \`eligible_units(orders, *, min_orders=5)\`, \`unit_scores(units, *, rate_weight=0.5)\`
+answer: Final Answer: u1, u2, u3`);
+  expect(entries[1]).toBe(`## Task 2
+asked: ${SECOND}
+set: \`units\` (8 × 4) (updated)
+deleted: \`n_units\`
+built on: task 1
+answer: Final Answer: u1, u3, u4`);
+  expect(agent.getSystemInfo().systemPrompt).toContain("The entries are an index");
+});
+
 test("a catalog keeps the most recent K to 2K-1 requests as transcript and adds entries K at a time", async () => {
   expect([0, 1, 3, 4, 5, 6, 7, 8].map(n => catalogedRequests(n, 2))).toEqual([0, 0, 0, 2, 2, 4, 4, 6]);
   expect([9, 10, 14, 15, 21].map(n => catalogedRequests(n, 5))).toEqual([0, 5, 5, 10, 15]);

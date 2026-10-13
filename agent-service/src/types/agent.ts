@@ -158,7 +158,7 @@ export enum ContextMode {
  */
 export type CompactionStrategy = "sliding" | "compress";
 export type MultiRequestMode = "off" | "transcript" | "catalog";
-export type CatalogSource = "full" | "docstring" | "ledger";
+export type CatalogSource = "full" | "docstring" | "ledger" | "index";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
@@ -391,6 +391,10 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * one statement line, with rows and columns only for the tables the request
    * ended with or showed; the answer by the operator that computed it, with a
    * preview of its value.
+   * "index": one short entry per task for a session with a working set
+   * (focusTasks): the request's first words, the operators it set with their
+   * shapes, its functions' names, the tasks it built on, and its answer's
+   * preview; the working set carries every detail.
    */
   catalogSource: CatalogSource;
   /**
