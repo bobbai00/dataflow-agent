@@ -100,7 +100,7 @@ function shownResults(steps: readonly ReActStep[]): string[] {
 
 /** The final reply: the reply without the tool that ended the request. A
  * request that failed or was stopped has none. */
-function answerOf(steps: readonly ReActStep[]): string | undefined {
+export function answerOf(steps: readonly ReActStep[]): string | undefined {
   const last = steps[steps.length - 1];
   return last?.role === "agent" && last.isEnd && !last.endReason && !last.toolCalls?.length && last.content?.trim()
     ? last.content
@@ -222,7 +222,7 @@ function functionOf(view: NativeOpView): string | undefined {
   return view.registeredName ?? (typeof predicate === "string" ? predicate : undefined);
 }
 
-const opening = (request: SessionRequest) =>
+export const opening = (request: SessionRequest) =>
   request.steps.find(step => step.role === "user" && step.isBegin) ?? request.steps[0];
 
 const entryCache = new WeakMap<WorkflowSnapshotStorage, Map<string, string>>();

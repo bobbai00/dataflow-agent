@@ -18,6 +18,8 @@
  */
 
 import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
+import { sessionRequests } from "./request-catalog";
+import { renderTableContext } from "./table-context";
 
 import { asSchema, type ModelMessage } from "ai";
 import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-budget";
@@ -1387,7 +1389,7 @@ export class TexeraAgent {
   async sendMessage(
     userMessage: string,
     messageSource?: "chat" | "feedback",
-    options: { contextRequests?: readonly number[] } = {}
+    options: { contextRequests?: readonly number[]; contextTables?: readonly string[] } = {}
   ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     if (options.contextRequests) this.contextRequestsByMessage.set(messageId, new Set(options.contextRequests));
@@ -1397,6 +1399,24 @@ export class TexeraAgent {
     const recordedUsage: TokenUsage = {};
 
     await this.refreshWorkflowFromBackend();
+
+    if (options.contextTables) {
+      // No earlier request stays in view; one block, rendered now from the
+      // graph, lists every table they left and shows the named ones in full.
+      const earlier = sessionRequests(
+        this.getVisibleReActSteps().filter(step => !TexeraAgent.isInitializationStep(step)),
+        this.turnNumberMap()
+      );
+      const block = renderTableContext({
+        storage: this.snapshotStorage,
+        requests: earlier,
+        head: this.head,
+        tables: options.contextTables,
+        options: observationFormatPatch(this.settings),
+      });
+      userMessage = `${block}\n\n${userMessage}`;
+      this.contextRequestsByMessage.set(messageId, new Set());
+    }
 
     this.abortController = new AbortController();
 
