@@ -151,8 +151,8 @@ when an intermediate table is not retrieved: execution receipts show each
 executed operator's own counters, and retrieval follows producing input versions
 to add bounded ancestor summaries. Traversal can cross custom functions, while
 preserving that row/column correspondence across them is unknown. Measured
-`filter` supplies retained/rejected/null-predicate counts and bounded rejected-value
-frequencies. Filtering hidden inside an unrestricted table function does not;
+`filter` supplies retained/rejected/null-predicate counts and its near misses
+(rejected values written like its literals or kept values). Filtering hidden inside an unrestricted table function does not;
 custom pandas joins/conversions likewise do not inherit built-in join/cast
 measurements. See [retrieval views](retrieval-views.md) for the current
 settings, budgets, and coverage limits.
@@ -279,8 +279,8 @@ These fields are not a complete end-to-end phase breakdown.
 With profile collection enabled, successful native results also retain
 `native.operations.timing.operatorBodyMs`: operator work, definition replay,
 source I/O, and built-in counters, excluding input/output validation and table
-profiling. `filterRejectedValuesMs` separately measures the rejected-value pass
-and is excluded from `operatorBodyMs`. Profile `cost.collectionMs` measures
+profiling. `filterFlowMs` separately measures the filter's near-miss pass and
+is excluded from `operatorBodyMs`. Profile `cost.collectionMs` measures
 column/row collection; optional `cost.snapshotMs` measures construction of the
 immutable profile summary. Neither includes JSON encoding/trimming, transfer,
 or persistence. Absent measurements remain unknown. Cached results retain the

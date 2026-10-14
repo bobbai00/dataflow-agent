@@ -301,7 +301,35 @@ error.
 
 ## 4. How flow evidence is computed
 
-There are three related forms:
+### 4.0 What a flow line reports
+
+The runtime measures every counter below on the full tables, and the renderer
+validates them, but a counter is not a line by itself: a filter that drops rows
+or a join that leaves keys unmatched is doing what it was written to do. A flow
+line reports only where a step's result departs from what its code asked for,
+in one of these ways (examples from KramaBench and PrepBench data):
+
+| Line | Example |
+| ---- | ------- |
+| A filter rejected values written like one of its literals or a kept value (case, spacing, punctuation, leading zeros), or holding a literal's words | `"Violation" values the condition rejected equal its literal "yes" except for case, spacing or punctuation: "Yes" × 1,559; "YES" × 1,151.` |
+| A condition that looks for literals kept no row | `no row passed the condition's test for "07"; "start_date" values seen: "9/22/2002" × 1; "10/21/2002" × 1; "8/25/2002" × 4.` |
+| Join keys equal only when written alike | `1 left key (2 rows) matches a right key only when case, spacing, punctuation and leading zeros are ignored: "Las Vegas, Nv" ~ "Las Vegas, NV".` |
+| A join that matched no key | `the join matched no keys; left keys look like "45421", right keys like "18053677".` |
+| Repeats in an identifying column whose rows agree on their numbers (Python step output, or rows an aggregate sums, counts or averages) | `"area" repeats 43 values with the same "reports" (452 rows, 401 distinct), …; this aggregate's sum, count and mean count each repeat.` |
+| The same record listed by several source files (needs the scan's file column) | `94 of 94 input rows are 43 records each listed once by 38 different sources apart from "file", …; the aggregate counts every copy.` |
+| A group key that pools a column naming entities (one line per aggregate) | `grouping by "Beach Name" pools rows with different "Community" values in 14 of 1,155 groups, e.g. "Atlantic Avenue": "Provincetown", "Harwich".` |
+| A cast that turned values into nulls, a None verdict, ties in a window, an empty source file, union or pivot gaps | `"Age" could not be converted in 1 of 14 rows, e.g. "NA" × 1; those cells are now null.` |
+
+A rejected row is blamed on the column its condition read last (in `a and b`,
+the part that failed), so a value rejected by one part is never reported under
+another. Lines that only restated counts or the code's intent are gone: filter
+rejected-value lists and predicate-column nulls, join coverage and duplicate
+keys, aggregate group sizes, non-null and distinct-count lines, Python-step
+dropped values, zero-failure casts, null deltas and window lag boundary nulls.
+The 2026-10-14 trace study of 3,307 flow lines found the agent acted usefully
+on seven, all of these kinds; the rest were redundant or misleading.
+
+The forms below describe how the measurements are computed:
 
 | Form                 | Source                                                        | Example interpretation                                           |
 | -------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------- |
@@ -348,13 +376,14 @@ output rows = K
 
 The renderer verifies `K + R = N`. With `nulls=drop`, `U <= R`; with
 `nulls=keep`, `U <= K`; a successful `nulls=error` result requires `U = 0`.
-The fact prints `kept=K/N`, `rejected=R`, and `null predicates=U` with the policy.
+A line prints `kept=K/N`, `rejected=R`, and `null predicates=U` only when a None
+verdict dropped rows (`U > 0`); otherwise the counts restate the row counts.
 `0/0` is explicitly undefined, not zero-percent selectivity.
 
-For declared predicate columns, matching input/output profiles can also show
-before/after null and distinct counts, each with its own coverage label. These
-are flow facts even in FlowOnly. They describe selection effects, not whether
-the predicate was semantically correct.
+Rejected values appear only as near misses or, when nothing passed a test for a
+literal, as the values the condition saw (§4.0). The predicate columns' null and
+distinct counts are not shown: those nulls are usually what the condition was
+written to drop.
 
 ### 4.3 Aggregate
 
@@ -382,9 +411,9 @@ uses `ddof=1`; the displayed non-null population is not itself the `n-1`
 divisor. Empty-group ranges are undefined; a global aggregate with no group
 keys still has its single global group, including on empty input.
 
-These facts help distinguish counting rows from counting entities, or averaging
-over non-missing observations from averaging over the intended population.
-They do not certify which population the task intended.
+These contributor counts are validated but not shown: they restate the
+reducer's own definition. An aggregate's lines are a group key that pools a
+column naming entities and input rows it would count more than once (§4.0).
 
 ### 4.4 Join
 
@@ -416,8 +445,10 @@ Output is checked against the declared join:
 | Full      | `M + left unmatched rows + right unmatched rows` |
 | Cross     | `left rows * right rows`                         |
 
-The model sees separate matched-output, matched-row, and matched-key facts.
-Their denominators are different. Ineligible null-key rows count as unmatched
+These counters validate the join; they are not shown, because matched and
+unmatched rows are what a join is written to produce. The model sees keys that
+are equal only when written alike and a join that matched no key (§4.0).
+The counters' denominators differ. Ineligible null-key rows count as unmatched
 rows but are not eligible distinct keys. Declared `validate` cardinality
 constraints are enforced during execution; violations produce an error.
 
@@ -444,17 +475,9 @@ For `Cast`, the runtime counts conversion failures by column. With
 shown; with `errors="raise"`, a bad conversion stops execution and becomes an
 error, not a successful lossy result.
 
-For Cast/Map, a null-change fact is eligible only when the
-operation preserves the row count, the column is relevant, both before/after
-column profiles are full, and the null count actually changed:
-
-```text
-delta_nulls(c) = output_null_count(c) - input_null_count(c)
-```
-
-Unchanged null counters are not repeated. This difference is not a cellwise
-mapping proof. A newly derived column without a same-name input has no such
-before/after fact.
+A Cast with failures shows one line per column, with failed-value examples when
+they account for every failure. Null deltas of a Cast or Map are not shown: for
+a Cast they equal the failure count, and a Map writes its nulls on purpose.
 
 ### 4.6 Other operators
 
@@ -465,7 +488,7 @@ before/after fact.
 | Distinct        | `removed = input rows - output rows`                                                                                               | Stable retained subset under declared keys and `keep` policy                                                           |
 | Limit           | Same retained/removed equation                                                                                                     | Stable positional slice using offset and `n`; not a top-k guarantee without sorting                                    |
 | Window          | Row preservation, number of partitions, ordering ties beyond the first row in each tie run                                         | Stable partition ordering; original input order restored in the output                                                 |
-| Window lag/lead | Boundary-induced nulls and total output nulls per output column                                                                    | For positive offset `d`, boundary nulls are `sum_g min(d, n_g)`; existing null source cells can add more null outputs  |
+| Window lag/lead | Boundary-induced nulls and total output nulls per output column (measured, not shown)                                              | For positive offset `d`, boundary nulls are `sum_g min(d, n_g)`; existing null source cells can add more null outputs  |
 | Explode         | Array elements `E`, empty/null parents `H`, null elements, max elements per parent; `output = E` or `E + H` for `empty="null_row"` | JSON-array elements in parent/element order; other columns repeat; internal parent mapping is not an added user column |
 | Unpivot         | With `C` selected columns, `output = input rows * C`; retained null-cell count                                                     | Row-major expansion includes null cells                                                                                |
 | Pivot           | Unique index/key pairs `P`, index groups `G`, generated columns `C`, absent cells `G*C - P`; `P = input rows`, `G = output rows`   | Duplicate pairs are an error, not implicit aggregation; absent cells differ from existing null input values            |
@@ -509,9 +532,9 @@ column is not removed from the actual result table by this ranking.
 
 An observed non-UDF result can carry a few flow summaries of bound ancestors,
 even when their successful table bodies were not requested. For example, an
-observed final count can mention that it follows an Aggregate grouped by
-`["gene", "condition"]`, rather than leaving the model to interpret a bare
-number without its group grain.
+observed final count can repeat that the Aggregate behind it, grouped by
+`["Beach Name"]`, pools two communities' beaches, or that a cast upstream
+turned values into nulls. A summary carries only the lines of §4.0.
 
 The breadth-first traversal:
 

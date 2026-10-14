@@ -171,7 +171,8 @@ for the full table.
 Measured `filter(t, predicate="name", settings={})` calls a registered predicate
 with a read-only row mapping and keyword settings. Boolean/null verdicts keep or
 drop rows; null verdicts are included in rejected counts. It preserves schema and
-order and collects bounded rejected-value frequencies. General table functions
+order and reports near misses: rejected values written like its literals or kept
+values (case, spacing, punctuation, leading zeros). General table functions
 do not acquire filter/join/cast semantics automatically. Python edits invalidate
 both custom table operators and measured filters plus their descendants.
 

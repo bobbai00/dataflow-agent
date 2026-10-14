@@ -141,7 +141,8 @@ from the code; `bun run render:native-reference` in `agent-service/`).
 
 For measured filtering, declare `filter(rows, predicate="keep", settings={...})`
 with a registered row predicate; its boolean/null verdicts produce retained,
-rejected, and null counts plus bounded rejected-value frequencies. Custom table
+rejected, and null counts, and rejected values written like the condition's
+literals or kept values are reported as near misses. Custom table
 functions remain available for general pandas work. `show schema <id>` pages
 exact parsed column names; a scanned workbook's receipt lists its sheet names.
 
