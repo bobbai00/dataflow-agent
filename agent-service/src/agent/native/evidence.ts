@@ -297,7 +297,13 @@ function repeatedRecordsText(type: string, operations: Record<string, any>): str
   return `${formatCount(r.rows)} of ${formatCount(r.of)} input rows are ${formatCount(r.records)} records each listed once by ${count(r.sources) ? `${r.sources} different sources` : "several sources"}${ignoring}, e.g. ${json(String(r.example ?? ""))}; ${type === "Aggregate" ? "the aggregate counts" : "a sum, mean or count counts"} every copy.`;
 }
 
-const valueText = (v: unknown) => (typeof v === "number" ? formatCount(v) : json(v));
+/** A result value: integers with separators, decimals to 6 significant digits (formatCount prints only counts). */
+const valueText = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v)
+    ? Number.isInteger(v)
+      ? v.toLocaleString("en-US")
+      : String(Number(v.toPrecision(6)))
+    : json(v);
 
 /** What leaving rows out changes in an aggregate: each changed output (ungrouped), or how many groups change. */
 function changeText(change: Record<string, any>, how: string): string {

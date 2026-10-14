@@ -836,6 +836,76 @@ test("an aggregate reports input rows it counts more than once", () => {
   expect(factText(f)).not.toContain("records each listed");
 });
 
+test("runtime stats name copies and excluded rows an aggregate reads, with what leaving them out gives", () => {
+  const f = fixture("Aggregate", { groupBy: [], aggregations: [{ fn: "median", col: "value", as: "median" }] });
+  f.results.get("left")!.totalRowCount = 14;
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 1;
+  const operations: Record<string, any> = {
+    groupCount: 1,
+    groupSizes: { min: 14, max: 14, total: 14 },
+    excludedInput: {
+      column: "Case_excluded",
+      mark: "Yes",
+      rows: 2,
+      of: 14,
+      examples: ["C3L-01247", "C3N-01825_replication"],
+      change: { outputs: [{ output: "median", now: 2.42405, then: 2.656312 }] },
+    },
+    copiesInput: {
+      rows: 94,
+      of: 94,
+      records: 43,
+      minCopies: 2,
+      maxCopies: 4,
+      example: "Columbus, GA-AL, 1302",
+      change: { outputs: [{ output: "total", now: 593524, then: 243377 }] },
+    },
+  };
+  Object.assign(f.info.tableProfile!.native!, { inputRows: [14], outputRows: 1, operations });
+  const text = factText(f);
+  // Decimals keep their digits; counts keep their separators.
+  expect(text).toContain(
+    '2 of 14 rows read here have "Case_excluded" = "Yes" ("C3L-01247", "C3N-01825_replication"); without them: "median" = 2.65631 (now 2.42405).'
+  );
+  expect(text).toContain(
+    '94 of 94 rows read here are 43 records repeated 2–4 times (identical in every column; the input comes from several sources), e.g. "Columbus, GA-AL, 1302"; counting each record once: "total" = 243,377 (now 593,524).'
+  );
+});
+
+test("runtime stats name rows a dedupe removed although they differ, and a dropped exclusion mark", () => {
+  const d = fixture("Distinct", { columns: ["NWS ID"], keep: "first" });
+  d.results.get("left")!.totalRowCount = 2965;
+  d.info.totalRowCount = d.info.tableProfile!.rowCount = 2137;
+  Object.assign(d.info.tableProfile!.native!, {
+    inputRows: [2965],
+    outputRows: 2137,
+    operations: {
+      removedRows: 828,
+      dedupeDifferences: {
+        columns: ["NWS ID"],
+        removed: 828,
+        differ: 7,
+        emptyKeyRemoved: 821,
+        examples: [{ key: ["051506"], values: { "Station Name": ["THE CROWN", "HANGMAN"], Elevation: ["8382.0", "7834.0"] } }],
+      },
+    },
+  });
+  expect(factText(d)).toContain(
+    'distinct on "NWS ID" removed 828 rows, among them 7 whose "NWS ID" repeats with different values in other columns, e.g. "051506": "Station Name" "THE CROWN" / "HANGMAN", "Elevation" "8382.0" / "7834.0"; 821 with an empty "NWS ID", collapsed into one.'
+  );
+  const p = fixture("Project", { keep: ["case", "value"] });
+  p.results.get("left")!.totalRowCount = 14;
+  p.info.totalRowCount = p.info.tableProfile!.rowCount = 14;
+  Object.assign(p.info.tableProfile!.native!, {
+    inputRows: [14],
+    outputRows: 14,
+    operations: { excludedDropped: { column: "Case_excluded", mark: "Yes", rows: 2, of: 14, examples: ["C3L-01247"] } },
+  });
+  expect(factText(p)).toContain(
+    'this step drops "Case_excluded", but 2 of 14 rows of the input have "Case_excluded" = "Yes" ("C3L-01247"); those rows stay in the table, no longer marked.'
+  );
+});
+
 test("group counts are not flow lines, beside the aggregate or downstream", () => {
   const f = fixture("Aggregate", { groupBy: ["g"], aggregations: [{ fn: "count", as: "n" }] });
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 2;
