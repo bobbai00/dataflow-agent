@@ -68,8 +68,9 @@ DATA_PROMPT = re.compile(r"Column statistics (?:are collected|in `sample_stats`)
 # flow on or off, and these earlier wordings and the flow example must not appear.
 FLOW_PROMPT = re.compile(r"Flow (?:statistics (?:describe measured|report measured)|lines report what upstream steps did)"
                          r"|Use upstream measurements to repair a condition")
-# Its replacement: one note in each tool result that carries a flow line.
-FLOW_NOTE = re.compile(r"^note: `- flow:` lines show", re.MULTILINE)
+# Its replacement: one note in each tool result that carries a flow line. The
+# second wording is the trimmed flow (2026-10-14); stable agents still send the first.
+FLOW_NOTE = re.compile(r"^note: (?:`- flow:` lines show|a `- flow:` line reports)", re.MULTILINE)
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
 

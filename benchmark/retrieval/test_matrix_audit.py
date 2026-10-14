@@ -168,6 +168,12 @@ class MatrixAuditTests(unittest.TestCase):
         self.assertEqual(self.findings()["violations"], [])
         self.receipt_request("## show result data\n\nnote: `- flow:` lines show what the steps above dropped, rejected, left unmatched or repeated; compare them with the population the question asks for.", flow=False)
         self.assertIn("flow_markdown_leak", self.findings()["violations"])
+        # The trimmed flow's note satisfies the check, and leaks like the earlier one.
+        trimmed = "note: a `- flow:` line reports something a step above measured that its code may not expect."
+        self.receipt_request(f"## show result data\n- flow: measured rows=3\n\n{trimmed}", flow=True)
+        self.assertEqual(self.findings()["violations"], [])
+        self.receipt_request(f"## show result data\n\n{trimmed}", flow=False)
+        self.assertIn("flow_markdown_leak", self.findings()["violations"])
 
     def test_developer_role_is_a_provider_prompt_encoding_not_a_missing_prompt(self):
         self.settings["retrievalViews"] = ["sample_stats", "full"]
