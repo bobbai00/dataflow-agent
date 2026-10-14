@@ -1510,7 +1510,7 @@ test("filter near misses and no-match lines are validated against the filter's c
       },
     },
   });
-  expect(factText(f)).toContain('no row passed the condition\'s test for "07"; "x" values seen: "8/25/2002" × 4.');
+  expect(factText(f)).toContain('no row passed the condition\'s test for "07"; "x" values that reached it: "8/25/2002" × 4.');
   // Stable's rejected-value lists are no longer flow lines.
   (f.info.tableProfile!.native!.operations as Record<string, unknown>).filterRejectedValues = {
     rejectedRows: 5,

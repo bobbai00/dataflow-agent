@@ -741,12 +741,16 @@ def _condition_literals(spec):
     """Text literals a filter's condition compares values with, read from its own source.
 
     Literals under == or in (and str methods like startswith) are what the condition
-    looks for; literals under != or not in are what it excludes. A registered
-    predicate's settings count as literals it looks for.
+    looks for; literals under != or not in, or inside a `not`, are what it excludes.
+    A registered predicate's settings count as literals it looks for. Each literal
+    the condition looks for is also mapped to the column it is compared with, and
+    each column to where the source first reads it, which orders the tests of
+    `a and b`. Returns (looked_for, excluded, by_column, positions).
     """
     props = spec["properties"]
     registration = props.get("registered") or {}
     sources, looked_for, excluded = [], [], []
+    by_column, positions = {}, {}
     if "lambda" in registration:
         sources.append(registration["lambda"])
         reached = set(registration.get("names") or [])
@@ -773,22 +777,48 @@ def _condition_literals(spec):
             for item in node.elts:
                 yield from texts(item)
 
-    for source in filter(None, sources):
+    def column(node):
+        """The column a condition operand reads: row['x'] or row.get('x'), however wrapped."""
+        for item in ast.walk(node):
+            if isinstance(item, ast.Subscript) and isinstance(item.slice, ast.Constant) and isinstance(item.slice.value, str):
+                return item.slice.value
+            if (isinstance(item, ast.Call) and isinstance(item.func, ast.Attribute) and item.func.attr == "get"
+                    and item.args and isinstance(item.args[0], ast.Constant) and isinstance(item.args[0].value, str)):
+                return item.args[0].value
+        return None
+
+    def note(found, read, wanted, negated):
+        if wanted == negated:  # `!= x`, `not in`, or `== x` inside a `not`
+            excluded.extend(found)
+            return
+        looked_for.extend(found)
+        if read is not None:
+            by_column.setdefault(read, []).extend(found)
+
+    for index, source in enumerate(filter(None, sources)):
         try:
             tree = ast.parse(source.strip(), mode="eval" if source.lstrip().startswith("lambda") else "exec")
         except SyntaxError:
             continue
+        negated = {id(item) for node in ast.walk(tree) if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+                   for item in ast.walk(node.operand)}
         for node in ast.walk(tree):
+            read = column(node) if isinstance(node, (ast.Subscript, ast.Call)) else None
+            if read is not None and read not in positions:
+                positions[read] = (index, node.lineno, node.col_offset)
             if isinstance(node, ast.Compare):
                 operands = [node.left, *node.comparators]
                 for op, left, right in zip(node.ops, operands, operands[1:]):
-                    found = [*texts(left), *texts(right)]
-                    (excluded if isinstance(op, (ast.NotEq, ast.NotIn)) else looked_for if isinstance(op, (ast.Eq, ast.In)) else []).extend(found)
+                    if isinstance(op, (ast.Eq, ast.In, ast.NotEq, ast.NotIn)):
+                        found = [*texts(left), *texts(right)]
+                        read = column(left) if not list(texts(left)) else column(right)
+                        note(found, read, isinstance(op, (ast.Eq, ast.In)), id(node) in negated)
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in (
                     "startswith", "endswith", "contains", "isin", "match", "fullmatch", "search"):
                 for argument in node.args:
-                    looked_for.extend(texts(argument))
-    return list(dict.fromkeys(looked_for)), list(dict.fromkeys(excluded))
+                    note(list(texts(argument)), column(node.func.value), True, id(node) in negated)
+    unique = lambda values: list(dict.fromkeys(values))
+    return unique(looked_for), unique(excluded), {key: unique(values) for key, values in by_column.items()}, positions
 
 
 def _near_misses(rejected, kept, literals):
@@ -2091,7 +2121,7 @@ def _filter_flow(spec, source, mask, blame, operations):
     near misses. When nothing passed a condition that looks for literals, the
     values it saw instead are the evidence.
     """
-    looked_for, _ = _condition_literals(spec)
+    looked_for, _, literals_of, read_at = _condition_literals(spec)
     rejected_at = [i for i, keep in enumerate(mask) if not keep]
     kept_at = [i for i, keep in enumerate(mask) if keep]
     by_column = {}
@@ -2099,9 +2129,9 @@ def _filter_flow(spec, source, mask, blame, operations):
         if column is not None:
             by_column.setdefault(column, []).append(position)
     near = []
-    for column, positions in sorted(by_column.items(), key=lambda item: -len(item[1]))[:_WITNESS_WIDTH]:
+    for column, rows_at in sorted(by_column.items(), key=lambda item: -len(item[1]))[:_WITNESS_WIDTH]:
         counts = Counter()
-        for raw in source[column].iloc[positions]:
+        for raw in source[column].iloc[rows_at]:
             value = _scalar(raw)
             if isinstance(value, str) and (value in counts or len(counts) < _NEAR_LIMIT):
                 counts[value] += 1
@@ -2113,11 +2143,14 @@ def _filter_flow(spec, source, mask, blame, operations):
     if near:
         operations["filterNearMisses"] = near
     if not kept_at and rejected_at and looked_for:
-        column = Counter(blame).most_common(1)[0][0]
+        # The test the rows got furthest into: in `town == 'Quincy' and beach == 'Wollaston Beach'` the rows that
+        # reached the beach test are Quincy's, and their beach names are the evidence. Columns the source reads
+        # later are further in; a column read nowhere visible (a helper's) counts as earliest.
+        column = max(by_column, key=lambda name: (read_at.get(name, (-1, -1, -1)), len(by_column[name])), default=None)
         seen = []
         if column is not None:
             counts, order = Counter(), []
-            for raw in source[column].iloc[rejected_at]:
+            for raw in source[column].iloc[by_column[column]]:
                 value = _scalar(raw)
                 if (type(value), value) not in counts:
                     order.append(value)
@@ -2126,7 +2159,8 @@ def _filter_flow(spec, source, mask, blame, operations):
                 example = _witness([value], counts[(type(value), value)])
                 if example is not None:
                     seen.append(example)
-        operations["filterNoMatch"] = {"column": column, "literals": looked_for[:_NEAR_EXAMPLES], "seen": seen}
+        literals = literals_of.get(column) or looked_for
+        operations["filterNoMatch"] = {"column": column, "literals": literals[:_NEAR_EXAMPLES], "seen": seen}
 
 
 def _filter(spec, source, operations):
@@ -2504,7 +2538,11 @@ def _overlapping_sources(records, origin):
     per_source = pairs.groupby(["key", "origin"]).size()
     once = per_source.groupby(level="key").max() == 1
     sources = per_source.groupby(level="key").size()
-    shared = sources.index[(sources >= 2) & once.reindex(sources.index).to_numpy()]
+    # A row in every one of three or more sources is the files' own text (a header, a footnote), not an entity
+    # each of them lists: a metro area spans two to four states' files, a header row is in all 52.
+    everywhere = len(np.unique(np.asarray(origin))) if len(np.unique(np.asarray(origin))) >= 3 else None
+    listed = (sources >= 2) & (sources < everywhere if everywhere else True)
+    shared = sources.index[listed.to_numpy() & once.reindex(sources.index).to_numpy()]
     hit = np.isin(keys, shared) & filled
     if not hit.any():
         return None
@@ -2577,8 +2615,9 @@ def _key_dependencies(frame, keys, reduced):
         if not len(split) or single < 4 * len(split) or single + len(split) < 5:
             continue
         # A column with few values (an outcome such as Violation or Organism) varies
-        # inside groups by nature; one that names entities has a value for many groups.
-        if frame[column].nunique(dropna=True) * 10 < groups:
+        # inside groups by nature; one that names entities has many values, at least
+        # ten and a tenth as many as there are groups.
+        if frame[column].nunique(dropna=True) < max(10, groups / 10):
             continue
         key = split.index[0]
         key = key if isinstance(key, tuple) else (key,)

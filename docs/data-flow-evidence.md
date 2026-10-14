@@ -312,7 +312,7 @@ in one of these ways (examples from KramaBench and PrepBench data):
 | Line | Example |
 | ---- | ------- |
 | A filter rejected values written like one of its literals or a kept value (case, spacing, punctuation, leading zeros), or holding a literal's words | `"Violation" values the condition rejected equal its literal "yes" except for case, spacing or punctuation: "Yes" × 1,559; "YES" × 1,151.` |
-| A condition that looks for literals kept no row | `no row passed the condition's test for "07"; "start_date" values seen: "9/22/2002" × 1; "10/21/2002" × 1; "8/25/2002" × 4.` |
+| A condition that looks for literals kept no row (the furthest test the rows reached, with its literal) | `no row passed the condition's test for "07"; "start_date" values that reached it: "9/22/2002" × 1; "10/21/2002" × 1; "8/25/2002" × 4.` |
 | Join keys equal only when written alike | `1 left key (2 rows) matches a right key only when case, spacing, punctuation and leading zeros are ignored: "Las Vegas, Nv" ~ "Las Vegas, NV".` |
 | A join that matched no key | `the join matched no keys; left keys look like "45421", right keys like "18053677".` |
 | Repeats in an identifying column whose rows agree on their numbers (Python step output, or rows an aggregate sums, counts or averages) | `"area" repeats 43 values with the same "reports" (452 rows, 401 distinct), …; this aggregate's sum, count and mean count each repeat.` |

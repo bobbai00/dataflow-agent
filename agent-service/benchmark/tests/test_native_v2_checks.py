@@ -97,6 +97,22 @@ def test_records_repeated_across_sources_reach_the_aggregate(tmp_path):
     assert "repeatedRecords" not in operations(runtime.execute_native(plain, [frame.drop(columns="source")]))
 
 
+def test_a_row_in_every_source_is_the_files_own_text_not_a_repeated_record():
+    # legal-hard-15: each state's file has the header row; a two-state metro area is in two files only.
+    states = ["MA", "NH", "CT", "RI"]
+    rows = [("Metropolitan Area", "# of Reports", f"{s}.csv") for s in states]
+    rows += [(f"Town {s}, {s} Metropolitan Statistical Area", "100", f"{s}.csv") for s in states]
+    rows += [("Boston, MA-NH Metropolitan Statistical Area", "19929", f"{s}.csv") for s in ["MA", "NH"]]
+    frame = pd.DataFrame(rows, columns=["area", "reports", "file"])
+    aggregate = {
+        **spec("Aggregate", aggregations=[{"fn": "count", "as": "n"}]),
+        "lineage": {"multiSource": True, "provenanceColumns": ["file"]},
+    }
+    repeated = operations(runtime.execute_native(aggregate, [frame]))["repeatedRecords"]
+    assert (repeated["rows"], repeated["records"], repeated["sources"]) == (2, 1, 2)
+    assert repeated["example"].startswith("Boston, MA-NH")
+
+
 def test_values_that_repeat_within_a_source_are_observations_not_copies():
     # environment-easy-6: yearly beach samples, (year, type, violation) repeats
     # inside every file; the first version reported 157,419 of 157,420 rows.
@@ -166,6 +182,17 @@ def test_a_group_key_that_merges_entities_is_named():
     keys = names[:5] + [None] + names[6:] + names  # beach0 still spans two towns; one row has no name
     nullable = frame.assign(**{"Beach Name": keys}).astype({"Beach Name": "string", "Community": "string"})
     assert operations(runtime.execute_native(aggregate, [nullable]))["keyDependencies"][0]["column"] == "Community"
+
+
+def test_a_split_on_few_values_is_not_named_even_with_few_groups():
+    # environment-hard-20: 17 beaches, and Violation ("yes"/"no") varies inside 3 of them by nature.
+    frame = pd.DataFrame({
+        "Beach Name": [f"beach{i}" for i in range(17)] * 2,
+        "Violation": ["no"] * 17 + ["yes", "yes", "yes"] + ["no"] * 14,
+        "samples": list(range(34)),
+    })
+    aggregate = spec("Aggregate", groupBy=["Beach Name"], aggregations=[{"fn": "sum", "col": "samples", "as": "n"}])
+    assert "keyDependencies" not in operations(runtime.execute_native(aggregate, [frame]))
 
 
 def test_a_group_key_split_is_named_only_for_a_column_that_names_entities():

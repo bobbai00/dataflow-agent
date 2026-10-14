@@ -242,6 +242,34 @@ test("nothing passed a test for literals: the values the condition saw are repor
   });
 });
 
+test("an empty result names the furthest test the rows reached, with that test's literal", async () => {
+  // environment-easy-4: Quincy rows reach the beach test; their beaches are not named "Wollaston Beach".
+  const state = await fixture("def keep(row):\n    return row['town'] == 'Quincy' and row['beach'] == 'Wollaston Beach'");
+  const result = execute(
+    state,
+    "pd.DataFrame({'town':['Quincy','Quincy','Quincy','Orleans','Falmouth'], 'beach':['Wollaston @ Channing','Wollaston @ Channing','Wollaston @ Rice','Nauset','Old Silver']})"
+  );
+  expect(result.native.operations.filterNoMatch).toEqual({
+    column: "beach",
+    literals: ["Wollaston Beach"],
+    seen: [
+      { values: [{ type: "str", value: "Wollaston @ Channing" }], count: 2, truncated: false },
+      { values: [{ type: "str", value: "Wollaston @ Rice" }], count: 1, truncated: false },
+    ],
+  });
+});
+
+test("literals a condition excludes never make an empty result look like a missed match", async () => {
+  // legal-hard-29: a filter for rows that are neither areas nor footnotes found none, as it may.
+  const state = await fixture(
+    "def keep(row):\n    return 'Statistical Area' not in row['x'] and not row['x'].startswith('Source:')"
+  );
+  const result = execute(state, "pd.DataFrame({'x':['Boston, MA Statistical Area', 'Source: FTC']})");
+  expect(result.native.operations.keptRows).toBe(0);
+  expect(result.native.operations.filterNoMatch).toBeUndefined();
+  expect(result.native.operations.filterNearMisses).toBeUndefined();
+});
+
 test("a condition over many columns records every read and predicates cannot mutate the input row", async () => {
   const state = await fixture("def keep(row):\n    return sum(row['c'+str(i)] for i in range(12)) < 0");
   const result = execute(state, "pd.DataFrame({'c'+str(i):[i] for i in range(12)})");

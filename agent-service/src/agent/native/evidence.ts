@@ -588,8 +588,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           );
         }
       }
-      // A condition that looks for literals kept nothing: the values it saw are
-      // the evidence (dates written 8/25/2002 never split to "07").
+      // A condition that looks for literals kept nothing: the values that reached
+      // its furthest test are the evidence (dates written 8/25/2002 never split to
+      // "07"; Quincy's beaches are named "Wollaston @ …", not "Wollaston Beach").
       const none = record(operations.filterNoMatch);
       const literals = names(none.literals);
       const seen = witnesses(none.seen, 1, rejectedRows);
@@ -598,7 +599,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           "flow.filter.none",
           "flow",
           "measurement",
-          `no row passed the condition's test for ${literals.map(l => json(l)).join(", ")}; ${json(none.column)} values seen: ${seen.map(w => witnessText(w)).join("; ")}.`,
+          `no row passed the condition's test for ${literals.map(l => json(l)).join(", ")}; ${json(none.column)} values that reached it: ${seen.map(w => witnessText(w)).join("; ")}.`,
           98
         );
     } else omissions.push("invalid_filter_counters");
