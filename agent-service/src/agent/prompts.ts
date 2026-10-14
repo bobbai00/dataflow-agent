@@ -171,6 +171,15 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   catalogSource?: CatalogSource;
   /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
   catalogRecent?: number;
+  /** The final answer is an `answer` statement (AgentSettings.answerStatement). */
+  answerStatement?: boolean;
+}
+
+/** How the final answer is given: a reply without the tool, or an answer statement. */
+function finalAnswerText(answerStatement: boolean | undefined): string {
+  return answerStatement
+    ? "Never answer from memory. Give the final answer with an answer statement in a `dataflow` call: `answer <id>` returns that table, and `answer <key>=<id>, <key>=<id>` returns one object with a key per table. A table of one row and one column becomes its value, a one-row table an object, and any other table a list of all its rows, so aggregate or limit first, and build a table for every value the request asks for. The rendering is returned verbatim as your final answer, as the JSON the request asks for, and ends the request; a reply without the tool is not an answer."
+    : "Never answer from memory: a reply without the tool is your final answer, so reply without it only after `show result` has displayed what the answer rests on. That reply is returned verbatim, in the user's requested format.";
 }
 
 const nativeFragment = (name: string) =>
@@ -212,6 +221,7 @@ export function buildRegisteredNativeSystemPrompt(
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
   const multiRequest = options.multiRequest ?? "off";
   const fields: Record<string, string> = {
+    FINAL_ANSWER: finalAnswerText(options.answerStatement),
     CONTEXT_LAYOUT:
       contextMode === ContextMode.LATEST
         ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."

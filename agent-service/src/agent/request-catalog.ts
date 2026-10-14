@@ -87,7 +87,7 @@ function editOrder(steps: readonly ReActStep[]): string[] {
 }
 
 /** Results the request displayed with `show result`, in first-shown order. */
-function shownResults(steps: readonly ReActStep[]): string[] {
+export function shownResults(steps: readonly ReActStep[]): string[] {
   const shown = new Set<string>();
   for (const receipt of receipts(steps))
     for (const item of receipt.actions) {

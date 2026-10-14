@@ -335,6 +335,21 @@ function renderTurnSections(result: DataflowActionsResult, turn?: TurnReceiptInf
       sections.push([title, ...executionLines(items[0], statement.ids ?? [], false, flowMemo)].join("\n"));
       continue;
     }
+    if (statement.kind === "answer") {
+      const executed = executionLines(items[0], statement.ids ?? [], false, flowMemo).filter(
+        line => line !== "executed: nothing (results were current)"
+      );
+      sections.push(
+        [
+          title,
+          ...executed,
+          result.answer !== undefined
+            ? `answered, ending the request:\n${result.answer}`
+            : `not answered: ${result.answerError ?? "the answer was not rendered"}`,
+        ].join("\n")
+      );
+      continue;
+    }
     if (statement.resource === "result") {
       const [execute, retrieve] = items;
       sections.push(

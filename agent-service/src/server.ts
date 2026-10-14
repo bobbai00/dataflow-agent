@@ -447,6 +447,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
     flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
+    answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
@@ -697,6 +698,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
             flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
             flowEvidence: settings.flowEvidence,
+            answerStatement: settings.answerStatement,
             nativeChecks: settings.nativeChecks,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
@@ -781,6 +783,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidence: t.Optional(t.Boolean()),
+            answerStatement: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
@@ -988,12 +991,13 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource, contextRequests, contextTables, contextUpstream } = body as {
+      const { content, messageSource, contextRequests, contextTables, contextUpstream, contextTasks } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
         contextRequests?: number[];
         contextTables?: string[];
         contextUpstream?: boolean;
+        contextTasks?: number[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
@@ -1003,6 +1007,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         contextRequests,
         contextTables,
         contextUpstream,
+        contextTasks,
       });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
@@ -1026,6 +1031,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         contextTables: t.Optional(t.Array(t.String())),
         // With contextTables: also show what the named tables are built from, back to the files.
         contextUpstream: t.Optional(t.Boolean()),
+        // Instead of contextTables: the earlier tasks this request builds on. The context then lists every
+        // earlier task by its request, dataflow changes and answer, with these in detail, instead of earlier requests.
+        contextTasks: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
       }),
     }
   )
@@ -1150,6 +1158,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
+        answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
@@ -1219,6 +1228,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
+        answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),

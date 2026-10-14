@@ -26,7 +26,7 @@ import { TexeraAgent } from "./texera-agent";
 import { assembleContext, catalogedRequests } from "./util/context-utils";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
-type Reply = { text?: string; call?: { python: string; statements: string } };
+type Reply = { text?: string; call?: { python: string; statements: string }; cut?: boolean };
 
 /** Columns and rows each operator "executes" to; there is no engine in a unit test. */
 const TABLES: Record<string, { columns: string[]; rows: number }> = {
@@ -44,7 +44,8 @@ const TYPES: Record<string, string> = { order_id: "int64", value: "float64", uni
 function session(
   multiRequest: MultiRequestMode,
   replies: Reply[],
-  catalog: { catalogSource?: CatalogSource; catalogRecent?: number } = {}
+  catalog: { catalogSource?: CatalogSource; catalogRecent?: number } = {},
+  settings: { answerStatement?: boolean } = {}
 ) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   let calls = 0;
@@ -65,7 +66,9 @@ function session(
         content,
         finishReason: reply.call
           ? { unified: "tool-calls" as const, raw: "tool_calls" }
-          : { unified: "stop" as const, raw: "stop" },
+          : reply.cut
+            ? { unified: "length" as const, raw: "length" }
+            : { unified: "stop" as const, raw: "stop" },
         usage: {
           inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
           outputTokens: { total: 5, text: 5, reasoning: 0 },
@@ -94,6 +97,7 @@ function session(
     retrievalViews: ["sample", "full"],
     multiRequest,
     ...catalog,
+    ...settings,
   });
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators()) {
@@ -407,6 +411,129 @@ test("with upstream, the block shows what the picked tables are built from; a re
   expect(third).toContain(
     "### What the picked tables are built from\nTheir upstream tables, back to the files: each one's statement, and its function's source when it is not shown above.\n- `set orders: scan(files='data/x/input/orders.csv')` (task 1, "
   );
+});
+
+test("the task catalog lists every earlier task by request, changes and answer, and details the tasks the request builds on", async () => {
+  const replies: Reply[] = [
+    {
+      call: {
+        python: "def tag(orders):\n    return orders.assign(t=1)",
+        statements: "set orders: scan(files='data/x/input/orders.csv')\nset tagged: tag(orders)\nshow result tagged",
+      },
+    },
+    { text: "Final Answer: 1" },
+    // The second task only reads an earlier table; it changes nothing.
+    { call: { python: "", statements: "show result tagged" } },
+    { text: "Final Answer: 2" },
+    { call: { python: "", statements: "set n: aggregate(tagged, outputs={'n': count()})\nshow result n" } },
+    { text: "Final Answer: 3" },
+    { call: { python: "", statements: "show result n" } },
+    { text: "Final Answer: 4" },
+    { call: { python: "", statements: "show result n" } },
+    { text: "Final Answer: 5" },
+  ];
+  const { agent, prompts } = session("transcript", replies);
+  await agent.sendMessage("Tag the orders.");
+  await agent.sendMessage("How many tagged orders?");
+  await agent.sendMessage("Count them.");
+  await agent.sendMessage("Count them again.", undefined, { contextTasks: [2] });
+  const fourth = prompts[6].slice(1).map(textOf).join("\n");
+  expect(fourth).toContain("The tasks this request builds on (2) are shown in detail");
+  expect(fourth).toContain("compute it again from that task's request and the files.");
+  // Every earlier task appears, in order, with its request, its changes and its answer.
+  expect(fourth).toMatch(
+    /#### Task 1\nasked: the session instructions above\nchanged: `orders` = scan\(\) [^;]+; `tagged` = tag\(orders\) [^\n]+\nanswered: Final Answer: 1/
+  );
+  // A task the request builds on that changed nothing still shows what it asked, read and answered.
+  expect(fourth).toContain(
+    "#### Task 2  (this request builds on it)\nasked: How many tagged orders?\nchanged: nothing\nread: `tagged` (task 1, "
+  );
+  expect(fourth).toMatch(/read: `tagged` \(task 1, [^\n]+\nanswered: Final Answer: 2/);
+  expect(fourth).toMatch(/#### Task 3\nasked: Count them\.\nchanged: `n` = aggregate\(tagged\) [^\n]+\nanswered: Final Answer: 3/);
+  // What the detailed task read comes with its definition, back to the files.
+  expect(fourth).toContain("### What the detailed tasks' tables are built from");
+  expect(fourth).toContain("- `set tagged: tag(orders)` (task 1, ");
+  expect(fourth).toContain("- `set orders: scan(files='data/x/input/orders.csv')` (task 1, ");
+  // The earlier requests themselves are not in view, and the table block's sections are not used.
+  expect(fourth).not.toContain("### Tables picked for this request");
+  // A task that changed tables, in detail: each table's statement, columns, and the rows the task showed.
+  await agent.sendMessage("And once more.", undefined, { contextTasks: [3] });
+  const fifth = prompts[8].slice(1).map(textOf).join("\n");
+  expect(fifth).toContain(
+    "#### Task 3  (this request builds on it)\nasked: Count them.\nchanged:\n- `set n: aggregate(tagged, outputs={'n': count()})`\n  result: 1 row × 1 column; columns: value "
+  );
+  expect(fifth).toContain("  | value |\n  |---|\n  | 1 |\nread: `tagged` (task 1, ");
+  expect(fifth).toContain("#### Task 2\nasked: How many tagged orders?\nchanged: nothing\nanswered: Final Answer: 2");
+});
+
+test("an answer statement renders its tables as the reply and ends the request", async () => {
+  const replies: Reply[] = [
+    {
+      call: {
+        python: "",
+        statements:
+          "set orders: scan(files='data/x/input/orders.csv')\nset n_units: aggregate(orders, outputs={'n': count()})\nanswer n_units",
+      },
+    },
+    { text: "never asked" },
+  ];
+  const { agent, prompts } = session("transcript", replies, {}, { answerStatement: true });
+  const result = await agent.sendMessage("How many units?");
+  // A one-row, one-column table is its value; no model call follows the answer.
+  expect(result.response).toBe("1");
+  expect(prompts.length).toBe(1);
+  const last = agent.getReActSteps()[agent.getReActSteps().length - 1];
+  expect([last.role, last.isEnd, last.content, last.toolCalls?.length ?? 0]).toEqual(["agent", true, "1", 0]);
+  // The prompt and the tool describe the answer statement.
+  const system = (prompts[0][0] as any).content as string;
+  expect(system).toContain("Give the final answer with an answer statement");
+  expect(system).not.toContain("a reply without the tool is your final answer");
+});
+
+test("an answer over a table it cannot render whole is refused, and a text reply is sent back once", async () => {
+  const replies: Reply[] = [
+    {
+      call: {
+        python: "",
+        statements:
+          "set orders: scan(files='data/x/input/orders.csv')\nset n_units: aggregate(orders, outputs={'n': count()})\nanswer n=n_units, rows=orders",
+      },
+    },
+    { text: "There are 1 units." },
+    { call: { python: "", statements: "answer n=n_units" } },
+  ];
+  const { agent, prompts } = session("transcript", replies, {}, { answerStatement: true });
+  const result = await agent.sendMessage("How many units, and which orders?");
+  expect(result.response).toBe('{"n":1}');
+  expect(prompts.length).toBe(3);
+  // The refused answer says why, in the receipt the next call reads.
+  const second = prompts[1].slice(1).map(textOf).join("\n");
+  expect(second).toContain("## answer n=n_units, rows=orders");
+  expect(second).toContain("not answered: `orders` has 40 rows and an answer renders every row (1 are held)");
+  // The text reply came back with the correction instead of ending the request.
+  const third = prompts[2].slice(1).map(textOf).join("\n");
+  expect(third).toContain("in this session the final answer is an answer statement");
+});
+
+test("with no correction left, a text reply stands as the answer under answer statements", async () => {
+  const replies: Reply[] = [
+    { text: "Thinking", cut: true },
+    { text: "Still thinking", cut: true },
+    {
+      call: {
+        python: "",
+        statements: "set orders: scan(files='data/x/input/orders.csv')\nset n_units: aggregate(orders, outputs={'n': count()})\nshow result n_units",
+      },
+    },
+    { text: '{"n": 1}' },
+  ];
+  const { agent, prompts } = session("transcript", replies, {}, { answerStatement: true });
+  const result = await agent.sendMessage("How many units?");
+  // Two cut-off replies used both corrections; the JSON reply is the answer rather than an error.
+  expect(prompts.length).toBe(4);
+  expect(result.response).toBe('{"n": 1}');
+  const last = agent.getReActSteps()[agent.getReActSteps().length - 1];
+  expect([last.role, last.isEnd, last.endReason]).toEqual(["agent", true, undefined]);
 });
 
 test("compact entries list a documented function by its signature and docstring, and keep the rest's source", async () => {

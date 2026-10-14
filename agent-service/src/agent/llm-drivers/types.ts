@@ -116,6 +116,12 @@ export interface DriverRunTurnInput {
   requireShownResult?: boolean;
   /** Whether a result of this task has been displayed (a retrieval succeeded). */
   resultShown?: () => boolean;
+  /** Answer statements (AgentSettings.answerStatement): whether one has
+   *  rendered this request's reply, which ends the turn after its step. */
+  answered?: () => boolean;
+  /** A reply without the tool is sent back once with the answer-statement
+   *  correction, instead of being taken as the answer. */
+  answerByStatement?: boolean;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool
@@ -144,7 +150,9 @@ export class MissingAnswerActionError extends Error {
     readonly partial: DriverRunTurnResult,
     readonly canContinue: boolean,
     /** The last reply was cut off at the output limit, so it is not an answer. */
-    readonly cut = false
+    readonly cut = false,
+    /** The last reply was text where the answer is an `answer` statement. */
+    readonly answerStatement = false
   ) {
     super(
       cut

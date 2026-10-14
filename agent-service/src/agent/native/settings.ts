@@ -125,6 +125,7 @@ export function validateEvidenceSettings(settings: object): void {
     "answerEcho",
     "dataEvidence",
     "flowEvidence",
+    "answerStatement",
     "nativeProfileCollection",
     "nativeChecks",
   ] as const) {

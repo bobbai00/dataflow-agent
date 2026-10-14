@@ -64,6 +64,10 @@ export interface DataflowActionsResult {
   turn?: TurnReceiptInfo;
   /** A later call of a response that ran as part of that response's first call. */
   mergedInto?: string;
+  /** The reply an answer statement rendered (AgentSettings.answerStatement); it ends the request. */
+  answer?: string;
+  /** Why the call's answer statement rendered no reply. */
+  answerError?: string;
 }
 
 export const EMPTY_DATAFLOW_ERROR = "The dataflow is empty. Add an operator before execute.";
