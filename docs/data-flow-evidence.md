@@ -319,6 +319,30 @@ in one of these ways (examples from KramaBench and PrepBench data):
 | The same record listed by several source files (needs the scan's file column) | `94 of 94 input rows are 43 records each listed once by 38 different sources apart from "file", …; the aggregate counts every copy.` |
 | A group key that pools a column naming entities (one line per aggregate) | `grouping by "Beach Name" pools rows with different "Community" values in 14 of 1,155 groups, e.g. "Atlantic Avenue": "Provincetown", "Harwich".` |
 | A cast that turned values into nulls, a None verdict, ties in a window, an empty source file, union or pivot gaps | `"Age" could not be converted in 1 of 14 rows, e.g. "NA" × 1; those cells are now null.` |
+| The same record listed by several of a multi-file scan's files (no file column needed) | `94 of 764 rows of this table are 43 records listed in 2–4 of the 52 files, e.g. "Columbus, GA-AL Metropolitan Statistical Area, 1,302" in Alabama.csv and Georgia.csv; a sum, count or mean over these rows counts each copy.` |
+| Copies an aggregate reads when its input comes from several sources, with its result counting each record once (only when that differs) | `94 of 94 rows read here are 43 records repeated 2–4 times (identical in every column; the input comes from several sources), …; counting each record once: "total" = 243,377 (now 593,524).` |
+| Rows a column marks as excluded that an aggregate reads, with its result without them; a projection that drops the mark | `2 of 14 rows read here have "Case_excluded" = "Yes" ("C3L-01247", "C3N-01825_replication"); without them: "median" = 2.65631 (now 2.42405).` |
+| A dedupe on an identifier (built-in distinct or `drop_duplicates` in Python) that drops rows whose other values differ, or collapses rows with an empty key | `distinct on "NWS ID" removed 828 rows, among them 7 whose "NWS ID" repeats with different values in other columns, e.g. "051506": "Station Name" "THE CROWN" / "HANGMAN", …; 821 with an empty "NWS ID", collapsed into one.` |
+| Inside a Python step: merge or `.map` lookup keys that match only once written alike, the same record in several files the function read itself (`open()`, csv, pandas), a file's repeated header columns the function never read | `"wollaston_beach_datasheet.csv" has 4 columns labelled "Enterococcus" (column 5, column 7, column 9, column 11); the function never read column 11.` |
+
+The group-key line also gives the group count with the pooled column added to
+the key (`grouped by "Beach Name", "Community" there are 1,171 groups (now 1,155)`).
+
+**Runtime stats (2026-10-14).** The model sees these lines as
+`- runtime stats:` (`- runtime stats (<step>):` for an upstream step). With
+flow evidence on, the system prompt says once what they are and that they help
+validate a result: whether a step did what was intended and whether the data
+has a trap (`RUNTIME_STATS` in `prompts.ts`). Tool results no longer carry a
+per-result note, and nothing makes the agent answer them. Precision rules for
+the new lines:
+- A record shared by several files must name something: a text cell that is
+  not a date. Among rows a function read by hand, only rows with a number count.
+- A dedupe is checked only on a key with at least half as many values as rows.
+  Its key group counts as different records only when two columns, or a
+  number, differ; copies that differ only in their file or state are copies.
+
+On 17 KramaBench tasks whose failures a runtime check can reveal (10 reps,
+statistics off), Luna went from 68.8% with flow off to 82.4% with runtime stats.
 
 A rejected row is blamed on the column its condition read last (in `a and b`,
 the part that failed), so a value rejected by one part is never reported under
