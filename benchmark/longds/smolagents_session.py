@@ -32,7 +32,10 @@ report.py read it unchanged; the arm is `smolagents`. With `--select oracle`
 (arm `smolagents-oracle`) a request's memory holds only the earlier requests
 the selection names (common.oracle_selection), as run_session's
 `transcript-oracle` does for the dataflow agent; the interpreter keeps every
-variable either way.
+variable either way. With `--note dependencies` (arm `smolagents-depnote`)
+memory keeps every earlier request and each request ends with a line naming
+the earlier tasks it builds on (common.dependency_note), as run_session's
+`transcript-depnote`.
 
 With `--pick variables` (arm `smolagents-variables`), the script's counterpart
 of the dataflow agent's table context (run_session's `tables-upstream`): after
@@ -61,7 +64,7 @@ import sys
 import threading
 import time
 
-from benchmark.longds.common import DATA, HERE, ROOT, SELECTIONS, load, save, selection_note
+from benchmark.longds.common import DATA, HERE, ROOT, SELECTIONS, dependency_note, load, save, selection_note
 from benchmark.longds.script_state import (render_variable_context, render_variable_index, trace_statements,
                                            upstream)
 from benchmark.longds.selection import request_text, select_variables
@@ -246,7 +249,8 @@ def variable_picker(model):
     return pick
 
 
-def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None, select=None, pick=None):
+def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None, select=None, pick=None,
+        note=None):
     import smolagents
     from smolagents import CodeAgent
     from smolagents.local_python_executor import CodeOutput, PythonExecutor
@@ -272,7 +276,7 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
 
     out.mkdir(parents=True, exist_ok=False)
     selector = SELECTIONS[select] if select else None
-    gold = load(prepared / "gold.json") if selector else None
+    gold = load(prepared / "gold.json") if selector or note else None
     manifest = load(prepared / "manifest.json")
     prompts = load(prepared / "prompts.json")[:turns]
     imports = available_imports(code_agent.AUTHORIZED_IMPORTS)
@@ -284,8 +288,10 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
                       verbosity_level=LogLevel.OFF, **({"max_steps": max_steps} if max_steps else {}))
     save(out / "protocol.json", {
         "prepared": str(prepared.resolve()), "model": model, "turns": len(prompts),
-        "arm": f"smolagents-{select}" if select else "smolagents-variables" if pick else "smolagents",
+        "arm": (f"smolagents-{select}" if select else "smolagents-variables" if pick
+                else "smolagents-depnote" if note else "smolagents"),
         "selection": select or ("model variables" if pick else None),
+        "note": "gold dependencies" if note else None,
         "settings": {"smolagents": smolagents.__version__, "max_steps": agent.max_steps, "instructions": None,
                      "kramabench_revision": kb_revision, "python": sys.version.split()[0],
                      "authorized_imports": imports, "request_text": "prepared prompts.json"},
@@ -310,6 +316,8 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
                 break
             selected = selector(gold, entry["turn_id"]) if selector else None
             prompt = entry["prompt"] + selection_note(selected, entry["turn_id"])
+            if note:
+                prompt += dependency_note(gold, entry["turn_id"])
             sent, picked, block = prompt, None, None
             if selected is not None:
                 # Memory holds only the chosen requests; the interpreter's variables all stay.
@@ -418,13 +426,15 @@ def main():
     parser.add_argument("--select", choices=sorted(SELECTIONS), help="show each request only these earlier requests")
     parser.add_argument("--pick", choices=["variables"],
                         help="a model picks each request's earlier variables; the request sees them and the code that made them")
+    parser.add_argument("--note", choices=["dependencies"],
+                        help="each request keeps every earlier request and is told which earlier tasks it builds on")
     args = parser.parse_args()
-    if args.select and args.pick:
-        raise SystemExit("--select and --pick are alternatives")
+    if sum(map(bool, (args.select, args.pick, args.note))) > 1:
+        raise SystemExit("--select, --pick and --note are alternatives")
     if current_price_schedule(args.model) is None:
         raise SystemExit(f"No price schedule for {args.model}; costs would be unknown")
     run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps, args.select,
-        args.pick)
+        args.pick, args.note)
 
 
 if __name__ == "__main__":

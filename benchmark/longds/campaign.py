@@ -12,10 +12,10 @@
 # limitations under the License.
 """Run sessions x arms x repetitions, a few at a time.
 
-The arms `smolagents`, `smolagents-oracle` and `smolagents-variables` run the
-script-agent baseline (smolagents_session.py; KRAMABENCH_ROOT names a
-KramaBench checkout at the pinned revision); every other arm is a dataflow
-agent (run_session.py).
+The arms `smolagents`, `smolagents-oracle`, `smolagents-depnote` and
+`smolagents-variables` run the script-agent baseline (smolagents_session.py;
+KRAMABENCH_ROOT names a KramaBench checkout at the pinned revision); every
+other arm is a dataflow agent (run_session.py).
 
 Jobs are ordered repetition by repetition, so every arm of a session runs
 under similar load, and a job whose run folder exists is skipped (a crashed
@@ -45,6 +45,8 @@ def command(job, model, extra):
         return [sys.executable, "-m", "benchmark.longds.smolagents_session", *common]
     if job["arm"] == "smolagents-oracle":
         return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--select", "oracle", *common]
+    if job["arm"] == "smolagents-depnote":
+        return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--note", "dependencies", *common]
     if job["arm"] == "smolagents-variables":
         return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--pick", "variables", *common]
     return [sys.executable, "-m", "benchmark.longds.run_session", "--arm", job["arm"], *common]

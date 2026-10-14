@@ -53,6 +53,21 @@ class IndexTest(unittest.TestCase):
                                "units = unit_table(orders) [8 rows]\n"
                                "Task 2: Top three.\n  answer: u1, u2, u3\n  tables: top = limit(units) [3 rows]\n  built on: task 1")
 
+    def test_gold_tables_are_the_results_of_the_annotated_dependencies(self):
+        from benchmark.longds.run_session import gold_tables
+        history = {
+            1: [step(edit("set orders: scan(files='orders.csv')\nset units: unit_table(orders, min_orders=5)"))],
+            2: [step(edit("set big: filter(units, lambda r: r.n > 3)\nset top: limit(big, n=3)\nset share: ratio(big, units)"))],
+            3: [step(edit("set late: filter(orders, lambda r: r.late)"))],
+        }
+        gold = {"turns": [{"turn_id": 4, "depends_tasks": [2, 4]}, {"turn_id": 5, "depends_tasks": []}]}
+        # Task 2's results only (big is read by top and share); task 1 comes in as their upstream.
+        self.assertEqual(gold_tables(gold, 4, history)[0], ["top", "share"])
+        self.assertEqual(gold_tables(gold, 5, history)[0], [])
+        from benchmark.longds.run_session import gold_dependencies
+        # Only earlier tasks, in order.
+        self.assertEqual(gold_dependencies({"turns": [{"turn_id": 9, "depends_tasks": [7, 9, 12, 1]}]}, 9), [1, 7])
+
     def test_the_script_index_lists_assigned_names_and_functions_but_not_loop_variables(self):
         code = ("import pandas as pd\nunits = pd.DataFrame()\nfor row in range(3):\n    total = row\n"
                 "def score(t):\n    inner = 1\n    return t\nif True:\n    top, rest = units, units\n")

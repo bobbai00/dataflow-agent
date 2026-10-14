@@ -76,6 +76,18 @@ def selection_note(selected, turn):
             f"{shown}; the others are left out of it, and what they computed still exists.)")
 
 
+def dependency_note(gold, turn):
+    """The line a request ends with when the agent is told which earlier tasks
+    it builds on (gold.json depends_tasks, as annotated) while still seeing
+    every earlier request; "" when the request depends on none."""
+    depends = next((t.get("depends_tasks") or [] for t in gold["turns"] if t["turn_id"] == turn), [])
+    tasks = sorted({int(task) for task in depends if 1 <= int(task) < turn})
+    if not tasks:
+        return ""
+    named = str(tasks[0]) if len(tasks) == 1 else ", ".join(map(str, tasks[:-1])) + f" and {tasks[-1]}"
+    return f"\n\n(Context: this request builds on earlier task{'s' if len(tasks) > 1 else ''} {named}.)"
+
+
 SELECTIONS = {"oracle": oracle_selection}
 
 

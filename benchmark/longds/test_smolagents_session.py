@@ -127,6 +127,9 @@ class RecordTest(unittest.TestCase):
         picked = command({**job, "arm": "smolagents-variables"}, "gpt-5.6-luna", [])
         self.assertIn("benchmark.longds.smolagents_session", picked)
         self.assertEqual(picked[picked.index("--pick") + 1], "variables")
+        noted = command({**job, "arm": "smolagents-depnote"}, "gpt-5.6-luna", [])
+        self.assertIn("benchmark.longds.smolagents_session", noted)
+        self.assertEqual(noted[noted.index("--note") + 1], "dependencies")
 
     def test_the_oracle_selection_keeps_request_one_and_the_annotated_dependencies(self):
         from benchmark.longds.common import oracle_selection, selection_note
@@ -138,6 +141,16 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(selection_note(None, 1), "")
         self.assertEqual(selection_note([1, 7], 9), "\n\n(Context: of the earlier tasks, this conversation shows tasks 1, 7; "
                                                    "the others are left out of it, and what they computed still exists.)")
+
+    def test_the_dependency_note_names_the_annotated_earlier_tasks(self):
+        from benchmark.longds.common import dependency_note
+        gold = {"turns": [{"turn_id": 1, "depends_tasks": []}, {"turn_id": 2, "depends_tasks": [1]},
+                          {"turn_id": 5, "depends_tasks": [3, 2]}, {"turn_id": 9, "depends_tasks": [7, 9, 12, 1]}]}
+        self.assertEqual(dependency_note(gold, 1), "")
+        self.assertEqual(dependency_note(gold, 2), "\n\n(Context: this request builds on earlier task 1.)")
+        self.assertEqual(dependency_note(gold, 5), "\n\n(Context: this request builds on earlier tasks 2 and 3.)")
+        # Only earlier tasks are named.
+        self.assertEqual(dependency_note(gold, 9), "\n\n(Context: this request builds on earlier tasks 1 and 7.)")
 
 
 if __name__ == "__main__":
