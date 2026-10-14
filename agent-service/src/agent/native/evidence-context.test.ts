@@ -221,16 +221,16 @@ test("shared flow LATEST: dedup only visible outputs in this frame", async () =>
   });
   f.capture("A", ["first", "second"]);
   const text = JSON.stringify(render());
-  expect(text.match(/- flow \(selected\):/g)?.length).toBe(1);
-  expect(text).toContain("- flow: see");
+  expect(text.match(/- runtime stats \(selected\):/g)?.length).toBe(1);
+  expect(text).toContain("- runtime stats: see");
   expect(text).not.toContain("Sample record: -100");
   expect(text.match(/records: sample; 1 of 3 rows/g)?.length).toBe(2);
   const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
   await f.record("B", "", "show result second", ["second"]);
   f.capture("B", ["second"]);
   const later = JSON.stringify(render());
-  expect(later.match(/- flow \(selected\):/g)?.length).toBe(1);
-  expect(later).not.toContain("- flow: see");
+  expect(later.match(/- runtime stats \(selected\):/g)?.length).toBe(1);
+  expect(later).not.toContain("- runtime stats: see");
   expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
 });
 
@@ -263,7 +263,7 @@ for (const dataEvidence of [false, true])
       const expected = await assembler(input as any);
       const text = JSON.stringify(expected);
       expect(text.includes("statistics:")).toBe(dataEvidence);
-      expect(text.includes("- flow:")).toBe(flowEvidence);
+      expect(text.includes("- runtime stats:")).toBe(flowEvidence);
       expect(text).not.toContain("LEGACY_");
       for (const level of [0, 1, 2, 3]) {
         expect(
@@ -300,7 +300,7 @@ test("upstream summaries LATEST: a shown result pins its hidden calculation, rev
   f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
   f.capture("A", ["final"], false, true);
   const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations!.final);
-  expect(frozen.text).toContain("- flow (selected):");
+  expect(frozen.text).toContain("- runtime stats (selected):");
   expect(frozen.text).toContain("kept=3/5");
   expect(frozen.text).not.toContain("-100");
   expect(render()).toContain("kept=3/5");
@@ -354,7 +354,7 @@ for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSpli
     expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
     expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
     dataEvidence = flowEvidence = false;
-    expect(render()).not.toContain("- flow:");
+    expect(render()).not.toContain("- runtime stats:");
     expect(render()).not.toContain("statistics:");
 
     await f.record("D", "", selected(20));
@@ -377,11 +377,11 @@ test("a captured observation is frozen; capturing again cannot rewrite it with n
   f.persist("A", { source: [-1, 0, 10], selected: [10] });
   f.capture("A", ["selected"], false, false);
   const first = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
-  expect(first?.text).not.toContain("- flow:");
+  expect(first?.text).not.toContain("- runtime stats:");
   f.capture("A", ["selected"], true, true);
   const again = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
   expect(again).toEqual(first);
-  expect(again?.text).not.toContain("- flow:");
+  expect(again?.text).not.toContain("- runtime stats:");
   expect(Object.isFrozen(again)).toBe(true);
 });
 
@@ -419,7 +419,7 @@ for (const data of [false, true]) {
       f.capture("B", ["selected"], data, flow, 2000);
       const output = f.storage.getAssociatedSnapshot("B").nativeObservations!.selected.text;
       expect(output.includes("statistics:")).toBe(data);
-      expect(output.includes("- flow:")).toBe(flow);
+      expect(output.includes("- runtime stats:")).toBe(flow);
       expect(output.length).toBeLessThanOrEqual(2000);
       const rendered = JSON.stringify(
         assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
@@ -430,7 +430,7 @@ for (const data of [false, true]) {
         })
       );
       expect(rendered.includes("statistics:")).toBe(data);
-      expect(rendered.includes("- flow:")).toBe(flow);
+      expect(rendered.includes("- runtime stats:")).toBe(flow);
       expect(rendered).not.toContain("Column Schema and stats");
       expect(f.storage.getOperatorResult("B", "selected")).toEqual(f.storage.getOperatorResult("A", "selected"));
       expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual({});

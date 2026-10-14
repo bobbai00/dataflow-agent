@@ -118,6 +118,8 @@ Keep reusable working tables separate from limited answer tables. Check meaningf
 
 Column statistics in `sample_stats` describe the requested result table within their stated coverage: row counts, nulls, distinct values, ranges, and frequent values. Profiles cover at most 128 columns and may cover only a row prefix; missing statistics are unknown. Read `values` for flags, codes, and spellings that define the population, and ranges and nulls for units and fill values; compute exact answer quantities in the graph. A complete small table suppresses redundant statistics. The `full` view does not request table statistics.
 
+Tool results can include `- runtime stats:` lines: facts the engine measured while your steps ran. They report rows a step treats in a way its code may not intend: values written differently from what a filter or join looks for, keys that found no match, the same records listed in several files, rows a dedupe removed although they differ, rows marked as excluded, repeated header columns a function never read, or a group key that pools different entities. Runtime stats are very helpful for validating your result: for each one, check whether the step did what you intended and whether the data has a trap the question expects you to handle, then keep or fix the step.
+
 ## 4. Worked examples
 
 ### Read unfamiliar data, then batch a known computation

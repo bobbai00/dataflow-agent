@@ -257,7 +257,7 @@ function aggregateSemantics(context: NativeEvidenceContext, operations: Record<s
           example.values
         )
           .map(v => json(v))
-          .join(", ")}.`,
+          .join(", ")}${count(d.groupsWith) && d.groupsWith > d.groups ? `; grouped by ${[...keys, d.column].map(k => json(k)).join(", ")} there are ${formatCount(d.groupsWith)} groups (now ${formatCount(d.groups)})` : ""}.`,
       ];
     });
 }
@@ -295,6 +295,97 @@ function repeatedRecordsText(type: string, operations: Record<string, any>): str
         .join(", ")}`
     : "";
   return `${formatCount(r.rows)} of ${formatCount(r.of)} input rows are ${formatCount(r.records)} records each listed once by ${count(r.sources) ? `${r.sources} different sources` : "several sources"}${ignoring}, e.g. ${json(String(r.example ?? ""))}; ${type === "Aggregate" ? "the aggregate counts" : "a sum, mean or count counts"} every copy.`;
+}
+
+const valueText = (v: unknown) => (typeof v === "number" ? formatCount(v) : json(v));
+
+/** What leaving rows out changes in an aggregate: each changed output (ungrouped), or how many groups change. */
+function changeText(change: Record<string, any>, how: string): string {
+  const outputs = Array.isArray(change.outputs) ? change.outputs.map(record) : [];
+  if (outputs.length)
+    return `${how}: ${outputs
+      .slice(0, 2)
+      .map(o => `${json(o.output)} = ${valueText(o.then)} (now ${valueText(o.now)})`)
+      .join(", ")}`;
+  if (count(change.changedGroups) && count(change.groups))
+    return `${how}, ${formatCount(change.changedGroups)} of ${formatCount(change.groups)} groups change`;
+  return "";
+}
+
+/** Several files listing the same record: a metro area in each of its states' files. */
+function fileCopiesText(c: Record<string, any>, where: string): string | undefined {
+  if (!count(c.rows) || !count(c.of) || !count(c.records) || !count(c.files)) return undefined;
+  const span = count(c.minSources) && count(c.maxSources) && c.maxSources > c.minSources ? `${c.minSources}–${c.maxSources}` : `${c.maxSources ?? 2}`;
+  const files = names(c.exampleFiles);
+  return `${formatCount(c.rows)} of ${formatCount(c.of)} rows ${where} are ${formatCount(c.records)} records listed in ${span} of the ${formatCount(c.files)} files, e.g. ${json(String(c.example ?? ""))}${files.length ? ` in ${files.join(" and ")}` : ""}; a sum, count or mean over these rows counts each copy.`;
+}
+
+/** Rows a dedupe dropped that were not duplicates: two stations under one ID, or rows with an empty key. */
+function dedupeText(d: Record<string, any>, what: string): string | undefined {
+  const keys = names(d.columns);
+  if (!keys.length || !count(d.removed)) return undefined;
+  const parts: string[] = [];
+  const examples = Array.isArray(d.examples) ? d.examples.map(record) : [];
+  if (count(d.differ) && d.differ > 0) {
+    const e = examples[0];
+    const detail = e
+      ? `, e.g. ${json(names(e.key).length === 1 ? names(e.key)[0] : names(e.key))}: ${Object.entries(record(e.values))
+          .map(([column, values]) => `${json(column)} ${(Array.isArray(values) ? values : []).map(v => json(v)).join(" / ")}`)
+          .join(", ")}`
+      : "";
+    parts.push(`${formatCount(d.differ)} whose ${keys.map(k => json(k)).join(", ")} repeats with different values in other columns${detail}`);
+  }
+  if (count(d.emptyKeyRemoved) && d.emptyKeyRemoved > 0)
+    parts.push(`${formatCount(d.emptyKeyRemoved)} with an empty ${keys.map(k => json(k)).join(", ")}, collapsed into one`);
+  return parts.length ? `${what} on ${keys.map(k => json(k)).join(", ")} removed ${formatCount(d.removed)} rows, among them ${parts.join("; ")}.` : undefined;
+}
+
+/** Rows marked as excluded (Case_excluded = 'Yes') that a result still reads. */
+function excludedText(x: Record<string, any>, how: string): string | undefined {
+  if (typeof x.column !== "string" || !count(x.rows) || !count(x.of)) return undefined;
+  const examples = names(x.examples);
+  const change = x.change ? changeText(record(x.change), "without them") : "";
+  return `${formatCount(x.rows)} of ${formatCount(x.of)} rows ${how} have ${json(x.column)} = ${json(String(x.mark ?? ""))}${examples.length ? ` (${examples.map(e => json(e)).join(", ")})` : ""}${change ? `; ${change}` : ""}.`;
+}
+
+/** Findings inside a Python step: keys that match only once written alike, dedupes that drop non-duplicates,
+ * the same record in several files the function read, repeated header columns it never read. */
+function processEventTexts(operations: Record<string, any>): string[] {
+  const lines: string[] = [];
+  for (const raw of Array.isArray(record(operations.process).events) ? record(operations.process).events : []) {
+    const e = record(raw);
+    const at = count(e.line) ? `inside the function, ${count(e.cell) ? `definition cell ${e.cell}, ` : ""}line ${e.line}: ` : "inside the function: ";
+    const ins: number[] = Array.isArray(e.in) ? e.in : [];
+    if ((e.op === "merge" || e.op === "map") && e.issue === "near-miss keys" && count(e.near) && count(e.unmatched)) {
+      const pairs = (Array.isArray(e.pairs) ? e.pairs : []).filter((p: unknown) => Array.isArray(p) && p.length === 2);
+      lines.push(
+        `${at}${e.op === "merge" ? "a merge" : "a lookup with .map"}${typeof e.key === "string" ? ` on ${json(e.key)}` : ""} found no match for ${formatCount(e.unmatched)} of ${formatCount(e.keys)} keys; ${formatCount(e.near)} of them match a key on the other side once case, spacing and punctuation are ignored, e.g. ${pairs
+          .slice(0, 2)
+          .map(([a, b]: [unknown, unknown]) => `${json(a)} ~ ${json(b)}`)
+          .join("; ")}.`
+      );
+    } else if (e.op === "dedupe" && e.issue === "differs") {
+      const text = dedupeText(e, "drop_duplicates");
+      if (text) lines.push(`${at}${text}`);
+    } else if (e.op === "read" && e.issue === "copies") {
+      const text = fileCopiesText(e, "of the files the function read");
+      if (text) lines.push(text);
+    } else if (e.op === "read" && e.issue === "unread twins" && typeof e.file === "string") {
+      const members = (Array.isArray(e.columns) ? e.columns : Array.isArray(e.positions) ? e.positions : []).map((m: unknown) =>
+        typeof m === "number" ? `column ${m}` : json(m)
+      );
+      const unread = (Array.isArray(e.unread) ? e.unread : []).map((m: unknown) => (typeof m === "number" ? `column ${m}` : json(m)));
+      lines.push(
+        `${json(e.file)} has ${members.length} columns labelled ${json(e.label)} (${members.join(", ")}); the function never read ${unread.join(", ")}.`
+      );
+    } else if (e.op === "concat" && e.issue === "duplicates")
+      lines.push(
+        `${at}concatenating ${ins.length} tables: ${e.rows} of ${e.of} rows are ${e.records} records each listed once by several of the tables, e.g. ${json(e.example)}; a sum, count or mean counts each copy.`
+      );
+    else if (e.op === "merge" && e.issue === "empty") lines.push(`${at}a merge of ${ins.join(" and ")} rows returned 0 rows.`);
+    else if ((e.op === "filter" || e.op === "query") && e.issue === "empty") lines.push(`${at}a row selection kept 0 of ${ins[0]} rows.`);
+  }
+  return lines;
 }
 
 /** Consumes structured, version-bound profiles only. No execution, hidden
@@ -627,6 +718,20 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         const text = repeatedText(record(raw), "this aggregate's sum, count and mean count each repeat");
         if (text) add(`flow.aggregate.repeated.${i}`, "flow", "measurement", text, 97);
       }
+      const copies = record(operations.copiesInput);
+      if (count(copies.rows) && count(copies.records) && count(copies.of)) {
+        const span = count(copies.minCopies) && count(copies.maxCopies) && copies.maxCopies > copies.minCopies ? `${copies.minCopies}–${copies.maxCopies}` : `${copies.maxCopies ?? 2}`;
+        const change = changeText(record(copies.change), "counting each record once");
+        add(
+          "flow.aggregate.copies",
+          "flow",
+          "measurement",
+          `${formatCount(copies.rows)} of ${formatCount(copies.of)} rows read here are ${formatCount(copies.records)} records repeated ${span} times (identical in every column; the input comes from several sources), e.g. ${json(String(copies.example ?? ""))}${change ? `; ${change}` : ""}.`,
+          98
+        );
+      }
+      const excluded = excludedText(record(operations.excludedInput), "read here");
+      if (excluded) add("flow.aggregate.excluded", "flow", "measurement", excluded, 98);
     } else omissions.push("invalid_aggregate_counters");
   } else if (view.type === "Join") {
     const join = record(operations.join);
@@ -806,6 +911,10 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     // Retained and removed rows restate the input and output row counts.
     if (!(count(operations.removedRows) && operations.removedRows + out === ns[0]))
       omissions.push("invalid_removal_counters");
+    else if (view.type === "Distinct") {
+      const text = dedupeText(record(operations.dedupeDifferences), "distinct");
+      if (text) add("flow.distinct.differs", "flow", "measurement", text, 97);
+    }
   } else if (view.type === "Scan") {
     const scan = record(operations.scan);
     if (
@@ -817,6 +926,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     ) {
       // File coverage, previews and header findings are shown with the scan's
       // result in every setting (result-scope.ts); only empty sources remain.
+      const copies = fileCopiesText(record(operations.fileCopies), "of this table");
+      if (copies && !scan.preview) add("flow.scan.copies", "flow", "measurement", copies, 97);
       for (const [i, source] of (Array.isArray(scan.sources) ? scan.sources : []).entries()) {
         const s = record(source);
         if (typeof s.path === "string" && s.outputRows === 0 && !scan.preview)
@@ -842,6 +953,20 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       );
       if (text) add(`flow.process.repeated.${i}`, "flow", "measurement", text, 95);
     }
+  if (view.type === "Process")
+    processEventTexts(operations).forEach((text, i) => add(`flow.process.event.${i}`, "flow", "measurement", text, 96));
+  if (view.type === "Project") {
+    const dropped = record(operations.excludedDropped);
+    const text = excludedText(dropped, "of the input");
+    if (text && typeof dropped.column === "string")
+      add(
+        "flow.project.excluded",
+        "flow",
+        "measurement",
+        `this step drops ${json(dropped.column)}, but ${text.charAt(0).toLowerCase()}${text.slice(1, -1)}; those rows stay in the table, no longer marked.`,
+        97
+      );
+  }
   // The same record listed by several source files (a metro area in each state's file).
   if (view.type === "Aggregate" || view.type === "Process") {
     const text = repeatedRecordsText(view.type, operations);
@@ -1040,7 +1165,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     const allText = facts.map(fact => {
       const origin = fact.upstream && (context.displayName?.(fact.upstream.operatorId) ?? fact.upstream.operatorId);
       const text = fact.text.replace(/^Flow upstream [^:]+:\s*/, "").replace(/^Flow \w+:\s*/, "");
-      return `- flow${origin ? ` (${origin})` : ""}: ${text}`;
+      return `- runtime stats${origin ? ` (${origin})` : ""}: ${text}`;
     });
     const needsNotice = allText.join("\n").length > budget;
     for (const [index, fact] of facts.entries()) {

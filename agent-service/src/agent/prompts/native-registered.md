@@ -97,6 +97,8 @@ Keep reusable working tables separate from limited answer tables. Check meaningf
 
 {{DATA_STATISTICS}}
 
+{{RUNTIME_STATS}}
+
 ## 4. Worked examples
 
 {{EXAMPLES}}

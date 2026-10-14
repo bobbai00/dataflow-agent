@@ -88,6 +88,8 @@ def test_records_repeated_across_sources_reach_the_aggregate(tmp_path):
         "sources": 2,
         "ignoring": ["source"],
         "example": "Philadelphia, 28438",
+        "minSources": 2,
+        "maxSources": 2,
     }
     # Two rows from one source are that source's data, not a cross-source copy.
     same = frame.assign(source="PA.csv")
@@ -170,7 +172,8 @@ def test_a_group_key_that_merges_entities_is_named():
     aggregate = spec("Aggregate", groupBy=["Beach Name"], aggregations=[{"fn": "sum", "col": "samples", "as": "n"}])
     deps = operations(runtime.execute_native(aggregate, [frame]))["keyDependencies"]
     assert deps == [
-        {"column": "Community", "groups": 10, "split": 1, "example": {"key": ["beach0"], "values": ["town0", "other town"]}}
+        {"column": "Community", "groups": 10, "split": 1, "example": {"key": ["beach0"], "values": ["town0", "other town"]},
+         "groupsWith": 11}
     ]
     # A column that varies within many groups is not an attribute of the key.
     free = frame.assign(Community=[f"t{i % 3}" for i in range(20)])

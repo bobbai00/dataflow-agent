@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import type { DataflowActionsResult } from "../tools/dataflow-actions";
-import { FLOW_LINE, FLOW_NOTE, renderTurnReceipt } from "./turn-receipt";
+import { FLOW_LINE, renderTurnReceipt } from "./turn-receipt";
 import { parseTurn, type ParsedTurn } from "./turn-syntax";
 
 const views = ["sample_stats", "full"] as const;
@@ -98,7 +98,7 @@ show result rates full`,
         operator_blocks: [
           { ...block("water", "scan", [], "3,310 rows × 10 columns"), state: "cached" },
           block("marine", "filter", ["water"], "1,204 rows × 10 columns", [
-            "- flow: filter kept=1204/3310, rejected=2106; rejected values: 'Freshwater' × 2098, null × 8",
+            "- runtime stats: filter kept=1204/3310, rejected=2106; rejected values: 'Freshwater' × 2098, null × 8",
           ]),
           block("bands", "ej_band", ["marine"], "611 rows × 9 columns"),
           block("rates", "aggregate", ["bands"], "2 rows × 3 columns"),
@@ -128,7 +128,7 @@ operators: marine created (filter), bands created (ej_band), rates created (aggr
 executed: marine, bands, rates
 upstream:
 - marine (filter of water): 1,204 rows × 10 columns
-  - flow: filter kept=1204/3310, rejected=2106; rejected values: 'Freshwater' × 2098, null × 8
+  - runtime stats: filter kept=1204/3310, rejected=2106; rejected values: 'Freshwater' × 2098, null × 8
 - bands (ej_band of marine): 611 rows × 9 columns
 result rates (aggregate of bands): 2 rows × 3 columns
 records: full; 2 of 2 rows, 3 of 3 columns (complete)
@@ -139,12 +139,10 @@ records: full; 2 of 2 rows, 3 of 3 columns (complete)
 statistics: full table, 2 of 2 rows, 3 of 3 columns
 | column | type | nulls | distinct | values |
 |---|---|---|---|---|
-| band | str | 0 | 2 | all: high 1; low 1 |
-
-${FLOW_NOTE}`);
+| band | str | 0 | 2 | all: high 1; low 1 |`);
 });
 
-test("flow lines are explained once, in the receipts that carry them", () => {
+test("runtime stats lines carry no per-result note; the system prompt explains them", () => {
   const turn = turnOf("execute marine, bands");
   const executed = (issues: string[][]) =>
     resultOf(turn, [
@@ -163,17 +161,16 @@ test("flow lines are explained once, in the receipts that carry them", () => {
       },
     ]);
   const plain = renderTurnReceipt(executed([[], []]), turn);
-  expect(plain).not.toContain(FLOW_NOTE);
   expect(FLOW_LINE.test(plain)).toBe(false);
   const flows = renderTurnReceipt(
     executed([
-      ["- flow: Filter \"kind\" among 2106 rejected rows, including null-predicate drops, first values seen: \"Freshwater\" × 2098; other=8. Examples, not causes."],
-      ["- flow: values of input column \"site\" missing from output column \"site\": \"A\" (1 of 9)."],
+      ["- runtime stats: Filter \"kind\" among 2106 rejected rows, including null-predicate drops, first values seen: \"Freshwater\" × 2098; other=8. Examples, not causes."],
+      ["- runtime stats: values of input column \"site\" missing from output column \"site\": \"A\" (1 of 9)."],
     ]),
     turn
   );
-  expect(flows.split(FLOW_NOTE)).toHaveLength(2);
-  expect(flows.endsWith(`\n\n${FLOW_NOTE}`)).toBe(true);
+  expect(FLOW_LINE.test(flows)).toBe(true);
+  expect(flows).not.toContain("note: a `- runtime stats:` line");
 });
 
 test("a rejected edit names the line and nothing else runs", () => {
@@ -296,7 +293,7 @@ join(left, right, on=..., how="inner")
 });
 
 const castFlow =
-  "- flow: cast conversion failures=73/100; column value had 73 invalid non-null values converted to null.";
+  "- runtime stats: cast conversion failures=73/100; column value had 73 invalid non-null values converted to null.";
 const flowObservation = (id: string, text = castFlow) => ({
   resultVersion: `${id}-v1`,
   chunks: [{ id: "flow.cast.counts", text }],
@@ -364,7 +361,7 @@ test("a capped upstream execution list never marks an unseen measurement as show
     ...block(`typed${i}`, "cast", ["raw"], "100 rows × 1 columns", [castFlow]),
     flow_observation: flowObservation(`typed${i}`),
   }));
-  const upstreamText = `- flow (typed8): ${castFlow.slice(8)} Before output processing.`;
+  const upstreamText = `- runtime stats (typed8): ${castFlow.slice(8)} Before output processing.`;
   const observation = {
     resultVersion: "output-v1",
     chunks: [

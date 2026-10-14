@@ -276,7 +276,7 @@ test("flow evidence remains available when a full record view fills its budget",
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
   const full = observe(f, { view: "full", data: false, maxChars: 100, flowMaxChars: 700 });
-  expect(full.text).toContain("- flow:");
+  expect(full.text).toContain("- runtime stats:");
   expect(full.text).toContain("kept=3/5");
   expect(full.table?.returnedRows).toBe(3);
   expect(full.table?.complete).toBe(true);
@@ -1221,7 +1221,7 @@ test.each([false, true])(
       ];
     }
     const selected = observe(f, { data: false, flowMaxChars: 1000 });
-    expect(selected.text).toContain("- flow (raw):");
+    expect(selected.text).toContain("- runtime stats (raw):");
     expect(selected.text).toContain('"x" could not be converted in 6 of 10 rows, e.g. "1,299" × 4; those cells are now null.');
     if (custom) expect(selected.text).toContain("row/column correspondence to this output unknown");
     expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);

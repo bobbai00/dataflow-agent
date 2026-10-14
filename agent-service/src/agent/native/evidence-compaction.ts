@@ -126,7 +126,7 @@ export function shareNativeObservation(
       const key = JSON.stringify([origin.operatorId, origin.resultVersion, line]);
       const earlier = seen.get(key);
       if (earlier && earlier !== observerId) {
-        const reference = `${observation.version === 2 ? "- flow: see" : "Flow upstream: see"} ${JSON.stringify(earlier)} above for ${JSON.stringify(origin.operatorId)}.`;
+        const reference = `${observation.version === 2 ? "- runtime stats: see" : "Flow upstream: see"} ${JSON.stringify(earlier)} above for ${JSON.stringify(origin.operatorId)}.`;
         if (reference.length < line.length) return reference;
       }
       if (!earlier) seen.set(key, observerId);

@@ -110,10 +110,10 @@ for (const data of [false, true])
       expect(prompt).not.toContain("{{");
       expect(prompt.includes("Column statistics in `sample_stats`")).toBe(data);
       expect(prompt.includes("sample_stats")).toBe(data);
-      // Flow lines explain themselves in the tool results that carry them; the
-      // prompt is the same with flow evidence on or off.
+      // With flow evidence, the prompt says once what `- runtime stats:` lines are and how to use them.
       expect(prompt.includes("Flow lines report what upstream steps did")).toBe(false);
-      expect(prompt).toBe(buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { ...settings, flowEvidence: !flow }));
+      expect(prompt.includes("Runtime stats are very helpful for validating your result")).toBe(flow);
+      expect(prompt.includes("runtime stats")).toBe(flow);
       // With statistics, one sentence: the sample and its statistics first, `full` for a small table.
       expect(
         prompt.includes(

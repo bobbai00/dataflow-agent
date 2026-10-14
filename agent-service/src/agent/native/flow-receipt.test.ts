@@ -32,7 +32,7 @@ function view(version: string | null, chunks: NativeObservation["chunks"]): Nati
     text: chunks.map(c => c.text).join("\n"),
   };
 }
-const text = "- flow: 95 of 95 left records matched; 95 of 153 right records matched; no left records unmatched.";
+const text = "- runtime stats: 95 of 95 left records matched; 95 of 153 right records matched; no left records unmatched.";
 const measurement = { id: "flow.join.counts", text };
 test("a fact already printed in this receipt is not repeated, for the same producing result only", () => {
   const memo = new FlowReceiptMemo();
@@ -48,7 +48,7 @@ test("an ancestor summary is dropped only when every fact it names was printed",
   const scope = "Before custom processing; row/column correspondence to this output unknown.";
   const upstream = {
     id: "flow.upstream.joined.v1",
-    text: `- flow (joined): Join type=left. ${text} ${scope}`,
+    text: `- runtime stats (joined): Join type=left. ${text} ${scope}`,
     upstream: {
       operatorId: "joined",
       resultVersion: "v1",

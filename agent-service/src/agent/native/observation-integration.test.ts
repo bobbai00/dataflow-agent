@@ -205,7 +205,7 @@ test("show result keeps its target's flow measurement in a frozen receipt", asyn
   const frozen = JSON.stringify(result);
   const text = renderDataflowActionsResult(result);
   expect(text).toContain("## show result source full");
-  expect(text).toContain('- flow: Scan: source "empty.csv" has no data rows (sizeBytes=12).');
+  expect(text).toContain('- runtime stats: Scan: source "empty.csv" has no data rows (sizeBytes=12).');
   // How the files were read is a scan note in every setting.
   expect(text).toContain("- note: 2 files are concatenated into this table");
   expect(text).not.toContain("see action");
@@ -233,7 +233,7 @@ test("how a scan read its files is shown without flow evidence; the empty-source
   const text = renderDataflowActionsResult(result);
   expect(text).toContain('- note: `a.csv` has 2 lines before its header, skipped: "Missing:-999".');
   expect(text).toContain("- note: 2 files are concatenated into this table");
-  expect(text).not.toContain("- flow:");
+  expect(text).not.toContain("- runtime stats:");
 });
 
 for (const tableFormat of ["markdown", "tsv"] as const)
@@ -264,7 +264,7 @@ for (const tableFormat of ["markdown", "tsv"] as const)
           expect(text).toContain('"null"');
           expect(text.includes("statistics:")).toBe(view === "sample_stats");
           // One complete single-file scan measures nothing worth a flow line.
-          expect(text.includes("- flow:")).toBe(false);
+          expect(text.includes("- runtime stats:")).toBe(false);
           expect(text.includes("- id:")).toBe(wide);
           if (!wide) expect(text.includes("| id | label |")).toBe(tableFormat === "markdown");
           const saved = structuredClone(result);

@@ -233,7 +233,7 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
   );
   // Author descriptions stay in definitions; flow lines are measurements, not contracts.
   expect(blockFor(messages, "selected")).not.toContain("contract;");
-  expect(blockFor(messages, "selected")).not.toContain("- flow: contract; Filter: Keeps rows above the minimum.");
+  expect(blockFor(messages, "selected")).not.toContain("- runtime stats: contract; Filter: Keeps rows above the minimum.");
 
   // The two the agent did not ask for carry a row count and nothing else. An
   // unobserved table is not leaked just because the layout retains bodies.
@@ -280,7 +280,7 @@ test("opBlock: a redefined operator shows the result its NEW definition produced
   expect(blockFor(messages, "selected")).toContain("result: 2 rows");
   expect(blockFor(messages, "selected")).toContain("'minimum': 15");
   // The measurement from the superseded revision is gone, not merely moved.
-  expect(messages.join("\n")).not.toContain("- flow: Filter kept=3/5");
+  expect(messages.join("\n")).not.toContain("- runtime stats: Filter kept=3/5");
   expect(blockFor(messages, "selected")).not.toContain("result: 3 rows");
 });
 
@@ -303,7 +303,7 @@ test("opBlock: an upstream change refreshes every downstream result the agent wa
     expect(blockFor(messages, id)).toContain("result: 1 row × 1 column");
     expect(blockFor(messages, id)).not.toContain("result: 3 rows");
   }
-  expect(messages.join("\n")).not.toContain("- flow: Filter kept=3/5");
+  expect(messages.join("\n")).not.toContain("- runtime stats: Filter kept=3/5");
   // The source itself was never observed, so it still shows only its shape.
   expect(hasBody(blockFor(messages, "source"))).toBe(false);
 });

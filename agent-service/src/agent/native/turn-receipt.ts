@@ -275,19 +275,13 @@ function resultLines(item: ActionItem | undefined, memo: FlowReceiptMemo, execut
   return lines;
 }
 
-/** A flow line as rendered by selectNativeObservation: `- flow: …` or `- flow (id): …`. */
-export const FLOW_LINE = /^\s*- flow(?: \([^\n]*\))?:/m;
+/** A runtime-stats line as rendered by selectNativeObservation: `- runtime stats: …` or `- runtime stats (id): …`. */
+export const FLOW_LINE = /^\s*- runtime stats(?: \([^\n]*\))?:/m;
 
-/** What flow lines are, said once in each receipt that carries one, never in
- * the system prompt: a prompt paragraph shifts decisions made before any flow
- * line exists, and most receipts carry none. */
-export const FLOW_NOTE =
-  "note: a `- flow:` line reports something a step above measured that its code may not expect: values written differently from what it looks for, a test or join that matched nothing, rows repeated with the same numbers, or a group key that covers different entities. Check it against the question.";
-
-/** Render the receipt of a `dataflow` call from the executed action list. */
+/** Render the receipt of a `dataflow` call from the executed action list. What
+ * runtime stats are is said once, in the system prompt (RUNTIME_STATS in prompts.ts). */
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {
-  const receipt = renderTurnSections(result, turn);
-  return FLOW_LINE.test(receipt) ? `${receipt}\n\n${FLOW_NOTE}` : receipt;
+  return renderTurnSections(result, turn);
 }
 
 function renderTurnSections(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {

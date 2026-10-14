@@ -56,7 +56,8 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-FLOW_LINE = re.compile(r"^\s*-\s*flow(?: \([^\n]*\))?:", re.MULTILINE)
+# Flow evidence lines: `- runtime stats:` since 2026-10-14, `- flow:` on earlier agents.
+FLOW_LINE = re.compile(r"^\s*-\s*(?:flow|runtime stats)(?: \([^\n]*\))?:", re.MULTILINE)
 DATA_LINE = re.compile(r"^\s*(?:-\s*)?statistics:", re.MULTILINE)
 DATA_TABLE = re.compile(r"^\s*statistics: (?:full table|partial profile), [\d,]+ of ", re.MULTILINE)
 RECEIPT_HEADING = re.compile(r"^## (edits (?:applied|rejected)|execute\b[^\n]*|show (?:result|schema|operator|function|builtin)\b[^\n]*|(?:call|turn) rejected)\s*$", re.MULTILINE)
@@ -68,9 +69,10 @@ DATA_PROMPT = re.compile(r"Column statistics (?:are collected|in `sample_stats`)
 # flow on or off, and these earlier wordings and the flow example must not appear.
 FLOW_PROMPT = re.compile(r"Flow (?:statistics (?:describe measured|report measured)|lines report what upstream steps did)"
                          r"|Use upstream measurements to repair a condition")
-# Its replacement: one note in each tool result that carries a flow line. The
-# second wording is the trimmed flow (2026-10-14); stable agents still send the first.
+# Earlier agents explained flow lines with a note in each tool result that carried one;
+# since 2026-10-14 the system prompt explains runtime stats instead (flow on only).
 FLOW_NOTE = re.compile(r"^note: (?:`- flow:` lines show|a `- flow:` line reports)", re.MULTILINE)
+RUNTIME_PROMPT = re.compile(r"Runtime stats are very helpful for validating your result")
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
 
@@ -140,7 +142,7 @@ def audit_attempt(path, settings):
             issue("dataflow_prompt_missing", location)
         if bool(DATA_PROMPT.search(system)) != data_enabled:
             issue("data_prompt_mismatch", location)
-        if FLOW_PROMPT.search(system):
+        if FLOW_PROMPT.search(system) or bool(RUNTIME_PROMPT.search(system)) != flow_enabled:
             issue("flow_prompt_mismatch", location)
         example_views = STATEMENT_VIEW.findall(system)
         # Example calls carry their statements inside JSON strings.
@@ -163,8 +165,6 @@ def audit_attempt(path, settings):
             counts["characters"] += len(text)
             counts["max_characters"] = max(counts["max_characters"], len(text))
             counts["with_flow"] += bool(FLOW_LINE.search(text))
-            if flow_enabled and FLOW_LINE.search(text) and not FLOW_NOTE.search(text):
-                issue("flow_note_missing", f"{location}:{role}:{message.get('tool_call_id', '?')}")
             counts["with_statistics_caption"] += bool(DATA_LINE.search(text))
             counts["with_table_statistics"] += bool(DATA_TABLE.search(text))
             for heading in RECEIPT_HEADING.findall(text):

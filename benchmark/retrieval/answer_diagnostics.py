@@ -71,7 +71,7 @@ def visible_numbers(text):
     values = set()
     header_seen = False
     for line in text.splitlines():
-        if line.startswith(("statistics:", "- flow", "- note:")):
+        if line.startswith(("statistics:", "- flow", "- runtime stats", "- note:")):
             break
         if line.startswith("|") and line.endswith("|"):
             cells = line[1:-1].split("|")
