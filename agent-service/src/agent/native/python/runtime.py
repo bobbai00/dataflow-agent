@@ -2571,6 +2571,15 @@ def _overlapping_sources(records, origin):
     listed = (sources >= 2) & (sources < everywhere if everywhere else True)
     shared = sources.index[listed.to_numpy() & once.reindex(sources.index).to_numpy()]
     hit = np.isin(keys, shared) & filled
+    if hit.any():
+        # A record names something ("Columbus, GA-AL Metropolitan Statistical Area"); a row of a date and
+        # readings can recur in two files by coincidence.
+        def names_something(row):
+            for cell in row:
+                if len(re.findall(r"[A-Za-z]", cell)) >= 3 and pd.isna(pd.to_datetime(cell, errors="coerce", format="mixed")):
+                    return True
+            return False
+        hit &= np.isin(keys, [k for k in np.unique(keys[hit]) if names_something(cells[int(np.argmax(keys == k))])])
     if not hit.any():
         return None
     at = int(np.argmax(hit))
@@ -2676,7 +2685,8 @@ def _read_file_copies(paths):
         if rows is None:
             return None
         budget -= len(rows)
-        parts.append(rows)
+        # Raw lines include titles and header rows; a record carries at least one number (a count, an amount).
+        parts.append([row for row in rows if any(_text_number(cell) is not None for cell in row if cell)])
         names.append(Path(path).name)
     width = max((len(row) for rows in parts for row in rows), default=0)
     if width < 2:
@@ -2744,8 +2754,11 @@ def _dedupe_differences(frame, columns, keep):
     keyed = frame[~empty]
     differ, examples = 0, []
     if others and len(keyed):
-        varying = keyed.groupby(columns, dropna=False, sort=False)[others].nunique(dropna=False)
-        varying = varying[(varying > 1).any(axis=1)]
+        varying = keyed.groupby(columns, dropna=False, sort=False)[others].nunique(dropna=False) > 1
+        # One differing text column is where a copy came from (its file or state); a second
+        # differing column, or a differing number, makes the rows different records.
+        numeric = [c for c in others if _dtype(keyed[c]) in ("int64", "float64")]
+        varying = varying[(varying.sum(axis=1) > 1) | varying[numeric].any(axis=1)] if numeric else varying[varying.sum(axis=1) > 1]
         if len(varying):
             hit = keyed.set_index(columns).index.isin(varying.index)
             differ = int((removed[~empty].to_numpy() & hit).sum())
