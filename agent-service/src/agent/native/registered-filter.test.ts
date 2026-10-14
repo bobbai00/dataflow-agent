@@ -70,20 +70,10 @@ test("registered predicate keeps stable rows and measures rejected values, inclu
     rejectedRows: 3,
     nullPredicates: 1,
     predicateColumns: ["x"],
-    filterRejectedValues: {
-      rejectedRows: 3,
-      columnsObserved: 1,
-      columns: {
-        x: {
-          otherCount: 0,
-          examples: [
-            { values: [{ type: "float64", value: 1 }], count: 2, truncated: false },
-            { values: [null], count: 1, truncated: false },
-          ],
-        },
-      },
-    },
   });
+  // Numbers below a threshold are what the condition was written to reject: no near miss, no line.
+  expect(result.native.operations.filterNearMisses).toBeUndefined();
+  expect(result.native.operations.filterNoMatch).toBeUndefined();
   expect(result.native.rowEffect).toBe("drop");
   expect(registeredCatalogText(["filter"], "full")).toContain('predicate="name"');
 });
@@ -169,17 +159,30 @@ test("registered filter diagnostics identify user definitions and reject invalid
   }
 });
 
-test("rejection frequencies are bounded first-seen identities and disappear when collection is off", async () => {
+test("values written like the literal are near misses, clipped like witnesses, and absent when collection is off", async () => {
   const code = "def keep(row):\n    return row['x'] == 'keep'";
   const state = await fixture(code);
-  const result = execute(state, "pd.DataFrame({'x':['a'*400, 'a'*96+'b'*304, 'c', 'd', 'c', 'keep']})");
-  const values = result.native.operations.filterRejectedValues.columns.x;
-  expect(values.examples).toHaveLength(3);
-  expect(values.examples.map((x: any) => x.count)).toEqual([1, 1, 2]);
-  expect(values.examples.slice(0, 2).map((x: any) => x.truncated)).toEqual([true, true]);
-  expect(values.otherCount).toBe(1);
-  const off = execute(await fixture(code, "", false), "pd.DataFrame({'x':['no','keep']})");
-  expect(off.native.operations.filterRejectedValues).toBeUndefined();
+  const long = "'Keep' + 'p'*200";
+  const result = execute(state, `pd.DataFrame({'x':['Keep', ' keep ', 'Keep', 'c', 'd', 'keep', ${long}]})`);
+  expect(result.native.operations.filterNearMisses).toEqual([
+    {
+      column: "x",
+      rows: 3,
+      values: [
+        { value: "Keep", rows: 2, counterpart: "keep", how: "literal" },
+        { value: " keep ", rows: 1, counterpart: "keep", how: "literal" },
+      ],
+    },
+  ]);
+  const clipped = execute(
+    await fixture("def keep(row):\n    return row['x'] == 'k'*120"),
+    "pd.DataFrame({'x':['K'*120, 'k'*120]})"
+  ).native.operations.filterNearMisses[0].values[0];
+  // A computed literal ('k'*120) is not in the source; the kept value is the reference.
+  expect(clipped).toMatchObject({ rows: 1, how: "kept", valueClipped: true, counterpartClipped: true });
+  expect(clipped.value).toHaveLength(96);
+  const off = execute(await fixture(code, "", false), "pd.DataFrame({'x':['Keep','keep']})");
+  expect(off.native.operations.filterNearMisses).toBeUndefined();
   expect(off.native.operations.rejectedRows).toBe(1);
 });
 
@@ -196,53 +199,54 @@ test("empty input retains schema without invoking a predicate or inventing reads
   });
 });
 
-test("conditional predicate reads still profile each observed column across all rejected rows", async () => {
+test("a rejected row is blamed on the part of the condition that failed", async () => {
+  // Row 0 fails `a > 0` and never reads b; only row 3 fails `b == 'keep'` with a value written like it.
   const state = await fixture("def keep(row):\n    return row['a'] > 0 and row['b'] == 'keep'");
-  const result = execute(state, "pd.DataFrame({'a':[0,1,0], 'b':['null','B',None]})");
-  expect(result.native.operations.filterRejectedValues.columns.b).toEqual({
-    examples: [
-      { values: [{ type: "str", value: "null" }], count: 1, truncated: false },
-      { values: [{ type: "str", value: "B" }], count: 1, truncated: false },
-      { values: [null], count: 1, truncated: false },
-    ],
-    otherCount: 0,
-    // Every row was rejected: nothing kept to be near, so first-seen order.
-    order: "first",
-  });
+  const result = execute(state, "pd.DataFrame({'a':[0,1,1,1], 'b':['Keep','B','keep','KEEP']})");
+  expect(result.native.operations.filterNearMisses).toEqual([
+    { column: "b", rows: 1, values: [{ value: "KEEP", rows: 1, counterpart: "keep", how: "literal" }] },
+  ]);
   expect(result.native.operations.timing.operatorBodyMs).toBeGreaterThanOrEqual(0);
-  expect(result.native.operations.timing.filterRejectedValuesMs).toBeGreaterThanOrEqual(0);
+  expect(result.native.operations.timing.filterFlowMs).toBeGreaterThanOrEqual(0);
 });
 
-test("rejected numbers nearest the kept range come first, with exact counts", async () => {
-  // A strict comparison that should have been inclusive rejects the boundary value.
+test("a numeric comparison reports no near miss: its boundary values are what it rejects", async () => {
   const state = await fixture("def keep(row):\n    return row['x'] > 10");
   const result = execute(state, "pd.DataFrame({'x':[-5, 3, 10, 20, 10, 20]})");
-  const values = result.native.operations.filterRejectedValues.columns.x;
-  expect(values.order).toBe("nearest");
-  expect(values.examples.map((item: any) => [Number(item.values[0].value), item.count])).toEqual([
-    [10, 2],
-    [3, 1],
-    [-5, 1],
-  ]);
-  expect(values.otherCount).toBe(0);
+  expect(result.native.operations.filterNearMisses).toBeUndefined();
+  expect(result.native.operations.filterNoMatch).toBeUndefined();
 });
 
-test("rejected text sharing tokens with the kept values comes before unrelated values", async () => {
-  // A padded code and a two-state code look like the kept codes; other states do not.
-  // The padded code is as long as a kept code, so it comes first.
+test("a code written with a stray space is a near miss; other codes are what `in` excludes", async () => {
   const state = await fixture("def keep(row):\n    return row['state'] in ('CT', 'MA')");
   const result = execute(state, "pd.DataFrame({'state':['AL','AK','CT','MA','AZ','MA-NH','CT ']})");
-  const values = result.native.operations.filterRejectedValues.columns.state;
-  expect(values.order).toBe("nearest");
-  expect(values.examples.map((item: any) => item.values[0].value)).toEqual(["CT ", "MA-NH", "AL"]);
-  expect(values.otherCount).toBe(2);
+  expect(result.native.operations.filterNearMisses).toEqual([
+    { column: "state", rows: 1, values: [{ value: "CT ", rows: 1, counterpart: "CT", how: "literal" }] },
+  ]);
 });
 
-test("filter witnesses cap columns and predicates cannot mutate the input row", async () => {
+test("nothing passed a test for literals: the values the condition saw are reported", async () => {
+  // wildfire-easy-15: months are not zero-padded, so no date splits to '07'.
+  const state = await fixture(
+    "def keep(row):\n    return row['d'] is not None and str(row['d']).split('/')[0] == '07'"
+  );
+  const result = execute(state, "pd.DataFrame({'d':['9/22/2002','8/25/2002','8/25/2002',None]})");
+  expect(result.native.operations.filterNoMatch).toEqual({
+    column: "d",
+    literals: ["07"],
+    seen: [
+      { values: [{ type: "str", value: "9/22/2002" }], count: 1, truncated: false },
+      { values: [{ type: "str", value: "8/25/2002" }], count: 2, truncated: false },
+      { values: [null], count: 1, truncated: false },
+    ],
+  });
+});
+
+test("a condition over many columns records every read and predicates cannot mutate the input row", async () => {
   const state = await fixture("def keep(row):\n    return sum(row['c'+str(i)] for i in range(12)) < 0");
   const result = execute(state, "pd.DataFrame({'c'+str(i):[i] for i in range(12)})");
-  expect(result.native.operations.filterRejectedValues.columnsObserved).toBe(12);
-  expect(Object.keys(result.native.operations.filterRejectedValues.columns)).toHaveLength(8);
+  expect(result.native.operations.predicateColumns).toHaveLength(12);
+  expect(result.native.operations.filterNearMisses).toBeUndefined();
   const mutation = await fixture("def keep(row):\n    row['x'] = 2\n    return True");
   expect(execute(mutation, "pd.DataFrame({'x':[1]})").error).toContain("TypeError");
 });
@@ -256,7 +260,6 @@ test.each([
   const result = execute(state, "pd.DataFrame({'x':[0,1]})");
   expect(result.rows).toEqual([{ x: 1 }]);
   expect(result.native.operations.predicateColumns).toEqual(["x"]);
-  expect(result.native.operations.filterRejectedValues.columns.x.examples[0].count).toBe(1);
 });
 
 async function inline(condition: string, python = "", profileCollection = true) {

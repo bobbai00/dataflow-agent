@@ -336,7 +336,7 @@ test("compact count groups do not conflate partial and full column coverage", ()
 test("combined keeps the data count beside the flow comparison: a flow line never suppresses a data line", () => {
   const f = fixture();
   const both = observe(f);
-  expect(both.text).toContain('predicate column "x": input (full=5 rows)');
+  expect(both.text).toContain("kept=3/5, rejected=2, null predicates=1");
   expect(both.selected).toContain("data.column.x.counts");
   expect(both.omitted).not.toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
   const data = observe(f, { flow: false });
@@ -344,11 +344,11 @@ test("combined keeps the data count beside the flow comparison: a flow line neve
   expect(data.text).toContain("x | int64 | 1 | 2 |");
   const flow = observe(f, { data: false });
   expect(flow.text).not.toContain("statistics:");
-  expect(flow.text).toContain('predicate column "x":');
+  expect(flow.text).toContain("null predicates=1");
   f.results.get("left")!.error = "upstream failed";
   const unavailable = observe(f);
   expect(unavailable.selected).toContain("data.column.x.counts");
-  expect(unavailable.text).not.toContain('predicate column "x":');
+  expect(unavailable.text).not.toContain("null predicates=1");
 });
 
 test("column counts are budgeted as table rows and preserve sampled records", () => {
@@ -501,7 +501,8 @@ test("filter uses exact kept/input denominator and counts None verdicts as drops
   expect(factText(f)).toContain("rejected=2");
   expect(factText(f)).toContain("null predicates=1");
   expect(factText(f)).toContain("a None verdict drops the row");
-  expect(factText(f)).toContain('predicate column "x": input (full=5 rows) null=1/5');
+  // Nulls in a predicate column are usually what the condition was written to drop: no line.
+  expect(factText(f)).not.toContain("predicate column");
 });
 
 test("explicit column scope excludes other profile values", () => {
@@ -591,7 +592,7 @@ test("inconsistent operational counts are omitted, not converted into precise cl
   expect(collectNativeEvidence(f).omissions).toContain("invalid_filter_counters");
 });
 
-test("an aggregate reports a reducer's nulls, not one group's size", () => {
+test("an aggregate's group sizes and non-null counts restate its result: no flow line", () => {
   const f = fixture("Aggregate", { groupBy: [], aggregations: [{ fn: "mean", col: "x", as: "mean" }] });
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 1;
   const operations = {
@@ -600,13 +601,8 @@ test("an aggregate reports a reducer's nulls, not one group's size", () => {
     aggregateNonNull: { mean: { total: 4, min: 4, max: 4 } },
   };
   Object.assign(f.info.tableProfile!.native!, { outputRows: 1, operations });
-  // One group's size is the input row count.
-  expect(factText(f)).not.toContain("groups=1");
-  expect(factText(f)).toContain('"mean" nonnull=4/5');
-  // A denominator without nulls restates the group sizes.
-  operations.aggregateNonNull.mean = { total: 5, min: 5, max: 5 };
-  expect(factText(f)).not.toContain('"mean" nonnull');
-  expect(collectNativeEvidence(f).omissions).not.toContain("aggregate_denominator_unavailable");
+  expect(collectNativeEvidence(f).facts.filter(x => x.family === "flow")).toEqual([]);
+  expect(collectNativeEvidence(f).omissions).not.toContain("invalid_aggregate_counters");
 });
 
 function joinFixture() {
@@ -650,33 +646,83 @@ function joinFixture() {
   return f;
 }
 
-test("equijoin distinguishes matched output contribution from row and key coverage", () => {
+test("a join reports keys written two ways, not the coverage it was written to have", () => {
   const f = joinFixture();
-  const text = factText(f);
-  expect(text).toContain("matched contribution=6");
-  expect(text).toContain("left matched rows=3/5");
-  expect(text).toContain("matched keys=1/2");
-  expect(text).toContain("right matched rows=2/4");
-  expect(text).not.toContain("8 entities");
+  // Matched and unmatched counts and duplicate keys are what a left join does.
+  expect(factText(f)).not.toContain("matched");
+  const join = f.info.tableProfile!.native!.operations!.join as Record<string, any>;
+  join.nearMisses = {
+    keys: 1,
+    rows: 1,
+    pairs: [
+      {
+        left: { values: [{ type: "str", value: "Las Vegas, Nv" }], count: 1, truncated: false },
+        right: { values: [{ type: "str", value: "Las Vegas, NV" }], count: 1, truncated: false },
+      },
+    ],
+  };
+  expect(factText(f)).toContain(
+    '1 left key (1 row) matches a right key only when case, spacing, punctuation and leading zeros are ignored: "Las Vegas, Nv" ~ "Las Vegas, NV".'
+  );
   f.info.tableProfile!.native!.operations!.join = { type: "left", matchedOutputRows: 100 };
   expect(collectNativeEvidence(f).facts.some(x => x.id.startsWith("flow.join."))).toBe(false);
 });
 
-test("join witnesses are bounded optional evidence and cannot override counters or versions", () => {
+test("join near misses are validated against the counters and versions", () => {
   const f = joinFixture();
-  const left = (f.info.tableProfile!.native!.operations!.join as Record<string, any>).left;
-  left.unmatchedExamples = [{ values: [{ type: "int64", value: "9007199254740993" }], count: 1, truncated: false }];
-  left.duplicateExamples = [{ values: [{ type: "int64", value: "7" }], count: 3, truncated: false }];
-  expect(factText(f)).toContain("[9007199254740993] × 1");
-  expect(factText(f)).toContain("[7] × 3");
-  expect(observe(f, { flow: false }).text).not.toContain("key examples");
-  expect(observe(f, { data: false, flowMaxChars: 400 }).text).toContain("matched contribution=6");
-  left.unmatchedExamples[0].count = 100;
-  left.duplicateExamples[0].values[0].value = "9223372036854775808";
-  expect(factText(f)).not.toContain("key examples");
-  expect(factText(f)).toContain("matched contribution=6");
+  const join = f.info.tableProfile!.native!.operations!.join as Record<string, any>;
+  const pair = {
+    left: { values: [{ type: "int64", value: "9007199254740993" }], count: 1, truncated: false },
+    right: { values: [{ type: "str", value: "9007199254740993" }], count: 1, truncated: false },
+  };
+  join.nearMisses = { keys: 1, rows: 1, pairs: [pair] };
+  expect(factText(f)).toContain('9007199254740993 ~ "9007199254740993"');
+  expect(observe(f, { flow: false }).text).not.toContain(" ~ ");
+  // More near-miss keys than unmatched keys, or a witness counting more rows than the side has, say nothing.
+  join.nearMisses.keys = 2;
+  expect(factText(f)).not.toContain(" ~ ");
+  join.nearMisses.keys = 1;
+  pair.left.count = 100;
+  expect(factText(f)).not.toContain(" ~ ");
+  pair.left.count = 1;
   f.info.resultVersion!.inputs[0].resultVersion = "stale";
-  expect(factText(f)).not.toContain("matched contribution=6");
+  expect(factText(f)).not.toContain(" ~ ");
+});
+
+test("a join that matched no key shows one key from each side", () => {
+  const f = fixture("Join", { type: "left", on: [["x", "x"]], nullsEqual: false });
+  f.results.get("right")!.totalRowCount = 4;
+  const side = (rows: number) => ({
+    rows,
+    eligibleRows: rows,
+    nullKeyRows: 0,
+    distinctKeys: rows,
+    matchedRows: 0,
+    unmatchedRows: rows,
+    matchedKeys: 0,
+    unmatchedKeys: rows,
+    maxMultiplicity: 1,
+  });
+  Object.assign(f.info.tableProfile!.native!, {
+    inputRows: [5, 4],
+    outputRows: 5,
+    operations: {
+      join: {
+        type: "left",
+        nullsEqual: false,
+        validate: "many_to_many",
+        matchedOutputRows: 0,
+        left: side(5),
+        right: side(4),
+        noMatch: {
+          left: { values: [{ type: "str", value: "45421" }], count: 1, truncated: false },
+          right: { values: [{ type: "str", value: "18053677" }], count: 1, truncated: false },
+        },
+      },
+    },
+  });
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
+  expect(factText(f)).toContain('the join matched no keys; left keys look like "45421", right keys like "18053677".');
 });
 
 test("operator contracts are not flow lines, and a UDF's mapping is never claimed", () => {
@@ -702,8 +748,8 @@ test("a registered function adds no flow line: its row mapping is not measured",
   expect(text).not.toContain("Process");
 });
 
-test("a Python step reports values of an input column that its output column lost", () => {
-  // legal-hard-23: a rank filter inside a Python function dropped the unranked District of Columbia.
+test("values a Python step dropped are not flow lines: its own code chose them", () => {
+  // In 241 such lines over three models none led to a fix (2026-10-14 trace study).
   const f = fixture("Process");
   f.op.nativeOp!.registeredName = "normalize_rankings";
   f.info.tableProfile!.native!.operations = {
@@ -718,37 +764,7 @@ test("a Python step reports values of an input column that its output column los
       },
     ],
   };
-  expect(observe(f, { data: false }).text).toContain(
-    '- flow: values of input column "Unnamed: 1" missing from output column "state": "State", "District of Columbia", "Puerto Rico" (3 of 53).'
-  );
-  // A bounded example list says how many values it left out.
-  (f.info.tableProfile!.native!.operations!.droppedValues as any)[0].missingCount = 9;
-  expect(factText(f)).toContain('"Puerto Rico", … (9 of 53).');
-});
-
-test("dropped values most like the kept ones come first, and the line says so", () => {
-  // legal-hard-14: a single-state pattern kept ", CT" and ", MA" areas and dropped the two-state ones.
-  const f = fixture("Process");
-  f.op.nativeOp!.registeredName = "new_england_msas";
-  const entry = {
-    input: 0,
-    inputColumn: "Metropolitan Areas",
-    outputColumn: "Metropolitan Area",
-    missing: [
-      "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
-      "Providence-Warwick, RI-MA Metropolitan Statistical Area",
-    ],
-    missingCount: 389,
-    inputDistinct: 404,
-    order: "nearest",
-  };
-  f.info.tableProfile!.native!.operations = { droppedValues: [entry] };
-  expect(factText(f)).toContain(
-    'missing from output column "Metropolitan Area", those most like the kept values first: "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area", "Providence-Warwick, RI-MA Metropolitan Statistical Area", … (389 of 404).'
-  );
-  // First-seen values (no value shares anything with the kept ones) are not ranked.
-  entry.order = "first";
-  expect(factText(f)).toContain('missing from output column "Metropolitan Area": "Boston');
+  expect(observe(f, { data: false }).text).not.toContain("District of Columbia");
 });
 
 test("a Python step reports repeats in an identifying output column and whether it created them", () => {
@@ -774,21 +790,53 @@ test("a Python step reports repeats in an identifying output column and whether 
   };
   f.info.tableProfile!.native!.operations = { repeatedValues: [entry] };
   expect(factText(f)).toContain(
-    'output column "area" repeats 43 values (452 rows, 401 distinct): "Philadelphia-Camden-Wilmington, PA-NJ-DE-MD Metropolitan Statistical Area" × 4; "Memphis, TN-MS-AR Metropolitan Statistical Area" × 3; column "Metropolitan Areas" repeats them too.'
+    '"area" repeats 43 values (452 rows, 401 distinct), e.g. "Philadelphia-Camden-Wilmington, PA-NJ-DE-MD Metropolitan Statistical Area" × 4; "Memphis, TN-MS-AR Metropolitan Statistical Area" × 3; a sum, count or mean over these rows counts each repeat.'
   );
+  // Carried repeats are the input's; a step that created them says so.
   entry.inputRepeated = 0;
-  expect(factText(f)).toContain('; each occurs once in column "Metropolitan Areas", so this step created the repeats.');
+  expect(factText(f)).toContain("; this step created them; a sum, count or mean over these rows counts each repeat.");
   entry.inputRepeated = 7;
-  expect(factText(f)).toContain('; 7 of them repeat in column "Metropolitan Areas" too.');
+  expect(factText(f)).not.toContain("created");
   // Repeats whose rows agree on the numbers are one entity counted twice; the line says so.
   Object.assign(entry, { sameMeasures: ["reports"] });
-  expect(factText(f)).toContain('repeats 43 values (452 rows, 401 distinct), each with the same "reports": "Philadelphia');
+  expect(factText(f)).toContain('"area" repeats 43 values with the same "reports" (452 rows, 401 distinct)');
   // Counters that cannot hold say nothing: 43 repeated values need at least 43 extra rows.
   entry.rows = 420;
   expect(factText(f)).not.toContain("repeats");
 });
 
-test("an aggregate's own result does not restate its group counts; downstream results keep them", () => {
+test("an aggregate reports input rows it counts more than once", () => {
+  const f = fixture("Aggregate", { groupBy: [], aggregations: [{ fn: "sum", col: "reports", as: "total" }] });
+  f.results.get("left")!.totalRowCount = 94;
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 1;
+  const operations: Record<string, any> = {
+    groupCount: 1,
+    groupSizes: { min: 94, max: 94, total: 94 },
+    repeatedInput: [
+      {
+        outputColumn: "area",
+        rows: 94,
+        distinct: 51,
+        repeatedValues: 43,
+        sameMeasures: ["reports"],
+        examples: [{ values: [{ type: "str", value: "Columbus, GA-AL" }], count: 2, truncated: false }],
+      },
+    ],
+  };
+  Object.assign(f.info.tableProfile!.native!, { inputRows: [94], outputRows: 1, operations });
+  expect(factText(f)).toContain(
+    '"area" repeats 43 values with the same "reports" (94 rows, 51 distinct), e.g. "Columbus, GA-AL" × 2; this aggregate\'s sum, count and mean count each repeat.'
+  );
+  // With the scan's file column, the same record listed by each state's file is named as such.
+  operations.repeatedRecords = { rows: 94, of: 94, records: 43, sources: 38, example: "Columbus, GA-AL, 1302", ignoring: ["file"] };
+  expect(factText(f)).toContain(
+    '94 of 94 input rows are 43 records each listed once by 38 different sources apart from "file", e.g. "Columbus, GA-AL, 1302"; the aggregate counts every copy.'
+  );
+  operations.repeatedRecords.rows = 95;
+  expect(factText(f)).not.toContain("records each listed");
+});
+
+test("group counts are not flow lines, beside the aggregate or downstream", () => {
   const f = fixture("Aggregate", { groupBy: ["g"], aggregations: [{ fn: "count", as: "n" }] });
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 2;
   Object.assign(f.info.tableProfile!.native!, {
@@ -799,11 +847,8 @@ test("an aggregate's own result does not restate its group counts; downstream re
       aggregateNonNull: { n: { total: 5, min: 2, max: 3 } },
     },
   });
-  // Measured, for the upstream summary of a downstream count…
-  expect(factText(f)).toContain("Aggregate groups=2 from 5 rows");
-  // …but beside the aggregate's own two rows it restates them.
+  expect(factText(f)).not.toContain("groups=2");
   expect(observe(f, { data: false }).text).not.toContain("groups=2");
-  expect(observe(f, { data: false, upstream: false }).text).not.toContain("groups=2");
 });
 
 test("an author's description is never presented as an engine guarantee", () => {
@@ -1085,6 +1130,7 @@ function calculationFixture() {
       groupCount: 5,
       groupSizes: { min: 2, max: 2, total: 10 },
       aggregateNonNull: { events: { total: 10, min: 2, max: 2 } },
+      keyDependencies: [{ column: "owner", groups: 5, split: 1, example: { key: ["a1", "west"], values: ["Ann", "Bo"] } }],
     },
   };
   f.info.totalRowCount = f.info.tableProfile!.rowCount = 1;
@@ -1102,13 +1148,15 @@ function calculationFixture() {
   return f;
 }
 
+/** The grouped aggregate's measured fact, as its downstream summaries carry it. */
+const SPLIT = 'pools rows with different "owner" values in 1 of 5 groups';
+
 test("observed final count includes bound upstream group grain, not hidden tables", () => {
   const f = calculationFixture();
   const selection = observe(f, { data: false });
   expect(selection.text).toContain('group keys=["account","region"]');
-  expect(selection.text).toContain("groups=5 from 10 rows");
-  // A count without nulls restates the group sizes.
-  expect(selection.text).not.toContain("row denominator");
+  expect(selection.text).toContain(SPLIT);
+  expect(selection.text).not.toContain("groups=5 from 10 rows");
   expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
   expect(selection.text).not.toContain("statistics:");
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(true);
@@ -1174,13 +1222,12 @@ test.each([false, true])(
     }
     const selected = observe(f, { data: false, flowMaxChars: 1000 });
     expect(selected.text).toContain("- flow (raw):");
-    expect(selected.text).toContain('"x" conversion failures=6/10');
-    expect(selected.text).toContain('"1,299" × 4');
+    expect(selected.text).toContain('"x" could not be converted in 6 of 10 rows, e.g. "1,299" × 4; those cells are now null.');
     if (custom) expect(selected.text).toContain("row/column correspondence to this output unknown");
     expect(selected.chunks.filter(c => c.upstream).length).toBeLessThanOrEqual(3);
     expect(selected.text).not.toContain("UNOBSERVED_ROW_CANARY");
     rawInfo.resultVersion!.inputs[0].resultVersion = "stale";
-    expect(observe(f).text).not.toContain("conversion failures");
+    expect(observe(f).text).not.toContain("could not be converted");
     expect(observe(f).text).not.toContain("1,299");
   }
 );
@@ -1200,8 +1247,8 @@ test("invalid cast witnesses cannot remove valid conversion counts", () => {
       },
     },
   });
-  expect(factText(f)).toContain('"x" conversion failures=2/5');
-  expect(factText(f)).not.toContain("failed-value examples");
+  expect(factText(f)).toContain('"x" could not be converted in 2 of 5 rows; those cells are now null.');
+  expect(factText(f)).not.toContain("e.g.");
 });
 
 test("upstream summaries stop at stale edges and preserve opaque UDF semantics", () => {
@@ -1217,7 +1264,7 @@ test("upstream summaries stop at stale edges and preserve opaque UDF semantics",
   expect(text).not.toContain("mapping unknown");
   expect(text).not.toContain("summary stops here");
   expect(text).not.toContain("Process");
-  expect(text).not.toContain("groups=5 from 10 rows");
+  expect(text).not.toContain(SPLIT);
   expect(text).not.toContain("UNOBSERVED_ROW_CANARY");
 });
 
@@ -1226,7 +1273,7 @@ test("an observed UDF includes measured input ancestors without inferring row co
   f.op.nativeOp!.type = "Process";
   const selection = observe(f);
   expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
-  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain(SPLIT);
   expect(selection.text).toContain("row/column correspondence to this output unknown");
   expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
   expect(selection.selected.some(id => id.startsWith("flow.filter"))).toBe(false);
@@ -1270,14 +1317,14 @@ test("downstream retrieval crosses a custom operator using version-bound graph d
   const f = opaqueAncestorFixture();
   const selection = observe(f, { data: false });
   expect(selection.text).not.toContain("mapping unknown");
-  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain(SPLIT);
   expect(selection.text).toContain("row/column correspondence to this output unknown");
   expect(selection.selected.some(id => id.startsWith("flow.upstream.left."))).toBe(true);
   expect(selection.selected.some(id => id.startsWith("flow.filter"))).toBe(false);
   expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
   expect(selection.chunks.filter(chunk => chunk.upstream).length).toBeLessThanOrEqual(3);
-  expect(observe(f, { flow: false }).text).not.toContain("groups=5 from 10 rows");
-  expect(observe(f, { upstream: false }).text).not.toContain("groups=5 from 10 rows");
+  expect(observe(f, { flow: false }).text).not.toContain(SPLIT);
+  expect(observe(f, { upstream: false }).text).not.toContain(SPLIT);
 });
 
 test.each(["input version", "input revision", "failed custom", "incomplete custom"])(
@@ -1289,7 +1336,7 @@ test.each(["input version", "input revision", "failed custom", "incomplete custo
     if (corruption === "input revision") f.results.get("left")!.resultVersion!.operatorRevision = "old";
     if (corruption === "failed custom") custom.error = "custom operator failed";
     if (corruption === "incomplete custom") custom.resultVersion!.complete = false;
-    expect(observe(f).text).not.toContain("groups=5 from 10 rows");
+    expect(observe(f).text).not.toContain(SPLIT);
   }
 );
 
@@ -1389,10 +1436,17 @@ test("aggregate semantics: what a distinct count counts and a key that pools ent
     },
   });
   const text = factText(f);
-  expect(text).toContain(
-    '"areas" = count_distinct("GlobalID"): "GlobalID" is unique on every one of the 12 input rows, so it counts rows; input columns with fewer values: "GACCName" (2)'
-  );
-  expect(text).toContain('group key ["state"] determines "Community" in most groups but not in 1 of 3');
+  // A distinct count over a column unique on every row counts rows: the agent's own choice, not a measurement.
+  expect(text).not.toContain("count_distinct");
+  expect(text).toContain('grouping by "state" pools rows with different "Community" values in 1 of 3 groups, e.g. "CA": "a", "b".');
+  // One line per aggregate: the runtime puts the strongest split first.
+  (f.info.tableProfile!.native!.operations!.keyDependencies as unknown[]).push({
+    column: "County",
+    groups: 3,
+    split: 1,
+    example: { key: ["CA"], values: ["c", "d"] },
+  });
+  expect(factText(f)).not.toContain('"County"');
   // Unread input columns are not flow lines: models never acted on them
   // (0 of 167 Claude receipts, 2026-10-11); `values` statistics show a flag.
   expect(text).not.toContain("was read by no operator");
@@ -1419,24 +1473,49 @@ test("scan coverage and per-file header findings are scan notes, not flow lines"
   ]);
 });
 
-test("filter rejected-value frequencies are optional, validated and scoped to rejected rows", () => {
+test("filter near misses and no-match lines are validated against the filter's counters", () => {
   const f = fixture();
   const operations = f.info.tableProfile!.native!.operations!;
-  const rejected = {
-    rejectedRows: 2,
-    columnsObserved: 1,
-    columns: {
-      x: { examples: [{ values: [{ type: "str", value: "missing" }], count: 1, truncated: false }], otherCount: 1 },
-    },
+  const near: Record<string, any> = {
+    column: "x",
+    rows: 1,
+    values: [{ value: "YES", rows: 1, counterpart: "yes", how: "literal" }],
   };
-  operations.filterRejectedValues = rejected;
-  let text = factText(f);
-  expect(text).toContain("rejected rows, including null-predicate drops");
-  expect(text).toContain('"missing"');
-  expect(text).toContain("other=1");
-  expect(text).toContain("not causes");
-  rejected.columns.x.otherCount = 2;
-  text = factText(f);
-  expect(text).not.toContain('"missing"');
-  expect(text).toContain("Filter kept=3/5");
+  operations.filterNearMisses = [near];
+  expect(factText(f)).toContain(
+    '"x" values the condition rejected equal its literal "yes" except for case, spacing or punctuation: "YES" × 1.'
+  );
+  near.values[0].how = "kept";
+  expect(factText(f)).toContain('equal the kept value "yes" except for');
+  near.values[0] = { value: "the United Kingdom", rows: 1, counterpart: "United Kingdom", how: "contains" };
+  expect(factText(f)).toContain('"x" values the condition rejected contain its literal "United Kingdom": "the United Kingdom" × 1.');
+  // More near-miss rows than rejected rows, or an unknown kind, say nothing.
+  near.values[0].rows = 3;
+  expect(factText(f)).not.toContain("United Kingdom");
+  near.values[0] = { value: "YES", rows: 1, counterpart: "yes", how: "guess" };
+  expect(factText(f)).not.toContain("YES");
+  // A filter that kept nothing names its literals and the values it saw.
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 0;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 0,
+    operations: {
+      keptRows: 0,
+      rejectedRows: 5,
+      nullPredicates: 0,
+      predicateColumns: ["x"],
+      filterNoMatch: {
+        column: "x",
+        literals: ["07"],
+        seen: [{ values: [{ type: "str", value: "8/25/2002" }], count: 4, truncated: false }],
+      },
+    },
+  });
+  expect(factText(f)).toContain('no row passed the condition\'s test for "07"; "x" values seen: "8/25/2002" × 4.');
+  // Stable's rejected-value lists are no longer flow lines.
+  (f.info.tableProfile!.native!.operations as Record<string, unknown>).filterRejectedValues = {
+    rejectedRows: 5,
+    columnsObserved: 1,
+    columns: { x: { examples: [], otherCount: 5 } },
+  };
+  expect(factText(f)).not.toContain("not causes");
 });

@@ -162,3 +162,19 @@ def test_a_group_key_that_merges_entities_is_named():
     # One row per group proves nothing either way.
     single = frame.iloc[:10].assign(Community=[f"t{i}" for i in range(10)])
     assert "keyDependencies" not in operations(runtime.execute_native(aggregate, [single]))
+    # A missing group-key value in a nullable string column never breaks the split's example.
+    keys = names[:5] + [None] + names[6:] + names  # beach0 still spans two towns; one row has no name
+    nullable = frame.assign(**{"Beach Name": keys}).astype({"Beach Name": "string", "Community": "string"})
+    assert operations(runtime.execute_native(aggregate, [nullable]))["keyDependencies"][0]["column"] == "Community"
+
+
+def test_a_group_key_split_is_named_only_for_a_column_that_names_entities():
+    # environment-easy-6: Organism varies inside (Year, Violation) groups by nature; it names no entity.
+    frame = pd.DataFrame({
+        "Beach Name": [f"beach{i}" for i in range(30)] * 2,
+        "Community": [f"town{i}" for i in range(30)] + ["other town"] + [f"town{i}" for i in range(1, 30)],
+        "Organism": ["E. Coli"] * 30 + ["Enterococci"] + ["E. Coli"] * 29,
+        "samples": list(range(60)),
+    })
+    aggregate = spec("Aggregate", groupBy=["Beach Name"], aggregations=[{"fn": "sum", "col": "samples", "as": "n"}])
+    assert [d["column"] for d in operations(runtime.execute_native(aggregate, [frame]))["keyDependencies"]] == ["Community"]

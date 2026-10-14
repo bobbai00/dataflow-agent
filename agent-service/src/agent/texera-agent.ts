@@ -644,6 +644,7 @@ export class TexeraAgent {
         nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
+        flowEvidence: this.settings.flowEvidence === true,
       },
     };
 
@@ -702,6 +703,7 @@ export class TexeraAgent {
         nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
+        flowEvidence: this.settings.flowEvidence === true,
       },
     };
 

@@ -338,81 +338,108 @@ def test_process_naive_datetimes_read_as_utc_and_mixed_scalars_as_text():
         run("Process", pd.DataFrame({"t": pd.to_datetime(["2024-01-01"])}), code="def process(source):\n    return source")
 
 
-def test_python_step_reports_input_values_it_dropped():
-    states = ["Florida", "Georgia", "Nevada"]
-    identity = pd.DataFrame({
-        "State Rankings": [None, "Rank", "1", "2", "3", None, None, "note"],
-        "Unnamed: 1": [None, "State", *states, "District of Columbia", "Puerto Rico", None],
-        "Unnamed: 2": [None, "Reports", "528", "517", "466", "480", "51", None],
+def flow(kind, frames, **properties):
+    measured = runtime.execute_native({**spec(kind, **properties), "inputs": [f"in{i}" for i in range(len(frames))],
+                                       "profileCollection": True}, frames)
+    return measured.attrs["native_v2"]["operations"]
+
+
+def test_filter_names_values_written_differently_from_the_kept_one():
+    # environment-easy-6: `== 'yes'` keeps "yes" and rejects "YES" and "Yes", the same verdict written two other ways.
+    samples = pd.DataFrame({"Violation": ["yes"] * 5 + ["YES"] * 3 + ["Yes"] * 2 + ["no"] * 9 + ["NO"] * 4}).astype("string")
+    operations = flow("Filter", [samples], func="def apply(row):\n    return row['Violation'] == 'yes'")
+    assert operations["filterNearMisses"] == [{"column": "Violation", "rows": 5, "values": [
+        {"value": "YES", "rows": 3, "counterpart": "yes", "how": "literal"},
+        {"value": "Yes", "rows": 2, "counterpart": "yes", "how": "literal"}]}]
+    # "no" and "NO" are not like what the condition looks for: no line about them.
+    assert "filterNoMatch" not in operations
+    # Without a literal to compare with, the kept values are the reference.
+    computed = flow("Filter", [samples], func="def apply(row):\n    return row['Violation'] in {'y' + 'es'}")
+    assert [(v["value"], v["how"]) for v in computed["filterNearMisses"][0]["values"]] == [("YES", "kept"), ("Yes", "kept")]
+
+
+def test_filter_blames_a_rejected_row_on_the_condition_that_failed():
+    # In `a and b`, a row that fails `a` never reads b: its "Violation" value says nothing about `b`.
+    samples = pd.DataFrame({
+        "Type": ["Marine"] * 4 + ["Fresh"] * 6,
+        "Violation": ["yes", "yes", "no", "YES"] + ["Yes"] * 6,
     }).astype("string")
-    code = """def process(source):
-    import pandas as pd
-    out = source.iloc[:, :3].copy()
-    out.columns = ['rank', 'state', 'density']
-    out = out[pd.to_numeric(out['rank'], errors='coerce').notna()].copy()
-    out['density'] = pd.to_numeric(out['density'])
-    return out[['state', 'density']].reset_index(drop=True)
-"""
-    measured = runtime.execute_native({**spec("Process", code=code), "profileCollection": True}, [identity])
-    assert measured["state"].tolist() == states
-    # No dropped value shares a word with a kept state name: first-seen order.
-    assert measured.attrs["native_v2"]["operations"]["droppedValues"] == [{
-        "input": 0,
-        "inputColumn": "Unnamed: 1",
-        "outputColumn": "state",
-        "missing": ["State", "District of Columbia", "Puerto Rico"],
-        "missingCount": 3,
-        "inputDistinct": 6,
-        "order": "first",
-    }]
-    # Without profile collection nothing is measured; a step that keeps every value reports nothing.
-    plain = runtime.execute_native(spec("Process", code=code), [identity])
-    assert "droppedValues" not in plain.attrs["native_v2"]["operations"]
-    keep = runtime.execute_native(
-        {**spec("Process", code="def process(source):\n    return source.dropna()"), "profileCollection": True},
-        [pd.DataFrame({"state": ["a", "b", None]}).astype("string")],
-    )
-    assert "droppedValues" not in keep.attrs["native_v2"]["operations"]
+    operations = flow("Filter", [samples], func="def apply(row):\n    return row['Type'] == 'Marine' and row['Violation'] == 'yes'")
+    # Only the marine "YES" row was rejected by the Violation test; the six fresh "Yes" rows were rejected by Type.
+    assert operations["filterNearMisses"] == [{"column": "Violation", "rows": 1, "values": [
+        {"value": "YES", "rows": 1, "counterpart": "yes", "how": "literal"}]}]
 
 
-def test_python_step_lists_the_dropped_values_most_like_the_kept_ones_first():
-    # legal-hard-14: a single-state pattern keeps ", CT" and ", MA" areas and drops the two-state ones,
-    # which first-seen order buried behind every other state's areas.
-    others = [f"Town{i}, {state} Metropolitan Statistical Area" for i, state in enumerate(["AL", "AK", "AZ", "AR", "CA", "CO"] * 3)]
-    kept = ["Hartford, CT Metropolitan Statistical Area", "New Haven, CT Metropolitan Statistical Area",
-            "Worcester, MA Metropolitan Statistical Area", "Springfield, MA Metropolitan Statistical Area"]
-    near = ["Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area", "Providence-Warwick, RI-MA Metropolitan Statistical Area"]
-    areas = pd.DataFrame({"area": others + kept + near}).astype("string")
-    code = """def process(source):
-    return source[source['area'].str.contains(r', (?:CT|MA) Metropolitan Statistical Area$')].reset_index(drop=True)
-"""
-    measured = runtime.execute_native({**spec("Process", code=code), "profileCollection": True}, [areas])
-    dropped = measured.attrs["native_v2"]["operations"]["droppedValues"][0]
-    assert dropped["order"] == "nearest"
-    assert sorted(dropped["missing"][:2]) == sorted(near)
-    assert dropped["missingCount"] == len(others) + len(near)
+def test_filter_names_a_rejected_value_that_holds_a_literal_of_the_condition():
+    # PrepBench case 111: the data writes "the United Kingdom"; the condition looks for "United Kingdom".
+    pairs = pd.DataFrame({
+        "Breakdown": ["Europe"] * 6 + ["Asia"] * 2,
+        "Country": ["Germany", "France", "the United Kingdom", "the United Kingdom", "Spain", "Italy", "China", "India"],
+    }).astype("string")
+    condition = ("def apply(row):\n    return (row['Breakdown'], row['Country']) in "
+                 "[('Europe', 'Germany'), ('Europe', 'France'), ('Europe', 'United Kingdom'), ('Asia', 'China')]")
+    operations = flow("Filter", [pairs], func=condition)
+    assert operations["filterNearMisses"] == [{"column": "Country", "rows": 2, "values": [
+        {"value": "the United Kingdom", "rows": 2, "counterpart": "United Kingdom", "how": "contains"}]}]
 
 
-def test_near_order_ranks_numbers_by_distance_from_the_kept_range_and_keeps_unscored_values_last():
-    order, scored = runtime._near_order([-5, 3, None, 10, "x"], [20, 25])
-    assert scored is True
-    assert order == [3, 1, 0, 2, 4]
-    order, scored = runtime._near_order(["Puerto Rico", "State"], ["Florida", "Georgia"])
-    assert (order, scored) == ([0, 1], False)
-    # Years kept as text are numbers: the years beside the kept one come first.
-    assert runtime._near_order(["2010", "2014", "1999", "2016"], ["2015"]) == ([1, 3, 0, 2], True)
-    # Values inside the kept range were dropped for another reason: first-seen, unranked.
-    assert runtime._near_order([22, 21, 30], [20, 25]) == ([2, 0, 1], True)
-    assert runtime._near_order([22, 21], [20, 25]) == ([0, 1], False)
+def test_a_filter_that_found_none_of_its_literals_shows_the_values_it_saw():
+    # wildfire-easy-15: months are not zero-padded, so no date splits to '07'.
+    fires = pd.DataFrame({"start_date": ["9/22/2002", "10/21/2002", "8/25/2002", "7/4/2003", None]}).astype("string")
+    condition = "def apply(row):\n    return row['start_date'] is not None and str(row['start_date']).split('/')[0] == '07'"
+    operations = flow("Filter", [fires], func=condition)
+    no_match = operations["filterNoMatch"]
+    assert (no_match["column"], no_match["literals"]) == ("start_date", ["07"])
+    assert [(w["values"][0]["value"], w["count"]) for w in no_match["seen"]] == [("9/22/2002", 1), ("10/21/2002", 1), ("8/25/2002", 1)]
+    # A comparison that keeps nothing is often the answer itself ("no area exceeds it"): no literal, no line.
+    assert "filterNoMatch" not in flow("Filter", [pd.DataFrame({"diff": [-3, -1]})], func="def apply(row):\n    return row['diff'] > 0")
 
 
-def test_near_order_does_not_let_a_header_word_outrank_a_lookalike_value():
-    kept = [f"City{i}, {state} Metropolitan Statistical Area" for i, state in enumerate(["CT", "MA", "ME", "VT"] * 2)]
-    dropped = ["Metropolitan Areas are defined by the Office of Management and Budget and ranked by reports per 100,000",
-               "Town1, AL Micropolitan Statistical Area", "Boston, MA-NH Metropolitan Statistical Area"]
-    order, scored = runtime._near_order(dropped, kept)
-    assert scored is True
-    assert order[0] == 2
+def test_join_lists_keys_that_match_only_when_written_alike():
+    # PrepBench case 25: one gig is in "Las Vegas, Nv"; the coordinates table writes "Las Vegas, NV".
+    gigs = pd.DataFrame({"Location": ["Las Vegas, NV", "Las Vegas, NV", "Las Vegas, Nv", "Aberdeen,", "Leeds"]}).astype("string")
+    coords = pd.DataFrame({"Location": ["Las Vegas, NV", "Aberdeen", "Leeds"], "LongLat": ["36,-115", "57,-2", "53,-1"]}).astype("string")
+    join = flow("Join", [gigs, coords], on="Location", type="left")["join"]
+    assert join["nearMisses"]["keys"] == 2 and join["nearMisses"]["rows"] == 2
+    assert [(p["left"]["values"][0]["value"], p["right"]["values"][0]["value"]) for p in join["nearMisses"]["pairs"]] == [
+        ("Las Vegas, Nv", "Las Vegas, NV"), ("Aberdeen,", "Aberdeen")]
+    assert "noMatch" not in join and "unmatchedExamples" not in join["left"]
+
+
+def test_join_reports_leading_zeros_and_a_join_that_matched_nothing():
+    # wildfire-hard-17: NOAA writes station 41018 where RAWS writes NWS ID "041018".
+    fires = pd.DataFrame({"station": ["41018", "45421", "227701"]}).astype("string")
+    raws = pd.DataFrame({"NWS ID": ["041018", "045421", "227701"], "Station ID": ["17209642", "18770452", "17137190"]}).astype("string")
+    near = flow("Join", [fires, raws], on=[["station", "NWS ID"]], type="left")["join"]
+    assert near["nearMisses"]["keys"] == 2
+    nothing = flow("Join", [fires, raws], on=[["station", "Station ID"]], type="left")["join"]
+    assert nothing["noMatch"]["left"]["values"][0]["value"] == "41018" and "nearMisses" not in nothing
+
+
+def test_a_group_key_split_is_reported_only_for_a_column_that_names_entities():
+    # environment-easy-3 keeps "Community" (a beach name in two towns); an outcome column with two values is not reported.
+    names = [f"beach{i}" for i in range(30)]
+    frame = pd.DataFrame({
+        "Beach Name": names * 2,
+        "Community": [f"town{i}" for i in range(30)] + ["other town"] + [f"town{i}" for i in range(1, 30)],
+        "Organism": ["E. Coli"] * 30 + ["Enterococci"] + ["E. Coli"] * 29,
+        "samples": list(range(60)),
+    })
+    aggregate = {"groupBy": ["Beach Name"], "aggregations": [{"fn": "sum", "col": "samples", "as": "n"}]}
+    dependencies = flow("Aggregate", [frame], **aggregate)["keyDependencies"]
+    assert [d["column"] for d in dependencies] == ["Community"]
+
+
+def test_an_aggregate_reports_repeated_rows_it_would_count_twice():
+    # legal-hard-15: stacking every state's file lists each cross-state area once per state.
+    areas = pd.DataFrame({"area": [f"Area {i}" for i in range(20)] + ["Boston, MA-NH", "Providence, RI-MA"],
+                          "reports": list(range(22))}).astype({"area": "string"})
+    stacked = pd.concat([areas, areas.iloc[20:]], ignore_index=True)
+    total = flow("Aggregate", [stacked], groupBy=[], aggregations=[{"fn": "sum", "col": "reports", "as": "total"}])
+    assert total["repeatedInput"][0]["outputColumn"] == "area" and total["repeatedInput"][0]["repeatedValues"] == 2
+    # Max and first read each value once however often it repeats: nothing to report.
+    top = flow("Aggregate", [stacked], groupBy=[], aggregations=[{"fn": "max", "col": "reports", "as": "top"}])
+    assert "repeatedInput" not in top
 
 
 def test_python_step_reports_repeats_in_an_identifying_column_and_whether_it_created_them():

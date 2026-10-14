@@ -282,7 +282,7 @@ export const FLOW_LINE = /^\s*- flow(?: \([^\n]*\))?:/m;
  * the system prompt: a prompt paragraph shifts decisions made before any flow
  * line exists, and most receipts carry none. */
 export const FLOW_NOTE =
-  "note: `- flow:` lines show what the steps above dropped, rejected, left unmatched or repeated; compare them with the population the question asks for.";
+  "note: a `- flow:` line reports something a step above measured that its code may not expect: values written differently from what it looks for, a test or join that matched nothing, rows repeated with the same numbers, or a group key that covers different entities. Check it against the question.";
 
 /** Render the receipt of a `dataflow` call from the executed action list. */
 export function renderTurnReceipt(result: DataflowActionsResult, turn?: TurnReceiptInfo): string {

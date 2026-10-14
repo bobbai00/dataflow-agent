@@ -39,6 +39,8 @@ export interface ToolContext {
     nativeProfileScope?: "prefix" | "full";
     /** Native operators carry the lineage their engine-side checks need. */
     nativeChecks?: boolean;
+    /** Flow evidence reads the same lineage (records listed by several source files). */
+    flowEvidence?: boolean;
   };
 }
 

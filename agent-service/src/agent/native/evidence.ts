@@ -78,10 +78,6 @@ export interface NativeObservationOptions extends ObservationFormatOptions {
 /** The line that marks flow facts left out for the budget. */
 export const FLOW_OMITTED_NOTICE = "- note: flow facts omitted (budget).";
 
-/** Facts that only restate counts shown beside the operator's own result.
- * They are measured for the upstream summaries of downstream results. */
-const OWN_RESTATEMENTS = new Set(["flow.aggregate"]);
-
 /** Audit metadata is not appended to model text. Full version references are
  * retained here; short prefixes in text are display labels, not cache keys. */
 export interface NativeObservation {
@@ -238,51 +234,67 @@ function columnCount(info: OperatorInfo, column: string, c: ProfileColumn): Nati
   };
 }
 
-/** Facts derived from an aggregate's meaning over the rows it reduced:
- *  - a distinct count of a column that is unique per input row counts rows,
- *    and the input has coarser columns that may be the intended unit;
- *  - the group key almost always determines a column but not in some groups
- *    (measured by the runtime), so those groups pool distinct entities. */
-function aggregateSemantics(
-  context: NativeEvidenceContext,
-  input: OperatorInfo | undefined,
-  rowsIn: number,
-  operations: Record<string, any>
-): Array<[string, string]> {
-  const facts: Array<[string, string]> = [];
-  const p = context.op.nativeOp!.properties;
-  const keys = names(p.groupBy);
-  const aggregations = (Array.isArray(p.aggregations) ? p.aggregations : []).map(record);
-  const profile = input && validProfile(input) ? input.tableProfile! : undefined;
-  if (profile) {
-    const columns = Object.entries(profile.columns);
-    for (const a of aggregations) {
-      if (a.fn !== "count_distinct" || typeof a.col !== "string") continue;
-      const c = profile.columns[a.col];
-      if (!c || !fullColumn(input!, c) || c.distinctCount !== rowsIn || c.nullCount) continue;
-      const coarser = columns
-        .filter(([name, x]) => name !== a.col && !keys.includes(name) && x.type === "str" && fullColumn(input!, x))
-        .filter(([, x]) => x.distinctCount !== null && x.distinctCount >= 2 && x.distinctCount * 2 <= rowsIn)
-        .sort(([, x], [, y]) => x.distinctCount! - y.distinctCount!)
-        .slice(0, 3);
-      facts.push([
-        `flow.aggregate.grain.${a.as}`,
-        `${json(a.as)} = count_distinct(${json(a.col)}): ${json(a.col)} is unique on every one of the ${rowsIn} input rows, so it counts rows${coarser.length ? `; input columns with fewer values: ${coarser.map(([name, x]) => `${json(name)} (${x.distinctCount})`).join(", ")}` : ""}.`,
-      ]);
-    }
-  }
-  for (const d of Array.isArray(operations.keyDependencies) ? operations.keyDependencies.map(record) : []) {
-    const example = record(d.example);
-    facts.push([
-      `flow.aggregate.key.${d.column}`,
-      `group key ${json(keys)} determines ${json(d.column)} in most groups but not in ${d.split} of ${d.groups}: e.g. ${json(names(example.key).length === 1 ? names(example.key)[0] : example.key)} has ${json(d.column)} = ${names(
-        example.values
-      )
-        .map(v => json(v))
-        .join(", ")}; those rows are pooled into one group.`,
-    ]);
-  }
-  return facts;
+/** A join key or group key written as one value. */
+function keyText(example: NativeWitness): string {
+  const values = example.values.map(v => (v === null ? "null" : scalarText(v)));
+  return values.length === 1 ? values[0] : `[${values.join(", ")}]`;
+}
+
+/** A group key that pools rows whose identifying column differs (a beach name
+ * used in two towns). The runtime reports it only for a column that names
+ * entities, never for an outcome such as a violation flag. One line. */
+function aggregateSemantics(context: NativeEvidenceContext, operations: Record<string, any>): Array<[string, string]> {
+  const keys = names(context.op.nativeOp!.properties.groupBy);
+  return (Array.isArray(operations.keyDependencies) ? operations.keyDependencies.map(record) : [])
+    .filter(d => typeof d.column === "string" && count(d.split) && count(d.groups) && d.split > 0)
+    .slice(0, 1)
+    .map(d => {
+      const example = record(d.example);
+      const key = names(example.key);
+      return [
+        `flow.aggregate.key.${d.column}`,
+        `grouping by ${keys.map(k => json(k)).join(", ")} pools rows with different ${json(d.column)} values in ${formatCount(d.split)} of ${formatCount(d.groups)} groups, e.g. ${json(key.length === 1 ? key[0] : key)}: ${names(
+          example.values
+        )
+          .map(v => json(v))
+          .join(", ")}.`,
+      ];
+    });
+}
+
+/** Repeats in a column whose values otherwise identify rows, on rows that also
+ * agree on their numbers: one entity listed more than once. */
+function repeatedText(r: Record<string, any>, consequence: string): string | undefined {
+  if (
+    typeof r.outputColumn !== "string" ||
+    ![r.rows, r.distinct, r.repeatedValues].every(count) ||
+    r.repeatedValues < 1 ||
+    r.repeatedValues > r.rows - r.distinct
+  )
+    return undefined;
+  const examples = witnesses(r.examples, 1, r.rows, 2);
+  const measures = names(r.sameMeasures);
+  const same = measures.length ? ` with the same ${measures.map(name => json(name)).join(", ")}` : "";
+  return `${json(r.outputColumn)} repeats ${formatCount(r.repeatedValues)} values${same} (${formatCount(r.rows)} rows, ${formatCount(r.distinct)} distinct)${
+    examples.length
+      ? `, e.g. ${examples
+          .slice(0, 2)
+          .map(e => witnessText(e))
+          .join("; ")}`
+      : ""
+  }; ${consequence}.`;
+}
+
+/** Records listed once by each of several source files (needs the scan's file column). */
+function repeatedRecordsText(type: string, operations: Record<string, any>): string | undefined {
+  const r = record(operations.repeatedRecords);
+  if (!count(r.rows) || !count(r.of) || !count(r.records) || r.rows > r.of) return undefined;
+  const ignoring = names(r.ignoring).length
+    ? ` apart from ${names(r.ignoring)
+        .map(n => json(n))
+        .join(", ")}`
+    : "";
+  return `${formatCount(r.rows)} of ${formatCount(r.of)} input rows are ${formatCount(r.records)} records each listed once by ${count(r.sources) ? `${r.sources} different sources` : "several sources"}${ignoring}, e.g. ${json(String(r.example ?? ""))}; ${type === "Aggregate" ? "the aggregate counts" : "a sum, mean or count counts"} every copy.`;
 }
 
 /** Consumes structured, version-bound profiles only. No execution, hidden
@@ -335,14 +347,6 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
         .slice(
           0,
           view.type === "Join" ? 3 : ["Aggregate", "Cast", "Window", "Filter", "Process"].includes(view.type) ? 2 : 1
-        );
-      // Keep coverage counters ahead of optional examples. Long compound keys
-      // remain available on direct retrieval without crowding ancestor summaries.
-      if (view.type === "Join")
-        measurements.push(
-          ...local.facts
-            .filter(f => /^flow\.join\.\d+\.unmatched\.examples$/.test(f.id) && f.text.length <= 320)
-            .slice(0, 2)
         );
       const version = info.resultVersion!;
       if (measurements.length)
@@ -524,30 +528,6 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   const out = outputRows as number;
   const operations = n!.operations ?? {};
   if (view.type === "Filter") {
-    const input = inputs[0]!;
-    if (validProfile(input))
-      for (const name of names(operations.predicateColumns)) {
-        if (context.columns?.length && !context.columns.includes(name)) continue;
-        const before = own(input.tableProfile!.columns, name) ? input.tableProfile!.columns[name] : undefined;
-        const after = own(profile!.columns, name) ? profile!.columns[name] : undefined;
-        // Without nulls in the input the line restates the row counts; with
-        // them it shows rows dropped because the predicate saw a null.
-        if (
-          before &&
-          after &&
-          before.nullCount > 0 &&
-          hasColumnObservations(input, before) &&
-          hasColumnObservations(info, after)
-        )
-          add(
-            `flow.filter.column.${name}`,
-            "flow",
-            "measurement",
-            `predicate column ${json(name)}: input (${columnScope(input, before)}) null=${fraction(before.nullCount, before.rowsProcessed)}, distinct(nonnull)=${before.distinctCount ?? "unknown"}; output (${columnScope(info, after)}) null=${fraction(after.nullCount, after.rowsProcessed)}, distinct(nonnull)=${after.distinctCount ?? "unknown"}.`,
-            88,
-            { coveredCount: columnCount(info, name, after) }
-          );
-      }
     const { keptRows, rejectedRows, nullPredicates } = operations;
     if (
       count(keptRows) &&
@@ -567,34 +547,60 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (a None verdict drops the row).`,
           96
         );
-      const rejected = record(operations.filterRejectedValues);
-      if (rejected.rejectedRows === rejectedRows && rejectedRows > 0) {
-        const columns = Object.entries(record(rejected.columns)).slice(0, 8);
-        for (const [name, raw] of columns) {
-          if (
-            !names(operations.predicateColumns).includes(name) ||
-            (context.columns?.length && !context.columns.includes(name))
-          )
-            continue;
-          const details = record(raw);
-          const examples = witnesses(details.examples, 1, rejectedRows);
-          if (
-            !examples.length ||
-            !count(details.otherCount) ||
-            examples.reduce((n, item) => n + item.count, 0) + details.otherCount !== rejectedRows
-          )
-            continue;
-          // The runtime orders the examples nearest the kept values first; an
-          // older or unscored column is in first-seen order.
+      // Rejected values written like what the condition looks for. The runtime
+      // blames each rejected row on the column its condition read last (the
+      // part of `a and b` that failed) and matches the values to the
+      // condition's literals or kept values with case, spacing, punctuation
+      // and leading zeros ignored. Values the condition was written to drop
+      // never match, so this line is rare.
+      for (const entry of (Array.isArray(operations.filterNearMisses) ? operations.filterNearMisses : []).map(record)) {
+        const column = entry.column;
+        const values = (Array.isArray(entry.values) ? entry.values : [])
+          .map(record)
+          .filter(
+            v =>
+              typeof v.value === "string" &&
+              typeof v.counterpart === "string" &&
+              count(v.rows) &&
+              v.rows > 0 &&
+              ["literal", "kept", "contains"].includes(v.how)
+          );
+        if (typeof column !== "string" || !values.length || values.reduce((n, v) => n + v.rows, 0) > rejectedRows)
+          continue;
+        if (context.columns?.length && !context.columns.includes(column)) continue;
+        const groups = new Map<string, Array<Record<string, any>>>();
+        for (const v of values)
+          groups.set(json([v.how, v.counterpart]), [...(groups.get(json([v.how, v.counterpart])) ?? []), v]);
+        for (const [key, group] of groups) {
+          const [how, counterpart] = JSON.parse(key) as [string, string];
+          const listed = group
+            .map(v => `${json(v.value)}${v.valueClipped ? " (clipped)" : ""} × ${formatCount(v.rows)}`)
+            .join("; ");
+          const reference = `${json(counterpart)}${group[0].counterpartClipped ? " (clipped)" : ""}`;
           add(
-            `flow.filter.rejected.${name}`,
+            `flow.filter.near.${column}.${key}`,
             "flow",
             "measurement",
-            `Filter ${json(name)} among ${rejectedRows} rejected rows, including null-predicate drops, ${details.order === "nearest" ? "values nearest the kept ones" : "first values seen"}: ${examples.map(item => witnessText(item)).join("; ")}; other=${details.otherCount}. Examples, not causes.`,
-            94
+            how === "contains"
+              ? `${json(column)} values the condition rejected contain its literal ${reference}: ${listed}.`
+              : `${json(column)} values the condition rejected equal ${how === "literal" ? "its literal" : "the kept value"} ${reference} except for case, spacing or punctuation: ${listed}.`,
+            97
           );
         }
       }
+      // A condition that looks for literals kept nothing: the values it saw are
+      // the evidence (dates written 8/25/2002 never split to "07").
+      const none = record(operations.filterNoMatch);
+      const literals = names(none.literals);
+      const seen = witnesses(none.seen, 1, rejectedRows);
+      if (out === 0 && rejectedRows > 0 && typeof none.column === "string" && literals.length && seen.length)
+        add(
+          "flow.filter.none",
+          "flow",
+          "measurement",
+          `no row passed the condition's test for ${literals.map(l => json(l)).join(", ")}; ${json(none.column)} values seen: ${seen.map(w => witnessText(w)).join("; ")}.`,
+          98
+        );
     } else omissions.push("invalid_filter_counters");
   } else if (view.type === "Aggregate") {
     const size = record(operations.groupSizes);
@@ -611,45 +617,13 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           size.min * out <= ns[0] &&
           size.max * out >= ns[0]))
     ) {
-      // One group's size is the input row count. Beside the aggregate's own
-      // result the line restates its row counts and is not shown
-      // (OWN_RESTATEMENTS); it remains for the upstream summary of a
-      // downstream result, where it names the grain that result counts.
-      if (out > 1)
-        add(
-          "flow.aggregate",
-          "flow",
-          "measurement",
-          `Aggregate groups=${out} from ${ns[0]} rows; group size min=${size.min ?? "undefined"}, max=${size.max ?? "undefined"}.`,
-          96
-        );
-      for (const agg of Array.isArray(p.aggregations) ? p.aggregations : []) {
-        const a = record(agg),
-          denom = record(record(operations.aggregateNonNull)[a.as]);
-        const valid =
-          typeof a.as === "string" &&
-          count(denom.total) &&
-          denom.total <= ns[0] &&
-          ((emptyGroups && denom.total === 0 && denom.min === null && denom.max === null) ||
-            (count(denom.min) &&
-              count(denom.max) &&
-              denom.min <= denom.max &&
-              denom.min * out <= denom.total &&
-              denom.max * out >= denom.total));
-        if (!valid) omissions.push("aggregate_denominator_unavailable");
-        // A denominator without nulls restates the group sizes.
-        else if (denom.total < ns[0])
-          add(
-            `flow.aggregate.${a.as}`,
-            "flow",
-            "measurement",
-            `${json(a.as)} ${a.fn === "count" && a.col === undefined ? "row denominator" : "nonnull"}=${fraction(denom.total, ns[0])}; per-group min=${denom.min ?? "undefined"}, max=${denom.max ?? "undefined"}; reducer=${a.fn}${a.fn === "first" ? " (first includes null)" : ""}.`,
-            95
-          );
+      // Group sizes and non-null counts restate the result; what is measured
+      // beyond them is a key that pools entities and rows read more than once.
+      aggregateSemantics(context, operations).forEach(([id, text]) => add(id, "flow", "measurement", text, 97));
+      for (const [i, raw] of (Array.isArray(operations.repeatedInput) ? operations.repeatedInput : []).entries()) {
+        const text = repeatedText(record(raw), "this aggregate's sum, count and mean count each repeat");
+        if (text) add(`flow.aggregate.repeated.${i}`, "flow", "measurement", text, 97);
       }
-      aggregateSemantics(context, inputs[0], ns[0], operations).forEach(([id, text]) =>
-        add(id, "flow", "measurement", text, 97)
-      );
     } else omissions.push("invalid_aggregate_counters");
   } else if (view.type === "Join") {
     const join = record(operations.join);
@@ -707,47 +681,44 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
               (["left", "full"].includes(type as string) ? sides[0].unmatchedRows : 0) +
               (["right", "full"].includes(type as string) ? sides[1].unmatchedRows : 0) ===
             out);
-      // A join where every row matched exactly once reports nothing new.
-      const notable = sides.some(s => s.unmatchedRows > 0 || s.nullKeyRows > 0 || s.maxMultiplicity > 1);
-      if (valid && notable) {
-        add(
-          "flow.join.output",
-          "flow",
-          "measurement",
-          membership
-            ? `${type === "semi" ? "Semi" : "Anti"} join output=${out}: the left rows with ${type === "semi" ? "a" : "no"} match on the right, each once.`
-            : `Join matched contribution=${join.matchedOutputRows} (sum L(k)*R(k)); output=${out}, including outer unmatched rows as declared.`,
-          96
-        );
-        sides.forEach((s, i) => {
+      // Matched and unmatched counts are what a join is written to do. Two
+      // things are not: keys that differ only in how they are written, and a
+      // join that matched no key at all.
+      if (valid && !membership) {
+        const width = typeof p.on === "string" ? 1 : Array.isArray(p.on) ? p.on.length : 0;
+        const near = record(join.nearMisses);
+        const pairs = (Array.isArray(near.pairs) ? near.pairs : [])
+          .map(record)
+          .map(pair => [
+            witnesses([pair.left], width, sides[0].rows)[0],
+            witnesses([pair.right], width, sides[1].rows)[0],
+          ])
+          .filter((pair): pair is [NativeWitness, NativeWitness] => !!pair[0] && !!pair[1]);
+        if (
+          count(near.keys) &&
+          count(near.rows) &&
+          near.keys > 0 &&
+          pairs.length &&
+          near.keys <= sides[0].unmatchedKeys
+        )
           add(
-            `flow.join.${i}`,
+            "flow.join.near",
             "flow",
             "measurement",
-            `${i ? "right" : "left"} matched rows=${fraction(s.matchedRows, s.rows)}, unmatched rows=${s.unmatchedRows}; matched keys=${fraction(s.matchedKeys, s.distinctKeys)}, unmatched keys=${s.unmatchedKeys}; null-key rows=${s.nullKeyRows}, max eligible multiplicity=${s.maxMultiplicity}.`,
-            95
+            `${formatCount(near.keys)} left key${near.keys === 1 ? "" : "s"} (${formatCount(near.rows)} row${near.rows === 1 ? "" : "s"}) ${near.keys === 1 ? "matches" : "match"} a right key only when case, spacing, punctuation and leading zeros are ignored: ${pairs.map(([l, r]) => `${keyText(l)} ~ ${keyText(r)}`).join("; ")}.`,
+            97
           );
-          const keys = typeof p.on === "string" ? [p.on] : Array.isArray(p.on) ? p.on : [];
-          for (const [kind, rows, minimum] of [
-            ["unmatched", s.unmatchedRows, 1],
-            ["duplicate", s.eligibleRows, 2],
-          ] as const) {
-            const examples = witnesses(s[`${kind}Examples`], keys.length, rows, minimum);
-            if (
-              !examples.length ||
-              (kind === "unmatched" && examples.length > s.unmatchedKeys) ||
-              examples.some(w => w.count > s.maxMultiplicity || (!join.nullsEqual && w.values.includes(null)))
-            )
-              continue;
-            add(
-              `flow.join.${i}.${kind}.examples`,
-              "flow",
-              "measurement",
-              `${i ? "right" : "left"} ${kind === "unmatched" ? "eligible unmatched" : "duplicate"}-key examples (not exhaustive): ${examples.map(w => witnessText(w, true)).join("; ")}.`,
-              92
-            );
-          }
-        });
+        const none = record(join.noMatch);
+        const left = witnesses([none.left], width, sides[0].rows)[0];
+        const right = witnesses([none.right], width, sides[1].rows)[0];
+        if (sides[0].matchedKeys === 0 && sides[0].rows > 0 && sides[1].rows > 0 && left && right)
+          add(
+            "flow.join.none",
+            "flow",
+            "measurement",
+            `the join matched no keys; left keys look like ${keyText(left)}, right keys like ${keyText(right)}.`,
+            98
+          );
       } else if (!valid) omissions.push("invalid_join_counters");
     }
   } else if (view.type === "Union") {
@@ -782,27 +753,6 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           `Window preserved=${out} rows; partitions=${window.partitions}, ties beyond first=${window.tieRows}.`,
           94
         );
-      for (const item of Array.isArray(p.columns) ? p.columns : []) {
-        const c = record(item);
-        if (!["lag", "lead"].includes(c.fn) || typeof c.as !== "string") continue;
-        const counter = record(record(window.outputs)[c.as]);
-        if (
-          count(counter.boundaryNulls) &&
-          count(counter.nullOutputs) &&
-          counter.boundaryNulls >= window.partitions &&
-          counter.boundaryNulls <= counter.nullOutputs &&
-          counter.nullOutputs <= out &&
-          (Number(c.offset ?? 1) < out || counter.boundaryNulls === out)
-        ) {
-          add(
-            `flow.window.${c.as}`,
-            "flow",
-            "measurement",
-            `${json(c.as)} boundary nulls=${fraction(counter.boundaryNulls, out)}, total nulls=${fraction(counter.nullOutputs, out)}; ${c.fn}(${json(c.col)}, offset=${c.offset ?? 1}); existing null cells may also propagate.`,
-            96
-          );
-        } else omissions.push("window_output_counters_unavailable");
-      }
     } else omissions.push("invalid_window_counters");
   } else if (view.type === "Unpivot") {
     const x = record(operations.unpivot),
@@ -877,104 +827,41 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       }
     } else omissions.push("scan_coverage_unavailable");
   }
-  // A Python step's row mapping is not measured; the runtime reports values of
-  // an input column that its output column no longer contains, those most like
-  // the kept values first (a two-state metro area among the dropped ones).
-  if (view.type === "Process")
-    for (const [i, raw] of (Array.isArray(operations.droppedValues) ? operations.droppedValues : []).entries()) {
-      const d = record(raw);
-      const missing = Array.isArray(d.missing) ? d.missing.map(String) : [];
-      if (typeof d.inputColumn !== "string" || typeof d.outputColumn !== "string" || !missing.length) continue;
-      const total = count(d.missingCount) ? d.missingCount : missing.length;
-      const input = view.inputs.length > 1 && count(d.input) ? ` of input ${view.inputs[d.input] ?? d.input}` : "";
-      const order = d.order === "nearest" && total > 1 ? ", those most like the kept values first" : "";
-      add(
-        `flow.process.dropped.${i}`,
-        "flow",
-        "measurement",
-        `values of input column ${json(d.inputColumn)}${input} missing from output column ${json(d.outputColumn)}${order}: ${missing.map(value => json(value)).join(", ")}${total > missing.length ? ", …" : ""} (${total} of ${count(d.inputDistinct) ? d.inputDistinct : "?"}).`,
-        95
-      );
-    }
-  // Repeats in a column whose values otherwise identify rows: rows that a later
-  // count or mean takes more than once, whether the step created or carried them.
+  // Repeats in a Python step's output column whose values otherwise identify
+  // rows: rows that a later sum, count or mean takes more than once.
   if (view.type === "Process")
     for (const [i, raw] of (Array.isArray(operations.repeatedValues) ? operations.repeatedValues : []).entries()) {
       const r = record(raw);
-      if (
-        typeof r.outputColumn !== "string" ||
-        ![r.rows, r.distinct, r.repeatedValues].every(count) ||
-        r.repeatedValues < 1 ||
-        r.repeatedValues > r.rows - r.distinct
-      )
-        continue;
-      const examples = witnesses(r.examples, 1, r.rows, 2);
-      // The repeated rows agree on these numeric columns: one entity counted twice.
-      const measures = names(r.sameMeasures);
-      const same = measures.length ? `, each with the same ${measures.map(name => json(name)).join(", ")}` : "";
-      const input = view.inputs.length > 1 && count(r.input) ? `input ${view.inputs[r.input] ?? r.input} ` : "";
-      const origin =
-        typeof r.inputColumn !== "string" || !count(r.inputRepeated) || r.inputRepeated > r.repeatedValues
-          ? ""
-          : r.inputRepeated === r.repeatedValues
-            ? `; ${input}column ${json(r.inputColumn)} repeats them too`
-            : r.inputRepeated === 0
-              ? `; each occurs once in ${input}column ${json(r.inputColumn)}, so this step created the repeats`
-              : `; ${r.inputRepeated} of them repeat in ${input}column ${json(r.inputColumn)} too`;
+      const created = count(r.inputRepeated) && r.inputRepeated === 0 && typeof r.inputColumn === "string";
+      const text = repeatedText(
+        r,
+        `${created ? "this step created them; " : ""}a sum, count or mean over these rows counts each repeat`
+      );
+      if (text) add(`flow.process.repeated.${i}`, "flow", "measurement", text, 95);
+    }
+  // The same record listed by several source files (a metro area in each state's file).
+  if (view.type === "Aggregate" || view.type === "Process") {
+    const text = repeatedRecordsText(view.type, operations);
+    if (text) add("flow.records.repeated", "flow", "measurement", text, 97);
+  }
+  // Values a cast could not convert became null; with errors="raise" the cast fails instead.
+  if (view.type === "Cast" && ns[0] === out)
+    for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
+      if (!count(failures) || failures === 0 || failures > ns[0] || p.errors !== "null") continue;
+      const sample = record(record(operations.conversionFailureExamples)[name]);
+      const examples = witnesses(sample.examples, 1, failures);
+      const complete =
+        examples.length &&
+        count(sample.otherCount) &&
+        examples.reduce((sum, w) => sum + w.count, sample.otherCount) === failures;
       add(
-        `flow.process.repeated.${i}`,
+        `flow.cast.${name}`,
         "flow",
         "measurement",
-        `output column ${json(r.outputColumn)} repeats ${r.repeatedValues} values (${r.rows} rows, ${r.distinct} distinct)${same}${examples.length ? `: ${examples.map(item => witnessText(item)).join("; ")}` : ""}${origin}.`,
-        95
+        `${json(name)} could not be converted in ${formatCount(failures)} of ${formatCount(ns[0])} rows${complete ? `, e.g. ${examples.map(w => witnessText(w)).join("; ")}` : ""}; those cells are now null.`,
+        100
       );
     }
-  if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
-    if (view.type === "Cast")
-      for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
-        if (count(failures) && failures <= ns[0] && (p.errors === "null" || failures === 0)) {
-          add(
-            `flow.cast.${name}`,
-            "flow",
-            "measurement",
-            `${json(name)} conversion failures=${failures}/${ns[0]} rows (errors=${p.errors ?? "raise"}).`,
-            failures ? 100 : 50
-          );
-          const sample = record(record(operations.conversionFailureExamples)[name]);
-          const examples = witnesses(sample.examples, 1, failures);
-          if (
-            examples.length &&
-            count(sample.otherCount) &&
-            examples.reduce((sum, w) => sum + w.count, sample.otherCount) === failures
-          )
-            add(
-              `flow.cast.examples.${name}`,
-              "flow",
-              "measurement",
-              `${json(name)} failed-value examples (not exhaustive): ${examples.map(w => witnessText(w)).join("; ")}; other failures=${sample.otherCount}.`,
-              99
-            );
-        }
-      }
-    const input = inputs[0]!;
-    for (const [name, after] of Object.entries(profile!.columns)) {
-      const before = own(input.tableProfile?.columns ?? {}, name) ? input.tableProfile!.columns[name] : undefined;
-      if (
-        relevant.has(name) &&
-        before &&
-        before.nullCount !== after.nullCount &&
-        fullColumn(input, before) &&
-        fullColumn(info, after)
-      )
-        add(
-          `flow.nulls.${name}`,
-          "flow",
-          "measurement",
-          `${json(name)} nulls before=${before.nullCount}/${ns[0]}, after=${after.nullCount}/${out}, delta=${after.nullCount - before.nullCount}; row-preserving contract, not a claim of cellwise equivalence.`,
-          90
-        );
-    }
-  }
   return { facts, omissions: [...new Set(omissions)] };
 }
 
@@ -1145,7 +1032,6 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     const budget = Math.max(0, context.flowMaxChars ?? maxChars);
     const facts = evidence.facts
       .filter(f => f.family === "flow" && (context.upstream !== false || !f.upstream))
-      .filter(f => f.upstream || !OWN_RESTATEMENTS.has(f.id))
       .sort((a, b) => b.priority - a.priority);
     const notice = FLOW_OMITTED_NOTICE;
     const allText = facts.map(fact => {

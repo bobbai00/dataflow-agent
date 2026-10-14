@@ -101,7 +101,8 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('key_result', 'Aggregate', ['key_join'], aggregations=[dict(fn='count',**{'as':'n'})])
     execute('typed_keys', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':pd.Series([9007199254740993,9007199254740993,None],dtype='Int64'), 'when':pd.to_datetime(['2024-01-01','2024-01-01','2024-01-02'],utc=True)})")
     execute('empty_typed_keys', 'Filter', ['typed_keys'], func='def apply(row):\\n    return False', entry='apply')
-    execute('typed_key_join', 'Join', ['typed_keys','empty_typed_keys'], on=['id','when'], type='left', nullsEqual=True)
+    execute('other_typed_keys', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':pd.Series([1],dtype='Int64'), 'when':pd.to_datetime(['2024-02-01'],utc=True)})")
+    execute('typed_key_join', 'Join', ['typed_keys','other_typed_keys'], on=['id','when'], type='left', nullsEqual=True)
     execute('monthly', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'month':[1,2,3,4], 'acres':[1,2,3,4]})")
     execute('monthly_lags', 'Window', ['monthly'], orderBy=[dict(col='month')], columns=[dict(fn='lag',col='acres',**{'as':'prev1'}),dict(fn='lag',col='acres',offset=2,**{'as':'prev2'})])
     execute('monthly_projected', 'Project', ['monthly_lags'], keep=['month','prev1','prev2'])
@@ -110,7 +111,7 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     disabled = dict(version='v2', id='disabled', revision='0123456789abcdef', type='Cast', inputs=['formatted'], properties=dict(columns=[dict(column='x',dtype='int64')],errors='null'))
     assert 'conversionFailureExamples' not in r.execute_native(disabled,[frames['formatted']]).attrs['native_v2']['operations']
     disabled.update(type='Join', inputs=['left_keys','right_keys'],properties=dict(on='key',type='full'))
-    assert 'unmatchedExamples' not in r.execute_native(disabled,[frames['left_keys'],frames['right_keys']]).attrs['native_v2']['operations']['join']['left']
+    assert 'nearMisses' not in r.execute_native(disabled,[frames['left_keys'],frames['right_keys']]).attrs['native_v2']['operations']['join']
     # A display protocol that cannot represent a scalar must omit its example,
     # rather than relabel bytes as text or change a successful operation.
     assert r._witness([b'raw'],1) is None
@@ -123,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     assert metadata['conversionFailures']['key'] == 2 and 'conversionFailureExamples' not in metadata
     unsupported.update(type='Join',inputs=['left','right'],properties=dict(on='key',type='full'))
     metadata = r.execute_native(unsupported,[byte_frame,byte_frame.iloc[:0]]).attrs['native_v2']['operations']['join']
-    assert metadata['left']['unmatchedRows'] == 2 and metadata['left']['unmatchedExamples'] == []
+    assert metadata['left']['unmatchedRows'] == 2 and 'nearMisses' not in metadata and 'noMatch' not in metadata
 print(json.dumps(records, default=str))
 `,
         runtime,
@@ -233,41 +234,41 @@ print(json.dumps(records, default=str))
           expect(observation.text.length).toBeLessThanOrEqual((1 + Number(data) + Number(flow)) * 600 + 2);
         }
     }
-    expect(facts.get("typed")).toContain("conversion failures=1/3");
-    expect(facts.get("typed")).toContain('failed-value examples (not exhaustive): "bad" × 1');
-    expect(facts.get("formatted_cast")).toContain('"1,299" × 2');
-    expect(facts.get("formatted_cast")).toContain('"$5" × 1');
-    expect(facts.get("formatted_cast")).toContain('"NA" × 1');
-    expect(facts.get("formatted_cast")).toContain("other failures=2");
+    // An operator's own flow lines; data facts and upstream summaries (the cast's loss) are other lines.
+    const flowOf = (id: string) =>
+      (facts.get(id) ?? "")
+        .split("\n")
+        .filter(line => line.startsWith("Flow measurement"))
+        .join("\n");
+    expect(facts.get("typed")).toContain(
+      '"x" could not be converted in 1 of 3 rows, e.g. "bad" × 1; those cells are now null.'
+    );
+    // Three examples and two other failures account for all six.
+    expect(facts.get("formatted_cast")).toContain(
+      '"x" could not be converted in 6 of 8 rows, e.g. "1,299" × 2; "$5" × 1; "NA" × 1; those cells are now null.'
+    );
     const longExamples = JSON.parse(records.find(r => r.spec.id === "long_cast")!.profile).native.operations
       .conversionFailureExamples.x.examples;
     expect(longExamples).toHaveLength(2);
     expect(longExamples.every((x: any) => x.truncated && x.values[0].value.length === 96 && x.count === 1)).toBe(true);
-    expect(facts.get("key_join")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
-    expect(facts.get("key_join")).toContain('right eligible unmatched-key examples (not exhaustive): ["item_A"] × 1');
-    expect(facts.get("key_join")).toContain('left duplicate-key examples (not exhaustive): ["shared"] × 2');
-    expect(facts.get("key_join")).toContain('right duplicate-key examples (not exhaustive): ["shared"] × 3');
-    expect(facts.get("key_join")).not.toContain("[null] ×");
+    // "item A" and "item_A" are one key written two ways; the duplicated "shared" keys are what the data holds.
+    const pair =
+      '1 left key (1 row) matches a right key only when case, spacing, punctuation and leading zeros are ignored: "item A" ~ "item_A".';
+    expect(facts.get("key_join")).toContain(pair);
+    expect(flowOf("key_join")).not.toContain("shared");
     expect(facts.get("key_result")).toContain("Flow upstream key_join:");
-    expect(facts.get("key_result")).toContain('left eligible unmatched-key examples (not exhaustive): ["item A"] × 1');
-    expect(facts.get("key_join_equal")).toContain("null-key rows=1");
-    expect(facts.get("typed_key_join")).toContain("9007199254740993");
-    expect(facts.get("typed_key_join")).toContain("[null,");
+    expect(facts.get("key_result")).toContain('"item A" ~ "item_A"');
+    expect(facts.get("key_join_equal")).toContain(pair);
+    // A join that matched nothing shows a key from each side, in its own types.
+    expect(facts.get("typed_key_join")).toContain("the join matched no keys; left keys look like [9007199254740993, ");
     expect(facts.get("typed_key_join")).toContain("2024-01-01T00:00:00.000000000+00:00");
-    expect(facts.get("monthly_result")).toContain("Flow upstream monthly_lags:");
-    expect(facts.get("monthly_result")).toContain('"prev1" boundary nulls=1/4');
-    expect(facts.get("monthly_result")).toContain('"prev2" boundary nulls=2/4');
-    expect(facts.get("monthly_result")).toContain('lag("acres", offset=2)');
-    expect(facts.get("filled")).toContain("nulls before=2/3, after=0/3");
-    // The filter's counters restate the row counts; its nulls and rejected values do not.
-    expect(facts.get("filtered")).not.toContain("kept=1/3");
-    expect(facts.get("filtered")).toContain('predicate column "x": input (full=3 rows) null=2/3');
-    expect(facts.get("filtered")).toContain(
-      "among 2 rejected rows, including null-predicate drops, first values seen: null × 2"
-    );
-    expect(facts.get("aggregate")).toContain('"mean" nonnull=1/3');
-    expect(facts.get("joined")).toContain("matched contribution=5");
-    expect(facts.get("joined")).toContain("left matched rows=3/3");
+    // Counts a step is written to produce are not flow lines: lag boundary nulls,
+    // nulls a map filled, a null test's rejections, reducer denominators, join coverage.
+    expect(flowOf("monthly_result")).toBe("");
+    expect(flowOf("filled")).toBe("");
+    expect(flowOf("filtered")).toBe("");
+    expect(flowOf("aggregate")).toBe("");
+    expect(flowOf("joined")).toBe("");
     // Counts that only restate the input and output row counts are not flow lines.
     expect(facts.get("crossed") ?? "").not.toContain("Cross join");
     expect(facts.get("unioned") ?? "").not.toContain("Union input rows");
@@ -277,8 +278,7 @@ print(json.dumps(records, default=str))
     expect(facts.get("udf")).toContain("row/column correspondence to this output unknown");
     // Shapes without null cells, ties or absent cells restate their row counts too.
     expect(facts.get("unpivot") ?? "").not.toContain("Unpivot output");
-    expect(facts.get("window")).not.toContain("ties beyond first");
-    expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');
+    expect(flowOf("window")).toBe("");
     expect(facts.get("pivot") ?? "").not.toContain("Pivot unique pairs");
     expect(facts.get("empty_unpivot") ?? "").not.toContain("output=0*2=0");
     expect(facts.get("empty_window") ?? "").not.toContain("partitions=0");

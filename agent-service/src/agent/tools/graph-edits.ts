@@ -179,7 +179,7 @@ export async function planRegisteredGraphEdit(
   const util = new WorkflowUtilService(context.metadataStore, draft);
   for (const id of ordered) {
     const view = nodes.get(id)!;
-    if (context.settings?.nativeChecks) view.lineage = nativeLineage(draft, view);
+    if (context.settings?.nativeChecks || context.settings?.flowEvidence) view.lineage = nativeLineage(draft, view);
     const compiled = compileNativeOp(view, id);
     const old = draft.getOperator(id);
     const template =
@@ -454,7 +454,7 @@ export async function planGraphEdit(
     const util = new WorkflowUtilService(context.metadataStore, draft);
     for (const id of ordered) {
       const view = nodes.get(id)!;
-      if (context.settings?.nativeChecks) {
+      if (context.settings?.nativeChecks || context.settings?.flowEvidence) {
         view.lineage = nativeLineage(draft, view);
         validationViews.get(id)!.lineage = view.lineage;
       }

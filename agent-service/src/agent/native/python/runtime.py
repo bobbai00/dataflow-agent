@@ -56,7 +56,7 @@ class _Row(Mapping):
     a distinguishable KeyError so the diagnostic can list the real columns.
     """
 
-    __slots__ = ("_index", "_order", "_values", "_reads", "_copy", "_suppress_copy_reads")
+    __slots__ = ("_index", "_order", "_values", "_reads", "_copy", "_suppress_copy_reads", "_last")
 
     def __init__(self, index, values, reads, order=None, suppress_copy_reads=True):
         self._index = index
@@ -65,6 +65,7 @@ class _Row(Mapping):
         self._reads = reads
         self._copy = None
         self._suppress_copy_reads = suppress_copy_reads
+        self._last = None
 
     def __getitem__(self, key):
         position = self._index.get(key)
@@ -79,6 +80,7 @@ class _Row(Mapping):
         else:
             self._copy = None
             self._reads.add(key)
+            self._last = key
         return self._values[position]
 
     def keys(self):
@@ -698,11 +700,8 @@ def _witness(values, count):
     return {"values": encoded, "count": count, "truncated": truncated}
 
 
-# Dropped and rejected values are ordered by how close they come to the values
-# that were kept: a misspelled code, a boundary year or a two-state metro area
-# is a likelier mistake than the bulk of the values a step meant to remove.
 _NEAR_LIMIT = 50_000
-_NEAR_TOKEN = re.compile(r"[^\W_]+")
+_NEAR_EXAMPLES = 3
 
 
 def _text_number(text):
@@ -718,90 +717,118 @@ def _text_number(text):
     return number if math.isfinite(number) else None
 
 
-def _near_number(value):
-    """A comparable number for a numeric, numeric-text or timestamp scalar, else None."""
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, str):
-        # Years and amounts often arrive as text; their distance is numeric.
-        return _text_number(value)
-    if isinstance(value, numbers.Real):
-        number = float(value)
-        return number if math.isfinite(number) else None
-    # pandas Timestamps are datetimes; pandas itself is loaded only by execution.
-    if isinstance(value, datetime.datetime) or type(value).__name__ == "datetime64":
-        try:
-            stamp = pd.Timestamp(value)
-        except (TypeError, ValueError):
-            return None
-        return None if pd.isna(stamp) else float(stamp.value)
-    return None
+def _loose(value):
+    """The words of a text value with case, accents, punctuation, spacing and leading zeros ignored.
 
-
-def _near_order(dropped, kept):
-    """Order distinct dropped values, the ones closest to the kept values first.
-
-    Numbers, numeric text and timestamps outside the kept range score their
-    distance from it: a year filter's nearest rejections are the years beside
-    it. Inside the range a value was dropped for another reason and stays
-    unscored. Other text scores the tokens it shares with the kept values, each
-    weighted by how much more often it occurs among the kept values than among
-    the dropped ones (a smoothed log ratio, positive weights only) times the
-    share of kept values that contain it, scaled by how
-    close its token count is to a typical kept value's, so a header row or a
-    footnote that repeats one kept word does not lead: when the kept names end
-    in ", MA" or ", NH", "Boston-Cambridge-Newton, MA-NH" comes before the
-    hundreds of other dropped names. Text scoring under a quarter of a typical
-    kept value's own score is no near miss. Unscored values follow in
-    first-seen order. Returns the index order and whether any value scored.
+    Two values with the same loose words differ only in how they are written:
+    "YES" and "yes", "Las Vegas, Nv" and "Las Vegas, NV", "040517" and "40517".
     """
-    keys = [None] * len(dropped)
-    kept_numbers = [number for number in map(_near_number, kept) if number is not None]
-    if kept_numbers:
-        low, high = min(kept_numbers), max(kept_numbers)
-        for i, value in enumerate(dropped):
-            number = _near_number(value)
-            if number is not None and (number < low or number > high):
-                keys[i] = max(low - number, number - high)
+    import unicodedata
 
-    def words(value):
-        if isinstance(value, str) and _text_number(value) is None:
-            return set(_NEAR_TOKEN.findall(value.casefold()))
-        return set()
+    if not isinstance(value, str):
+        return ()
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").casefold()
+    return tuple(word.lstrip("0") or "0" if word.isdigit() else word for word in re.findall(r"[a-z0-9]+", folded))
 
-    kept_tokens = [found for found in map(words, kept) if found]
-    if kept_tokens:
-        tokens = [words(value) for value in dropped]
-        kept_counts = Counter(token for found in kept_tokens for token in found)
-        dropped_counts = Counter(token for found in tokens for token in found)
-        kept_total = len(kept_tokens) + 1
-        dropped_total = sum(bool(found) for found in tokens) + 1
-        typical = sorted(len(found) for found in kept_tokens)[len(kept_tokens) // 2]
-        weights = {}
-        for token, count in kept_counts.items():
-            weight = math.log((count + 0.5) / kept_total) - math.log((dropped_counts[token] + 0.5) / dropped_total)
-            # A word most kept values share is a pattern (", MA"); a word only one
-            # kept name has ("Auburn") is that name's identity, not a pattern.
-            if weight > 0:
-                weights[token] = weight * count / len(kept_tokens)
 
-        def score(found, pattern_only=False):
-            total = sum(weights.get(token, 0.0) for token in found
-                        if not (pattern_only and kept_counts[token] < 2))
-            return total * min(len(found), typical) / max(len(found), typical) if found else 0.0
+def _contains_words(words, part):
+    """Whether `part` occurs in `words` as a run, with at most two other words around it."""
+    n = len(part)
+    return 0 < n < len(words) <= n + 2 and any(words[i:i + n] == part for i in range(len(words) - n + 1))
 
-        # A near miss looks at least a quarter as much like the kept values as a
-        # typical kept value looks like the others (on the words two or more of
-        # them share); weaker lookalikes stay unscored. Kept values that share
-        # no word set no floor: any shared word (a padded code) then counts.
-        own = sorted(score(found, pattern_only=True) for found in kept_tokens)
-        floor = own[len(own) // 2] / 4
-        for i, found in enumerate(tokens):
-            similarity = score(found)
-            if similarity > 0 and similarity >= floor:
-                keys[i] = -similarity
-    order = sorted(range(len(dropped)), key=lambda i: (keys[i] is None, keys[i] or 0.0, i))
-    return order, any(key is not None for key in keys)
+
+def _condition_literals(spec):
+    """Text literals a filter's condition compares values with, read from its own source.
+
+    Literals under == or in (and str methods like startswith) are what the condition
+    looks for; literals under != or not in are what it excludes. A registered
+    predicate's settings count as literals it looks for.
+    """
+    props = spec["properties"]
+    registration = props.get("registered") or {}
+    sources, looked_for, excluded = [], [], []
+    if "lambda" in registration:
+        sources.append(registration["lambda"])
+        reached = set(registration.get("names") or [])
+    else:
+        reached = {registration["entry"]} if "entry" in registration else set()
+        for value in (registration.get("settings") or {}).values():
+            for item in value if isinstance(value, (list, tuple)) else [value]:
+                if isinstance(item, str):
+                    looked_for.append(item)
+    if isinstance(props.get("func"), str):
+        sources.append(props["func"])
+    for cell in registration.get("cells") or []:
+        try:
+            tree = ast.parse(cell)
+        except SyntaxError:
+            continue
+        sources.extend(ast.get_source_segment(cell, node) for node in tree.body
+                       if isinstance(node, ast.FunctionDef) and node.name in reached)
+
+    def texts(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            yield node.value
+        elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            for item in node.elts:
+                yield from texts(item)
+
+    for source in filter(None, sources):
+        try:
+            tree = ast.parse(source.strip(), mode="eval" if source.lstrip().startswith("lambda") else "exec")
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Compare):
+                operands = [node.left, *node.comparators]
+                for op, left, right in zip(node.ops, operands, operands[1:]):
+                    found = [*texts(left), *texts(right)]
+                    (excluded if isinstance(op, (ast.NotEq, ast.NotIn)) else looked_for if isinstance(op, (ast.Eq, ast.In)) else []).extend(found)
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in (
+                    "startswith", "endswith", "contains", "isin", "match", "fullmatch", "search"):
+                for argument in node.args:
+                    looked_for.extend(texts(argument))
+    return list(dict.fromkeys(looked_for)), list(dict.fromkeys(excluded))
+
+
+def _near_misses(rejected, kept, literals):
+    """Rejected text values that match a literal or a kept value only loosely.
+
+    `rejected` maps each distinct rejected value to its row count. A value whose
+    loose words equal a literal's or a kept value's (but that is not itself kept)
+    was written differently from what the condition looks for; so is one that
+    holds a literal's words with at most two more ("the United Kingdom").
+    Returns [{"value", "rows", "counterpart", "how"}], most rows first.
+    """
+    kept_set = {value for value in kept if isinstance(value, str)}
+    by_words = {}
+    for value in kept_set:
+        by_words.setdefault(_loose(value), value)
+    literal_words = [(literal, _loose(literal)) for literal in literals if _loose(literal)]
+    exact = {words: literal for literal, words in literal_words}
+    # Containment needs a literal long enough to name something ("United Kingdom", not "no").
+    literal_words = [(literal, words) for literal, words in literal_words if sum(map(len, words)) >= 4]
+    found = []
+    for value, rows in rejected.items():
+        if not isinstance(value, str) or value in kept_set or value in exact.values():
+            continue
+        words = _loose(value)
+        if not words or _text_number(value) is not None:
+            continue
+        if words in exact:
+            found.append({"value": value, "rows": rows, "counterpart": exact[words], "how": "literal"})
+        elif words in by_words:
+            found.append({"value": value, "rows": rows, "counterpart": by_words[words], "how": "kept"})
+        else:
+            literal = next((literal for literal, part in literal_words if _contains_words(words, part)), None)
+            if literal is not None:
+                found.append({"value": value, "rows": rows, "counterpart": literal, "how": "contains"})
+    # Like witnesses, a long value is clipped for display and says so.
+    for item in found:
+        for key in ("value", "counterpart"):
+            if len(item[key]) > _WITNESS_VALUE_CHARS:
+                item[key], item[f"{key}Clipped"] = item[key][:_WITNESS_VALUE_CHARS], True
+    return sorted(found, key=lambda item: -item["rows"])
 
 
 def _groups(frame, columns):
@@ -972,6 +999,37 @@ def _join_keys(spec):
     return left, right
 
 
+def _join_flow(counts, common, facts):
+    """Left keys that match a right key only when loosened; a join that matched nothing.
+
+    "Las Vegas, Nv" and "Las Vegas, NV" are one place written two ways; a key
+    pair like that is listed with both spellings so the fix is visible.
+    """
+    right_by_words = {}
+    # Pairing reads every distinct key once; past the bound only the no-match fact is measured.
+    pairable = len(counts[0]) <= _NEAR_LIMIT and len(counts[1]) <= _NEAR_LIMIT
+    for key in counts[1] if pairable else ():
+        words = tuple(_loose(value) if isinstance(value, str) else (str(value),) for value in key)
+        if any(isinstance(value, str) for value in key):
+            right_by_words.setdefault(words, key)
+    pairs, keys, rows = [], 0, 0
+    for key, occurrences in counts[0].items() if pairable else ():
+        if key in common or not any(isinstance(value, str) for value in key):
+            continue
+        partner = right_by_words.get(tuple(_loose(value) if isinstance(value, str) else (str(value),) for value in key))
+        if partner is None:
+            continue
+        keys, rows = keys + 1, rows + occurrences
+        if len(pairs) < _NEAR_EXAMPLES:
+            left, right = _witness(key, occurrences), _witness(partner, counts[1][partner])
+            if left is not None and right is not None:
+                pairs.append({"left": left, "right": right})
+    if pairs:
+        facts["nearMisses"] = {"keys": keys, "rows": rows, "pairs": pairs}
+    if not common and counts[0] and counts[1]:
+        facts["noMatch"] = {"left": _witness(next(iter(counts[0])), 1), "right": _witness(next(iter(counts[1])), 1)}
+
+
 def _join(spec, left, right, operations):
     props = spec["properties"]
     kind, equal = props.get("type", "inner"), props.get("nullsEqual", False)
@@ -1084,24 +1142,10 @@ def _join(spec, left, right, operations):
                 "unmatchedKeys": len(counts[i]) - len(common),
                 "maxMultiplicity": max(counts[i].values(), default=0),
             }
-            if spec.get("profileCollection") is True:
-                unmatched, duplicates = [], []
-                for key, occurrences in counts[i].items():
-                    wants_unmatched = key not in common and len(unmatched) < _WITNESS_LIMIT
-                    wants_duplicate = occurrences > 1 and len(duplicates) < _WITNESS_LIMIT
-                    if wants_unmatched or wants_duplicate:
-                        example = _witness(key, occurrences)
-                        if example is not None:
-                            if wants_unmatched:
-                                unmatched.append(example)
-                            if wants_duplicate:
-                                duplicates.append(example)
-                    if len(unmatched) == len(duplicates) == _WITNESS_LIMIT:
-                        break
-                facts[port]["unmatchedExamples"] = unmatched
-                facts[port]["duplicateExamples"] = duplicates
         if renamed:
             facts["renamedRight"] = renamed
+        if spec.get("profileCollection") is True and kind not in ("semi", "anti"):
+            _join_flow(counts, common, facts)
         operations["join"] = facts
 
     def take(frame, column, port):
@@ -2038,43 +2082,51 @@ def _registered_failure(spec, error):
     return _error(spec, "CALLBACK_RUNTIME", f"{type(error).__name__}: {error}{hint}", field="python", source=location)
 
 
-def _filter_rejected_values(source, positions, kept, reads):
-    """Count rejected values by their original scalar identities; show the nearest.
+def _filter_flow(spec, source, mask, blame, operations):
+    """What a filter's rejections say about its condition, measured on every row.
 
-    Values come from every rejected row, including null verdicts. Each column
-    counts its first 50,000 distinct rejected values exactly and shows three of
-    them: the ones nearest the column's kept values (`_near_order`), else the
-    first seen. A column need only have been read on one row; these are
-    distributions, not explanations.
+    Each rejected row is blamed on the column its condition read last: in
+    `a and b` that is the part that failed. Per blamed text column, rejected
+    values that match a literal of the condition or a kept value only loosely are
+    near misses. When nothing passed a condition that looks for literals, the
+    values it saw instead are the evidence.
     """
-    columns = {}
-    for name in sorted(reads)[:_WITNESS_WIDTH]:
-        counted = {}
-        for raw in source[name].iloc[positions]:
+    looked_for, _ = _condition_literals(spec)
+    rejected_at = [i for i, keep in enumerate(mask) if not keep]
+    kept_at = [i for i, keep in enumerate(mask) if keep]
+    by_column = {}
+    for position, column in zip(rejected_at, blame):
+        if column is not None:
+            by_column.setdefault(column, []).append(position)
+    near = []
+    for column, positions in sorted(by_column.items(), key=lambda item: -len(item[1]))[:_WITNESS_WIDTH]:
+        counts = Counter()
+        for raw in source[column].iloc[positions]:
             value = _scalar(raw)
-            key = (type(value), value)
-            if key in counted:
-                counted[key][1] += 1
-            elif len(counted) < _NEAR_LIMIT:
-                counted[key] = [value, 1]
-        distinct = list(counted.values())
-        reference = []
-        for raw in (pd.unique(source[name].iloc[kept]) if kept else []):
-            reference.append(_scalar(raw))
-            if len(reference) == _NEAR_LIMIT:
-                break
-        order, nearest = _near_order([value for value, _ in distinct], reference)
-        examples = []
-        for i in order:
-            example = _witness([distinct[i][0]], distinct[i][1])
-            if example is not None:
-                examples.append(example)
-                if len(examples) == _WITNESS_LIMIT:
-                    break
-        columns[name] = {"examples": examples,
-                         "otherCount": len(positions) - sum(item["count"] for item in examples),
-                         "order": "nearest" if nearest else "first"}
-    return {"rejectedRows": len(positions), "columnsObserved": len(reads), "columns": columns}
+            if isinstance(value, str) and (value in counts or len(counts) < _NEAR_LIMIT):
+                counts[value] += 1
+        kept = list(pd.unique(source[column].iloc[kept_at]))[:_NEAR_LIMIT] if kept_at else []
+        misses = _near_misses(counts, [_scalar(value) for value in kept], looked_for)
+        if misses:
+            near.append({"column": column, "rows": sum(item["rows"] for item in misses),
+                         "values": misses[:_NEAR_EXAMPLES]})
+    if near:
+        operations["filterNearMisses"] = near
+    if not kept_at and rejected_at and looked_for:
+        column = Counter(blame).most_common(1)[0][0]
+        seen = []
+        if column is not None:
+            counts, order = Counter(), []
+            for raw in source[column].iloc[rejected_at]:
+                value = _scalar(raw)
+                if (type(value), value) not in counts:
+                    order.append(value)
+                counts[(type(value), value)] += 1
+            for value in order[:_NEAR_EXAMPLES]:
+                example = _witness([value], counts[(type(value), value)])
+                if example is not None:
+                    seen.append(example)
+        operations["filterNoMatch"] = {"column": column, "literals": looked_for[:_NEAR_EXAMPLES], "seen": seen}
 
 
 def _filter(spec, source, operations):
@@ -2082,7 +2134,7 @@ def _filter(spec, source, operations):
     entry = props.get("entry", "apply")
     registered = "registered" in props
     function = registered_callable(spec) if registered else _function(spec, props["func"], "func", entry)
-    mask, missing = [], 0
+    mask, missing, blame = [], 0, []
     reads = set()
     # Mapping copies/iteration can feed a predicate. Unlike Map's pass-through
     # row-copy heuristic, every value fetched here is an observed read.
@@ -2109,6 +2161,8 @@ def _filter(spec, source, operations):
                 source=None if registered else _location(props["func"], entry, 1),
             )
         mask.append(value)
+        if not value:
+            blame.append(row._last)
     operations.update(
         {
             "keptRows": sum(mask),
@@ -2119,9 +2173,8 @@ def _filter(spec, source, operations):
     )
     if spec.get("profileCollection") is True:
         started = time.perf_counter()
-        operations["filterRejectedValues"] = _filter_rejected_values(
-            source, [i for i, keep in enumerate(mask) if not keep], [i for i, keep in enumerate(mask) if keep], reads)
-        operations["timing"] = {"filterRejectedValuesMs": (time.perf_counter() - started) * 1000}
+        _filter_flow(spec, source, mask, blame, operations)
+        operations["timing"] = {"filterFlowMs": (time.perf_counter() - started) * 1000}
     return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
 
 
@@ -2523,12 +2576,16 @@ def _key_dependencies(frame, keys, reduced):
         # Mostly determined (at least 4 in 5 multi-row groups single-valued), not always.
         if not len(split) or single < 4 * len(split) or single + len(split) < 5:
             continue
+        # A column with few values (an outcome such as Violation or Organism) varies
+        # inside groups by nature; one that names entities has a value for many groups.
+        if frame[column].nunique(dropna=True) * 10 < groups:
+            continue
         key = split.index[0]
         key = key if isinstance(key, tuple) else (key,)
         mask = np.ones(len(frame), dtype=bool)
         for name, value in zip(keys, key):
             column_values = frame[name]
-            mask &= (column_values.isna() if _missing(value) else column_values == value).to_numpy(dtype=bool)
+            mask &= (column_values.isna() if _missing(value) else column_values == value).to_numpy(dtype=bool, na_value=False)
         values = [str(v) for v in pd.unique(frame.loc[mask, column].dropna())[:3]]
         found.append(
             {
@@ -2538,8 +2595,9 @@ def _key_dependencies(frame, keys, reduced):
                 "example": {"key": [None if _missing(v) else str(v) for v in key], "values": values},
             }
         )
-    found.sort(key=lambda item: -item["split"])
-    return found[:3] or None
+    # One line per aggregate: the most splits, names before codes.
+    found.sort(key=lambda item: (-item["split"], all(_text_number(v) is not None for v in item["example"]["values"])))
+    return found[:1] or None
 
 
 class _ProcessTrace:
@@ -2729,77 +2787,6 @@ class _ProcessTrace:
 _DROP_ROW_LIMIT = 2_000_000
 _DROP_DISTINCT_LIMIT = 50_000
 _DROP_CELL_BUDGET = 10_000_000
-_DROP_ENTRIES = 3
-_DROP_EXAMPLES = 5
-
-
-def _dropped_values(inputs, output):
-    """Input values a Python step did not carry into a text output column.
-
-    Python steps are opaque, so an output column is matched to the input
-    column it came from: one with the same name, else one holding at least
-    90% of its distinct values. The input's other values were dropped (a rank
-    filter that loses unranked "District of Columbia"). Bounded: inputs over
-    2M rows and columns over 50k distinct values are skipped, and at most
-    10M input cells are read in all.
-    """
-    if not len(output) or any(len(frame) > _DROP_ROW_LIMIT for frame in inputs):
-        return []
-    distinct, budget = {}, [_DROP_CELL_BUDGET]
-
-    def values(frame, name):
-        key = (id(frame), name)
-        if key not in distinct:
-            if frame is not output:
-                if budget[0] < len(frame):
-                    return None
-                budget[0] -= len(frame)
-            column = frame[name]
-            present = column.dropna()
-            distinct[key] = (
-                list(pd.unique(present))
-                if _dtype(column) == "str" and present.nunique() <= _DROP_DISTINCT_LIMIT
-                else None
-            )
-        return distinct[key]
-
-    entries, matched = [], set()
-    for name in output.columns:
-        kept = values(output, name)
-        if not kept:
-            continue
-        kept_set = set(kept)
-        candidates = [
-            (index, column)
-            for index, frame in enumerate(inputs)
-            for column in sorted(frame.columns, key=lambda column: column != name)
-        ]
-        for index, column in candidates:
-            source = values(inputs[index], column)
-            if not source or (index, column) in matched:
-                continue
-            present = set(source)
-            if sum(value in present for value in kept_set) * 10 < len(kept_set) * 9:
-                continue
-            missing = [value for value in source if value not in kept_set]
-            if missing:
-                matched.add((index, column))
-                # The values most like the kept ones first: they are the likely
-                # mistakes among drops the step meant to make.
-                order, nearest = _near_order(missing[:_NEAR_LIMIT], kept[:_NEAR_LIMIT])
-                entries.append({
-                    "input": index,
-                    "inputColumn": column,
-                    "outputColumn": name,
-                    "missing": [_scalar(missing[i]) for i in order[:_DROP_EXAMPLES]],
-                    "missingCount": len(missing),
-                    "inputDistinct": len(source),
-                    "order": "nearest" if nearest else "first",
-                })
-            break
-        if len(entries) == _DROP_ENTRIES:
-            break
-    return entries
 
 
 _REPEAT_MIN_ROWS = 10
@@ -2818,7 +2805,8 @@ def _repeated_values(inputs, output):
     the input column the output came from (the same name, else one holding at
     least 90% of its distinct values) is reported with how many of the repeated
     values it repeats too: the step either created the repeats or carried them.
-    Bounded like `_dropped_values`.
+    Bounded: inputs over 2M rows and columns over 50k distinct values are
+    skipped, and at most 10M input cells are read in all.
     """
     if len(output) < _REPEAT_MIN_ROWS or any(len(frame) > _DROP_ROW_LIMIT for frame in [output, *inputs]):
         return []
@@ -2967,6 +2955,12 @@ def execute_native(spec, inputs):
         )
         if dependencies:
             operations["keyDependencies"] = dependencies
+        # Rows a sum, count or mean reads twice change its result; min, max and first do not.
+        if spec.get("profileCollection") is True and any(
+                item.get("fn") in ("count", "sum", "mean", "median", "stddev") for item in props["aggregations"]):
+            repeated = _repeated_values([], source)
+            if repeated:
+                operations["repeatedInput"] = repeated
     elif kind == "Join":
         output = _join(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
@@ -3031,9 +3025,6 @@ def execute_native(spec, inputs):
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
     if kind == "Process" and spec.get("profileCollection") is True:
-        dropped = _dropped_values(inputs, output)
-        if dropped:
-            operations["droppedValues"] = dropped
         repeated = _repeated_values(inputs, output)
         if repeated:
             operations["repeatedValues"] = repeated
@@ -3043,7 +3034,7 @@ def execute_native(spec, inputs):
         # value includes input/output validation, table profiling or transport.
         timing = operations.setdefault("timing", {})
         timing["operatorBodyMs"] = max(0.0, (time.perf_counter() - body_started) * 1000
-                                       - timing.get("filterRejectedValuesMs", 0.0))
+                                       - timing.get("filterFlowMs", 0.0))
         for key, value in timing.items():
             timing[key] = round(value, 3)
     _frame(spec, output)
