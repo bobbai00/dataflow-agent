@@ -27,6 +27,7 @@ def current_price_schedule(model):
         "gpt-5.6-terra": ((2, 12, .2, 2.5), "https://developers.openai.com/api/docs/models/gpt-5.6-terra", "2026-10-12"),
         "gpt-5.6-sol": ((4, 20, .4, 5), "https://developers.openai.com/api/docs/models/gpt-5.6-sol", "2026-10-12"),
         "claude-opus-4.8": ((5, 25, .5, 6.25), "https://platform.claude.com/docs/en/models/opus-4-8/overview", "2026-10-08"),
+        "claude-opus-5.5": ((4, 20, .2, 5), "https://platform.claude.com/docs/en/models/opus-5-5/overview", "2026-10-12"),
         # OpenRouter models: the rates the routes' pinned providers billed (Parasail for Qwen, DeepInfra for
         # DeepSeek), not OpenRouter's listing, which was 1.2-2.9x higher per rate. Neither bills cache writes.
         "qwen3.8-27b": ((.24, 2.2, .05, None), openrouter + " (Parasail)", "2026-10-12"),
