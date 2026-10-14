@@ -161,3 +161,33 @@ def process(frame):
     deduped = runtime.execute_native(spec("Process", code=code_dedupe, entry="process"), [frame])
     event = operations(deduped)["process"]["events"][0]
     assert (event["op"], event["issue"], event["differ"]) == ("dedupe", "differs", 1)
+
+
+def test_a_dedupe_on_a_few_valued_column_lists_values_and_is_not_reported():
+    frame = pd.DataFrame({"verified": ["Y", "N", "Y", "N", "Y"], "name": ["a", "b", "c", "d", "e"], "elev": [1, 2, 3, 4, 5]})
+    result = runtime.execute_native(spec("Distinct", columns=["verified"], keep="first"), [frame])
+    assert "dedupeDifferences" not in operations(result)
+
+
+def test_repeated_header_columns_are_found_in_the_last_of_many_files(tmp_path):
+    folder = tmp_path / "sheets"
+    folder.mkdir()
+    for i in range(7):  # sheets with three stations each, read in full
+        (folder / f"b{i}.csv").write_text("Date,Rain,Tag,Enterococcus,Tag,Enterococcus,Tag,Enterococcus\n2024-09-01,0,<,10,<,20,<,30\n")
+    (folder / "z_last.csv").write_text("Date,Rain,Tag,Enterococcus,Tag,Enterococcus,Tag,Enterococcus,Tag,Enterococcus\n"
+                                        "2024-09-01,0,<,10,<,20,<,30,<,40\n")
+    code = f'''
+def load():
+    import glob
+    import pandas as pd
+    values = []
+    for path in sorted(glob.glob({str(folder / "*.csv")!r})):
+        sheet = pd.read_csv(path, header=None, dtype=str)
+        for _, row in sheet.iterrows():
+            for column in [3, 5, 7]:
+                values.append(row.iloc[column])
+    return pd.DataFrame({{"v": values}})
+'''
+    result = runtime.execute_native(spec("Process", inputs=(), code=code, entry="load"), [])
+    events = [e for e in operations(result)["process"]["events"] if e["issue"] == "unread twins"]
+    assert [(e["file"], e["label"], e["unread"]) for e in events] == [("z_last.csv", "Enterococcus", [9])]

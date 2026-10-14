@@ -2742,6 +2742,13 @@ def _dedupe_differences(frame, columns, keep):
     if keep is False or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
         return None
     columns = [c for c in columns if c in frame.columns]
+    if not columns:
+        return None
+    # A dedupe on a key with few values (a yes/no flag, a category) lists those values; only a key that
+    # mostly identifies rows (at least half as many values as rows) is a record identifier.
+    keyed_rows = frame[columns].dropna()
+    if len(keyed_rows) and len(keyed_rows.drop_duplicates()) * 2 < len(keyed_rows):
+        return None
     # A label shared by many rows (the state or file a row came from) may differ between copies of
     # one record; the record's own attributes (a station's name and elevation) may not.
     others = [c for c in frame.columns if c not in columns
@@ -2981,17 +2988,20 @@ class _ProcessTrace:
                 if copies:
                     self._append("events", {"op": "read", "issue": "copies",
                                             **{k: v for k, v in copies.items() if k != "exampleSources"}})
+        found = []
         for twin in self.twins:
             used = self.names_read if "columns" in twin else self.positions_read
             members = twin.get("columns") or twin.get("positions")
             read = [m for m in members if m in used]
             unread = [m for m in members if m not in used]
             if read and unread:
-                self._append("events", {"op": "read", "issue": "unread twins", **twin, "read": read, "unread": unread})
+                found.append({"op": "read", "issue": "unread twins", **twin, "read": read, "unread": unread})
+        for event in sorted(found, key=lambda e: -len(e["unread"]))[:4]:
+            self._append("events", event)
 
     def _twins(self, file, frame):
         """Header labels a file repeats over several columns (four 'Enterococcus' stations)."""
-        if len(self.twins) >= 4 or not len(frame.columns):
+        if len(self.twins) >= 64 or not len(frame.columns):
             return
         names = [c for c in frame.columns if isinstance(c, str)]
         if len(names) == len(frame.columns):
@@ -3009,7 +3019,7 @@ class _ProcessTrace:
                 if text and _text_number(text) is None:
                     labels.setdefault(text, []).append(position)
             repeated = [(label, at) for label, at in labels.items() if len(at) > 1]
-            for label, at in repeated[:4]:
+            for label, at in repeated[:8]:
                 self.twins.append({"file": file, "label": label, "positions": at})
             if repeated:
                 return
