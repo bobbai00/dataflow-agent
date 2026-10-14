@@ -594,7 +594,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       const none = record(operations.filterNoMatch);
       const literals = names(none.literals);
       const seen = witnesses(none.seen, 1, rejectedRows);
-      if (out === 0 && rejectedRows > 0 && typeof none.column === "string" && literals.length && seen.length)
+      // A near miss on the same column already names the value and its literal.
+      const named = facts.some(f => f.id.startsWith(`flow.filter.near.${none.column}.`));
+      if (out === 0 && rejectedRows > 0 && typeof none.column === "string" && literals.length && seen.length && !named)
         add(
           "flow.filter.none",
           "flow",

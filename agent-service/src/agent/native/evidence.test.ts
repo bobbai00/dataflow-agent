@@ -1511,6 +1511,12 @@ test("filter near misses and no-match lines are validated against the filter's c
     },
   });
   expect(factText(f)).toContain('no row passed the condition\'s test for "07"; "x" values that reached it: "8/25/2002" × 4.');
+  // A near miss on the same column says it more precisely: one line, not two.
+  (f.info.tableProfile!.native!.operations as Record<string, unknown>).filterNearMisses = [
+    { column: "x", rows: 4, values: [{ value: "8/25/2002", rows: 4, counterpart: "08/25/2002", how: "literal" }] },
+  ];
+  expect(factText(f)).not.toContain("no row passed");
+  expect(factText(f)).toContain('equal its literal "08/25/2002"');
   // Stable's rejected-value lists are no longer flow lines.
   (f.info.tableProfile!.native!.operations as Record<string, unknown>).filterRejectedValues = {
     rejectedRows: 5,
