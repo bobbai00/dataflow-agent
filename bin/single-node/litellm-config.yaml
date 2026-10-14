@@ -111,6 +111,19 @@ model_list:
           index: -1
 
   # ── OpenAI ───────────────────────────────────────────────────────────────
+  # Gemini 3.8 Flash: temperature stays at the provider default (lower values
+  # can loop on Gemini 3), and the system prompt is cached explicitly, since
+  # implicit caching missed prompts under ~22k tokens. bin/strict_tools.py
+  # adapts tool schemas and drops tool_choice "auto", which a cached request
+  # may not set.
+  - model_name: gemini-3.8-flash
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature"]
+      cache_control_injection_points:
+        - location: message
+          role: system
   - model_name: gpt-5.2
     litellm_params:
       model: openai/gpt-5.2

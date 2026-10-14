@@ -34,6 +34,9 @@ def current_price_schedule(model):
         "qwen3.8-27b-nothink": ((.24, 2.2, .05, None), openrouter + " (Parasail)", "2026-10-12"),
         "deepseek-v4.1-flash": ((.14, .42, .0042, None), openrouter + " (DeepInfra)", "2026-10-12"),
         "claude-haiku-5.5": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-08"),
+        # Standard paid tier through 2026-12-31 (output includes thinking); explicit cache storage is billed per
+        # token-hour on top and is not counted here.
+        "gemini-3.8-flash": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-02"),
     }
     if model not in providers:
         return None

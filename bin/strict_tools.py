@@ -11,11 +11,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Preserve strict Anthropic tools through LiteLLM's OpenAI-compatible route.
+"""Adapt tool schemas to provider limits on LiteLLM's OpenAI-compatible route.
 
 LiteLLM 1.83.10 drops function.strict when building an Anthropic tool. Native
 input_schema tools bypass that mapper. Adapt only explicitly strict tools on
-our configured supported Claude aliases; leave other routes unchanged.
+our configured supported Claude aliases.
+
+Gemini forced function calling (tool_choice required, mode ANY) rejects a
+bounded array nested in a bounded array's items with INVALID_ARGUMENT, even
+for maxItems 8; automatic calls accept it. Move maxItems out of every Gemini
+tool schema. LiteLLM's Gemini mapper also drops const, which leaves anyOf
+variants without their discriminator; a one-value string enum survives it.
+A request served from an explicit Gemini cache may not set tool_config, so
+tool_choice "auto", the Gemini default, is removed. Other routes are unchanged.
 
 The provider schema retains types, discriminators and required properties.
 Unsupported cardinality/range constraints move into descriptions, following
@@ -41,32 +49,65 @@ UNSUPPORTED_CONSTRAINTS = {
 }
 
 
-def provider_schema(schema):
+GEMINI_UNSUPPORTED_CONSTRAINTS = {"maxItems"}
+
+
+def anthropic_unsupported(key, value):
+    return key in UNSUPPORTED_CONSTRAINTS or (key == "minItems" and value not in (0, 1))
+
+
+def gemini_unsupported(key, value):
+    return key in GEMINI_UNSUPPORTED_CONSTRAINTS
+
+
+def provider_schema(schema, unsupported=anthropic_unsupported, const_enum=False):
     """Copy schema nodes, without interpreting literal values as schemas."""
     result = copy.deepcopy(schema)
+    if const_enum and isinstance(result.get("const"), str) and "enum" not in result:
+        result["enum"] = [result.pop("const")]
     constraints = {}
     for key in list(result):
-        if key in UNSUPPORTED_CONSTRAINTS or (key == "minItems" and result[key] not in (0, 1)):
+        if unsupported(key, result[key]):
             constraints[key] = result.pop(key)
     if constraints:
         note = "{" + ", ".join(f"{key}: {json.dumps(value)}" for key, value in constraints.items()) + "}"
         result["description"] = (result.get("description", "") + "\n\n" + note).strip()
     for key in ("properties", "$defs", "definitions"):
         if key in result:
-            result[key] = {name: provider_schema(value) for name, value in result[key].items()}
+            result[key] = {name: provider_schema(value, unsupported, const_enum)
+                for name, value in result[key].items()}
     for key in ("items", "not", "if", "then", "else"):
         if isinstance(result.get(key), dict):
-            result[key] = provider_schema(result[key])
+            result[key] = provider_schema(result[key], unsupported, const_enum)
     for key in ("anyOf", "allOf", "oneOf", "prefixItems"):
         if key in result:
-            result[key] = [provider_schema(value) for value in result[key]]
+            result[key] = [provider_schema(value, unsupported, const_enum) for value in result[key]]
     return result
 
 
-class StrictAnthropicTools(CustomLogger):
+def gemini_tools(tools):
+    result = []
+    for tool in tools:
+        function = tool.get("function") if tool.get("type") == "function" else None
+        if isinstance(function, dict) and isinstance(function.get("parameters"), dict):
+            parameters = provider_schema(function["parameters"], gemini_unsupported, const_enum=True)
+            function = {**function, "parameters": parameters}
+            tool = {**tool, "function": function}
+        result.append(tool)
+    return result
+
+
+class ProviderToolSchemas(CustomLogger):
     async def async_pre_call_hook(self, user_api_key_dict, cache, data, call_type):
         model = str(data.get("model", "")).removeprefix("anthropic/")
-        if model not in STRICT_MODELS or not isinstance(data.get("tools"), list):
+        if not isinstance(data.get("tools"), list):
+            return data
+        if model.removeprefix("gemini/").startswith("gemini-"):
+            result = {**data, "tools": gemini_tools(data["tools"])}
+            if result.get("tool_choice") == "auto":
+                del result["tool_choice"]
+            return result
+        if model not in STRICT_MODELS:
             return data
         result = dict(data)
         tools = []
@@ -86,4 +127,4 @@ class StrictAnthropicTools(CustomLogger):
         return result
 
 
-hook = StrictAnthropicTools()
+hook = ProviderToolSchemas()
