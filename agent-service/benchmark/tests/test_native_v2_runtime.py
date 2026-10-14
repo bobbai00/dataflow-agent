@@ -383,6 +383,39 @@ def test_filter_names_a_rejected_value_that_holds_a_literal_of_the_condition():
         {"value": "the United Kingdom", "rows": 2, "counterpart": "United Kingdom", "how": "contains"}]}]
 
 
+def test_a_value_that_holds_a_literal_among_other_words_is_another_value():
+    # BIRD 758 and 817: "Human-Vulcan" and "Black/Blue" are another race and another colour, not "Human" and "Blue".
+    heroes = pd.DataFrame({"race": ["Human"] * 3 + ["Human-Vulcan", "Human / Radiation", "Mutant"],
+                           "colour": ["Blue", "Black/Blue", "Blue/White", "Green", "Blue", "Red"]}).astype("string")
+    assert "filterNearMisses" not in flow("Filter", [heroes], func="def apply(row):\n    return row['race'] == 'Human'")
+    assert "filterNearMisses" not in flow("Filter", [heroes], func="def apply(row):\n    return row['colour'] == 'Blue'")
+    # BIRD 593: "New York, NY" may not be the "New York" the condition means; "New-York" is.
+    users = pd.DataFrame({"Location": ["New York", "New-York", "New York, NY", "New York City", "Boston"]}).astype("string")
+    misses = flow("Filter", [users], func="def apply(row):\n    return row['Location'] == 'New York'")["filterNearMisses"]
+    assert [v["value"] for v in misses[0]["values"]] == ["New-York"]
+    # BIRD 563: a zero part after the words is how the value is written, as an article before them is.
+    posts = pd.DataFrame({"CreationDate": ["2014-04-23 20:29:39.0", "2014-04-24 08:00:00.0"]}).astype("string")
+    misses = flow("Filter", [posts], func="def apply(row):\n    return row['CreationDate'] == '2014/4/23 20:29:39'")["filterNearMisses"]
+    assert [(v["value"], v["how"]) for v in misses[0]["values"]] == [("2014-04-23 20:29:39.0", "contains")]
+
+
+def test_punctuation_around_a_value_is_part_of_it():
+    # legal-hard-2: a condition that keeps "<td" lines rejects "</td>", another tag, not "<td" written differently.
+    lines = pd.DataFrame({"line": ["<td>Boston</td>", "</td>", "<th>", "</th>", "</table>", "</tbody></table></div>"]}).astype("string")
+    for condition in ("row['line'].strip().startswith('<td')", "'<table' in row['line']", "row['line'] == '<th'"):
+        assert "filterNearMisses" not in flow("Filter", [lines], func=f"def apply(row):\n    return {condition}")
+    grades = pd.DataFrame({"grade": ["A+", "A+", "A-", "A", "B+"]}).astype("string")
+    assert "filterNearMisses" not in flow("Filter", [grades], func="def apply(row):\n    return row['grade'] == 'A+'")
+    # A stray comma or footnote mark after the words is still the same value written differently.
+    towns = pd.DataFrame({"town": ["Aberdeen", "Aberdeen,", "Aberdeen*", "Leeds"]}).astype("string")
+    misses = flow("Filter", [towns], func="def apply(row):\n    return row['town'] == 'Aberdeen'")["filterNearMisses"]
+    assert sorted(v["value"] for v in misses[0]["values"]) == ["Aberdeen*", "Aberdeen,"]
+    # PrepBench case 297: so are brackets; a probe for ':' weeks keeps "Week 13: Final" and rejects "Week 13  (Final)".
+    weeks = pd.DataFrame({"Week": ["Week 13: Final", "Week 13  (Final)", "Week 13  (Final)", "Week 2"]}).astype("string")
+    misses = flow("Filter", [weeks], func="def apply(row):\n    return ':' in row['Week']")["filterNearMisses"]
+    assert misses[0]["values"] == [{"value": "Week 13  (Final)", "rows": 2, "counterpart": "Week 13: Final", "how": "kept"}]
+
+
 def test_a_filter_that_found_none_of_its_literals_shows_the_values_it_saw():
     # wildfire-easy-15: months are not zero-padded, so no date splits to '07'.
     fires = pd.DataFrame({"start_date": ["9/22/2002", "10/21/2002", "8/25/2002", "7/4/2003", None]}).astype("string")

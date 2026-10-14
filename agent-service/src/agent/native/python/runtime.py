@@ -717,24 +717,46 @@ def _text_number(text):
     return number if math.isfinite(number) else None
 
 
-def _loose(value):
-    """The words of a text value with case, accents, punctuation, spacing and leading zeros ignored.
-
-    Two values with the same loose words differ only in how they are written:
-    "YES" and "yes", "Las Vegas, Nv" and "Las Vegas, NV", "040517" and "40517".
-    """
+def _folded(value):
     import unicodedata
 
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").casefold()
+
+
+def _loose(value):
+    """The words of a text value with case, accents, punctuation, spacing and leading zeros ignored."""
     if not isinstance(value, str):
         return ()
-    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").casefold()
-    return tuple(word.lstrip("0") or "0" if word.isdigit() else word for word in re.findall(r"[a-z0-9]+", folded))
+    return tuple(word.lstrip("0") or "0" if word.isdigit() else word for word in re.findall(r"[a-z0-9]+", _folded(value)))
+
+
+def _written(value):
+    """A text value as written apart from case, accents, spacing, leading zeros and punctuation between its words.
+
+    Two values with the same result differ only in how they are written: "YES" and
+    "yes", "Las Vegas, Nv" and "Las Vegas, NV", "040517" and "40517", "Aberdeen," and
+    "Aberdeen", "Week 13 (Final)" and "Week 13: Final". Punctuation before the first
+    word or after the last is part of the value ("</td>" is not "<td", "A-" is not
+    "A+"), except brackets, quotes, separators and footnote marks. A value without
+    words gives ().
+    """
+    words = _loose(value)
+    if not words:
+        return ()
+    folded = "".join(_folded(value).split())
+    marks = lambda edge: "".join(mark for mark in edge if mark not in "()[]{}'\"`,.;:*")
+    return words, marks(re.match(r"[^a-z0-9]*", folded).group()), marks(re.search(r"[^a-z0-9]*$", folded).group())
 
 
 def _contains_words(words, part):
-    """Whether `part` occurs in `words` as a run, with at most two other words around it."""
+    """Whether `words` are `part` with an article before it ("the United Kingdom") or a zero
+    part or "the" after it ("20:29:39.0", "Bahamas, The"). Other words make another value:
+    "Human-Vulcan" is not "Human", "New York, NY" may not be "New York"."""
     n = len(part)
-    return 0 < n < len(words) <= n + 2 and any(words[i:i + n] == part for i in range(len(words) - n + 1))
+    if not 0 < n < len(words) <= n + 2:
+        return False
+    return any(words[i:i + n] == part and set(words[:i]) <= {"the", "a", "an"} and i <= 1
+               and set(words[i + n:]) <= {"0", "the"} for i in range(len(words) - n + 1))
 
 
 def _condition_literals(spec):
@@ -824,31 +846,31 @@ def _condition_literals(spec):
 def _near_misses(rejected, kept, literals):
     """Rejected text values that match a literal or a kept value only loosely.
 
-    `rejected` maps each distinct rejected value to its row count. A value whose
-    loose words equal a literal's or a kept value's (but that is not itself kept)
-    was written differently from what the condition looks for; so is one that
-    holds a literal's words with at most two more ("the United Kingdom").
+    `rejected` maps each distinct rejected value to its row count. A value written
+    like a literal or a kept value (`_written`, but not itself kept) was written
+    differently from what the condition looks for; so is one that holds a
+    literal's words with only an article or a zero part added ("the United Kingdom").
     Returns [{"value", "rows", "counterpart", "how"}], most rows first.
     """
     kept_set = {value for value in kept if isinstance(value, str)}
     by_words = {}
     for value in kept_set:
-        by_words.setdefault(_loose(value), value)
+        by_words.setdefault(_written(value), value)
     literal_words = [(literal, _loose(literal)) for literal in literals if _loose(literal)]
-    exact = {words: literal for literal, words in literal_words}
+    exact = {_written(literal): literal for literal, _ in literal_words}
     # Containment needs a literal long enough to name something ("United Kingdom", not "no").
     literal_words = [(literal, words) for literal, words in literal_words if sum(map(len, words)) >= 4]
     found = []
     for value, rows in rejected.items():
         if not isinstance(value, str) or value in kept_set or value in exact.values():
             continue
-        words = _loose(value)
+        words, written = _loose(value), _written(value)
         if not words or _text_number(value) is not None:
             continue
-        if words in exact:
-            found.append({"value": value, "rows": rows, "counterpart": exact[words], "how": "literal"})
-        elif words in by_words:
-            found.append({"value": value, "rows": rows, "counterpart": by_words[words], "how": "kept"})
+        if written in exact:
+            found.append({"value": value, "rows": rows, "counterpart": exact[written], "how": "literal"})
+        elif written in by_words:
+            found.append({"value": value, "rows": rows, "counterpart": by_words[written], "how": "kept"})
         else:
             literal = next((literal for literal, part in literal_words if _contains_words(words, part)), None)
             if literal is not None:
@@ -1039,14 +1061,14 @@ def _join_flow(counts, common, facts):
     # Pairing reads every distinct key once; past the bound only the no-match fact is measured.
     pairable = len(counts[0]) <= _NEAR_LIMIT and len(counts[1]) <= _NEAR_LIMIT
     for key in counts[1] if pairable else ():
-        words = tuple(_loose(value) if isinstance(value, str) else (str(value),) for value in key)
+        words = tuple(_written(value) if isinstance(value, str) else (str(value),) for value in key)
         if any(isinstance(value, str) for value in key):
             right_by_words.setdefault(words, key)
     pairs, keys, rows = [], 0, 0
     for key, occurrences in counts[0].items() if pairable else ():
         if key in common or not any(isinstance(value, str) for value in key):
             continue
-        partner = right_by_words.get(tuple(_loose(value) if isinstance(value, str) else (str(value),) for value in key))
+        partner = right_by_words.get(tuple(_written(value) if isinstance(value, str) else (str(value),) for value in key))
         if partner is None:
             continue
         keys, rows = keys + 1, rows + occurrences
