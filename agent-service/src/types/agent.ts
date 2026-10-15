@@ -185,6 +185,12 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  (row, cell and time budgets); "full" profiles every row exactly with
    *  vectorized passes. Compiled into each operator like collection. */
   nativeProfileScope?: "prefix" | "full";
+  /** Study build (study/stats-overhead): runtime checks on or off independently
+   *  of profile collection. Unset keeps the stable rule (checks follow collection). */
+  nativeRuntimeChecks?: boolean;
+  /** Study build: a tag compiled into every operator. It turns on per-check
+   *  timing and memory records and lifts the runtime checks' row caps. */
+  nativeStudyTag?: string;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -507,6 +513,8 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   nativeChecks?: boolean;
+  nativeRuntimeChecks?: boolean;
+  nativeStudyTag?: string;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -592,6 +600,8 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   nativeChecks?: boolean;
+  nativeRuntimeChecks?: boolean;
+  nativeStudyTag?: string;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */

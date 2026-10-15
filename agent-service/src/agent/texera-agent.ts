@@ -957,6 +957,8 @@ export class TexeraAgent {
       dataEvidence?: boolean;
       flowEvidence?: boolean;
       nativeChecks?: boolean;
+      nativeRuntimeChecks?: boolean;
+      nativeStudyTag?: string;
       resultSelection?: ResultSelection;
       contextMode?: ContextMode;
       parallelToolCalls?: boolean;
@@ -1037,6 +1039,9 @@ export class TexeraAgent {
       this.settings.nativeChecks = updates.nativeChecks;
       promptNeedsRebuild = true;
     }
+    // Study build: compiled into operators like collection, so set them before any operator exists.
+    if (updates.nativeRuntimeChecks !== undefined) this.settings.nativeRuntimeChecks = updates.nativeRuntimeChecks;
+    if (updates.nativeStudyTag !== undefined) this.settings.nativeStudyTag = updates.nativeStudyTag;
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;

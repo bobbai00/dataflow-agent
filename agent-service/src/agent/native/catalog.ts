@@ -66,6 +66,10 @@ export interface NativeOpView {
    * about its ancestry (whether its rows come from several sources, and which
    * columns are a scan's file-name provenance). Not part of the revision. */
   lineage?: { multiSource: boolean; provenanceColumns: string[] };
+  /** Study build (study/stats-overhead): runtime checks on or off, independently of profileCollection. */
+  runtimeChecks?: boolean;
+  /** Study build: turns on per-check timing and memory records in the runtime. Not part of the revision. */
+  studyTag?: string;
   /** Runtime type (`Filter`, `Map`, `Process`, …). */
   type: string;
   properties: Record<string, unknown>;

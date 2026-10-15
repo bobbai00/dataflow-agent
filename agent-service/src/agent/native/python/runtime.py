@@ -36,6 +36,149 @@ from collections.abc import Mapping
 from collections import Counter
 
 
+# --- Study build (study/stats-overhead): the overhead of data statistics and runtime stats. ---
+# A spec with "studyTag" turns on per-check timing and memory, lifts the runtime
+# checks' row and distinct caps, and appends one JSON line per operator (and per
+# table-profile pass) to /workspace/stats-study.jsonl, the worker's sandbox scratch.
+# "runtimeChecks": false turns every runtime check off, including the Python step
+# hooks and the filter's per-row blame that stable always runs. Without a tag the
+# runtime is the stable one.
+_STABLE_CAPS = {"_CHECK_ROW_LIMIT": 2_000_000, "_DROP_ROW_LIMIT": 2_000_000, "_DROP_DISTINCT_LIMIT": 50_000,
+                "_NEAR_LIMIT": 50_000, "_DROP_CELL_BUDGET": 10_000_000}
+_STUDY = {"on": False, "reset": None}
+_HEAVY_HOOKS = {"merge", "map", "drop_duplicates", "concat", "read_csv", "read_excel", "read_table", "read_json",
+                "read_parquet", "read_fwf"}
+
+
+def _checks(spec):
+    """Whether runtime checks run: with profile collection, unless the study build says otherwise."""
+    flag = spec.get("runtimeChecks")
+    return spec.get("profileCollection") is True if flag is None else flag is True
+
+
+def _vm(field):
+    """VmRSS: or VmHWM: of this process in bytes (0 when unreadable)."""
+    try:
+        with open("/proc/self/status") as status:
+            for line in status:
+                if line.startswith(field):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        pass
+    return 0
+
+
+def _peak_reset():
+    """Reset this process's peak RSS to its current RSS (Linux clear_refs 5)."""
+    if _STUDY["reset"] is False:
+        return
+    try:
+        with open("/proc/self/clear_refs", "w") as refs:
+            refs.write("5")
+        _STUDY["reset"] = True
+    except OSError:
+        _STUDY["reset"] = False
+
+
+def _study_write(record):
+    import os
+
+    try:
+        if os.path.isdir("/workspace"):
+            with open("/workspace/stats-study.jsonl", "a") as out:
+                out.write(json.dumps(record, default=str, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+
+
+class _Phase:
+    """Study build: time and extra peak memory of one runtime check (a no-op otherwise)."""
+
+    def __init__(self, name, rows=None):
+        self.name, self.rows = name, rows
+
+    def __enter__(self):
+        if _STUDY["on"]:
+            _STUDY["bodyPeak"] = max(_STUDY["bodyPeak"], _vm("VmHWM:"))
+            self.rss, self.caps = _vm("VmRSS:"), len(_STUDY["caps"])
+            _peak_reset()
+            self.started = time.perf_counter()
+        return self
+
+    def __exit__(self, *exc):
+        if _STUDY["on"]:
+            ms = (time.perf_counter() - self.started) * 1000
+            peak = _vm("VmHWM:")
+            _STUDY["statsPeak"] = max(_STUDY["statsPeak"], peak)
+            entry = _STUDY["phases"].setdefault(
+                self.name, {"ms": 0.0, "calls": 0, "peakExtraBytes": 0, "rows": 0, "stableCapHits": 0})
+            entry["ms"] += ms
+            entry["calls"] += 1
+            entry["peakExtraBytes"] = max(entry["peakExtraBytes"], peak - self.rss)
+            if self.rows is not None:
+                entry["rows"] = max(entry["rows"], int(self.rows))
+            entry["stableCapHits"] += len(_STUDY["caps"]) - self.caps
+            _peak_reset()
+        return False
+
+
+def _over(value, name):
+    """value > the runtime-check cap `name`; the study build lifts the caps and notes where stable stops."""
+    if _STUDY["on"] and value > _STABLE_CAPS[name]:
+        _STUDY["caps"].append(name)
+    return value > globals()[name]
+
+
+def _patch_profile():
+    """Study build: time and measure the worker's table profile passes (data statistics)."""
+    try:
+        from core.util import table_profile
+    except Exception:
+        return
+    cls = table_profile.ProfileAccumulator
+    if getattr(cls, "_study_patched", False):
+        return
+
+    def measured(original, phase):
+        def method(self, *args):
+            tag = (self.metadata or {}).get("studyTag")
+            if not tag:
+                return original(self, *args)
+            rss, before = _vm("VmRSS:"), _vm("VmHWM:")
+            _peak_reset()
+            started = time.perf_counter()
+            try:
+                return original(self, *args)
+            finally:
+                ms = (time.perf_counter() - started) * 1000
+                peak = _vm("VmHWM:")
+                _peak_reset()
+                frame = args[0] if args else None
+                _study_write({"tag": tag, "operatorId": self.metadata.get("operatorId"),
+                              "revision": self.metadata.get("operatorRevision"), "phase": phase, "ms": round(ms, 3),
+                              "rows": None if frame is None else len(frame),
+                              "cols": None if frame is None else int(frame.shape[1]),
+                              "peakExtraBytes": peak - rss, "rssBytes": rss, "peakBytes": max(peak, before),
+                              "reset": _STUDY["reset"], "t": time.time()})
+        return method
+
+    cls.add = measured(cls.add, "profile")
+    cls.encode = measured(cls.encode, "profileEncode")
+    cls._study_patched = True
+
+
+class _NoTrace:
+    """Study build: a Python step with runtime checks off installs no hooks."""
+
+    reads, events = (), ()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
 class NativeError(ValueError):
     def __init__(self, diagnostic):
         self.diagnostic = diagnostic
@@ -1059,7 +1202,7 @@ def _join_flow(counts, common, facts):
     """
     right_by_words = {}
     # Pairing reads every distinct key once; past the bound only the no-match fact is measured.
-    pairable = len(counts[0]) <= _NEAR_LIMIT and len(counts[1]) <= _NEAR_LIMIT
+    pairable = not _over(len(counts[0]), "_NEAR_LIMIT") and not _over(len(counts[1]), "_NEAR_LIMIT")
     for key in counts[1] if pairable else ():
         words = tuple(_written(value) if isinstance(value, str) else (str(value),) for value in key)
         if any(isinstance(value, str) for value in key):
@@ -1196,8 +1339,9 @@ def _join(spec, left, right, operations):
             }
         if renamed:
             facts["renamedRight"] = renamed
-        if spec.get("profileCollection") is True and kind not in ("semi", "anti"):
-            _join_flow(counts, common, facts)
+        if _checks(spec) and kind not in ("semi", "anti"):
+            with _Phase("joinFlow", rows=len(left) + len(right)):
+                _join_flow(counts, common, facts)
         operations["join"] = facts
 
     def take(frame, column, port):
@@ -1896,8 +2040,9 @@ def _scan(spec, operations):
     else:
         result = _union({**spec, "properties": {"schema": "align"}}, parts, union)
     # The same record listed by several of the files (a metro area in each of its states' files).
-    if spec.get("profileCollection") is True and len(parts) > 1:
-        copies = _file_copies(parts, [Path(s["path"]).name for s in sources], [props.get("fileColumn")])
+    if _checks(spec) and len(parts) > 1:
+        with _Phase("fileCopies", rows=len(result)):
+            copies = _file_copies(parts, [Path(s["path"]).name for s in sources], [props.get("fileColumn")])
         if copies:
             operations["fileCopies"] = copies
     operations["scan"] = {
@@ -2084,7 +2229,7 @@ def _cast(spec, source, operations):
         name = item["column"]
         _columns(spec, source, [name], f"columns[{i}]")
         values, failed, witnessed = [], 0, {}
-        collect = spec.get("profileCollection") is True and i < _WITNESS_WIDTH
+        collect = _checks(spec) and i < _WITNESS_WIDTH
         for value in source[name]:
             try:
                 values.append(_convert(value, item["dtype"], cast=True, options=item))
@@ -2196,6 +2341,7 @@ def _filter(spec, source, operations):
     registered = "registered" in props
     function = registered_callable(spec) if registered else _function(spec, props["func"], "func", entry)
     mask, missing, blame = [], 0, []
+    checks = _checks(spec)
     reads = set()
     # Mapping copies/iteration can feed a predicate. Unlike Map's pass-through
     # row-copy heuristic, every value fetched here is an observed read.
@@ -2222,7 +2368,7 @@ def _filter(spec, source, operations):
                 source=None if registered else _location(props["func"], entry, 1),
             )
         mask.append(value)
-        if not value:
+        if not value and checks:
             blame.append(row._last)
     operations.update(
         {
@@ -2232,9 +2378,10 @@ def _filter(spec, source, operations):
             "predicateColumns": sorted(reads),
         }
     )
-    if spec.get("profileCollection") is True:
+    if checks:
         started = time.perf_counter()
-        _filter_flow(spec, source, mask, blame, operations)
+        with _Phase("filterFlow", rows=len(source)):
+            _filter_flow(spec, source, mask, blame, operations)
         operations["timing"] = {"filterFlowMs": (time.perf_counter() - started) * 1000}
     return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
 
@@ -2503,7 +2650,7 @@ def _header_check(raw, before, skip):
     if width > 1 and blanks * 2 > width:
         issues["blank"] = blanks
     named = [i for i, cell in enumerate(current) if cell]
-    if len(named) >= 2 and len(raw) <= _CHECK_ROW_LIMIT:
+    if len(named) >= 2 and not _over(len(raw), "_CHECK_ROW_LIMIT"):
         import numpy as np
 
         # numpy, not the `.str` accessor: it is cached on its Series in a
@@ -2555,7 +2702,7 @@ def _overlapping_sources(records, origin):
     """
     import numpy as np
 
-    if records.shape[1] < 2 or len(records) < 2 or len(records) > _CHECK_ROW_LIMIT:
+    if records.shape[1] < 2 or len(records) < 2 or _over(len(records), "_CHECK_ROW_LIMIT"):
         return None
     text = records.astype("string").fillna("")
     cells = text.to_numpy(dtype=object)
@@ -2602,7 +2749,7 @@ def _cross_source_duplicates(parts, synthetic):
     """Records shared by several of the tables a function concatenates."""
     import numpy as np
 
-    if len(parts) < 2 or sum(map(len, parts)) > _CHECK_ROW_LIMIT:
+    if len(parts) < 2 or _over(sum(map(len, parts)), "_CHECK_ROW_LIMIT"):
         return None
     columns = [c for c in parts[0].columns if c not in synthetic]
     if not columns or any([c for c in part.columns if c not in synthetic] != columns for part in parts):
@@ -2638,7 +2785,7 @@ def _file_copies(parts, names, synthetic=()):
     """
     import numpy as np
 
-    if len(parts) < 2 or sum(map(len, parts)) > _CHECK_ROW_LIMIT:
+    if len(parts) < 2 or _over(sum(map(len, parts)), "_CHECK_ROW_LIMIT"):
         return None
     columns = [c for c in parts[0].columns if c not in synthetic]
     if not columns or any([c for c in part.columns if c not in synthetic] != columns for part in parts):
@@ -2711,7 +2858,7 @@ def _near_miss_keys(left, right):
     spaced), 'Las Vegas, Nv' and 'Las Vegas, NV', 45421 and '045421'.
     """
     lv, rv = pd.unique(left.dropna()), pd.unique(right.dropna())
-    if not len(lv) or not len(rv) or len(lv) > _NEAR_LIMIT or len(rv) > _NEAR_LIMIT:
+    if not len(lv) or not len(rv) or _over(len(lv), "_NEAR_LIMIT") or _over(len(rv), "_NEAR_LIMIT"):
         return None
     exact = set(rv.tolist())
     by_squash = {}
@@ -2739,7 +2886,7 @@ def _dedupe_differences(frame, columns, keep):
     records sharing an identifier (two stations under one NWS ID); rows with an
     empty key are all collapsed into one. Exact duplicates are not reported.
     """
-    if keep is False or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
+    if keep is False or len(frame) < 2 or _over(len(frame), "_CHECK_ROW_LIMIT"):
         return None
     columns = [c for c in columns if c in frame.columns]
     if not columns:
@@ -2826,7 +2973,7 @@ def _aggregate_change(spec, frame, kept):
     Ungrouped: each output whose value changes, old and new. Grouped: how many
     groups change or disappear. None when nothing changes.
     """
-    if len(frame) > _CHECK_ROW_LIMIT or kept.all():
+    if _over(len(frame), "_CHECK_ROW_LIMIT") or kept.all():
         return None
     try:
         before = _aggregate(spec, frame, {})
@@ -2859,7 +3006,7 @@ def _copies_input(spec, frame, lineage):
     union): rows identical in every column are then copies of one record, and
     counting each once changes a sum, count or mean. Reported only when it does.
     """
-    if not (lineage or {}).get("multiSource") or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
+    if not (lineage or {}).get("multiSource") or len(frame) < 2 or _over(len(frame), "_CHECK_ROW_LIMIT"):
         return None
     try:
         hashed = pd.util.hash_pandas_object(frame.astype("string").fillna(""), index=False)
@@ -2903,7 +3050,7 @@ def _key_dependencies(frame, keys, reduced):
     """
     import numpy as np
 
-    if not keys or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
+    if not keys or len(frame) < 2 or _over(len(frame), "_CHECK_ROW_LIMIT"):
         return None
     candidates = [c for c in frame.columns if c not in keys and c not in reduced][:40]
     if not candidates:
@@ -3098,7 +3245,13 @@ class _ProcessTrace:
             if line is not None:
                 trace._depth += 1
                 try:
-                    record(line, args, kwargs, result)
+                    if _STUDY["on"] and name in _HEAVY_HOOKS:
+                        with _Phase("hook:" + ("read" if name.startswith("read_") else name)):
+                            record(line, args, kwargs, result)
+                    else:
+                        if _STUDY["on"]:
+                            _STUDY["hookCalls"][name] = _STUDY["hookCalls"].get(name, 0) + 1
+                        record(line, args, kwargs, result)
                 except Exception:
                     pass
                 finally:
@@ -3289,7 +3442,7 @@ def _repeated_values(inputs, output):
     Bounded: inputs over 2M rows and columns over 50k distinct values are
     skipped, and at most 10M input cells are read in all.
     """
-    if len(output) < _REPEAT_MIN_ROWS or any(len(frame) > _DROP_ROW_LIMIT for frame in [output, *inputs]):
+    if len(output) < _REPEAT_MIN_ROWS or any(_over(len(frame), "_DROP_ROW_LIMIT") for frame in [output, *inputs]):
         return []
     budget, entries = _DROP_CELL_BUDGET, []
     for name in output.columns:
@@ -3299,7 +3452,7 @@ def _repeated_values(inputs, output):
         counts = present.value_counts(sort=False)
         rows, distinct = len(present), len(counts)
         if (rows < _REPEAT_MIN_ROWS or distinct == rows or distinct < rows * _REPEAT_DISTINCT_SHARE
-                or distinct > _DROP_DISTINCT_LIMIT):
+                or _over(distinct, "_DROP_DISTINCT_LIMIT")):
             continue
         # Numbers kept as text ("236" reports per 100K) tie; they identify nothing.
         if sum(_text_number(str(value)) is not None for value in counts.index) * 10 >= distinct * 9:
@@ -3332,7 +3485,7 @@ def _repeated_values(inputs, output):
                     continue
                 budget -= len(frame)
                 source = frame[column].dropna().value_counts(sort=False)
-                if len(source) > _DROP_DISTINCT_LIMIT or sum(value in source.index for value in counts.index) * 10 < distinct * 9:
+                if _over(len(source), "_DROP_DISTINCT_LIMIT") or sum(value in source.index for value in counts.index) * 10 < distinct * 9:
                     continue
                 entry.update({"input": index, "inputColumn": column,
                               "inputRepeated": sum(int(source.get(value, 0)) > 1 for value in repeated.index)})
@@ -3388,6 +3541,51 @@ def execute_native_from_engine(spec, inputs):
 
 
 def execute_native(spec, inputs):
+    if not spec.get("studyTag"):
+        return _execute_native(spec, inputs)
+    _study_begin(spec)
+    output, error = None, None
+    try:
+        output = _execute_native(spec, inputs)
+        return output
+    except BaseException as exc:
+        error = type(exc).__name__
+        raise
+    finally:
+        _study_end(spec, inputs, output, error)
+
+
+def _study_begin(spec):
+    for name in _STABLE_CAPS:
+        globals()[name] = 10**15
+    _STUDY.update(on=True, bodyPeak=0, statsPeak=0, phases={}, caps=[], hookCalls={})
+    _STUDY["rssStart"], _STUDY["hwmBefore"] = _vm("VmRSS:"), _vm("VmHWM:")
+    _patch_profile()
+    _peak_reset()
+    _STUDY["started"] = time.perf_counter()
+
+
+def _study_end(spec, inputs, output, error):
+    import os
+
+    total = (time.perf_counter() - _STUDY["started"]) * 1000
+    _STUDY["bodyPeak"] = max(_STUDY["bodyPeak"], _vm("VmHWM:"))
+    phases = {name: {**entry, "ms": round(entry["ms"], 3)} for name, entry in _STUDY["phases"].items()}
+    _study_write({
+        "tag": spec["studyTag"], "operatorId": spec.get("id"), "revision": spec.get("revision"), "type": spec.get("type"),
+        "phase": "operator", "profileCollection": spec.get("profileCollection") is True, "checks": _checks(spec),
+        "inputRows": [len(frame) for frame in inputs if hasattr(frame, "__len__")],
+        "outputRows": None if output is None else len(output),
+        "outputCols": None if output is None else int(output.shape[1]),
+        "totalMs": round(total, 3), "checksMs": round(sum(p["ms"] for p in phases.values()), 3), "phases": phases,
+        "hookCalls": _STUDY["hookCalls"], "rssStartBytes": _STUDY["rssStart"], "hwmBeforeBytes": _STUDY["hwmBefore"],
+        "bodyPeakBytes": _STUDY["bodyPeak"], "statsPeakBytes": _STUDY["statsPeak"], "reset": _STUDY["reset"],
+        "error": error, "pid": os.getpid(), "t": time.time(),
+    })
+    _STUDY["on"] = False
+
+
+def _execute_native(spec, inputs):
     global pd, np
     import pandas as pd
     import numpy as np
@@ -3415,8 +3613,10 @@ def execute_native(spec, inputs):
     operations = {}
     body_started = time.perf_counter()
     lineage = spec.get("lineage") or {}
-    if kind in ("Aggregate", "Process") and lineage.get("multiSource") and inputs:
-        repeated = _repeated_records(inputs[0], lineage.get("provenanceColumns", []))
+    # Stable runs this whenever lineage is attached; the study's checks-off arms skip it.
+    if kind in ("Aggregate", "Process") and lineage.get("multiSource") and inputs and spec.get("runtimeChecks") is not False:
+        with _Phase("repeatedRecords", rows=len(inputs[0])):
+            repeated = _repeated_records(inputs[0], lineage.get("provenanceColumns", []))
         if repeated:
             operations["repeatedRecords"] = repeated
     if kind == "Scan":
@@ -3430,32 +3630,39 @@ def execute_native(spec, inputs):
     elif kind == "Project":
         output = _project(spec, source)
         # Dropping the column that marks rows as excluded keeps those rows, now unmarked.
-        if spec.get("profileCollection") is True:
-            kept = set(props.get("keep", [name for name in source.columns if name not in props.get("drop", [])]))
-            for name, mark, marked in _exclusion_flags(source):
-                if name not in kept:
-                    operations["excludedDropped"] = {"column": str(name), "mark": mark, "rows": int(marked.sum()),
-                                                     "of": len(source), "examples": _row_names(source, marked)}
-                    break
+        if _checks(spec):
+            with _Phase("excludedDropped", rows=len(source)):
+                kept = set(props.get("keep", [name for name in source.columns if name not in props.get("drop", [])]))
+                for name, mark, marked in _exclusion_flags(source):
+                    if name not in kept:
+                        operations["excludedDropped"] = {"column": str(name), "mark": mark, "rows": int(marked.sum()),
+                                                         "of": len(source), "examples": _row_names(source, marked)}
+                        break
     elif kind == "Aggregate":
         output = _aggregate(spec, source, operations)
-        dependencies = _key_dependencies(
-            source, props.get("groupBy", []), [a.get("col") for a in props["aggregations"]]
-        )
-        if dependencies:
-            operations["keyDependencies"] = dependencies
+        # Stable computes key dependencies even without collection; the study's checks-off arms skip them.
+        if spec.get("runtimeChecks") is not False:
+            with _Phase("keyDependencies", rows=len(source)):
+                dependencies = _key_dependencies(
+                    source, props.get("groupBy", []), [a.get("col") for a in props["aggregations"]]
+                )
+            if dependencies:
+                operations["keyDependencies"] = dependencies
         # Rows a sum, count or mean reads twice change its result; min, max and first do not.
-        if spec.get("profileCollection") is True and any(
+        if _checks(spec) and any(
                 item.get("fn") in ("count", "sum", "mean", "median", "stddev") for item in props["aggregations"]):
-            copies = _copies_input(spec, source, spec.get("lineage"))
+            with _Phase("copiesInput", rows=len(source)):
+                copies = _copies_input(spec, source, spec.get("lineage"))
             if copies:
                 operations["copiesInput"] = copies
             else:
-                repeated = _repeated_values([], source)
+                with _Phase("repeatedInput", rows=len(source)):
+                    repeated = _repeated_values([], source)
                 if repeated:
                     operations["repeatedInput"] = repeated
-        if spec.get("profileCollection") is True:
-            excluded = _excluded_input(spec, source)
+        if _checks(spec):
+            with _Phase("excludedInput", rows=len(source)):
+                excluded = _excluded_input(spec, source)
             if excluded:
                 operations["excludedInput"] = excluded
     elif kind == "Join":
@@ -3476,8 +3683,9 @@ def execute_native(spec, inputs):
         else:
             output = source.iloc[-1:] if props.get("keep") == "last" else source.iloc[:1]
         operations["removedRows"] = len(source) - len(output)
-        if spec.get("profileCollection") is True and columns:
-            differences = _dedupe_differences(source, columns, props.get("keep", "first"))
+        if _checks(spec) and columns:
+            with _Phase("dedupeDifferences", rows=len(source)):
+                differences = _dedupe_differences(source, columns, props.get("keep", "first"))
             if differences:
                 operations["dedupeDifferences"] = differences
     elif kind == "Sort":
@@ -3499,17 +3707,18 @@ def execute_native(spec, inputs):
     elif kind == "Process":
         if "registered" in props:
             try:
-                with _ProcessTrace(
+                with (_ProcessTrace(
                     {f"<definitions:{i + 1}>": i + 1 for i in range(len(props["registered"]["cells"]))}
-                ) as trace:
+                ) if spec.get("runtimeChecks") is not False else _NoTrace()) as trace:
                     output = _frame(
                         spec,
                         _normalize_output(
                             execute_registered(spec, [_process_input(frame) for frame in inputs]), operations
                         ),
                     )
-                if spec.get("profileCollection") is True:
-                    _finish_trace(trace)
+                if _checks(spec):
+                    with _Phase("processFinish"):
+                        _finish_trace(trace)
                 if trace.reads or trace.events:
                     operations["process"] = trace.snapshot()
             except NativeError:
@@ -3519,18 +3728,21 @@ def execute_native(spec, inputs):
         else:
             entry = props.get("entry", "process" if inputs else "load")
             function = _function(spec, props["code"], "code", entry)
-            with _ProcessTrace(_filename(spec, "code")) as trace:
+            with (_ProcessTrace(_filename(spec, "code")) if spec.get("runtimeChecks") is not False
+                  else _NoTrace()) as trace:
                 output = _frame(
                     spec, _normalize_output(function(*[_process_input(frame) for frame in inputs]), operations)
                 )
-            if spec.get("profileCollection") is True:
-                _finish_trace(trace)
+            if _checks(spec):
+                with _Phase("processFinish"):
+                    _finish_trace(trace)
             if trace.reads or trace.events:
                 operations["process"] = trace.snapshot()
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
-    if kind == "Process" and spec.get("profileCollection") is True:
-        repeated = _repeated_values(inputs, output)
+    if kind == "Process" and _checks(spec):
+        with _Phase("repeatedValues", rows=max([len(output), *[len(f) for f in inputs]])):
+            repeated = _repeated_values(inputs, output)
         if repeated:
             operations["repeatedValues"] = repeated
     if spec.get("profileCollection") is True:
@@ -3551,6 +3763,7 @@ def execute_native(spec, inputs):
         "operatorRevision": spec.get("revision", "unversioned"),
         **({"profileCollection": True} if spec.get("profileCollection") is True else {}),
         **({"profileScope": "full"} if spec.get("profileScope") == "full" else {}),
+        **({"studyTag": spec["studyTag"]} if spec.get("studyTag") else {}),
         "operatorType": kind,
         "inputOperators": spec.get("inputs", []),
         "rowEffect": ROW_EFFECTS[kind],

@@ -84,6 +84,10 @@ export interface OperatorPredicate {
     revision?: string;
     profileCollection?: boolean;
     profileScope?: "full";
+    /** Study build: runtime checks on or off, independently of profileCollection. */
+    runtimeChecks?: boolean;
+    /** Study build: turns on per-check timing and memory records in the runtime. */
+    studyTag?: string;
     /** The assignment as the model wrote it (`x = filter(...)`). */
     source?: string;
     /** Top-level `def` sources the statement refers to, by name. */

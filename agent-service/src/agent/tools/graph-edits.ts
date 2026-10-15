@@ -40,6 +40,14 @@ import { stageRegisteredEdit } from "../native/registered";
 type Edge = { source: string; sourcePort: string; target: string; targetPort: string };
 
 /** One statement of an edit, as python/graph_parser.py returns it. */
+
+/** Study build (study/stats-overhead): compile the study tag and the runtime-checks
+ * switch into an operator. Without a tag the operator is exactly the stable one. */
+function studyFields(view: NativeOpView, settings: ToolContext["settings"]): void {
+  if (!settings?.nativeStudyTag) return;
+  view.studyTag = settings.nativeStudyTag;
+  if (settings.nativeRuntimeChecks !== undefined) view.runtimeChecks = settings.nativeRuntimeChecks;
+}
 export type EditStatement =
   | {
       kind: "assign";
@@ -180,6 +188,7 @@ export async function planRegisteredGraphEdit(
   for (const id of ordered) {
     const view = nodes.get(id)!;
     if (context.settings?.nativeChecks || context.settings?.flowEvidence) view.lineage = nativeLineage(draft, view);
+    studyFields(view, context.settings);
     const compiled = compileNativeOp(view, id);
     const old = draft.getOperator(id);
     const template =
@@ -458,6 +467,7 @@ export async function planGraphEdit(
         view.lineage = nativeLineage(draft, view);
         validationViews.get(id)!.lineage = view.lineage;
       }
+      studyFields(validationViews.get(id)!, context.settings);
       const compiled = compileNativeOp(validationViews.get(id)!, id);
       const old = draft.getOperator(id);
       const template =

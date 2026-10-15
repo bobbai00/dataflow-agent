@@ -41,6 +41,8 @@ export interface ToolContext {
     nativeChecks?: boolean;
     /** Flow evidence reads the same lineage (records listed by several source files). */
     flowEvidence?: boolean;
+    nativeRuntimeChecks?: boolean;
+    nativeStudyTag?: string;
   };
 }
 
