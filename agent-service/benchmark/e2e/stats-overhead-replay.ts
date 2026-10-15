@@ -32,7 +32,8 @@
  * A plan is [{id, path, arm, dataRoot?, heavy?, memGB?}]; finished jobs (out/<id>/done.json) are skipped, so a
  * stopped run resumes. A PAUSE file in <out-dir> holds new jobs until it is removed. Memory gate: no new job below
  * 3 GB available or 1.5 GB free swap; a job starts only with memGB + 2 GB available. Heavy jobs run alone, and only
- * with memGB + 4 GB available and no swap-out in the last 30 s. Each job records the host's swap traffic and lowest
+ * with memGB + 4 GB available, under 20,000 swap-out pages in the last 30 s and under 50 MB of the engine's
+ * processes in swap (STATS_ENGINE_PID). Each job records the host's swap traffic and lowest
  * available memory during its run (done.json "host"), so a job slowed by swapping can be found and rerun.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, readdirSync, statSync } from "node:fs";
@@ -96,14 +97,38 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /** Host samples every 5 s: cumulative swap pages in and out, and available GB. Other sessions' idle processes
  * page back in all the time (about 1,400 pages/s here) while memory is free; swap-out is what memory pressure
  * looks like, so the heavy-job gate reads swap-out. */
-const samples: Array<{ t: number; swapIn: number; swapOut: number; available: number }> = [];
+const samples: Array<{ t: number; swapIn: number; swapOut: number; available: number; engineSwapMB: number }> = [];
+/** The engine (computing-unit master) whose descendants are this study's workers. */
+const ENGINE_PID = Number(process.env.STATS_ENGINE_PID ?? 0);
+/** MB of the engine's descendant processes that sit in swap: a worker slowed by swapping shows here. */
+function engineSwapMB(): number {
+  if (!ENGINE_PID) return 0;
+  const parents = new Map<number, number>();
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
+      parents.set(Number(name), Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]));
+    } catch {}
+  }
+  let total = 0;
+  for (const pid of parents.keys()) {
+    let p = parents.get(pid) ?? 0;
+    for (let depth = 0; p > 1 && p !== ENGINE_PID && depth < 20; depth++) p = parents.get(p) ?? 0;
+    if (p !== ENGINE_PID) continue;
+    try {
+      total += Number(/VmSwap:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/status`, "utf8"))?.[1] ?? 0) / 1024;
+    } catch {}
+  }
+  return total;
+}
 function vmstatSwap() {
   const text = readFileSync("/proc/vmstat", "utf8");
   const get = (key: string) => Number(new RegExp(`^${key} (\\d+)$`, "m").exec(text)?.[1] ?? 0);
   return { swapIn: get("pswpin"), swapOut: get("pswpout") };
 }
 setInterval(() => {
-  samples.push({ t: Date.now(), ...vmstatSwap(), available: memory().available });
+  samples.push({ t: Date.now(), ...vmstatSwap(), available: memory().available, engineSwapMB: engineSwapMB() });
   while (samples.length > 2000) samples.shift();
 }, 5_000);
 /** Swap pages written out in the last `ms`. */
@@ -248,6 +273,7 @@ async function replay(job: Job, token: string, cuid: number) {
     swapInPages: during.length > 1 ? during.at(-1)!.swapIn - during[0].swapIn : null,
     swapOutPages: during.length > 1 ? during.at(-1)!.swapOut - during[0].swapOut : null,
     minAvailableGB: during.length ? Math.min(...during.map(s => s.available)) : null,
+    engineSwapMaxMB: during.length ? Math.max(...during.map(s => s.engineSwapMB)) : null,
     samples: during.length,
   };
   writeFileSync(join(dir, "done.json"), JSON.stringify({ seconds: (Date.now() - started) / 1000, calls: calls.length, replayed: timings.length, failed, host }));
@@ -270,7 +296,10 @@ async function lane(number: number) {
     const mem = memory();
     const fits = (job: Job) =>
       job.heavy
-        ? mem.available >= (job.memGB ?? 0.5) + 4 && mem.swapFree >= 1.5 && recentSwapOut(30_000) < 1000
+        ? mem.available >= (job.memGB ?? 0.5) + 4 &&
+          mem.swapFree >= 1.5 &&
+          recentSwapOut(30_000) < 20_000 &&
+          (samples.at(-1)?.engineSwapMB ?? Infinity) < 50
         : mem.available >= (job.memGB ?? 0.5) + 2 && mem.swapFree >= 1.5;
     const index = mem.available < 3 || mem.diskFree < 15
       ? -1
