@@ -23,8 +23,9 @@
  * The task catalog (sendMessage `contextTasks`): every earlier task in order,
  * with what it asked, how it changed the dataflow (operators it created, set
  * again or deleted) and what it answered; the tasks the request builds on in
- * detail (each changed table's statement, columns, the rows the task showed,
- * its function, the earlier tables it read, the whole answer), then the tables
+ * detail (each changed table's statement and columns, what the task saw of it
+ * when it displayed it, or else its rows, its function, the earlier tables it
+ * read, the whole answer), then the tables
  * their tables are built from.
  *
  * The table context: a request that names the earlier tables it builds on
@@ -53,7 +54,7 @@ import {
   shapeText,
 } from "./native/observation-format";
 import type { RegisteredFunction, RegisteredNamespace } from "./native/registered";
-import { answerOf, opening, type SessionRequest, shownResults } from "./request-catalog";
+import { answerOf, opening, type SessionRequest } from "./request-catalog";
 import type { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 
 /** A table this small is shown whole; larger ones show three rows. */
@@ -292,6 +293,26 @@ function tablesRead(
 
 /** A full answer for a task the request builds on: kept whole up to this size. */
 const DETAIL_ANSWER_CHARS = 3_000;
+/** What a task the request builds on saw of one of its tables, kept up to this size. */
+const OBSERVED_CHARS = 2_500;
+
+const clip = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit - 1)}…` : text);
+
+/** The last observation a request's `show result` returned for each table, as the model read it. */
+function observedResults(request: SessionRequest): Map<string, string> {
+  const seen = new Map<string, string>();
+  for (const step of request.steps)
+    for (const result of step.toolResults ?? []) {
+      const output = result.output as any;
+      for (const item of output?.kind === "dataflow-actions" ? (output.actions ?? []) : []) {
+        if (item?.action?.type !== "retrieve" || item.status !== "ok") continue;
+        for (const entry of (item.output?.results ?? []) as Array<{ status?: string; operator_id?: string; text?: string }>)
+          if (entry.status === "ok" && entry.operator_id && typeof entry.text === "string" && entry.text.trim())
+            seen.set(entry.operator_id, entry.text.trim());
+      }
+    }
+  return seen;
+}
 
 export interface TaskCatalogInput {
   storage: WorkflowSnapshotStorage;
@@ -381,7 +402,7 @@ export function renderTaskCatalog({ storage, requests, head, tasks, options = {}
       );
     else {
       lines.push("changed:");
-      const shown = new Set(shownResults(request.steps));
+      const seen = observedResults(request);
       for (const change of list) {
         if (change.kind === "deleted") {
           lines.push(`- deleted ${inlineCode(change.id)}`);
@@ -399,7 +420,13 @@ export function renderTaskCatalog({ storage, requests, head, tasks, options = {}
         const info = result(change.id);
         if (completed(info)) {
           lines.push(`  result: ${shape(change.id)}; columns: ${columnEntries(info.resultSchema ?? [], 0).join(", ")}`);
-          if (shown.has(change.id)) {
+          const observed = seen.get(change.id);
+          if (observed) {
+            // What the task saw when it displayed the table: its records and statistics.
+            lines.push(`  as task ${request.number} saw it:`);
+            lines.push(...clip(observed, OBSERVED_CHARS).split("\n").filter(line => !line.startsWith("columns: ")).map(line => `    ${line}`));
+          } else {
+            // A table the task changed without displaying it shows its rows: a small table whole, a larger one a sample.
             const rows = info.totalRowCount ?? info.outputTuples ?? 0;
             const whole = rows <= WHOLE_TABLE_ROWS;
             const records = renderRecords(info, {

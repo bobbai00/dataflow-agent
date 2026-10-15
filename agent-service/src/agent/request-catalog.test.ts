@@ -456,13 +456,18 @@ test("the task catalog lists every earlier task by request, changes and answer, 
   expect(fourth).toContain("- `set orders: scan(files='data/x/input/orders.csv')` (task 1, ");
   // The earlier requests themselves are not in view, and the table block's sections are not used.
   expect(fourth).not.toContain("### Tables picked for this request");
-  // A task that changed tables, in detail: each table's statement, columns, and the rows the task showed.
-  await agent.sendMessage("And once more.", undefined, { contextTasks: [3] });
+  // Tasks that changed tables, in detail: a table the task displayed as the task saw it, and a table
+  // it did not display with its rows.
+  await agent.sendMessage("And once more.", undefined, { contextTasks: [1, 3] });
   const fifth = prompts[8].slice(1).map(textOf).join("\n");
-  expect(fifth).toContain(
-    "#### Task 3  (this request builds on it)\nasked: Count them.\nchanged:\n- `set n: aggregate(tagged, outputs={'n': count()})`\n  result: 1 row × 1 column; columns: value "
+  expect(fifth).toMatch(
+    /#### Task 1  \(this request builds on it\)\nasked: the session instructions above\nchanged:\n- `set orders: scan\(files='data\/x\/input\/orders.csv'\)`\n  result: 40 rows × 3 columns; columns: [^\n]+\n  records: /
   );
-  expect(fifth).toContain("  | value |\n  |---|\n  | 1 |\nread: `tagged` (task 1, ");
+  expect(fifth).toMatch(/- `set tagged: tag\(orders\)`\n  result: [^\n]+\n  as task 1 saw it:\n    records: /);
+  expect(fifth).toMatch(
+    /#### Task 3  \(this request builds on it\)\nasked: Count them\.\nchanged:\n- `set n: aggregate\(tagged, outputs=\{'n': count\(\)\}\)`\n  result: 1 row × 1 column; columns: value [^\n]+\n  as task 3 saw it:\n    records: /
+  );
+  expect(fifth).not.toContain("its answer was read from this table");
   expect(fifth).toContain("#### Task 2\nasked: How many tagged orders?\nchanged: nothing\nanswered: Final Answer: 2");
 });
 
