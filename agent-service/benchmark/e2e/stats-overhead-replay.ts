@@ -32,7 +32,7 @@
  * A plan is [{id, path, arm, dataRoot?, heavy?, memGB?}]; finished jobs (out/<id>/done.json) are skipped, so a
  * stopped run resumes. A PAUSE file in <out-dir> holds new jobs until it is removed. Memory gate: no new job below
  * 3 GB available or 1.5 GB free swap; a job starts only with memGB + 2 GB available. Heavy jobs run alone, and only
- * with memGB + 4 GB available and no swapping in the last 30 s. Each job records the host's swap traffic and lowest
+ * with memGB + 4 GB available and no swap-out in the last 30 s. Each job records the host's swap traffic and lowest
  * available memory during its run (done.json "host"), so a job slowed by swapping can be found and rerun.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, readdirSync, statSync } from "node:fs";
@@ -93,22 +93,24 @@ const ARMS: Record<Arm, { profile: boolean; checks: boolean }> = {
 mkdirSync(outDir, { recursive: true });
 const log = (message: string) => console.log(`${new Date().toISOString()} ${message}`);
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-/** Host samples every 5 s: swap pages in + out (cumulative) and available GB. */
-const samples: Array<{ t: number; swap: number; available: number }> = [];
-function vmstatSwap(): number {
+/** Host samples every 5 s: cumulative swap pages in and out, and available GB. Other sessions' idle processes
+ * page back in all the time (about 1,400 pages/s here) while memory is free; swap-out is what memory pressure
+ * looks like, so the heavy-job gate reads swap-out. */
+const samples: Array<{ t: number; swapIn: number; swapOut: number; available: number }> = [];
+function vmstatSwap() {
   const text = readFileSync("/proc/vmstat", "utf8");
   const get = (key: string) => Number(new RegExp(`^${key} (\\d+)$`, "m").exec(text)?.[1] ?? 0);
-  return get("pswpin") + get("pswpout");
+  return { swapIn: get("pswpin"), swapOut: get("pswpout") };
 }
 setInterval(() => {
-  samples.push({ t: Date.now(), swap: vmstatSwap(), available: memory().available });
+  samples.push({ t: Date.now(), ...vmstatSwap(), available: memory().available });
   while (samples.length > 2000) samples.shift();
 }, 5_000);
-/** Swap pages moved in the last `ms`. */
-function recentSwap(ms: number): number {
+/** Swap pages written out in the last `ms`. */
+function recentSwapOut(ms: number): number {
   const now = samples.at(-1);
   const then = samples.find(s => s.t >= Date.now() - ms);
-  return now && then ? now.swap - then.swap : Infinity;
+  return now && then && now !== then ? now.swapOut - then.swapOut : Infinity;
 }
 function memory() {
   const info = Object.fromEntries(
@@ -243,7 +245,8 @@ async function replay(job: Job, token: string, cuid: number) {
   const failed = timings.filter(t => t.failed).length;
   const during = samples.filter(s => s.t >= started);
   const host = {
-    swapPages: during.length > 1 ? during.at(-1)!.swap - during[0].swap : null,
+    swapInPages: during.length > 1 ? during.at(-1)!.swapIn - during[0].swapIn : null,
+    swapOutPages: during.length > 1 ? during.at(-1)!.swapOut - during[0].swapOut : null,
     minAvailableGB: during.length ? Math.min(...during.map(s => s.available)) : null,
     samples: during.length,
   };
@@ -267,7 +270,7 @@ async function lane(number: number) {
     const mem = memory();
     const fits = (job: Job) =>
       job.heavy
-        ? mem.available >= (job.memGB ?? 0.5) + 4 && mem.swapFree >= 1.5 && recentSwap(30_000) < 1000
+        ? mem.available >= (job.memGB ?? 0.5) + 4 && mem.swapFree >= 1.5 && recentSwapOut(30_000) < 1000
         : mem.available >= (job.memGB ?? 0.5) + 2 && mem.swapFree >= 1.5;
     const index = mem.available < 3 || mem.diskFree < 15
       ? -1
