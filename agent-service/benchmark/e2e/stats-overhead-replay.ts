@@ -33,7 +33,7 @@
  * stopped run resumes. A PAUSE file in <out-dir> holds new jobs until it is removed. Memory gate: no new job below
  * 3 GB available or 1.5 GB free swap; a job starts only with memGB + 2 GB available. Heavy jobs run alone.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createAgent, deleteAgent, getReActSteps, getSnapshot } from "../../src/api/agent-service-api";
 import { createComputingUnit, createWorkflow, deleteWorkflow, login } from "../../src/api";
@@ -59,6 +59,29 @@ const lanes = Number(lanesArg ?? 1);
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT!;
 const workspaces = process.env.NATIVE_WORKSPACE!;
 const CALL_TIMEOUT_MS = 60 * 60 * 1000;
+/** The engine stores each execution's results under the engine checkout; deleting a workflow keeps them. */
+const RESULTS =
+  process.env.STATS_RESULTS_DIR ??
+  "/home/bob/Desktop/dataflow-agent/.claude/worktrees/registered-python-design/amber/user-resources/workflow-results";
+
+/** Remove this job's stored results: entries named for its workflow and one of its executions, written after the
+ * job started. Other stacks share the directory, so nothing else is touched. */
+function removeResults(wid: number, executions: Set<string>, since: number): number {
+  let removed = 0;
+  for (const kind of ["operator-port-result", "operator-port-state", "operator-console-messages", "workflow-runtime-statistics"]) {
+    const dir = join(RESULTS, kind);
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      const match = /^wid_(\d+)_eid_(\d+)_/.exec(name);
+      if (!match || Number(match[1]) !== wid || !executions.has(match[2])) continue;
+      const path = join(dir, name);
+      if (statSync(path).mtimeMs < since - 60_000) continue;
+      rmSync(path, { recursive: true, force: true });
+      removed++;
+    }
+  }
+  return removed;
+}
 const ARMS: Record<Arm, { profile: boolean; checks: boolean }> = {
   none: { profile: false, checks: false },
   data: { profile: true, checks: false },
@@ -140,6 +163,8 @@ function debug(agentId: string, content: string) {
       } else if (frame.type === "complete" || frame.type === "error") {
         completed = performance.now();
         if (frame.type === "error") error = String(frame.error ?? "error");
+        // Some failed calls end without a next context; the call itself is over.
+        setTimeout(() => finish(() => resolve({ completeMs: completed - sent, contextMs: -1, error })), 120_000);
       } else if (frame.type === "nextContext" && completed) {
         const done = performance.now();
         finish(() => resolve({ completeMs: completed - sent, contextMs: done - completed, error }));
@@ -164,6 +189,7 @@ async function replay(job: Job, token: string, cuid: number) {
   writeFileSync(join(dir, "job.json"), JSON.stringify({ ...job, tag, wid, cuid, settings, calls: calls.length, started }, null, 1));
   const agent = await createAgent({ baseUrl, userToken: token, modelType: "gpt-5.6-luna", workflowId: wid, computingUnitId: cuid, settings });
   const timings: any[] = [];
+  const executions = new Set<string>();
   try {
     for (const [index, input] of calls.entries()) {
       const at = Date.now();
@@ -177,6 +203,10 @@ async function replay(job: Job, token: string, cuid: number) {
     }
     const trace = await getReActSteps(agent.id, baseUrl);
     writeFileSync(join(dir, "react_steps.json"), JSON.stringify(trace.steps));
+    for (const step of trace.steps as any[])
+      for (const result of step.toolResults ?? [])
+        for (const action of result?.output?.actions ?? [])
+          for (const run of action?.output?.execution_runs ?? []) if (run?.executionId) executions.add(String(run.executionId));
     writeFileSync(join(dir, "snapshot.json"), JSON.stringify(await getSnapshot(agent.id, "head", baseUrl)));
   } finally {
     writeFileSync(join(dir, "calls.json"), JSON.stringify(timings, null, 1));
@@ -186,6 +216,7 @@ async function replay(job: Job, token: string, cuid: number) {
       await deleteAgent(agent.id, baseUrl);
       await deleteWorkflow(token, wid);
       rmSync(workspace, { recursive: true, force: true });
+      writeFileSync(join(dir, "cleanup.json"), JSON.stringify({ executions: [...executions], removed: removeResults(wid, executions, started) }));
     } catch (error) {
       log(`${job.id}: cleanup failed: ${error}`);
     }
