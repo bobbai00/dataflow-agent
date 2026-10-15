@@ -38,6 +38,7 @@ from litellm.integrations.custom_logger import CustomLogger
 STRICT_MODELS = {
     "claude-haiku-4.5", "claude-haiku-4-5-20251001",
     "claude-sonnet-5", "claude-opus-5", "claude-sonnet-5.5", "claude-sonnet-5-5",
+    "claude-opus-5.5", "claude-opus-5-5",
 }
 UNSUPPORTED_CONSTRAINTS = {
     "minLength", "maxLength", "maxItems", "uniqueItems", "contains",
