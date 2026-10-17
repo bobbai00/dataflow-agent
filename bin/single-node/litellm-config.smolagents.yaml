@@ -1,0 +1,54 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Gateway for the smolagents baseline of GPT-6.1 Sol and Gemini 4 Argon (2026-10-16), run as a
+# second LiteLLM container beside the dataflow gateway (litellm-config.yaml). smolagents' code agent
+# sends no tools and asks for stop sequences, which needs routes the dataflow agent cannot share:
+# the dataflow agent's gpt-6.1-sol route must use the Responses bridge for tool calls, and its
+# gemini-4-argon routes are pinned to Google AI Studio, which ignores `stop`.
+
+litellm_settings:
+  callbacks: [strict_tools.hook]
+  drop_params: true
+
+model_list:
+  # GPT-6.1 Sol on plain Chat Completions, as the gpt-5.6 routes served smolagents (with no tools
+  # LiteLLM never bridged those to Responses). OpenAI rejects `stop` for both models; for gpt-5.6
+  # LiteLLM knew that and dropped it silently, for gpt-6.1-sol it does not, so it is dropped here,
+  # with temperature. LiteLLM also does not list reasoning_effort for gpt-6.1-sol and would drop it.
+  - model_name: gpt-6.1-sol
+    litellm_params:
+      model: openai/gpt-6.1-sol
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+      allowed_openai_params: ["reasoning_effort"]
+      additional_drop_params: ["stop", "temperature"]
+  # Gemini 4 Argon with reasoning effort medium, pinned to Google Vertex (global, standard tier, no
+  # fallback), which honours `stop` -- the Gemini 3.8 Flash smolagents baseline used Vertex for the
+  # same reason. Same model and price as the dataflow route on AI Studio.
+  - model_name: gemini-4-argon-medium
+    litellm_params:
+      model: openrouter/google/gemini-4-argon
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      additional_drop_params: ["temperature", "top_p"]
+      extra_body:
+        provider:
+          order: ["google-vertex/global"]
+          allow_fallbacks: false
+        reasoning:
+          effort: medium

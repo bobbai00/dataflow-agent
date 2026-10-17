@@ -102,6 +102,7 @@ def main():
                     "model": model,
                     "endpoint": manifest["script_endpoint"],
                     "smolagents_version": __import__("smolagents").__version__,
+                    "script_python": {key: manifest["script_python"][key] for key in ("path", "python")},
                     "adapter_sha256": {
                         path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__), CHILD]
                     },
@@ -109,6 +110,7 @@ def main():
             )
             self.agent = SandboxedScriptAgent(
                 self.agent,
+                python=manifest["script_python"]["path"],
                 harness=Path.cwd(),
                 data_root=dataset_directory,
                 data_relative=os.path.relpath(dataset_directory),

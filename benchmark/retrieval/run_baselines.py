@@ -16,7 +16,8 @@ Both agents write Python against the task's files and get the same model,
 step limit and output limit. Every task runs once per system in its own
 process, sandboxed on the task's input directory, and is scored by the
 unchanged official evaluator. One queue limits large-input tasks across both
-systems; attempts are never retried or overwritten. Use the KramaBench venv.
+systems; attempts are never retried or overwritten. Use the KramaBench venv;
+the smolagents agent itself runs on script-agent/.venv (see script-agent/).
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,6 +26,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -41,6 +43,9 @@ SYSTEMS = {
     "smolagents": {"prefix": "CodeAgentSystem", "adapter": "evaluate_script_task.py"},
     "dsgym": {"prefix": "DSGymSystem", "adapter": "evaluate_dsgym_task.py"},
 }
+SCRIPT_AGENT = Path(__file__).resolve().with_name("script-agent")
+# Packages that must match Texera's operator sandbox, besides the Python version.
+SANDBOX_PACKAGES = ("numpy", "pyarrow")
 
 
 def revision(repository):
@@ -50,6 +55,62 @@ def revision(repository):
         return subprocess.check_output(["git", "-C", str(repository), *command], text=True).strip()
 
     return git("rev-parse", "HEAD") + ("+dirty" if git("status", "--porcelain") else "")
+
+
+def pinned(lines):
+    """`name==version` lines as {normalized name: version}; comments and blanks are skipped."""
+    found = {}
+    for line in lines:
+        line = line.split("#", 1)[0].strip()
+        if line:
+            name, _, version = line.partition("==")
+            found[re.sub(r"[-_.]+", "-", name).lower()] = version.strip()
+    return found
+
+
+def interpreter(python):
+    """An interpreter's Python version and installed packages, read by that interpreter."""
+    probe = (
+        "import importlib.metadata as m, json, platform; print(json.dumps({'python': platform.python_version(), "
+        "'packages': sorted(f\"{d.metadata['Name']}=={d.version}\" for d in m.distributions())}))"
+    )
+    found = json.loads(subprocess.check_output([str(python), "-c", probe], text=True))
+    return found["python"], pinned(found["packages"])
+
+
+def script_python(python):
+    """The interpreter smolagents and the model's code run on, checked against script-agent/.
+
+    It must hold exactly the locked packages on the locked Python. When Texera's
+    operator sandbox is configured (NATIVE_ISOLATED_PYTHON), its Python, numpy
+    and pyarrow must also be the same, so both agents compute on one stack.
+    """
+    rebuild = f"rebuild it with {SCRIPT_AGENT / 'setup.sh'}"
+    if not python.is_file():
+        raise ValueError(f"No smolagents interpreter at {python}; {rebuild}")
+    version, packages = interpreter(python)
+    wanted = (SCRIPT_AGENT / ".python-version").read_text().strip()
+    locked = pinned((SCRIPT_AGENT / "requirements.txt").read_text().splitlines())
+    if version != wanted or packages != locked:
+        drift = sorted(f"{name} {packages.get(name)} != {locked.get(name)}" for name in set(packages) | set(locked)
+                       if packages.get(name) != locked.get(name))
+        raise ValueError(f"{python} runs Python {version} (locked {wanted}), packages {drift[:8]}; {rebuild}")
+    sandbox = os.environ.get("NATIVE_ISOLATED_PYTHON")
+    if sandbox:
+        texera_version, texera_packages = interpreter(sandbox)
+        mine = (version, *(packages.get(name) for name in SANDBOX_PACKAGES))
+        theirs = (texera_version, *(texera_packages.get(name) for name in SANDBOX_PACKAGES))
+        if mine != theirs:
+            raise ValueError(
+                f"smolagents would run on Python/{'/'.join(SANDBOX_PACKAGES)} {mine}, Texera's operator sandbox "
+                f"({sandbox}) on {theirs}; update {SCRIPT_AGENT} to match"
+            )
+    return {
+        "path": str(python.absolute()),
+        "python": version,
+        "texera_sandbox": sandbox,
+        "packages": [f"{name}=={packages[name]}" for name in sorted(packages)],
+    }
 
 
 def main():
@@ -77,6 +138,12 @@ def main():
         help="Seconds one DSGym execution may run; smolagents has no such limit",
     )
     parser.add_argument("--dsgym-home", type=Path, default=ROOT / "benchmark/DSGym")
+    parser.add_argument(
+        "--script-python",
+        type=Path,
+        default=SCRIPT_AGENT / ".venv/bin/python",
+        help="Interpreter for the smolagents agent and the model's code; must match script-agent/",
+    )
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
@@ -100,6 +167,10 @@ def main():
         parser.error("Workers, repetitions, limits and timeouts must be positive")
     if len(set(args.systems)) != len(args.systems):
         parser.error("Give distinct --systems; each task must run once per system and repetition")
+    try:
+        script = script_python(args.script_python) if "smolagents" in args.systems else None
+    except ValueError as error:
+        parser.error(str(error))
     sources = inventory()
     if args.all_tasks:
         args.tasks = sorted(t["task_id"] for t in sources)
@@ -181,6 +252,8 @@ def main():
         "input_inventory": sources,
         "jobs": jobs,
     }
+    if script:
+        manifest["script_python"] = script
     if "dsgym" in args.systems:
         manifest.update(
             {
