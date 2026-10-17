@@ -65,7 +65,14 @@ def main():
     import httpx
     from smolagents.local_python_executor import LocalPythonExecutor
 
+    import code_agent
     from code_agent import CodeAgentWrapper
+
+    # The harness recognises OpenAI reasoning models by name (gpt-5*, o1, o3, o4): for them smolagents sends no
+    # `stop` and trims stop sequences itself, and no temperature is set. gpt-6* models are reasoning models too
+    # (OpenAI rejects `stop` and non-default temperatures for gpt-6.1-sol), so they get the same treatment.
+    if "gpt-6" not in code_agent._REASONING_MODEL_PREFIXES:
+        code_agent._REASONING_MODEL_PREFIXES = (*code_agent._REASONING_MODEL_PREFIXES, "gpt-6")
 
     def append(name, event):
         event["timestamp"] = datetime.now(timezone.utc).isoformat()

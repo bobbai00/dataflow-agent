@@ -27,9 +27,10 @@ litellm_settings:
 
 model_list:
   # GPT-6.1 Sol on plain Chat Completions, as the gpt-5.6 routes served smolagents (with no tools
-  # LiteLLM never bridged those to Responses). OpenAI rejects `stop` for both models; for gpt-5.6
-  # LiteLLM knew that and dropped it silently, for gpt-6.1-sol it does not, so it is dropped here,
-  # with temperature. LiteLLM also does not list reasoning_effort for gpt-6.1-sol and would drop it.
+  # LiteLLM never bridged those to Responses). The harness treats gpt-5*/gpt-6* as reasoning models
+  # and sends neither `stop` nor temperature (script_agent_child.py); dropping both here is only a
+  # safety net, since OpenAI rejects them. LiteLLM does not list reasoning_effort for gpt-6.1-sol
+  # and would drop it, hence allowed_openai_params.
   - model_name: gpt-6.1-sol
     litellm_params:
       model: openai/gpt-6.1-sol
@@ -39,13 +40,17 @@ model_list:
       additional_drop_params: ["stop", "temperature"]
   # Gemini 4 Argon with reasoning effort medium, pinned to Google Vertex (global, standard tier, no
   # fallback), which honours `stop` -- the Gemini 3.8 Flash smolagents baseline used Vertex for the
-  # same reason. Same model and price as the dataflow route on AI Studio.
-  - model_name: gemini-4-argon-medium
+  # same reason. Same model and price as the dataflow route on AI Studio. The harness turns the
+  # runner's model gemini-4-argon-medium into gemini-4-argon plus reasoning_effort "medium"
+  # (code_agent._parse_model_and_reasoning_effort), so the route carries the bare name; the request's
+  # reasoning_effort is dropped in favour of the route's reasoning {effort: medium}, which is exactly
+  # what the dataflow route sends.
+  - model_name: gemini-4-argon
     litellm_params:
       model: openrouter/google/gemini-4-argon
       api_base: "os.environ/OPENROUTER_BASE_URL"
       api_key: "os.environ/OPENROUTER_API_KEY"
-      additional_drop_params: ["temperature", "top_p"]
+      additional_drop_params: ["temperature", "top_p", "reasoning_effort"]
       extra_body:
         provider:
           order: ["google-vertex/global"]
