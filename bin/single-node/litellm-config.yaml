@@ -167,12 +167,16 @@ model_list:
   # GPT-5.4+ (which is how the gpt-5.6 routes run), so the responses/ prefix forces the same bridge.
   # The bridge drops reasoning_effort unless it is allowed explicitly; with it the request carries
   # reasoning {effort: medium}. The bridge omits cache_write_tokens (metrics prices them as writes).
+  # The agent's AI SDK treats only o-series and gpt-5* IDs as reasoning models; for gpt-6.1-sol it
+  # sends temperature 0.2, which the model rejects (400). Dropping it here gives the request gpt-5.6
+  # gets (no temperature); the system prompt reaches the model as Responses instructions either way.
   - model_name: gpt-6.1-sol
     litellm_params:
       model: openai/responses/gpt-6.1-sol
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
       allowed_openai_params: ["reasoning_effort"]
+      additional_drop_params: ["temperature"]
   # Gemini 4 Argon through OpenRouter, pinned to Google AI Studio's standard tier with no fallback
   # (Vertex global was degraded on 2026-10-16; the dataflow agent sends no `stop`, which AI Studio
   # does not list). Temperature and top_p are dropped as on the Gemini 3 routes. gemini-4-argon keeps
