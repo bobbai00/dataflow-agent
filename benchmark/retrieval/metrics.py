@@ -26,6 +26,7 @@ def current_price_schedule(model):
         "gpt-5.6-luna": ((.2, 1.2, .02, .25), "https://developers.openai.com/api/docs/models/gpt-5.6-luna", "2026-10-12"),
         "gpt-5.6-terra": ((2, 12, .2, 2.5), "https://developers.openai.com/api/docs/models/gpt-5.6-terra", "2026-10-12"),
         "gpt-5.6-sol": ((4, 20, .4, 5), "https://developers.openai.com/api/docs/models/gpt-5.6-sol", "2026-10-12"),
+        "gpt-6.1-sol": ((2, 10, .1, 2.5), "https://developers.openai.com/api/docs/models/gpt-6.1-sol", "2026-10-16"),
         "claude-opus-4.8": ((5, 25, .5, 6.25), "https://platform.claude.com/docs/en/models/opus-4-8/overview", "2026-10-08"),
         "claude-opus-5.5": ((4, 20, .2, 5), "https://platform.claude.com/docs/en/models/opus-5-5/overview", "2026-10-12"),
         # OpenRouter models: the rates the routes' pinned providers billed (Parasail for Qwen, DeepInfra for
@@ -39,17 +40,19 @@ def current_price_schedule(model):
     if model not in providers:
         return None
     rates, source, verified = providers[model]
+    # GPT-6.1 Sol follows GPT-5.6's billing rules: the 272K long-prompt rates, and every prompt written to its cache.
+    gpt_cache_rules = model.startswith(("gpt-5.6-", "gpt-6.1-"))
     return {"model": model, "kind": "token_estimate", "currency": "USD", "unit": "per_token",
             "verified_on": verified, "source": source,
             "rates": {k: v / 1e6 if v is not None else None for k, v in
                       zip(("input", "output", "cache_read", "cache_creation"), rates)},
-            "long_context_threshold": 272000 if model.startswith("gpt-5.6-") else 100000 if model == "claude-haiku-5.5" else None,
+            "long_context_threshold": 272000 if gpt_cache_rules else 100000 if model == "claude-haiku-5.5" else None,
             # Haiku 5.5 bills every token class at 5x once a prompt exceeds 100k tokens.
             **({"long_context_multiplier": 5} if model == "claude-haiku-5.5" else {}),
-            # GPT-5.6 writes every prompt to its cache (implicit mode) and bills writes at 1.25x input
+            # GPT-5.6 and GPT-6.1 write every prompt to their cache (implicit mode) and bill writes at 1.25x input
             # (https://developers.openai.com/api/docs/guides/prompt-caching); usage that omits the write count
-            # still incurred them.
-            **({"implicit_cache_writes": True} if model.startswith("gpt-5.6-") else {}),
+            # still incurred them. GPT-6.1 Sol's Responses usage reported 3,624 writes on a fresh 3,627-token prompt.
+            **({"implicit_cache_writes": True} if gpt_cache_rules else {}),
             "input_includes_cached": True, "output_includes_reasoning": True}
 
 

@@ -162,6 +162,17 @@ model_list:
       model: openai/gpt-5.6-sol
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
+  # GPT-6.1 Sol rejects function tools with a reasoning effort on /v1/chat/completions ("use
+  # /v1/responses"). LiteLLM 1.83.10 bridges chat requests to the Responses API by itself only for
+  # GPT-5.4+ (which is how the gpt-5.6 routes run), so the responses/ prefix forces the same bridge.
+  # The bridge drops reasoning_effort unless it is allowed explicitly; with it the request carries
+  # reasoning {effort: medium}. The bridge omits cache_write_tokens (metrics prices them as writes).
+  - model_name: gpt-6.1-sol
+    litellm_params:
+      model: openai/responses/gpt-6.1-sol
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium
+      allowed_openai_params: ["reasoning_effort"]
   - model_name: claude-opus-4.8
     litellm_params:
       model: anthropic/claude-opus-4-8

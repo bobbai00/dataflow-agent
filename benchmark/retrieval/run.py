@@ -41,7 +41,7 @@ KB = ROOT / "benchmark/Kramabench"
 MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Sol": "gpt-5.6-sol",
                "Opus48": "claude-opus-4.8", "Qwen38_27B": "qwen3.8-27b", "Qwen38_27B_NoThink": "qwen3.8-27b-nothink", "DeepSeek41Flash": "deepseek-v4.1-flash",
                "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5", "Haiku55": "claude-haiku-5.5",
-               "Opus55": "claude-opus-5.5"}
+               "Opus55": "claude-opus-5.5", "Sol61": "gpt-6.1-sol"}
 
 
 JUDGE_FAILURE_PAUSE = 2

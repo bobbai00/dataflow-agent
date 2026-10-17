@@ -71,6 +71,16 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(stats["cost_basis"], "token_estimate")
             self.assertIn("priced as cache writes", stats["cost_estimate_assumptions"][0])
 
+    def test_gpt61_sol_uses_gpt56_cache_and_long_prompt_rules(self):
+        sol61 = current_price_schedule("gpt-6.1-sol")
+        omitted = {"prompt_tokens": 1000, "completion_tokens": 100, "prompt_tokens_details": {"cached_tokens": 600}}
+        # $2 input, $10 output, $0.10 cache reads, $2.50 cache writes per million; the 400 uncached tokens are writes.
+        self.assertAlmostEqual(response_cost(omitted, sol61), 400 * 2.5e-6 + 600 * .1e-6 + 100 * 10e-6)
+        self.assertEqual(sol61["long_context_threshold"], 272000)
+        long = {"prompt_tokens": 300_000, "completion_tokens": 100, "prompt_tokens_details": {"cached_tokens": 200_000}}
+        # Above 272K input tokens every input class doubles and output costs 1.5x.
+        self.assertAlmostEqual(response_cost(long, sol61), 2 * (100_000 * 2.5e-6 + 200_000 * .1e-6) + 1.5 * 100 * 10e-6)
+
     def test_script_trace_is_priced_per_response(self):
         price = current_price_schedule("deepseek-v4.1-flash")
         usage = {"prompt_tokens": 1000, "completion_tokens": 200, "prompt_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 0}}
