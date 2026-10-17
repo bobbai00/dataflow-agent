@@ -173,6 +173,32 @@ model_list:
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
       allowed_openai_params: ["reasoning_effort"]
+  # Gemini 4 Argon through OpenRouter, pinned to Google AI Studio's standard tier with no fallback
+  # (Vertex global was degraded on 2026-10-16; the dataflow agent sends no `stop`, which AI Studio
+  # does not list). Temperature and top_p are dropped as on the Gemini 3 routes. gemini-4-argon keeps
+  # Google's default thinking; gemini-4-argon-medium sends reasoning {effort: medium}.
+  - model_name: gemini-4-argon
+    litellm_params:
+      model: openrouter/google/gemini-4-argon
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      additional_drop_params: ["temperature", "top_p"]
+      extra_body:
+        provider:
+          order: ["google-ai-studio"]
+          allow_fallbacks: false
+  - model_name: gemini-4-argon-medium
+    litellm_params:
+      model: openrouter/google/gemini-4-argon
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      additional_drop_params: ["temperature", "top_p"]
+      extra_body:
+        provider:
+          order: ["google-ai-studio"]
+          allow_fallbacks: false
+        reasoning:
+          effort: medium
   - model_name: claude-opus-4.8
     litellm_params:
       model: anthropic/claude-opus-4-8

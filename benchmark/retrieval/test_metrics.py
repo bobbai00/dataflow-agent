@@ -81,6 +81,18 @@ class MetricsTests(unittest.TestCase):
         # Above 272K input tokens every input class doubles and output costs 1.5x.
         self.assertAlmostEqual(response_cost(long, sol61), 2 * (100_000 * 2.5e-6 + 200_000 * .1e-6) + 1.5 * 100 * 10e-6)
 
+    def test_gemini4_argon_takes_openrouters_charge_and_has_no_cache_write_rule(self):
+        for model in ("gemini-4-argon", "gemini-4-argon-medium"):
+            argon = current_price_schedule(model)
+            self.assertNotIn("implicit_cache_writes", argon)
+            self.assertIsNone(argon["long_context_threshold"])
+            usage = {"prompt_tokens": 4859, "completion_tokens": 77,
+                     "prompt_tokens_details": {"cached_tokens": 2810}, "cost": 0.005149}
+            # OpenRouter's reported charge wins over the frozen rates.
+            self.assertAlmostEqual(response_cost(usage, argon), 0.005149)
+            unreported = {k: v for k, v in usage.items() if k != "cost"}
+            self.assertAlmostEqual(response_cost(unreported, argon), 2049 * 2e-6 + 2810 * .1e-6 + 77 * 10e-6)
+
     def test_script_trace_is_priced_per_response(self):
         price = current_price_schedule("deepseek-v4.1-flash")
         usage = {"prompt_tokens": 1000, "completion_tokens": 200, "prompt_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 0}}

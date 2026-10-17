@@ -36,6 +36,11 @@ def current_price_schedule(model):
         "qwen3.8-27b-nothink": ((.24, 2.2, .05, None), openrouter + " (Parasail)", "2026-10-12"),
         "deepseek-v4.1-flash": ((.14, .42, .0042, None), openrouter + " (DeepInfra)", "2026-10-12"),
         "claude-haiku-5.5": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-08"),
+        # Gemini 4 Argon through OpenRouter on Google AI Studio (standard tier); OpenRouter reports each response's
+        # charge, so these rates only price a response without one. Implicit caching only; the rates double on
+        # 2026-12-01. The -medium route is the same model with reasoning effort medium.
+        "gemini-4-argon": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-16"),
+        "gemini-4-argon-medium": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-16"),
     }
     if model not in providers:
         return None
