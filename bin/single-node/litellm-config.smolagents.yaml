@@ -26,14 +26,16 @@ litellm_settings:
   drop_params: true
 
 model_list:
-  # GPT-6.1 Sol on plain Chat Completions, as the gpt-5.6 routes served smolagents (with no tools
-  # LiteLLM never bridged those to Responses). The harness treats gpt-5*/gpt-6* as reasoning models
-  # and sends neither `stop` nor temperature (script_agent_child.py); dropping both here is only a
-  # safety net, since OpenAI rejects them. LiteLLM does not list reasoning_effort for gpt-6.1-sol
-  # and would drop it, hence allowed_openai_params.
+  # GPT-6.1 Sol through LiteLLM's Responses bridge, as the dataflow route. On plain Chat Completions
+  # (what the gpt-5.6 routes used) OpenAI left about 1 in 8 gpt-6.1-sol requests unanswered
+  # (2026-10-17: 2/16 direct to OpenAI, 2/16 through this gateway, ~3% of smolagents calls, each
+  # held until the client's 600 s timeout); through Responses 0/16, and 0 of 804 dataflow calls.
+  # Same model, messages and parameters. The harness treats gpt-5*/gpt-6* as reasoning models and
+  # sends neither `stop` nor temperature (script_agent_child.py); dropping both here is a safety net.
+  # LiteLLM does not list reasoning_effort for gpt-6.1-sol and would drop it, hence allowed_openai_params.
   - model_name: gpt-6.1-sol
     litellm_params:
-      model: openai/gpt-6.1-sol
+      model: openai/responses/gpt-6.1-sol
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
       allowed_openai_params: ["reasoning_effort"]
