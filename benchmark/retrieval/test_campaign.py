@@ -36,6 +36,17 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(frozen["claude-sonnet-5.5"]["rates"]["output"], 10e-6)
         self.assertIn("platform.claude.com", frozen["claude-sonnet-5.5"]["source"])
 
+    def test_gemini_flash_prices_cached_input_at_its_own_rate(self):
+        path = Path(__file__).resolve().parents[1] / "Kramabench/systems/cost_utils.py"
+        spec = importlib.util.spec_from_file_location("cost_fixture", path)
+        cost = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cost)
+        frozen = install_provider_prices(cost, ["gemini-3.8-flash"])
+        # 200 uncached at $0.75/M, 800 cached at $0.075/M, 100 output at $3.75/M.
+        self.assertAlmostEqual(cost.compute_cost("gemini-3.8-flash", 1000, 100, 800, 0), 0.000585)
+        self.assertEqual(frozen["gemini-3.8-flash"]["valid_through"], "2026-12-31")
+        self.assertIn("ai.google.dev", frozen["gemini-3.8-flash"]["source"])
+
     def test_large_tasks_wait_while_small_tasks_continue(self):
         jobs = [{"task": task} for task in ["large-a", "large-b", "small"]]
         work = ResourceQueue(jobs, {"large-a", "large-b"}, 1)
