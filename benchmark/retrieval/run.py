@@ -35,7 +35,8 @@ from catalog import inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 KB = ROOT / "benchmark/Kramabench"
-MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5"}
+MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5",
+               "Gemini38Flash": "gemini-3.8-flash"}
 
 
 def save(path, data):

@@ -15,21 +15,36 @@ import json
 import threading
 
 
+SONNET_55_PRICES = {"rates": {"input": 2e-6, "output": 10e-6, "cache_read": 0.2e-6, "cache_creation": 2.5e-6},
+                    "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+                    "verified_on": "2026-10-01"}
+# Standard paid tier through 2026-12-31 (input, output and implicit-cache rates
+# double on 2027-01-01). Implicit caching has no write charge; explicit cache
+# storage is not used by these runs.
+GEMINI_38_FLASH_PRICES = {"rates": {"input": 0.75e-6, "output": 3.75e-6, "cache_read": 0.075e-6,
+                                    "cache_creation": 0.75e-6},
+                          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+                          "verified_on": "2026-10-02", "valid_through": "2026-12-31"}
+PROVIDER_PRICES = {"claude-sonnet-5.5": SONNET_55_PRICES, "claude-sonnet-5-5": SONNET_55_PRICES,
+                   "gemini-3.8-flash": GEMINI_38_FLASH_PRICES}
+
+
 def install_provider_prices(cost_module, models):
     """Freeze newly supported model prices inside this campaign process only.
 
-    The pinned harness predates Sonnet 5.5 and otherwise reports its cost as
-    zero. Extend its fallback table without modifying the KramaBench checkout
-    or changing prices for historical models. Output already includes thinking.
+    The pinned harness predates Sonnet 5.5 and Gemini 3.8 Flash and otherwise
+    reports their cost as zero. Extend its fallback table without modifying the
+    KramaBench checkout or changing prices for historical models. Output
+    already includes thinking.
     """
     frozen = {}
     for model in models:
-        if model not in {"claude-sonnet-5.5", "claude-sonnet-5-5"}:
+        if model not in PROVIDER_PRICES:
             continue
-        rates = {"input": 2e-6, "output": 10e-6, "cache_read": 0.2e-6, "cache_creation": 2.5e-6}
-        cost_module._FALLBACK[model] = tuple(rates.values())
-        frozen[model] = {"rates": rates, "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
-                         "verified_on": "2026-10-01", "unit": "USD per token"}
+        price = PROVIDER_PRICES[model]
+        cost_module._FALLBACK[model] = tuple(price["rates"][key] for key in
+                                             ("input", "output", "cache_read", "cache_creation"))
+        frozen[model] = {**price, "rates": dict(price["rates"]), "unit": "USD per token"}
     return frozen
 
 

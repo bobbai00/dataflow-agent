@@ -11,17 +11,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Regression tests for LiteLLM's Anthropic strict-tool route.
+"""Regression tests for LiteLLM's Anthropic strict-tool and Gemini tool routes.
 
 Run inside the pinned LiteLLM image, where the gateway dependency is installed:
   python -m unittest discover -s /app/compat -p test_strict_tools.py
 """
 
 import copy
+import json
 import unittest
 
 from strict_tools import hook
 from litellm.llms.anthropic.chat.transformation import AnthropicConfig
+from litellm.llms.vertex_ai.gemini.vertex_and_google_ai_studio_gemini import VertexGeminiConfig
 
 
 def request(model="claude-haiku-4.5", strict=True):
@@ -95,6 +97,55 @@ class StrictToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mapped["properties"]["literal"]["const"], "maxItems")
         self.assertNotIn("minItems", mapped["properties"]["small"])
         self.assertIn("minItems: 2", mapped["properties"]["small"]["description"])
+
+    async def test_gemini_moves_array_bounds_and_keeps_decoding_constraints(self):
+        data = request("gemini-3.8-flash")
+        schema = data["tools"][0]["function"]["parameters"]
+        schema["properties"]["actions"]["items"]["anyOf"][0]["properties"]["columns"] = {
+            "type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "maxItems": 128}
+        before = copy.deepcopy(data)
+        mapped = await self.adapt(data)
+        self.assertEqual(data, before)
+        self.assertEqual(mapped, await self.adapt(mapped))
+        function = mapped["tools"][0]["function"]
+        self.assertTrue(function["strict"])
+        actions = function["parameters"]["properties"]["actions"]
+        self.assertNotIn("maxItems", actions)
+        self.assertIn("maxItems: 32", actions["description"])
+        self.assertEqual(actions["minItems"], 1)
+        columns = actions["items"]["anyOf"][0]["properties"]["columns"]
+        self.assertNotIn("maxItems", columns)
+        self.assertEqual(columns["minItems"], 1)
+        self.assertEqual(columns["items"]["minLength"], 1)
+        reasoning = function["parameters"]["properties"]["reasoning"]
+        self.assertEqual(reasoning["pattern"], r"\S")
+        branch = actions["items"]["anyOf"][0]
+        self.assertEqual(branch["properties"]["type"], {"type": "string", "enum": ["execute"]})
+        self.assertFalse(branch["additionalProperties"])
+        declarations = VertexGeminiConfig()._map_function(mapped["tools"], {})[0]["function_declarations"]
+        self.assertEqual(declarations[0]["name"], "dataflow")
+        self.assertNotIn('"maxItems"', json.dumps(declarations))
+        provider_branch = declarations[0]["parameters"]["properties"]["actions"]["items"]["anyOf"][0]
+        self.assertEqual(provider_branch["properties"]["type"]["enum"], ["execute"])
+        prefixed = await self.adapt(request("gemini/gemini-3.8-flash"))
+        self.assertNotIn("maxItems", prefixed["tools"][0]["function"]["parameters"]["properties"]["actions"])
+
+    async def test_gemini_drops_only_the_default_tool_choice(self):
+        auto = await self.adapt(request("gemini-3.8-flash") | {"tool_choice": "auto"})
+        self.assertNotIn("tool_choice", auto)
+        required = await self.adapt(request("gemini-3.8-flash") | {"tool_choice": "required"})
+        self.assertEqual(required["tool_choice"], "required")
+        claude = await self.adapt(request() | {"tool_choice": "auto"})
+        self.assertEqual(claude["tool_choice"], "auto")
+
+    async def test_gemini_keeps_literal_values_and_existing_enums(self):
+        data = request("gemini-3.8-flash")
+        schema = data["tools"][0]["function"]["parameters"]
+        schema["properties"]["maxItems"] = {"type": "string", "enum": ["maxItems"]}
+        schema["properties"]["number"] = {"type": "integer", "const": 3}
+        mapped = (await self.adapt(data))["tools"][0]["function"]["parameters"]
+        self.assertEqual(mapped["properties"]["maxItems"], {"type": "string", "enum": ["maxItems"]})
+        self.assertEqual(mapped["properties"]["number"], {"type": "integer", "const": 3})
 
     async def test_already_native_strict_tools_are_supported(self):
         data = request()

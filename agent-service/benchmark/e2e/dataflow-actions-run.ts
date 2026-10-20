@@ -69,6 +69,8 @@ async function provision(name: string) {
       contextMode: "delta",
       messageLayout: "native",
       maxSteps: 12,
+      // The probes read with every view; the default offers only sample_stats and full.
+      retrievalViews: ["full", "sample", "sample_stats"],
       dataEvidence: false,
       flowEvidence: false,
       resultSelection: "all",
@@ -417,7 +419,7 @@ create edge projected.out -> filtered.in`,
   assert.equal(outputs.full.table.complete, true);
   assert.ok(outputs.full.text.length > 2000, "Full view did not read beyond the old sample limit");
   assert.equal(outputs.sample_stats.table.returnedRows, 5);
-  assert.ok(outputs.sample_stats.text.includes("Data measurement"));
+  assert.ok(outputs.sample_stats.text.includes("statistics: "));
   assert.ok(!outputs.sample.text.includes("Data measurement"));
   await debug(agentId, [{ type: "retrieve", operator_id: "filtered", view: "sample" }]);
   const trace = await getReActSteps(agentId, baseUrl);

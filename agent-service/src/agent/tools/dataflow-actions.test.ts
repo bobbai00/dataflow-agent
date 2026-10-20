@@ -1034,7 +1034,7 @@ describe("action history and model loop", () => {
     expect(importedLegacy.executions()).toBe(0);
   });
 
-  test.each(["mock-model-id", "claude-sonnet-5.5", "claude-sonnet-5-5"])(
+  test.each(["mock-model-id", "claude-sonnet-5.5", "claude-sonnet-5-5", "gemini-3.8-flash"])(
     "the SDK (%s) sees completed results and stops immediately on Answer",
     async modelId => {
       const s = session([]);

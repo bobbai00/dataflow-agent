@@ -21,6 +21,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from campaign import install_provider_prices
+from check_sources import corrected, unresolved
 
 sys.path.insert(0, str(Path.cwd()))
 import systems
@@ -81,6 +82,15 @@ class RetrievalSystem(_NativeExpressionBase):
         assert retrieval["properties"]["view"]["enum"] == arm["retrievalViews"]
 
     def serve_query(self, query, query_id="default-0", subset_files=None):
+        # Correct known wrong source names, and make no model call for a path
+        # the engine cannot open: an agent given such a path searches the disk.
+        if subset_files:
+            subset_files = corrected(query_id, subset_files)
+            missing = unresolved(self._expand_data_sources(subset_files))
+            if missing:
+                save(Path(self.output_dir) / query_id / "preflight.json", {"missing": missing})
+                message = "HARNESS ERROR: listed data paths do not resolve: " + "; ".join(missing)
+                return {"explanation": {"id": "main-task", "answer": message}, "pipeline_code": ""}
         answer = super().serve_query(query, query_id, subset_files)
         endpoint = self.agent.agent_service_endpoint + "/api/agents/" + self.agent.agent_id
         base = Path(self.output_dir) / query_id

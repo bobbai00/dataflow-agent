@@ -37,7 +37,9 @@ import {
 import { assertNativeCleanupSafe } from "./native-cleanup";
 
 const base = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3001";
-const directory = mkdtempSync(join(tmpdir(), "observation-format-live-"));
+// An engine that sandboxes model code reads only its data root: point
+// E2E_FIXTURE_DIR inside that root so the fixture scans can open.
+const directory = mkdtempSync(join(process.env.E2E_FIXTURE_DIR ?? tmpdir(), "observation-format-live-"));
 const checks: string[] = [];
 const save = (name: string, value: unknown) => writeFileSync(join(directory, name), JSON.stringify(value, null, 2));
 let token = "",
@@ -148,7 +150,7 @@ try {
   save("settings.json", await json(`${base}/api/agents/${agentId}/settings`));
   const initial = await json<{ systemPrompt: string }>(`${base}/api/agents/${agentId}/system-info`);
   assert(initial.systemPrompt.startsWith("## Role and objective"));
-  assert(initial.systemPrompt.includes("## Multi-task sessions"));
+  assert(initial.systemPrompt.includes("### Earlier tasks in the session"));
   assert(!/texera|\{\{/i.test(initial.systemPrompt));
   writeFileSync(join(directory, "system-prompt.txt"), initial.systemPrompt);
   passed("creation settings and generated multi-task prompt");
@@ -199,12 +201,12 @@ try {
   passed("all views and layouts preserve typed values and never execute on retrieval");
   await settings({ tableFormat: "markdown" });
   const seal = await debug([{ type: "answer", content: "Typed records verified." }]);
-  assert(seal.text.includes("### Catalog: task"));
+  assert(seal.text.includes("#### Task "));
   assert(!seal.text.includes("Typed records verified."));
-  const task = Number(/### Catalog: task (\d+)/.exec(seal.text)![1]);
+  const task = Number(/#### Task (\d+)/.exec(seal.text)![1]);
   await debug("Compare the completed task's saved result.");
   const copy = await debug([
-    { type: "edit", changes: `rollback operator positive to task ${task} as historical` },
+    { type: "edit", changes: `fork operator positive from task ${task} as historical` },
     { type: "retrieve", operator_id: "historical", view: "full" },
   ]);
   assert.equal(copy.result.status, "completed", copy.text);

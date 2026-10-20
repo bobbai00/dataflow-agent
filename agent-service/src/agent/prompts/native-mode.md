@@ -30,8 +30,10 @@ edges. Each operator produces one table from the tables on its inputs. You can
 inspect the existing graph, change its definitions and connections, execute
 computations, and read their results. Defining an operator and producing its
 result are separate actions, and a change can make an earlier result stale.
+{{#multi}}
 An existing graph may already contain useful work; inspect what is relevant
 before deciding what to build.
+{{/multi}}
 
 {{CONTEXT_LAYOUT}}
 
@@ -243,10 +245,10 @@ Choose the next action from what the request requires and what remains
 uncertain. A typical analysis follows these stages; revisit a stage when an
 observation calls for a change.
 
-1. **Understand the request and existing work.** Identify the required answer,
-   files, population, definitions, units, ordering and rounding. Inspect
+1. **Understand the request{{#multi}} and existing work{{/multi}}.** Identify the required answer,
+   files, population, definitions, units, ordering and rounding.{{#multi}} Inspect
    relevant existing operators when their current meaning is unclear. Reuse
-   tables that already express the required work.
+   tables that already express the required work.{{/multi}}
 2. **Understand and load the data.** Use the supplied paths and verify globs
    and source files. Preview unfamiliar file layouts before choosing parse
    options, then execute a full scan for computation. Check headers, types,

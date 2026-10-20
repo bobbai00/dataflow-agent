@@ -140,3 +140,24 @@ update operator score: map(lambda row: {**row, "score": 3*row["units"]+row["marg
   expect(storage.getWorkflow("s1")).toEqual(first.workflow);
   expect(storage.getWorkflow("s2")).toEqual(second.workflow);
 });
+
+test("single-task prompts leave out multi-task guidance; the multi flag adds it back unchanged", () => {
+  const existingGraph = "An existing graph may already contain useful work; inspect what is relevant";
+  const views = ["full", "sample", "sample_stats"] as const;
+  for (const options of [{}, { retrievalViews: [...views], dataEvidence: true, flowEvidence: true }]) {
+    const single = buildNativeModeSystemPrompt(ContextMode.DELTA, options);
+    expect(single).not.toContain(existingGraph);
+    expect(single).not.toContain("existing work");
+    expect(single).not.toContain("Reuse\n   tables that already express the required work.");
+    expect(single).not.toContain("### Earlier tasks in the session");
+    expect(single).toContain("1. **Understand the request.** Identify the required answer,");
+    expect(single).not.toContain("{{");
+  }
+  for (const options of [{ multiTask: true }, { multiTask: true, stateHistory: true, stateLedger: true }, { session: true }]) {
+    const multi = buildNativeModeSystemPrompt(ContextMode.DELTA, options);
+    expect(multi).toContain(existingGraph);
+    expect(multi).toContain("1. **Understand the request and existing work.** Identify the required answer,");
+    expect(multi).toContain("Reuse\n   tables that already express the required work.");
+    expect(multi).not.toContain("{{");
+  }
+});
