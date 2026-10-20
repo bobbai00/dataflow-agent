@@ -68,7 +68,8 @@ export class VercelToolUseDriver implements LLMDriver {
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      // An answer statement ends the turn after the step that rendered it.
+      stopWhen: input.answered ? [stepCountIs(input.maxSteps), () => input.answered!()] : stepCountIs(input.maxSteps),
       // Never forced: a native answer is a reply without a tool call, and a
       // forced call would also rule out the model's extended reasoning.
       toolChoice: "auto",
@@ -170,10 +171,14 @@ export class VercelToolUseDriver implements LLMDriver {
       ),
       usage,
     };
+    if (input.answered?.()) return completed;
     if (input.requireShownResult) {
       const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
       // The answer is a reply without a tool call once a result was shown;
       // before that the reply computed nothing, and the agent corrects it.
+      // With answer statements a reply is sent back once to be an answer statement.
+      if (textOnly && result.text.trim() && input.answerByStatement)
+        throw new MissingAnswerActionError(completed, result.steps.length < input.maxSteps, false, true);
       if (textOnly && result.text.trim() && input.resultShown?.()) return completed;
       // A reply cut at the output limit is not an answer either; the model gets another call.
       const cut = result.finishReason === "length" && !result.toolCalls.length;

@@ -33,6 +33,7 @@ type Row = Record<string, string | number>;
  * flow evidence on or off (flow lines explain themselves in tool results). */
 type Options = ObservationFormatOptions & {
   retrievalViews?: RetrievalView[];
+  answerStatement?: boolean;
 };
 
 /** Small complete synthetic materializations. Receipts use the production
@@ -143,7 +144,7 @@ export function registeredExamples(options: Options): string {
   const reply = (text: string) => `Reply, without the tool: \`${text}\``;
   const call = (python: string, statements: string, receipt = false): string => {
     const fields = { python, statements };
-    const parsed = parseTurn(fields, { views });
+    const parsed = parseTurn(fields, { views, answer: options.answerStatement === true });
     if (!parsed.ok) throw new Error(`Invalid teaching example: ${parsed.error}`);
     const { actions } = parsed.turn;
     const authored = `\`\`\`json\n${JSON.stringify(fields, null, 2)}\n\`\`\``;
@@ -292,7 +293,13 @@ export function registeredExamples(options: Options): string {
       `set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\n${show("report", true)}`,
       true
     ),
-    reply("Group A: 60; group B: 70."),
+    ...(options.answerStatement
+      ? [
+          "Give the answer from the result:",
+          call("", "answer report"),
+          'The reply is `[{"group":"A","total":60},{"group":"B","total":70}]`, and the request ends.',
+        ]
+      : [reply("Group A: 60; group B: 70.")]),
   ];
 
   // One reading example and the answer rule. Every example is paid for on
@@ -300,7 +307,9 @@ export function registeredExamples(options: Options): string {
   // flow evidence was on is gone: it composed a whole computation before
   // looking, and decisions shifted before any flow line appeared (2026-10-13).
   parts.push(
-    "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
+    options.answerStatement
+      ? "An answer statement returns values exactly as computed: round, rename, and order them in the graph as the request asks."
+      : "If the user asks for a `Final Answer:` label, put it in the reply, for example `**Final Answer: 60**`. A reply before any `show result` has succeeded is not an answer and computes nothing."
   );
   return parts.join("\n\n");
 }

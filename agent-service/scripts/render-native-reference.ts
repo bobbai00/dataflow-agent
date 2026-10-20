@@ -49,7 +49,7 @@ export function renderSystemPrompt(): string {
   return (
     HEADER(
       "Native mode: system prompt",
-      "The prompt sent with the `dataflow(python, statements)` tool. SYSTEM_PROMPT.txt contains the exact default text; SYSTEM_PROMPT_WITH_EVIDENCE.txt adds data and flow statistics. Definitions persist; every operator invocation has isolated Python state."
+      'The prompt sent with the `dataflow(python, statements)` tool. SYSTEM_PROMPT.txt contains the exact default text; SYSTEM_PROMPT_WITH_EVIDENCE.txt adds data and flow statistics; SYSTEM_PROMPT_CATALOG.txt is the prompt of a session with several requests whose earlier requests appear as catalog entries (`multiRequest: "catalog"`). Definitions persist; every operator invocation has isolated Python state.'
     ) +
     "````markdown\n" +
     buildRegisteredNativeSystemPrompt() +
@@ -100,6 +100,7 @@ export function renderAll(): Record<string, string> {
       ...EVIDENCE_OPTIONS,
       retrievalViews: [...EVIDENCE_OPTIONS.retrievalViews],
     }),
+    "SYSTEM_PROMPT_CATALOG.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { multiRequest: "catalog" }),
     "TOOLS.md": renderTools(),
     "OPERATORS.md": renderOperators(),
   };

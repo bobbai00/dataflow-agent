@@ -87,6 +87,8 @@ export interface ReActStep {
   reasoningText?: string;
   isBegin: boolean;
   isEnd: boolean;
+  /** Set on a last step that is not an answer: the turn failed, or the user stopped it. */
+  endReason?: "error" | "stopped";
   toolCalls?: Array<{
     toolName: string;
     toolCallId: string;
@@ -155,6 +157,8 @@ export enum ContextMode {
  *     delta for the fresh suffix (rolling compaction).
  */
 export type CompactionStrategy = "sliding" | "compress";
+export type MultiRequestMode = "off" | "transcript" | "catalog";
+export type CatalogSource = "full" | "docstring";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
@@ -283,6 +287,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   dataEvidence: boolean;
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
+  /** Native mode: the final answer is an `answer` statement, which renders
+   *  named tables as the reply verbatim and ends the request. */
+  answerStatement: boolean;
   /** Native mode: `check:` lines under every executed operator whose own
    *  assumptions the engine found violated on the full tables (records
    *  repeated across sources, row effects inside a process function). A
@@ -367,6 +374,31 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * request closest to the generation point, which is where recency helps.
    */
   userTaskPlacement: "top" | "bottom";
+  /**
+   * Sessions that answer several requests. "off" (default): one request, as
+   * before. "transcript": a later request follows the whole earlier transcript.
+   * "catalog": each earlier request appears as its request and one catalog
+   * entry (`agent/request-catalog.ts`) in place of its calls. Both multi-request
+   * values add the prompt's working-across-requests section, and their receipts
+   * name each registered function's signature and note a column a Python step
+   * left 0 or null in every row. Decided before the first request: the system
+   * prompt depends on it, as on the two catalog settings below.
+   */
+  multiRequest: MultiRequestMode;
+  /**
+   * How a catalog entry shows the functions its request registered or changed.
+   * "full" (default): signature, the docstring's first line, then the source.
+   * "docstring": signature and docstring; the source only for a function with
+   * no docstring, and `show function` reads any source on demand.
+   */
+  catalogSource: CatalogSource;
+  /**
+   * Earlier requests a catalog session keeps as their full transcript: the
+   * most recent K to 2K-1. Older ones become entries K at a time, so the
+   * cached prefix changes once every K requests rather than at every one.
+   * 0 (default): every earlier request is an entry.
+   */
+  catalogRecent: number;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
@@ -409,6 +441,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeProfileScope: "full",
   dataEvidence: true,
   flowEvidence: false,
+  answerStatement: false,
   nativeChecks: false,
   resultSelection: "all",
   // Replay event-owned observations.
@@ -435,6 +468,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   sourceProvenanceHint: false,
   staticCompaction: false,
   userTaskPlacement: "top",
+  multiRequest: "off",
+  catalogSource: "full",
+  catalogRecent: 0,
 };
 
 /**
@@ -506,6 +542,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
@@ -551,6 +588,12 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   tunerConfig?: TunerConfig;
   /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
   userTaskPlacement?: "top" | "bottom";
+  /** Sessions with several requests (see AgentSettings.multiRequest). */
+  multiRequest?: MultiRequestMode;
+  /** Catalog entries' functions (see AgentSettings.catalogSource). */
+  catalogSource?: CatalogSource;
+  /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
+  catalogRecent?: number;
 }
 
 export interface AgentInfo {
@@ -591,6 +634,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
@@ -632,4 +676,10 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
+  /** Sessions with several requests (see AgentSettings.multiRequest). */
+  multiRequest?: MultiRequestMode;
+  /** Catalog entries' functions (see AgentSettings.catalogSource). */
+  catalogSource?: CatalogSource;
+  /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
+  catalogRecent?: number;
 }

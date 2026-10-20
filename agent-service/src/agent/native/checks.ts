@@ -204,3 +204,50 @@ export function nativeAdjustmentLines(op: OperatorPredicate, info: OperatorInfo)
     );
   return lines;
 }
+
+/** Rows a table needs before a column that is 0 or null throughout is worth a
+ * note: a ranking of a few rows often holds such a column by design (equal
+ * deltas, an unused flag), while a whole working table rarely should. */
+const DEGENERATE_MIN_ROWS = 10;
+
+const isZero = (value: { type: string; value: unknown } | null | undefined) =>
+  value?.type === "int64" ? value.value === "0" : value?.type === "float64" ? value.value === 0 : false;
+
+/**
+ * Columns a Python step added to a working table that are 0 in every row, or
+ * null in every row. Everything built on such a column inherits it: on
+ * 2026-10-09 an NFL session ranked "largest gaps" that were all 0, and nearly
+ * every later score followed. Constant labels, broadcast thresholds and small
+ * answer tables are left alone: a rule that took any single value flagged 157
+ * columns in a 2026-10-11 Luna campaign, two thirds of them in tables of five
+ * rows or fewer. Only a profile of the whole table settles it; a partial
+ * profile says nothing.
+ */
+export function constantColumnLines(
+  op: OperatorPredicate,
+  info: OperatorInfo,
+  inputs: readonly (OperatorInfo | undefined)[]
+): string[] {
+  const view = op.nativeOp;
+  const profile = info.tableProfile;
+  const rows = info.totalRowCount ?? info.outputTuples;
+  if (!view?.properties.registered || view.type === "Filter" || !profile || !(rows >= DEGENERATE_MIN_ROWS)) return [];
+  if (profile.status !== "available" || !profile.coverage.complete || profile.rowCount !== rows) return [];
+  const inherited = new Set(inputs.flatMap(input => (input?.resultSchema ?? []).map(field => field.name)));
+  const count = rows.toLocaleString("en-US");
+  const found = (info.resultSchema ?? [])
+    .filter(field => !inherited.has(field.name))
+    .flatMap(field => {
+      const column = Object.hasOwn(profile.columns, field.name) ? profile.columns[field.name] : undefined;
+      if (!column || column.rowsProcessed !== rows) return [];
+      if (column.nonnullCount === 0) return [`${json(field.name)} is null in all ${count} rows`];
+      if (column.nullCount === 0 && isZero(column.min) && isZero(column.max))
+        return [`${json(field.name)} is 0 in all ${count} rows`];
+      return [];
+    });
+  if (!found.length) return [];
+  const shown = found.slice(0, 3);
+  return [
+    `note: column ${shown.join("; column ")}${found.length > shown.length ? `; and ${found.length - shown.length} more such columns` : ""}.`,
+  ];
+}

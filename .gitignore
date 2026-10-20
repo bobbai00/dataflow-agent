@@ -170,6 +170,9 @@ agent-service/benchmark/context-ml/training_data_*.csv
 
 # Benchmark artifacts (benchmark/bench.sh) — data and run outputs, never sources
 /benchmark/DSGym/
+# The upstream LongDS checkout (or a link to it) and prepared sessions
+/benchmark/longds/DataMind
+/benchmark/longds/prepared/
 /amber/data
 
 # local run artifacts

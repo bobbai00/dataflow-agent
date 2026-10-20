@@ -193,10 +193,18 @@ function editLines(item: ActionItem): string[] {
     ];
   }
   const lines = ["## edits applied"];
-  const functions = ((output?.registrations ?? []) as Array<{ name: string; kind: string }>).map(
-    r => `${r.name} ${r.kind}`
-  );
-  if (functions.length) lines.push(`functions: ${functions.join(", ")}`);
+  const registrations = (output?.registrations ?? []) as Array<{ name: string; kind: string; signature?: string }>;
+  const functions = registrations.map(r => `${r.name} ${r.kind}`);
+  // With signatures (sessions with several requests), one line per function
+  // says what a later call can vary; a function without settings says so.
+  if (registrations.some(r => r.signature !== undefined))
+    lines.push(
+      "functions:",
+      ...registrations.map(
+        r => `- ${r.name}${r.signature ?? ""} ${r.kind}${/[*=]/.test(r.signature ?? "") ? "" : " (no settings)"}`
+      )
+    );
+  else if (functions.length) lines.push(`functions: ${functions.join(", ")}`);
   const operators = ((output?.changes ?? []) as GraphChangeReceipt[])
     .filter(change => change.change === "operator")
     .map(
@@ -319,6 +327,21 @@ function renderTurnSections(result: DataflowActionsResult, turn?: TurnReceiptInf
     }
     if (statement.kind === "execute") {
       sections.push([title, ...executionLines(items[0], statement.ids ?? [], false, flowMemo)].join("\n"));
+      continue;
+    }
+    if (statement.kind === "answer") {
+      const executed = executionLines(items[0], statement.ids ?? [], false, flowMemo).filter(
+        line => line !== "executed: nothing (results were current)"
+      );
+      sections.push(
+        [
+          title,
+          ...executed,
+          result.answer !== undefined
+            ? `answered, ending the request:\n${result.answer}`
+            : `not answered: ${result.answerError ?? "the answer was not rendered"}`,
+        ].join("\n")
+      );
       continue;
     }
     if (statement.resource === "result") {

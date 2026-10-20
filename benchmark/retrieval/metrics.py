@@ -43,6 +43,9 @@ def current_price_schedule(model):
         # 2026-12-01. The -medium route is the same model with reasoning effort medium.
         "gemini-4-argon": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-16"),
         "gemini-4-argon-medium": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-16"),
+        # Standard paid tier through 2026-12-31 (output includes thinking); explicit cache storage is billed per
+        # token-hour on top and is not counted here.
+        "gemini-3.8-flash": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-02"),
     }
     if model not in providers:
         return None
@@ -196,10 +199,13 @@ STOPPED_STEP = "Generation stopped by user."
 
 
 def final_reply(steps):
-    """The answer: the last agent step ends the task with text and no tool call."""
+    """The answer: the last agent step ends the task with text and no tool call.
+    A failed or stopped turn's last step says so in `endReason`; traces from
+    before that field are recognized by their text."""
     agents = [step for step in steps if step.get("role") == "agent"]
     final = agents[-1] if agents else None
     return bool(final and final.get("isEnd") and not final.get("toolCalls") and final.get("content")
+                and not final.get("endReason")
                 and not str(final["content"]).startswith("Error:") and final["content"] != STOPPED_STEP)
 
 

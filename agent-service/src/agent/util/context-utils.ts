@@ -25,7 +25,7 @@ import type { ModelMessage } from "ai";
 import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
-import type { CompactionStrategy, ReActStep } from "../../types/agent";
+import type { AgentSettings, CompactionStrategy, ReActStep } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
@@ -67,6 +67,7 @@ import { formatNativeDiagnostic } from "../native/diagnostics";
 import { nativeCheckLines } from "../native/checks";
 import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
+import { requestEntries, sessionRequests, type SessionRequest } from "../request-catalog";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
  *  (native mode's deleteOperator). Undefined for read-only tools and for the
@@ -125,6 +126,13 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
 const log = createLogger("ContextAssembler");
 
 export interface AssembleContextOptions extends ObservationFormatOptions {
+  /** Several requests in one session (AgentSettings.multiRequest): "catalog"
+   *  shows each earlier request as its request and one catalog entry. */
+  multiRequest?: AgentSettings["multiRequest"];
+  /** Catalog entries' functions (AgentSettings.catalogSource). */
+  catalogSource?: AgentSettings["catalogSource"];
+  /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
+  catalogRecent?: AgentSettings["catalogRecent"];
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Native `check:` lines under executed operators (see native/checks.ts). */
@@ -428,6 +436,13 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
+  if (options.multiRequest === "catalog" && mode === ContextMode.DELTA && options.messageLayout === "native") {
+    const requests = sessionRequests(
+      visibleSteps.filter(step => !isInitStep(step)),
+      options.turnNumberByMessageId
+    );
+    if (requests.length > 1) return catalogContext(requests, workflowState, snapshotStorage, mode, options);
+  }
   // The legacy entry point is now a thin preset shim over summarize(): the
   // (mode, options) pair maps to a point in the summarize parameter space
   // (LATEST / DELTA are just two presets), and summarize() calls back into
@@ -445,6 +460,53 @@ export function assembleContext(
     effective
   );
   return result.messages;
+}
+
+/**
+ * Requests a catalog shows as entries when `earlier` requests precede the
+ * current one: all of them, or with `recent` = K, all but the most recent K to
+ * 2K-1. Entries are added K at a time, so the layout, and with it the cached
+ * prefix, changes once every K requests.
+ */
+export function catalogedRequests(earlier: number, recent = 0): number {
+  return recent > 0 ? Math.max(0, recent * (Math.floor(earlier / recent) - 1)) : earlier;
+}
+
+/**
+ * Earlier requests as request and catalog-entry pairs, then the transcript of
+ * the requests not yet in the catalog, the current one last. Request frames
+ * are framed as the transcript frames them, the first under its heading and
+ * later ones as plain user turns, and a finished request's entry never
+ * changes, so the prefix only grows between catalog additions.
+ */
+function catalogContext(
+  requests: readonly SessionRequest[],
+  workflowState: WorkflowState,
+  snapshotStorage: WorkflowSnapshotStorage,
+  mode: ContextMode,
+  options: AssembleContextOptions
+): ModelMessage[] {
+  const inner: AssembleContextOptions = { ...options, multiRequest: undefined };
+  const opening = (request: SessionRequest) =>
+    request.steps.find(step => step.role === "user" && step.isBegin) ?? request.steps[0];
+  const cataloged = requests.slice(0, catalogedRequests(requests.length - 1, options.catalogRecent ?? 0));
+  const transcript = requests.slice(cataloged.length).flatMap(request => request.steps);
+  if (!cataloged.length) return assembleContext(transcript, workflowState, snapshotStorage, mode, inner);
+  const entries = requestEntries(snapshotStorage, cataloged, options.catalogSource ?? "full");
+  const messages: ModelMessage[] = [];
+  cataloged.forEach((request, i) => {
+    messages.push(
+      ...(i === 0
+        ? assembleContext([opening(request)], workflowState, snapshotStorage, mode, inner)
+        : [{ role: "user" as const, content: opening(request).content }]),
+      { role: "assistant", content: entries[i] }
+    );
+  });
+  const own = assembleContext(transcript, workflowState, snapshotStorage, mode, inner);
+  const first = own[0];
+  if (first?.role === "user" && typeof first.content === "string")
+    own[0] = { ...first, content: first.content.replace(/^# Agent Events\n\n## User Event \d+\n\n/, "") };
+  return [...messages, ...own];
 }
 
 /**

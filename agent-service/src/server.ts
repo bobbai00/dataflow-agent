@@ -205,6 +205,10 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       summarizePatch: settings.summarizeParams,
       // Global request numbers for the renderer.
       turnNumberByMessageId,
+      // Earlier requests as catalog entries ("catalog") or as the transcript.
+      multiRequest: settings.multiRequest,
+      catalogSource: settings.catalogSource,
+      catalogRecent: settings.catalogRecent,
     };
     const evidenceSettings = {
       data: settings.dataEvidence,
@@ -443,6 +447,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
     flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
+    answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
@@ -474,6 +479,9 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     sourceProvenanceHint: agentSettings.sourceProvenanceHint,
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
+    multiRequest: agentSettings.multiRequest,
+    catalogSource: agentSettings.catalogSource,
+    catalogRecent: agentSettings.catalogRecent,
   };
 }
 
@@ -690,6 +698,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
             flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
             flowEvidence: settings.flowEvidence,
+            answerStatement: settings.answerStatement,
             nativeChecks: settings.nativeChecks,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
@@ -723,6 +732,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             staticCompaction: (settings as any).staticCompaction,
             userTaskPlacement: (settings as any).userTaskPlacement,
             messageLayout: (settings as any).messageLayout,
+            multiRequest: (settings as any).multiRequest,
+            catalogSource: (settings as any).catalogSource,
+            catalogRecent: (settings as any).catalogRecent,
             tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
           });
         }
@@ -771,6 +783,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidence: t.Optional(t.Boolean()),
+            answerStatement: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
@@ -804,6 +817,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             staticCompaction: t.Optional(t.Boolean()),
             userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
             messageLayout: t.Optional(t.String()),
+            multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
+            catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+            catalogRecent: t.Optional(t.Integer()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -975,15 +991,24 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource } = body as {
+      const { content, messageSource, contextRequests, contextTables, contextUpstream, contextTasks } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
+        contextRequests?: number[];
+        contextTables?: string[];
+        contextUpstream?: boolean;
+        contextTasks?: number[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource);
+      const result = await agent.sendMessage(content, messageSource, {
+        contextRequests,
+        contextTables,
+        contextUpstream,
+        contextTasks,
+      });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
       const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
@@ -1000,6 +1025,15 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       body: t.Object({
         content: t.String(),
         messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+        // Earlier requests, by number from 1, that this request's context shows; all when absent.
+        contextRequests: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
+        // Earlier tables this request builds on; the context then shows them, and lists the rest, instead of earlier requests.
+        contextTables: t.Optional(t.Array(t.String())),
+        // With contextTables: also show what the named tables are built from, back to the files.
+        contextUpstream: t.Optional(t.Boolean()),
+        // Instead of contextTables: the earlier tasks this request builds on. The context then lists every
+        // earlier task by its request, dataflow changes and answer, with these in detail, instead of earlier requests.
+        contextTasks: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
       }),
     }
   )
@@ -1124,6 +1158,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
+        answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
@@ -1156,6 +1191,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         enableRenderPrefs: (settings as any).enableRenderPrefs,
         sourceProvenanceHint: (settings as any).sourceProvenanceHint,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
+        multiRequest: settings.multiRequest,
+        catalogSource: settings.catalogSource,
+        catalogRecent: settings.catalogRecent,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -1190,6 +1228,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
+        answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
@@ -1225,6 +1264,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         enableRenderPrefs: t.Optional(t.Boolean()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
+        multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
+        catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+        catalogRecent: t.Optional(t.Integer()),
       }),
     }
   );

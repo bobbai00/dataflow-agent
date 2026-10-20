@@ -47,11 +47,13 @@ export interface TurnStatement {
   line: number;
   /** The statement as written (its first line). */
   text: string;
-  kind: "edit" | "execute" | "show";
+  kind: "edit" | "execute" | "show" | "answer";
   resource?: TurnResource;
   ids?: string[];
   view?: RetrievalView;
   columns?: string[];
+  /** An answer statement: one key per table in `ids` (null for a lone table) and the reply's format. */
+  answer?: { keys: (string | null)[]; format: AnswerFormat };
   /** 1-based indexes into `ParsedTurn.actions`. */
   actionIndexes: number[];
 }
@@ -76,7 +78,12 @@ export type TurnParse = { ok: true; turn: ParsedTurn } | { ok: false; line?: num
 export interface TurnParseOptions {
   /** Retrieval views this session allows; the first sample view is the default. */
   views: readonly RetrievalView[];
+  /** The final answer is an `answer` statement (AgentSettings.answerStatement). */
+  answer?: boolean;
 }
+
+/** How an answer statement renders its tables: one line of JSON, or text for a lone value. */
+export type AnswerFormat = "json" | "text";
 
 /** The arguments of a `dataflow` call. */
 export interface TurnFields {
@@ -90,6 +97,36 @@ const PYTHON_TOP_LEVEL = /^(?:def |class |import \w|from [\w.]+ import |@\w)/;
 const KEYWORDS = "set, delete, execute, or show";
 const ANSWER_IS_A_REPLY =
   "the answer is not a statement: to answer, reply with the answer text and no tool call, after show result has displayed what it rests on.";
+const ANSWER_STATEMENT_FORM =
+  "write the answer as `answer <id>`, or `answer <key>=<id>, <key>=<id>` for several tables, without a colon.";
+
+/** The tables an answer statement names, their keys, and its format; an error when malformed. */
+function answerSpec(text: string): { ids: string[]; keys: (string | null)[]; format: AnswerFormat } | string {
+  const ids: string[] = [];
+  const keys: (string | null)[] = [];
+  let format: AnswerFormat = "json";
+  for (const item of text
+    .split(",")
+    .map(part => part.trim())
+    .filter(Boolean)) {
+    const pair = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(item);
+    if (pair?.[1] === "format") {
+      const value = pair[2].replace(/^['"]|['"]$/g, "");
+      if (value !== "json" && value !== "text") return "the answer format is json or text.";
+      format = value;
+      continue;
+    }
+    const id = pair ? pair[2].trim() : item;
+    if (!IDENTIFIER.test(id)) return ANSWER_STATEMENT_FORM;
+    if (pair && keys.includes(pair[1])) return `the answer key ${JSON.stringify(pair[1])} is used twice.`;
+    ids.push(id);
+    keys.push(pair ? pair[1] : null);
+  }
+  if (!ids.length) return ANSWER_STATEMENT_FORM;
+  if (ids.length > 1 && keys.includes(null))
+    return "an answer with several tables names a key for each: `answer <key>=<id>, <key>=<id>`.";
+  return { ids, keys, format };
+}
 
 /** The first data file a request names, for the starter call a correction
  * shows; a placeholder when the request names none. */
@@ -315,7 +352,28 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
     }
     if (!trimmed) continue;
 
-    if (/^(?:answer:|\**\s*Final Answer:)/i.test(trimmed)) return fail(number, ANSWER_IS_A_REPLY);
+    if (/^(?:answer:|\**\s*Final Answer:)/i.test(trimmed))
+      return fail(number, options.answer ? ANSWER_STATEMENT_FORM : ANSWER_IS_A_REPLY);
+    const answerMatch = options.answer ? /^answer\s+(.+)$/s.exec(trimmed) : null;
+    if (answerMatch) {
+      if (statements.some(statement => statement.kind === "answer"))
+        return fail(number, "a call has one answer statement.");
+      const answer = answerSpec(answerMatch[1]);
+      if (typeof answer === "string") return fail(number, answer);
+      const statement: TurnStatement = {
+        line: number,
+        text: trimmed,
+        kind: "answer",
+        ids: answer.ids,
+        answer: { keys: answer.keys, format: answer.format },
+        actionIndexes: [],
+      };
+      // The answer is rendered from current results: compute what is stale first.
+      actions.push({ type: "execute", operator_ids: answer.ids });
+      statement.actionIndexes.push(actions.length);
+      statements.push(statement);
+      continue;
+    }
     const setMatch = /^(set\s+([A-Za-z_]\w*)\s*:|delete\s+([A-Za-z_]\w*))(.*)$/s.exec(trimmed);
     if (setMatch) {
       changes[i] = line;
