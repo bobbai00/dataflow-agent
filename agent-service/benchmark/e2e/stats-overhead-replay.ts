@@ -25,6 +25,7 @@
  *   data     full table profile, runtime checks off
  *   runtime  runtime checks on (uncapped), profile off
  *   both     full table profile and runtime checks
+ *   prefix   stable's bounded table profile (first 100k rows, 1M cells or 0.2 s per output), runtime checks off
  * Every operator carries the job's study tag, so the runtime writes per-check timing and memory to the
  * workflow's sandbox workspace (NATIVE_WORKSPACE/<wid>/stats-study.jsonl), which is copied into the job's output.
  *
@@ -44,7 +45,7 @@ import { env } from "../../src/config/env";
 import { WorkflowState } from "../../src/agent/workflow-state";
 import { nativeDebugInput } from "./native-debug-input";
 
-type Arm = "none" | "data" | "runtime" | "both";
+type Arm = "none" | "data" | "runtime" | "both" | "prefix";
 interface Job {
   id: string;
   path: string;
@@ -85,11 +86,12 @@ function removeResults(wid: number, executions: Set<string>, since: number): num
   }
   return removed;
 }
-const ARMS: Record<Arm, { profile: boolean; checks: boolean }> = {
+const ARMS: Record<Arm, { profile: boolean; checks: boolean; scope?: "prefix" | "full" }> = {
   none: { profile: false, checks: false },
   data: { profile: true, checks: false },
   runtime: { profile: false, checks: true },
   both: { profile: true, checks: true },
+  prefix: { profile: true, checks: false, scope: "prefix" },
 };
 mkdirSync(outDir, { recursive: true });
 const log = (message: string) => console.log(`${new Date().toISOString()} ${message}`);
@@ -177,7 +179,7 @@ function settingsFor(job: Job, tag: string) {
     toolTimeoutSeconds: 3600,
     executionTimeoutMinutes: 60,
     nativeProfileCollection: arm.profile,
-    nativeProfileScope: "full",
+    nativeProfileScope: arm.scope ?? "full",
     dataEvidence: arm.profile,
     flowEvidence: arm.checks,
     nativeRuntimeChecks: arm.checks,
@@ -325,3 +327,5 @@ async function lane(number: number) {
 }
 await Promise.all(Array.from({ length: lanes }, (_, i) => lane(i)));
 log("all jobs finished");
+// The host sampler's interval would keep the process alive.
+process.exit(0);
