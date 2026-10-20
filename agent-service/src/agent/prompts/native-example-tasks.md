@@ -19,44 +19,62 @@
 
 ### Example: build on an earlier task
 
-Task 1 loaded `orders` and `review_units` and kept the delivered orders in
-`eligible`. Task 2 asks for the delivered orders of the units under review,
-excluding three named markets. Connect the existing selection rather than
-retyping its units; the markets come from the request, so they belong in the
-filter that excludes them:
+Task 1 asks for the three units with the largest delivered-order amounts.
+The verified source has 24 orders across eight units, with `order`, `unit`,
+`status` and `amount` columns. Keep all unit scores in `score`; only `report`
+is cut to the requested count:
 
 ```json
 {
-  "reasoning": "Restrict delivered orders to the review units and drop the three named markets.",
+  "reasoning": "Compute every unit's delivered-order score and rank a separate answer table.",
   "actions": [
-    {"type": "edit", "changes": "create operator review_orders: join(on=\"unit\", how=\"semi\")\ncreate edge eligible.out -> review_orders.left\ncreate edge review_units.out -> review_orders.right\ncreate operator kept_orders: filter(lambda row: row[\"country\"] not in [\"Canada\", \"Mexico\", \"United States\"], doc=\"Review orders outside the three named markets\")\ncreate edge review_orders.out -> kept_orders.in"},
-    {"type": "execute", "operator_ids": ["kept_orders"]},
-    {"type": "retrieve", "operator_id": "kept_orders", "view": "sample_stats"}
+    {"type": "edit", "changes": "create operator orders: scan(\"data/unit_orders.csv\")\ncreate operator eligible: filter(lambda row: row[\"status\"] == \"delivered\", doc=\"Delivered orders\")\ncreate operator score: aggregate(by=[\"unit\"], score=sum(\"amount\"))\ncreate operator ranked: sort(by=[(\"score\", \"desc\"), \"unit\"])\ncreate operator report: limit(3)\ncreate edge orders.out -> eligible.in\ncreate edge eligible.out -> score.in\ncreate edge score.out -> ranked.in\ncreate edge ranked.out -> report.in"},
+    {"type": "execute", "operator_ids": ["report"]},
+    {"type": "retrieve", "operator_id": "score", "view": "full"},
+    {"type": "retrieve", "operator_id": "report", "view": "full"}
   ]
 }
 ```
 
-{{#ledger}}
-The edit's receipt lists `eligible` and `review_units` under `inputs from
-earlier tasks:` with their definitions, so they can be checked before the
-result is trusted. After reading `kept_orders`, answer the task. The answer's
-receipt is the task's catalog entry:
+After checking the full scores and the ranked report, answer:
 
-```text
-### 1. answer: ok
-Answer recorded.
-#### Task 2
-2 tables created.
-- **review_orders** (join, created)
-  - definition: `join(on="unit", how="semi")`
-  - inputs: left `eligible`, right `review_units`
-  - result: 8 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-- **kept_orders** (filter, created)
-  - definition: `filter(lambda row: row["country"] not in ["Canada", "Mexico", "United States"], doc="Review orders outside the three named markets")`
-  - inputs: `review_orders`
-  - result: 3 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
+```json
+{
+  "reasoning": "The report contains the three highest delivered-order scores.",
+  "actions": [{"type": "answer", "from": "report[unit, score:full]"}]
+}
 ```
 
+Task 2 introduces a standing coverage rule: a unit needs at least three
+orders in the full source, including cancelled orders. It asks for up to five
+covered units by the same delivered-order score. Count `orders`, not the
+filtered `eligible` table, and connect the complete `score`, not `report`:
+
+```json
+{
+  "reasoning": "Apply coverage measured on all orders while retaining every eligible unit score for later tasks.",
+  "actions": [
+    {"type": "edit", "changes": "create operator unit_counts: aggregate(by=[\"unit\"], order_count=count())\ncreate operator counted_scores: join(on=\"unit\", how=\"left\", validate=\"one_to_one\")\ncreate operator covered_scores: filter(lambda row: row[\"order_count\"] >= 3, doc=\"Units with at least three source orders\")\ncreate edge orders.out -> unit_counts.in\ncreate edge score.out -> counted_scores.left\ncreate edge unit_counts.out -> counted_scores.right\ncreate edge counted_scores.out -> covered_scores.in\ndelete edge score.out -> ranked.in\ncreate edge covered_scores.out -> ranked.in\nupdate operator report: limit(5)"},
+    {"type": "execute", "operator_ids": ["report"]},
+    {"type": "retrieve", "operator_id": "covered_scores", "view": "full"},
+    {"type": "retrieve", "operator_id": "report", "view": "full"}
+  ]
+}
+```
+
+Here every unit has three source orders, so `covered_scores` retains eight
+rows and `report` has five. A later request about all covered units should
+read `covered_scores`. If only two units qualified, the report would contain
+two; the coverage rule would still apply.
+{{#ledger}}
+The edit's provenance identifies `orders` and `score` as inputs from task 1.
+The answer's catalog entry records the new coverage operators and the changed
+report, so later tasks can locate the full working table.
 {{/ledger}}
+
+```json
+{
+  "reasoning": "The report ranks the covered units without changing their eligibility.",
+  "actions": [{"type": "answer", "from": "report[unit, score:full]"}]
+}
+```

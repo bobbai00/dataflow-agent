@@ -264,7 +264,7 @@ An answer ends the model loop. An answer with content must be the only action in
 
 ## Optional historical state actions
 
-With `stateHistory: true`, the same tool adds historical inspection and retrieval by task. Rollback graph commands restore an earlier definition or copy it under a new operator id. The complete enabled schema is:
+With `stateHistory: true`, the same tool adds inspection of saved operator definitions and results by task. `fork operator <id> from task <N> as <new_id>` copies the historical operator and its historical inputs under new names. `update operator <id> from task <N>` restores the saved definition on current inputs. The complete enabled schema is:
 
 ```json
 {

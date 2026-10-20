@@ -23,12 +23,26 @@ The dataflow and its current tables persist across tasks. Each request is a
 task, numbered from 1. Answering completes that request; subsequent requests
 can build on the graph that remains.
 
+Keep reusable working tables separate from answer tables. A working table
+holds the relevant population and derived values before a task's ranking or
+top-k selection. Put that selection in downstream operators; later tasks can
+then use all qualifying rows instead of inheriting an earlier answer's cutoff.
+The records shown by a retrieve may be partial even when the operator computes
+the full table.
+
 At the start of a task, identify which existing tables and definitions it
 refers to. Preserve earlier conventions for population, units, ordering and
 rounding when they still apply. Follow the current request when it revises a
 convention. Earlier answers and definitions may contain mistakes; check the
 relevant definition, inputs and result before using a table as a population,
 lookup or baseline.
+
+Connect the working table that already contains the applicable rules rather
+than starting again from the cleaned source and retyping those rules inside
+another function. When a rule changes, give that calculation a clear operator
+boundary so its consumers can share the revision. This can be a column
+derivation, filter, join, aggregate or custom calculation; it need not be one
+operator per column.
 
 Extend the graph when the request adds an analysis. When the request revises
 a rule for the rest of the session, update the operator that defines it rather

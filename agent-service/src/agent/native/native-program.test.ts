@@ -37,6 +37,10 @@ import { compileProgram, type ProgramStatement } from "./program";
 import { nativeTestTools } from "./test-support";
 import { missingGraphInputs, planGraphEdit } from "../tools/graph-edits";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
+import { forkState, type HistoricalTask } from "../state-history";
+import { restoreCommands, splitVersionCommands } from "../state-ledger";
+import { parseAnswerFromParts } from "./answer";
 
 const python = process.env.UDF_PYTHON_PATH ?? fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
@@ -48,7 +52,9 @@ async function views(program: string): Promise<Record<string, ProgramStatement>>
 }
 
 /** Run every operator's generated code in dependency order; the answer table as records. */
-function execute(state: WorkflowState, answer: string): any[] {
+function execute(state: WorkflowState, answer: string): any[];
+function execute(state: WorkflowState, answer: string[]): Record<string, any[]>;
+function execute(state: WorkflowState, answer: string | string[]): any[] | Record<string, any[]> {
   const run = spawnSync(
     python,
     [
@@ -67,9 +73,13 @@ while pending:
         inputs = list(dict.fromkeys(op['nativeOp']['inputs']))
         results[op['operatorID']] = scope['process'](*[results[id] for id in inputs]) if inputs else scope['load']()
         del pending[op['operatorID']]
-print(results[sys.argv[1]].to_json(orient='records'))
+answer = json.loads(sys.argv[1])
+if isinstance(answer, str):
+    print(results[answer].to_json(orient='records'))
+else:
+    print(json.dumps({id: json.loads(results[id].to_json(orient='records')) for id in answer}))
 `,
-      answer,
+      JSON.stringify(answer),
     ],
     { input: JSON.stringify(state.getAllOperators()), encoding: "utf8", timeout: 60_000 }
   );
@@ -374,11 +384,7 @@ i = process(source, fn=lambda a, b: a)
       'a = pivot(t, index=["g"], columns="k", values=["v", "w"])',
       ["values must be a nonempty string"],
     ],
-    [
-      "unknown operator",
-      'a = select(t, keep=["x"])',
-      ["Unknown operator `select`", "Available: scan, project, cast"],
-    ],
+    ["unknown operator", 'a = select(t, keep=["x"])', ["Unknown operator `select`", "Available: scan, project, cast"]],
     [
       "nested operator call",
       'a = limit(sort(t, by=["x"]), 1)',
@@ -600,6 +606,102 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
+  test("multi-task examples preserve full scores, count the source population and branch historical inputs", async () => {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      stateHistory: true,
+      retrievalViews: ["full"],
+    });
+    const calls = (heading: string) => {
+      const section = prompt.split(heading)[1]?.split("\n### Example:")[0] ?? "";
+      return [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map(([, json]) => JSON.parse(json));
+    };
+    for (const [, json] of prompt.matchAll(/```json\n([\s\S]*?)\n```/g))
+      for (const action of JSON.parse(json).actions)
+        if (action.type === "answer" && action.from)
+          expect(parseAnswerFromParts(action.from)).not.toHaveProperty("error");
+    const directory = mkdtempSync(join(tmpdir(), "native-working-state-"));
+    try {
+      const file = join(directory, "orders.csv");
+      const amounts = [
+        [20, 24, 10],
+        [20, 20, 17],
+        [20, 20, 20],
+        [21, 21, 21],
+        [18, 18, 30],
+        [27, 27, 15],
+        [24, 24, 24],
+        [25, 25, 25],
+      ];
+      writeFileSync(
+        file,
+        "order,unit,status,amount\n" +
+          amounts
+            .flatMap((values, i) =>
+              values.map(
+                (amount, j) =>
+                  `${3 * i + j + 1},U0${i + 1},${j === 2 && [0, 2, 4, 5, 7].includes(i) ? "cancelled" : "delivered"},${amount}`
+              )
+            )
+            .join("\n") +
+          "\n"
+      );
+      const { state } = nativeTestTools();
+      const metadataStore = new WorkflowSystemMetadata();
+      metadataStore.seedCodeModeDefaults();
+      const edit = async (changes: string) => {
+        const plan = await planGraphEdit(state.getWorkflowContent(), changes.replaceAll("data/unit_orders.csv", file), {
+          metadataStore,
+        });
+        state.setWorkflowContent(plan.workflow);
+      };
+      for (const call of calls("### Example: build on an earlier task"))
+        for (const action of call.actions) if (action.type === "edit") await edit(action.changes);
+
+      const initial = execute(state, ["score", "covered_scores", "unit_counts", "report"]);
+      const oldScores = initial.score;
+      expect(oldScores.map(row => row.score)).toEqual([44, 57, 40, 63, 36, 54, 72, 50]);
+      expect(initial.covered_scores).toHaveLength(8);
+      expect(initial.unit_counts.every(row => row.order_count === 3)).toBe(true);
+      expect(initial.report).toHaveLength(5);
+      const storage = new WorkflowSnapshotStorage(() => ["s2"]);
+      storage.createSnapshot("s2", state.getWorkflowContent());
+      const tasks: HistoricalTask[] = [
+        { taskId: 2, stepId: "s2", request: "Apply unit coverage", answer: "Top five units" },
+      ];
+
+      for (const call of calls("### Example: revise a rule for the rest of the session"))
+        for (const action of call.actions) if (action.type === "edit") await edit(action.changes);
+      const revised = execute(state, ["score", "covered_scores"]);
+      expect(revised.score.map(row => row.score)).toEqual([54, 57, 60, 63, 66, 69, 72, 75]);
+      expect(revised.covered_scores).toHaveLength(8);
+      state.setWorkflowContent(forkState(state.getWorkflowContent(), storage, tasks, 2, "score", "score_t2").workflow);
+      const comparison = calls("### Example: compare with an earlier task and go back")[0];
+      await edit(splitVersionCommands(comparison.actions.find((action: any) => action.type === "edit").changes).rest);
+      const compared = execute(state, ["score_change", "score_t2"]);
+      expect(compared.score_change.map(row => row.change)).toEqual([10, 0, 20, 0, 30, 15, 0, 25]);
+      expect(compared.score_t2).toEqual(oldScores);
+      await edit(restoreCommands(storage, tasks[0], state.getWorkflowContent(), "eligible").commands);
+      const restored = execute(state, ["score", "score_t2"]);
+      expect(restored.score).toEqual(oldScores);
+      expect(restored.score_t2).toEqual(oldScores);
+
+      // Asking for five never expands a population with only two eligible units.
+      await edit(
+        'update operator covered_scores: filter(lambda row: row["order_count"] >= 3 and row["unit"] in ["U01", "U03"], doc="Two qualifying units")'
+      );
+      expect(execute(state, "report").map(row => row.unit)).toEqual(["U01", "U03"]);
+      await edit(
+        'update operator covered_scores: filter(lambda row: row["order_count"] >= 4, doc="No qualifying units")'
+      );
+      expect(execute(state, "report")).toEqual([]);
+      expect(storage.getWorkflow("s2").operators.find(op => op.operatorID === "eligible")!.nativeOp!.source).toContain(
+        'row["status"] == "delivered"'
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("historical examples validate and use an available view", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const view of ["full", "sample", "sample_stats"] as const) {

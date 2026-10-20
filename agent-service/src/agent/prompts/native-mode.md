@@ -277,6 +277,12 @@ eligibility before aggregating, normalize join keys, check the row grain, and
 round only at the end. Before reducing or ranking a table, confirm which
 source or derived table represents the population the request means.
 
+If fewer rows qualify than the request asks for, preserve the eligibility
+rules and report the available rows. Check an unexpected shortfall against
+the source population and the grain of each count; do not relax a condition
+just to fill an answer. A count per entity and a count per entity-category
+are different quantities.
+
 Reuse a selection by wiring its table into the graph. A semi join keeps rows
 whose keys appear in that selection; an anti join excludes them. A cross join
 can attach a one-row benchmark to every row. Constants and lists that the

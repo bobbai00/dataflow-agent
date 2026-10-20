@@ -364,6 +364,12 @@ eligibility before aggregating, normalize join keys, check the row grain, and
 round only at the end. Before reducing or ranking a table, confirm which
 source or derived table represents the population the request means.
 
+If fewer rows qualify than the request asks for, preserve the eligibility
+rules and report the available rows. Check an unexpected shortfall against
+the source population and the grain of each count; do not relax a condition
+just to fill an answer. A count per entity and a count per entity-category
+are different quantities.
+
 Reuse a selection by wiring its table into the graph. A semi join keeps rows
 whose keys appear in that selection; an anti join excludes them. A cross join
 can attach a one-row benchmark to every row. Constants and lists that the
@@ -660,7 +666,12 @@ When a task is answered, the dataflow as it stands is saved under that task's
 number: the definition of every operator and its result. Any later task can
 read a saved version or bring it back, including the version saved by a task
 that itself brought back an earlier one, so going back never removes a
-version. Edits change only the current dataflow:
+version. Edits change only the current dataflow.
+
+A saved version records what was computed, not whether its answer was right.
+Check the needed rule and population before using it as a baseline. A wrong
+answer can still leave useful intermediate tables; inspect those tables
+separately from the final report.
 
 | Capability | Effect |
 |---|---|

@@ -66,14 +66,14 @@ test("multi-task history and catalog are separate extensions using the edit voca
   expect(history).toContain("When a task is answered, the dataflow as it stands is saved under that task's");
   expect(history).toContain("going back never removes a\nversion");
   expect(history).not.toMatch(/seal/i);
-  expect(history).not.toContain("\"type\": \"fork\"");
+  expect(history).not.toContain('"type": "fork"');
   expect(history).not.toContain("Task catalog and provenance");
   expect(history).not.toContain("inputs from earlier tasks:\n- **");
   const ledger = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, stateLedger: true });
   expect(ledger).toContain("An answer's receipt is the task's catalog entry");
   expect(ledger).toContain("provenance");
   expect(ledger).toMatch(/top-k report represents\s+the selected rows/);
-  expect(ledger).toContain("#### Task 2\n2 tables created.");
+  expect(ledger).toContain("covered_scores");
   const single = buildNativeModeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["sample"] });
   expect(single).not.toContain("### Earlier tasks in the session");
   expect(single).not.toContain("### Example: build on an earlier task");

@@ -357,6 +357,12 @@ eligibility before aggregating, normalize join keys, check the row grain, and
 round only at the end. Before reducing or ranking a table, confirm which
 source or derived table represents the population the request means.
 
+If fewer rows qualify than the request asks for, preserve the eligibility
+rules and report the available rows. Check an unexpected shortfall against
+the source population and the grain of each count; do not relax a condition
+just to fill an answer. A count per entity and a count per entity-category
+are different quantities.
+
 Reuse a selection by wiring its table into the graph. A semi join keeps rows
 whose keys appear in that selection; an anti join excludes them. A cross join
 can attach a one-row benchmark to every row. Constants and lists that the
@@ -377,12 +383,26 @@ The dataflow and its current tables persist across tasks. Each request is a
 task, numbered from 1. Answering completes that request; subsequent requests
 can build on the graph that remains.
 
+Keep reusable working tables separate from answer tables. A working table
+holds the relevant population and derived values before a task's ranking or
+top-k selection. Put that selection in downstream operators; later tasks can
+then use all qualifying rows instead of inheriting an earlier answer's cutoff.
+The records shown by a retrieve may be partial even when the operator computes
+the full table.
+
 At the start of a task, identify which existing tables and definitions it
 refers to. Preserve earlier conventions for population, units, ordering and
 rounding when they still apply. Follow the current request when it revises a
 convention. Earlier answers and definitions may contain mistakes; check the
 relevant definition, inputs and result before using a table as a population,
 lookup or baseline.
+
+Connect the working table that already contains the applicable rules rather
+than starting again from the cleaned source and retyping those rules inside
+another function. When a rule changes, give that calculation a clear operator
+boundary so its consumers can share the revision. This can be a column
+derivation, filter, join, aggregate or custom calculation; it need not be one
+operator per column.
 
 Extend the graph when the request adds an analysis. When the request revises
 a rule for the rest of the session, update the operator that defines it rather
@@ -405,7 +425,12 @@ When a task is answered, the dataflow as it stands is saved under that task's
 number: the definition of every operator and its result. Any later task can
 read a saved version or bring it back, including the version saved by a task
 that itself brought back an earlier one, so going back never removes a
-version. Edits change only the current dataflow:
+version. Edits change only the current dataflow.
+
+A saved version records what was computed, not whether its answer was right.
+Check the needed rule and population before using it as a baseline. A wrong
+answer can still leave useful intermediate tables; inspect those tables
+separately from the final report.
 
 | Capability | Effect |
 |---|---|
@@ -631,116 +656,103 @@ regions over the full executed table, for example with `distinct` on the
 
 ### Example: build on an earlier task
 
-Task 1 loaded `orders` and `review_units` and kept the delivered orders in
-`eligible`. Task 2 asks for the delivered orders of the units under review,
-excluding three named markets. Connect the existing selection rather than
-retyping its units; the markets come from the request, so they belong in the
-filter that excludes them:
+Task 1 asks for the three units with the largest delivered-order amounts.
+The verified source has 24 orders across eight units, with `order`, `unit`,
+`status` and `amount` columns. Keep all unit scores in `score`; only `report`
+is cut to the requested count:
 
 ```json
 {
-  "reasoning": "Restrict delivered orders to the review units and drop the three named markets.",
+  "reasoning": "Compute every unit's delivered-order score and rank a separate answer table.",
   "actions": [
-    {"type": "edit", "changes": "create operator review_orders: join(on=\"unit\", how=\"semi\")\ncreate edge eligible.out -> review_orders.left\ncreate edge review_units.out -> review_orders.right\ncreate operator kept_orders: filter(lambda row: row[\"country\"] not in [\"Canada\", \"Mexico\", \"United States\"], doc=\"Review orders outside the three named markets\")\ncreate edge review_orders.out -> kept_orders.in"},
-    {"type": "execute", "operator_ids": ["kept_orders"]},
-    {"type": "retrieve", "operator_id": "kept_orders", "view": "sample_stats"}
+    {"type": "edit", "changes": "create operator orders: scan(\"data/unit_orders.csv\")\ncreate operator eligible: filter(lambda row: row[\"status\"] == \"delivered\", doc=\"Delivered orders\")\ncreate operator score: aggregate(by=[\"unit\"], score=sum(\"amount\"))\ncreate operator ranked: sort(by=[(\"score\", \"desc\"), \"unit\"])\ncreate operator report: limit(3)\ncreate edge orders.out -> eligible.in\ncreate edge eligible.out -> score.in\ncreate edge score.out -> ranked.in\ncreate edge ranked.out -> report.in"},
+    {"type": "execute", "operator_ids": ["report"]},
+    {"type": "retrieve", "operator_id": "score", "view": "full"},
+    {"type": "retrieve", "operator_id": "report", "view": "full"}
   ]
 }
 ```
 
-The edit's receipt lists `eligible` and `review_units` under `inputs from
-earlier tasks:` with their definitions, so they can be checked before the
-result is trusted. After reading `kept_orders`, answer the task. The answer's
-receipt is the task's catalog entry:
+After checking the full scores and the ranked report, answer:
 
-```text
-### 1. answer: ok
-Answer recorded.
-#### Task 2
-2 tables created.
-- **review_orders** (join, created)
-  - definition: `join(on="unit", how="semi")`
-  - inputs: left `eligible`, right `review_units`
-  - result: 8 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-- **kept_orders** (filter, created)
-  - definition: `filter(lambda row: row["country"] not in ["Canada", "Mexico", "United States"], doc="Review orders outside the three named markets")`
-  - inputs: `review_orders`
-  - result: 3 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
+```json
+{
+  "reasoning": "The report contains the three highest delivered-order scores.",
+  "actions": [{"type": "answer", "from": "report[unit, score:full]"}]
+}
+```
+
+Task 2 introduces a standing coverage rule: a unit needs at least three
+orders in the full source, including cancelled orders. It asks for up to five
+covered units by the same delivered-order score. Count `orders`, not the
+filtered `eligible` table, and connect the complete `score`, not `report`:
+
+```json
+{
+  "reasoning": "Apply coverage measured on all orders while retaining every eligible unit score for later tasks.",
+  "actions": [
+    {"type": "edit", "changes": "create operator unit_counts: aggregate(by=[\"unit\"], order_count=count())\ncreate operator counted_scores: join(on=\"unit\", how=\"left\", validate=\"one_to_one\")\ncreate operator covered_scores: filter(lambda row: row[\"order_count\"] >= 3, doc=\"Units with at least three source orders\")\ncreate edge orders.out -> unit_counts.in\ncreate edge score.out -> counted_scores.left\ncreate edge unit_counts.out -> counted_scores.right\ncreate edge counted_scores.out -> covered_scores.in\ndelete edge score.out -> ranked.in\ncreate edge covered_scores.out -> ranked.in\nupdate operator report: limit(5)"},
+    {"type": "execute", "operator_ids": ["report"]},
+    {"type": "retrieve", "operator_id": "covered_scores", "view": "full"},
+    {"type": "retrieve", "operator_id": "report", "view": "full"}
+  ]
+}
+```
+
+Here every unit has three source orders, so `covered_scores` retains eight
+rows and `report` has five. A later request about all covered units should
+read `covered_scores`. If only two units qualified, the report would contain
+two; the coverage rule would still apply.
+The edit's provenance identifies `orders` and `score` as inputs from task 1.
+The answer's catalog entry records the new coverage operators and the changed
+report, so later tasks can locate the full working table.
+
+```json
+{
+  "reasoning": "The report ranks the covered units without changing their eligibility.",
+  "actions": [{"type": "answer", "from": "report[unit, score:full]"}]
+}
 ```
 
 ### Example: revise a rule for the rest of the session
 
-Task 3 says that from now on every order with an amount counts, not only the
-delivered ones. No request needs the delivered-only rule beside the new one,
-so update the operator that holds it rather than building a second version:
+Task 3 says that from now on every order with an amount contributes to the
+score, not only delivered orders. Coverage still counts all source orders.
+Update `eligible`, where the scoring population is defined, and execute its
+consumers. Keep `score` and `covered_scores` complete; the report remains a
+separate top-five selection:
 
 ```json
 {
-  "reasoning": "Revise the order rule where it is defined so every table built on it follows.",
+  "reasoning": "Revise the scoring population and recompute the current report while preserving the source-based coverage rule.",
   "actions": [
     {"type": "edit", "changes": "update operator eligible: filter(lambda row: row[\"amount\"] is not None, doc=\"Orders with an amount\")"},
-    {"type": "execute", "operator_ids": ["kept_orders", "score"]}
+    {"type": "execute", "operator_ids": ["report"]},
+    {"type": "retrieve", "operator_id": "covered_scores", "view": "full"},
+    {"type": "retrieve", "operator_id": "report", "view": "full"}
   ]
 }
 ```
 
-The receipt of the edit is:
-
-```text
-### 1. edit: ok
-1 change applied; results invalidated: eligible, score, review_orders, kept_orders.
-- **eligible** (filter, updated)
-  - inputs: `orders`
-  - result: stale (execute to recompute)
-inputs from earlier tasks:
-- **orders** (scan, cached)
-  - definition: `scan("data/unit_orders.csv")`
-  - origin: task 1
-  - result: 24 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-  - used by: `eligible`
-```
-
-The edit invalidates every table built on `eligible`: `score` from task 1 and
-`review_orders` and `kept_orders` from task 2. The execute recomputes them
-under the new rule, so later requests read the revised tables without further
-edits.
+The edit invalidates `eligible`, `score`, `counted_scores`, `covered_scores`,
+`ranked` and `report`. Execute recomputes the requested branch. `unit_counts`
+reads the unchanged source, so its meaning stays the same. No later task needs
+to reimplement either rule.
 The delivered-only version remains saved under tasks 1 and 2.
-The task's catalog entry records the update and what it recomputed:
 
-```text
-#### Task 3
-1 table updated; 3 recomputed.
-- **eligible** (filter, updated)
-  - definition: `filter(lambda row: row["amount"] is not None, doc="Orders with an amount")`
-  - inputs: `orders`
-  - result: 24 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-- **score** (aggregate, recomputed)
-  - definition: `aggregate(by=["unit"], score=sum("amount"))`
-  - inputs: `eligible`
-  - result: 8 rows × 2 columns
-  - columns: unit str, score int64
-- **review_orders** (join, recomputed)
-  - definition: `join(on="unit", how="semi")`
-  - inputs: left `eligible`, right `review_units`
-  - result: 9 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-- **kept_orders** (filter, recomputed)
-  - definition: `filter(lambda row: row["country"] not in ["Canada", "Mexico", "United States"], doc="Review orders outside the three named markets")`
-  - inputs: `review_orders`
-  - result: 3 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
+```json
+{
+  "reasoning": "The observed report uses the revised scoring population and the existing coverage rule.",
+  "actions": [{"type": "answer", "from": "report[unit, score:full]"}]
+}
 ```
 
 ### Example: compare with an earlier task and go back
 
-Task 4 asks how much each unit's score changed from what task 2 reported. Task
-2 computed `score` under the delivered-only rule, which task 3 replaced in
-place; that version is saved. Fork `score` as task 2 saved it and compare the
-two in the graph:
+Task 4 asks how every unit's score changed from task 2, including units that
+were outside its top-five report. Task 2 retained all eight rows in `score`
+under the delivered-only rule, which task 3 replaced in place. Fork that full
+working table and compare the two versions in the graph:
 
 ```json
 {
@@ -775,8 +787,10 @@ records: full; 8 of 8 rows, 4 of 4 columns (complete)
 | U08 | 75 | 50 | 25 |
 ```
 
-To read what task 2 reported without computing anything, inspect `score` at
-task 2 with a view instead.
+To read the earlier working result without computing anything, use `inspect`
+with `target: "state"`, `operator_id: "score"`, `task_id: 2` and a view. To
+read only the answer selection, inspect `report` at task 2 instead. The fork
+uses task 2's input versions; restoring just a definition uses current inputs.
 
 Task 5 asks to go back to delivered orders only, for everything that follows.
 List the versions of `eligible` to find the task that used that rule:
@@ -809,34 +823,13 @@ which restores that definition in place, and execute the tables that read it:
   "reasoning": "Restore the delivered-orders rule for the rest of the session.",
   "actions": [
     {"type": "edit", "changes": "update operator eligible from task 2"},
-    {"type": "execute", "operator_ids": ["kept_orders", "score"]}
+    {"type": "execute", "operator_ids": ["report"]}
   ]
 }
 ```
 
-Observation:
-
-```text
-### 1. edit: ok
-1 change applied; results invalidated: eligible, score, review_orders, score_vs_task2, kept_orders, score_change.
-- **eligible** (filter, restored from task 2)
-  - definition: `filter(lambda row: row["status"] == "delivered", doc="Delivered orders")`
-  - inputs: `orders`
-  - origin: task 1
-  - result: stale (execute to recompute)
-- note: Restored eligible's task-2 definition in place; its inputs are today's (unchanged since then). Dependents are invalidated; execute to recompute.
-inputs from earlier tasks:
-- **orders** (scan, cached)
-  - definition: `scan("data/unit_orders.csv")`
-  - origin: task 1
-  - result: 24 rows × 5 columns
-  - columns: order int64, unit str, country str, status str, amount int64
-  - used by: `eligible`
-
-### 2. execute kept_orders, score: ok
-6 operators in scope: 0 executed, 6 cached.
-```
-
-The results computed under that rule come back from the cache. The comparison
-tables from task 4 read `score`, so they stay stale until they are executed
-again.
+The restored definition runs on today's `orders`. The coverage rule and its
+source-based counts stay in place. `score_t2` keeps its historical input
+branch; restoring the current rule does not change that fork. The comparison
+tables from task 4 stay stale until they are executed again. Retrieve the
+current report before answering task 5.

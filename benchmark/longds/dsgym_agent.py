@@ -38,6 +38,8 @@ import time
 import types
 from pathlib import Path
 
+from comparison_budget import estimate_full_input
+
 HERE = Path(__file__).resolve().parent
 WORKTREE = HERE.parents[1]
 DSGYM = HERE / "DataMind/longds/runners/DSGym"
@@ -66,6 +68,10 @@ CALLS_FILE: Path | None = None
 ENV = None  # the code environment, for the compaction's kernel inventory
 REFRESH = None  # (turn, corrected copy, destination) under --refresh-at
 COMPACTOR = None  # set by --context-budget
+WIRE_DIR: Path | None = None
+FULL_INPUT_BUDGET = int(os.environ.get("MODEL_INPUT_TOKEN_BUDGET", "0"))
+FULL_INPUT_SCALE = float(os.environ.get("MODEL_INPUT_TOKEN_SCALE", "1"))
+MODEL_CALL_LIMIT = int(os.environ.get("MODEL_MAX_CALLS_PER_TURN", "0"))
 
 # The budget's estimate, the same as the dataflow arm's (task-context.ts).
 CHARS_PER_TOKEN = 3.3
@@ -110,6 +116,8 @@ print('\n'.join(_rows[:150]))
 
 
 def estimate_tokens(messages) -> int:
+    if FULL_INPUT_BUDGET:
+        return estimate_full_input({"messages": messages}, FULL_INPUT_SCALE)
     return int(sum(len(m["content"] if isinstance(m.get("content"), str) else json.dumps(m.get("content"))) for m in messages)
                / CHARS_PER_TOKEN)
 
@@ -149,6 +157,8 @@ class Compactor:
         self.listed = ""  # the kernel inventory, listed once per request
 
     def observe(self, estimate: int, actual: int):
+        if FULL_INPUT_BUDGET:
+            return  # Freeze the development-calibrated scale for all arms.
         if estimate and actual:
             self.scale = min(1.5, max(0.5, actual / estimate))
 
@@ -156,7 +166,7 @@ class Compactor:
     def units(self) -> int:
         """The budget in the estimate's units, less a 3% margin for the
         estimate's error on this call (the scale is the previous call's)."""
-        return int(self.budget * 0.97 / self.scale)
+        return self.budget if FULL_INPUT_BUDGET else int(self.budget * 0.97 / self.scale)
 
     def clip(self, message):
         content = message.get("content")
@@ -311,26 +321,39 @@ def install_usage_capture(provider: str) -> None:
     original = litellm.completion
 
     def completion(*args, **kwargs):
+        from comparison_capture import request_record, response_record, usage_record, write_wire
         # The proxy's model names carry no provider prefix; say which API shape
         # they speak so litellm does not have to guess.
         kwargs.setdefault("custom_llm_provider", provider)
         if COMPACTOR is not None and "messages" in kwargs:
             kwargs["messages"] = COMPACTOR.compact(kwargs["messages"], completion, kwargs)
+        if FULL_INPUT_BUDGET and estimate_full_input(kwargs, FULL_INPUT_SCALE) > FULL_INPUT_BUDGET:
+            raise RuntimeError("Full input remains over the estimated token budget; model request not sent")
+        if MODEL_CALL_LIMIT and TURN_STARTS and len(CALLS) - TURN_STARTS[-1] >= MODEL_CALL_LIMIT:
+            raise RuntimeError("Turn reached the model call limit including compaction summaries; request not sent")
         started = time.time()
-        response = original(*args, **kwargs)
+        number = len(CALLS) + 1
+        if WIRE_DIR is not None:
+            write_wire(WIRE_DIR, number, "request", request_record(kwargs))
+        try:
+            response = original(*args, **kwargs)
+        except Exception as error:
+            CALLS.append({"seconds": round(time.time()-started, 3), **usage_record({}), "failed": True})
+            if WIRE_DIR is not None:
+                write_wire(WIRE_DIR, number, "error", {"error_type": type(error).__name__})
+            if CALLS_FILE is not None:
+                with CALLS_FILE.open("a") as stream:
+                    stream.write(json.dumps({"turn_index": max(0, len(TURN_STARTS)-1), **CALLS[-1]}) + "\n")
+            raise
+        if WIRE_DIR is not None:
+            write_wire(WIRE_DIR, number, "response", response_record(response))
         usage = getattr(response, "usage", None)
         if COMPACTOR is not None and not COMPACTOR.summarizing and "messages" in kwargs:
             COMPACTOR.observe(estimate_tokens(kwargs["messages"]), getattr(usage, "prompt_tokens", 0) or 0)
-        details = getattr(usage, "prompt_tokens_details", None)
-        completion_details = getattr(usage, "completion_tokens_details", None)
         CALLS.append(
             {
                 "seconds": round(time.time() - started, 3),
-                "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                "cached_tokens": getattr(details, "cached_tokens", 0) or 0,
-                "cache_write_tokens": getattr(details, "cache_write_tokens", 0) or 0,
-                "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                "reasoning_tokens": getattr(completion_details, "reasoning_tokens", 0) or 0,
+                **usage_record(response),
                 **({"summary": True} if COMPACTOR is not None and COMPACTOR.summarizing else {}),
             }
         )
@@ -356,7 +379,7 @@ components to explain a result rather than reconstructing a formula from memory.
 """
 
 
-def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False, shared=False) -> list[dict]:
+def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False, shared=False, prompts=None) -> list[dict]:
     """Upstream's `load_dataset` shape: the system prompt names the data
     directory; every turn is `context\\nQuestion: question`. With `shared`,
     each turn's message is instead the text the dataflow arm receives
@@ -367,6 +390,12 @@ def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions
         system_prompt += "\n" + FUNCTIONS_GUIDANCE
     gold_by_id = {t["turn_id"]: t for t in gold["turns"]}
     shared_text = {}
+    if prompts is not None:
+        from state_comparison import build_prompts
+        expected = build_prompts(manifest)
+        if prompts != expected:
+            raise ValueError("Matched prompts do not reproduce from the solver manifest")
+        shared_text = {p["turn_id"]: p["prompt"] for p in prompts}
     if shared:
         from official_protocol import build_prompts
 
@@ -391,7 +420,7 @@ def stats_for(turn_index: int, elapsed: float) -> dict:
     start = TURN_STARTS[turn_index] if turn_index < len(TURN_STARTS) else len(CALLS)
     end = TURN_STARTS[turn_index + 1] if turn_index + 1 < len(TURN_STARTS) else len(CALLS)
     calls = CALLS[start:end]
-    total = lambda key: sum(c[key] for c in calls)  # noqa: E731
+    total = lambda key: sum(c[key] for c in calls) if all(c.get(key) is not None for c in calls) else None  # noqa: E731
     input_tokens, cached, written, output = (
         total("input_tokens"),
         total("cached_tokens"),
@@ -406,7 +435,7 @@ def stats_for(turn_index: int, elapsed: float) -> dict:
         "reasoning_tokens": total("reasoning_tokens"),
         "llm_calls": sum(1 for c in calls if not c.get("summary")),
         "summary_calls": sum(1 for c in calls if c.get("summary")),
-        "cost_usd": (
+        "cost_usd": None if any(v is None for v in [input_tokens, cached, written, output]) else (
             (input_tokens - cached - written) * RATES["input"]
             + cached * RATES["cached"]
             + written * RATES["write"]
@@ -431,6 +460,9 @@ def main() -> int:
     ap.add_argument("--functions", action="store_true", help="separately labeled reusable-function control")
     ap.add_argument("--shared-protocol", action="store_true",
                     help="send the dataflow arm's task text (file inventory, session rules, answer contract)")
+    ap.add_argument("--prompts-file", type=Path, help="frozen interface-neutral task text for matched comparisons")
+    ap.add_argument("--matched-limits", action="store_true", help="one gateway attempt per model call, matched 8192 output cap")
+    ap.add_argument("--wire-trace", action="store_true", help="capture provider requests and all returned choices, excluding credentials")
     ap.add_argument("--reset-at", type=int, default=0,
                     help="restart the kernel before this turn (upstream's reset_env_times), keeping the conversation")
     ap.add_argument("--reset-notice", default="", help="text prepended to the reset turn's message")
@@ -445,8 +477,9 @@ def main() -> int:
 
     api_key = os.environ[args.api_key_env]
     args.out.mkdir(parents=True, exist_ok=True)
-    global CALLS_FILE
+    global CALLS_FILE, WIRE_DIR
     CALLS_FILE = args.out / "calls.jsonl"
+    WIRE_DIR = args.out / "wire" if args.wire_trace else None
     install_usage_capture("openai")
     if args.context_budget:
         global COMPACTOR
@@ -454,7 +487,8 @@ def main() -> int:
     agent_module.AllocatedCodeEnv = TurnMarkingEnv
     manifest = json.loads(args.manifest.read_text())
     gold = json.loads(args.gold.read_text())
-    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions, shared=args.shared_protocol)
+    prompts = json.loads(args.prompts_file.read_text()) if args.prompts_file else None
+    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions, shared=args.shared_protocol, prompts=prompts)
     if args.reset_at and args.reset_notice:
         message = turns[args.reset_at - 1]["prompt"][-1]
         message["content"] = f"{args.reset_notice}\n\n{message['content']}"
@@ -474,6 +508,7 @@ def main() -> int:
         output_dir=str(args.out / "outputs"),
         api_key=api_key,
         base_url=args.api_base,
+        **({"max_retries": 1, "max_tokens": 8192} if args.matched_limits else {}),
     )
     bak = args.out / "bak"
     bak.mkdir(exist_ok=True)
