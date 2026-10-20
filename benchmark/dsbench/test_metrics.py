@@ -21,6 +21,219 @@ def write(path, data):
     path.write_text(json.dumps(data))
 
 
+def native_receipt(call_id, requested, *, protocol="json", error=None, executions=None):
+    returned = [{"index": index, "action": action, "status": "ok"} for index, action in enumerate(requested, 1)]
+    for entry, count in zip(returned, executions or []):
+        entry["executions"] = count
+    return {
+        "role": "agent",
+        "toolCalls": [
+            {
+                "toolCallId": call_id,
+                "input": {"reasoning": "Read", "actions": requested},
+            }
+        ],
+        "toolResults": [
+            {
+                "toolCallId": call_id,
+                "isError": bool(error),
+                "output": {
+                    "protocol": protocol,
+                    "status": "error" if error else "completed",
+                    "actions": [] if error else returned,
+                    "operators": [],
+                    **({"error": error} if error else {}),
+                },
+            }
+        ],
+    }
+
+
+def test_json_native_verbs_require_explicit_protocol_and_do_not_reclassify_history(
+    tmp_path,
+):
+    requested = [{"type": "set"}, {"type": "delete"}, {"type": "read"}]
+    step = native_receipt("json", requested, executions=[0, 0, 1])
+    write(tmp_path / "react_steps.json", [step])
+    candidate = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert candidate["native_format"] == "json"
+    assert candidate["invalid_action_type_total"] == 0
+    assert candidate["complete"] is True
+    step["toolResults"][0]["output"].pop("protocol")
+    write(tmp_path / "react_steps.json", [step])
+    legacy = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert legacy["invalid_action_types"] == {"set": 1, "delete": 1, "read": 1}
+    assert legacy["action_type_validation"].startswith("Native v1")
+    write(tmp_path / "config.json", {"native_format": "json"})
+    explicit = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert explicit["invalid_action_type_total"] == 0
+    step["toolResults"][0]["output"]["protocol"] = "json"
+    write(tmp_path / "config.json", {"native_format": "expression"})
+    write(tmp_path / "react_steps.json", [step])
+    conflict = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert conflict["complete"] is False and conflict["protocol_coverage"]["conflicting_receipts"] == 1
+
+
+def test_native_actual_execution_receipts_are_separate_from_requested_reads(tmp_path):
+    requested = [
+        {"type": "read", "ids": ["first"]},
+        {"type": "read", "ids": ["cached"]},
+        {"type": "answer", "source": {"id": "last"}},
+    ]
+    write(tmp_path / "config.json", {"native_format": "json"})
+    write(
+        tmp_path / "react_steps.json",
+        [native_receipt("reads", requested, executions=[1, 0, 1])],
+    )
+    actions = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert actions["by_type"] == {"read": 2, "answer": 1}
+    assert actions["executions"]["total"] == actions["executions"]["observed_total"] == 2
+    assert actions["executions"]["complete"] is True
+    step = native_receipt("missing", [requested[0]])
+    write(tmp_path / "react_steps.json", [step])
+    missing = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]["executions"]
+    assert missing["total"] is None and missing["observed_total"] == 0
+    assert missing["unknown_action_receipts"] == 1
+    write(tmp_path / "config.json", {"native_format": "expression"})
+    expression = native_receipt("execute", [{"type": "execute"}], protocol="expression", executions=[1])
+    write(tmp_path / "react_steps.json", [expression])
+    assert normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]["executions"]["total"] == 1
+
+
+def test_native_call_compliance_separates_json_schema_semantic_and_operator_failures(
+    tmp_path,
+):
+    write(tmp_path / "config.json", {"native_format": "json"})
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["reasoning", "actions"],
+        "properties": {
+            "reasoning": {"type": "string"},
+            "actions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {"type": {"enum": ["read", "answer"]}},
+                    "required": ["type"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    }
+    write(
+        tmp_path / "system-info.json",
+        {"tools": [{"name": "dataflow", "inputSchema": schema}]},
+    )
+    good = native_receipt("good", [{"type": "read"}], executions=[1])
+    good["toolResults"][0].update(isError=True)
+    good["toolResults"][0]["output"].update(
+        status="error",
+        error="Operator failed",
+        operators=[{"status": "error", "operatorId": "op"}],
+    )
+    good["toolResults"][0]["output"]["actions"][0]["status"] = "error"
+    semantic = native_receipt(
+        "semantic",
+        [{"type": "answer"}, {"type": "read"}],
+        error="One answer per call, as the last action. No actions ran.",
+    )
+    invalid = native_receipt(
+        "schema",
+        [{"type": "scan"}],
+        error="Invalid structured dataflow arguments: unknown type. No actions ran.",
+    )
+    malformed = native_receipt("json", [], error="Invalid input for tool dataflow: malformed JSON")
+    malformed["toolCalls"][0]["input"] = '{"actions":'
+    # One provider response can supply several calls: each returned call remains a distinct unit.
+    step = {
+        "role": "agent",
+        "toolCalls": [s["toolCalls"][0] for s in (good, semantic, invalid, malformed)],
+        "toolResults": [s["toolResults"][0] for s in (good, semantic, invalid, malformed)],
+    }
+    write(tmp_path / "react_steps.json", [step])
+    actions = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    compliance = actions["call_compliance"]
+    assert compliance["returned_calls_observed"] == 4
+    assert compliance["json_syntax"] == {
+        "valid": 3,
+        "invalid": 1,
+        "unknown": 0,
+        "complete": True,
+    }
+    assert compliance["schema_validation"] == {
+        "valid": 2,
+        "invalid": 1,
+        "unknown": 1,
+        "complete": False,
+    }
+    assert compliance["semantic_validation"] == {
+        "accepted": 1,
+        "rejected": 1,
+        "unknown": 2,
+        "complete": False,
+    }
+    assert compliance["operator_error_calls"] == 1
+    assert actions["errors"] == 1 and actions["tool_errors"] == 4
+    assert actions["tool_rejection_categories"] == {
+        "semantic_validation": 1,
+        "schema_validation": 2,
+    }
+    assert actions["outcomes"]["failed"] == 1 and actions["outcomes"]["rejected"] == 3
+    assert actions["executions"]["total"] == 1
+
+
+def test_native_malformed_status_metadata_is_partial_and_never_crashes(tmp_path):
+    write(tmp_path / "config.json", {"native_format": "json"})
+    step = native_receipt("status", [{"type": "read"}])
+    step["toolResults"][0]["output"]["status"] = {}
+    step["toolResults"][0]["output"]["actions"][0]["status"] = []
+    write(tmp_path / "react_steps.json", [step])
+    actions = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert actions["complete"] is False
+    assert actions["executions"]["total"] is None
+
+
+def test_native_canonical_nested_execution_receipt_preserves_cached_zero_and_rejects_conflicts(
+    tmp_path,
+):
+    write(tmp_path / "config.json", {"native_format": "json"})
+    step = native_receipt("nested", [{"type": "read"}], executions=[1])
+    entry = step["toolResults"][0]["output"]["actions"][0]
+    entry.pop("executions")
+    entry["output"] = {
+        "executions": 0,
+        "execution": {"operators": [{"status": "error", "state": "failed"}]},
+    }
+    write(tmp_path / "react_steps.json", [step])
+    actions = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
+    assert actions["executions"]["total"] == 0
+    assert actions["call_compliance"]["operator_error_calls"] == 1
+    entry["executions"] = 1
+    write(tmp_path / "react_steps.json", [step])
+    assert normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]["executions"]["total"] is None
+
+
+def test_native_invalid_or_remote_schema_is_unknown_without_remote_resolution(tmp_path):
+    write(tmp_path / "config.json", {"native_format": "json"})
+    write(tmp_path / "react_steps.json", [native_receipt("local", [{"type": "inspect"}])])
+    for schema in ({"type": 12}, {"$ref": "https://must-not-request.invalid/schema"}):
+        write(
+            tmp_path / "system-info.json",
+            {"tools": [{"name": "dataflow", "inputSchema": schema}]},
+        )
+        schema_counts = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]["call_compliance"][
+            "schema_validation"
+        ]
+        assert schema_counts == {
+            "valid": 0,
+            "invalid": 0,
+            "unknown": 1,
+            "complete": False,
+        }
+
+
 def test_native_cardinality_rejections_are_separate_from_nested_action_errors(tmp_path):
     rejection = "Use one dataflow call per turn, with all actions in its ordered actions list. No actions were run."
     inspect = {"type": "inspect", "target": "graph"}
@@ -31,14 +244,27 @@ def test_native_cardinality_rejections_are_separate_from_nested_action_errors(tm
             "id": "literal-cardinality-round",
             "role": "agent",
             "toolCalls": [
-                {"toolName": "dataflow", "toolCallId": "invalid", "input": {"actions": [inspect, scan]}},
-                {"toolName": "dataflow", "toolCallId": "inspect", "input": {"actions": [inspect]}},
+                {
+                    "toolName": "dataflow",
+                    "toolCallId": "invalid",
+                    "input": {"actions": [inspect, scan]},
+                },
+                {
+                    "toolName": "dataflow",
+                    "toolCallId": "inspect",
+                    "input": {"actions": [inspect]},
+                },
             ],
             "toolResults": [
                 {
                     "toolCallId": "invalid",
                     "isError": True,
-                    "output": {"kind": "dataflow-actions", "status": "error", "actions": [], "error": rejection},
+                    "output": {
+                        "kind": "dataflow-actions",
+                        "status": "error",
+                        "actions": [],
+                        "error": rejection,
+                    },
                 },
                 {
                     "toolCallId": "inspect",
@@ -46,7 +272,14 @@ def test_native_cardinality_rejections_are_separate_from_nested_action_errors(tm
                     "output": {
                         "kind": "dataflow-actions",
                         "status": "error",
-                        "actions": [{"index": 1, "action": inspect, "status": "skipped", "output": rejection}],
+                        "actions": [
+                            {
+                                "index": 1,
+                                "action": inspect,
+                                "status": "skipped",
+                                "output": rejection,
+                            }
+                        ],
                         "error": rejection,
                     },
                 },
@@ -55,7 +288,13 @@ def test_native_cardinality_rejections_are_separate_from_nested_action_errors(tm
         {
             "id": "literal-answer-round",
             "role": "agent",
-            "toolCalls": [{"toolName": "dataflow", "toolCallId": "answer", "input": {"actions": [answer]}}],
+            "toolCalls": [
+                {
+                    "toolName": "dataflow",
+                    "toolCallId": "answer",
+                    "input": {"actions": [answer]},
+                }
+            ],
             "toolResults": [
                 {
                     "toolCallId": "answer",
@@ -109,7 +348,11 @@ def test_native_execution_error_is_not_double_counted_as_tool_rejection(tmp_path
                             "error": "Execution failed",
                             "actions": [
                                 {"index": 1, "action": requested[0], "status": "error"},
-                                {"index": 2, "action": requested[1], "status": "skipped"},
+                                {
+                                    "index": 2,
+                                    "action": requested[1],
+                                    "status": "skipped",
+                                },
                             ],
                         },
                     }
@@ -135,7 +378,12 @@ def test_native_execution_error_is_not_double_counted_as_tool_rejection(tmp_path
 def test_native_missing_result_keeps_unknown_action_disposition(tmp_path):
     write(
         tmp_path / "react_steps.json",
-        [{"role": "agent", "toolCalls": [{"toolCallId": "missing", "input": {"actions": [{"type": "edit"}]}}]}],
+        [
+            {
+                "role": "agent",
+                "toolCalls": [{"toolCallId": "missing", "input": {"actions": [{"type": "edit"}]}}],
+            }
+        ],
     )
     actions = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)["actions"]
     assert actions["requested"]["total"] == 1
@@ -175,8 +423,19 @@ def test_native_schema_rejection_and_opaque_tool_error_have_separate_coverage(tm
         [
             {
                 "role": "agent",
-                "toolCalls": [{"toolCallId": "opaque", "input": {"actions": [{"type": "execute"}]}}],
-                "toolResults": [{"toolCallId": "opaque", "isError": True, "output": "Unknown tool execution failure"}],
+                "toolCalls": [
+                    {
+                        "toolCallId": "opaque",
+                        "input": {"actions": [{"type": "execute"}]},
+                    }
+                ],
+                "toolResults": [
+                    {
+                        "toolCallId": "opaque",
+                        "isError": True,
+                        "output": "Unknown tool execution failure",
+                    }
+                ],
             }
         ],
     )
@@ -188,14 +447,25 @@ def test_native_schema_rejection_and_opaque_tool_error_have_separate_coverage(tm
     assert actions["outcomes"]["complete"] is False
 
 
-def test_native_duplicate_ids_cannot_claim_complete_or_double_count_tool_errors(tmp_path):
-    error = {"toolCallId": "duplicate", "isError": True, "output": "Invalid input for tool dataflow: malformed"}
+def test_native_duplicate_ids_cannot_claim_complete_or_double_count_tool_errors(
+    tmp_path,
+):
+    error = {
+        "toolCallId": "duplicate",
+        "isError": True,
+        "output": "Invalid input for tool dataflow: malformed",
+    }
     write(
         tmp_path / "react_steps.json",
         [
             {
                 "role": "agent",
-                "toolCalls": [{"toolCallId": "duplicate", "input": {"actions": [{"type": "edit"}]}}],
+                "toolCalls": [
+                    {
+                        "toolCallId": "duplicate",
+                        "input": {"actions": [{"type": "edit"}]},
+                    }
+                ],
                 "toolResults": [error, error],
             }
         ],
@@ -210,21 +480,40 @@ def test_native_duplicate_ids_cannot_claim_complete_or_double_count_tool_errors(
 
 def test_native_literal_preparation_errors_are_known_pre_execution_rejections(tmp_path):
     for error, category in [
-        ("Invalid dataflow arguments: actions must be a JSON array. No actions ran.", "schema_validation"),
-        ('Action 1: unknown action type "scan". Use inspect, edit, execute, retrieve, or answer.', "schema_validation"),
-        ("Retrieve view sample_stats is unavailable. Use full, sample. No actions ran.", "pre_execution"),
+        (
+            "Invalid dataflow arguments: actions must be a JSON array. No actions ran.",
+            "schema_validation",
+        ),
+        (
+            'Action 1: unknown action type "scan". Use inspect, edit, execute, retrieve, or answer.',
+            "schema_validation",
+        ),
+        (
+            "Retrieve view sample_stats is unavailable. Use full, sample. No actions ran.",
+            "pre_execution",
+        ),
     ]:
         write(
             tmp_path / "react_steps.json",
             [
                 {
                     "role": "agent",
-                    "toolCalls": [{"toolCallId": "rejected", "input": {"actions": [{"type": "retrieve"}]}}],
+                    "toolCalls": [
+                        {
+                            "toolCallId": "rejected",
+                            "input": {"actions": [{"type": "retrieve"}]},
+                        }
+                    ],
                     "toolResults": [
                         {
                             "toolCallId": "rejected",
                             "isError": True,
-                            "output": {"kind": "dataflow-actions", "status": "error", "actions": [], "error": error},
+                            "output": {
+                                "kind": "dataflow-actions",
+                                "status": "error",
+                                "actions": [],
+                                "error": error,
+                            },
                         }
                     ],
                 }
@@ -237,7 +526,9 @@ def test_native_literal_preparation_errors_are_known_pre_execution_rejections(tm
         assert actions["tool_rejection_count_complete"] is True
 
 
-def test_native_missing_ids_retain_observed_single_pair_but_flag_incomplete_coverage(tmp_path):
+def test_native_missing_ids_retain_observed_single_pair_but_flag_incomplete_coverage(
+    tmp_path,
+):
     action = {"type": "inspect"}
     write(
         tmp_path / "react_steps.json",
@@ -248,7 +539,10 @@ def test_native_missing_ids_retain_observed_single_pair_but_flag_incomplete_cove
                 "toolResults": [
                     {
                         "isError": False,
-                        "output": {"status": "completed", "actions": [{"action": action, "status": "ok"}]},
+                        "output": {
+                            "status": "completed",
+                            "actions": [{"action": action, "status": "ok"}],
+                        },
                     }
                 ],
             }
@@ -275,7 +569,10 @@ def test_native_reused_call_id_in_distinct_steps_is_an_unambiguous_pair(tmp_path
                     {
                         "toolCallId": "reused",
                         "isError": False,
-                        "output": {"status": "completed", "actions": [{"index": 1, "action": action, "status": "ok"}]},
+                        "output": {
+                            "status": "completed",
+                            "actions": [{"index": 1, "action": action, "status": "ok"}],
+                        },
                     }
                 ],
             }
@@ -291,7 +588,10 @@ def test_native_reused_call_id_in_distinct_steps_is_an_unambiguous_pair(tmp_path
 
 
 def test_native_preserves_failed_request_and_distinguishes_actions(tmp_path):
-    write(tmp_path / "stats.json", {"cost_usd": 0.01, "input_tokens": 100, "output_tokens": 10})
+    write(
+        tmp_path / "stats.json",
+        {"cost_usd": 0.01, "input_tokens": 100, "output_tokens": 10},
+    )
     write(tmp_path / "status.json", {"completed": False})
     write(
         tmp_path / "react_steps.json",
@@ -306,7 +606,12 @@ def test_native_preserves_failed_request_and_distinguishes_actions(tmp_path):
         ],
     )
     metrics = normalize_attempt(tmp_path, system="native", task_wall_seconds=2.5)
-    assert metrics["requests"] == {"attempted": 2, "succeeded": 1, "failed": 1, "usage_missing": 1}
+    assert metrics["requests"] == {
+        "attempted": 2,
+        "succeeded": 1,
+        "failed": 1,
+        "usage_missing": 1,
+    }
     assert metrics["cost"]["known_usd"] == 0.01
     assert metrics["cost"]["complete"] is False
     assert metrics["cost"]["total_usd"] is None
@@ -334,13 +639,22 @@ def test_native_malformed_tool_input_is_preserved_as_partial_action_coverage(tmp
     write(tmp_path / "stats.json", {"cost_usd": 0.01})
     write(tmp_path / "react_steps.json", steps)
     metrics = normalize_attempt(tmp_path, system="native", task_wall_seconds=2)
-    assert metrics["requests"] == {"attempted": 2, "succeeded": 2, "failed": 0, "usage_missing": 0}
+    assert metrics["requests"] == {
+        "attempted": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "usage_missing": 0,
+    }
     assert metrics["actions"]["by_type"] == {"answer": 1}
     assert metrics["actions"]["tool_calls"] == 2
     assert metrics["actions"]["malformed_tool_calls"] == 1
     assert metrics["actions"]["complete"] is False
     assert metrics["actions"]["issues"] == [
-        {"step_id": "malformed-step", "tool_call_id": "bad-call", "reason": "input is str, expected object"}
+        {
+            "step_id": "malformed-step",
+            "tool_call_id": "bad-call",
+            "reason": "input is str, expected object",
+        }
     ]
     assert json.loads((tmp_path / "react_steps.json").read_text()) == steps
 
@@ -354,10 +668,25 @@ def test_native_malformed_actions_and_results_do_not_crash_metrics(tmp_path):
                 "toolCalls": [
                     {"input": None},
                     {"input": {"actions": "not an action array"}},
-                    {"input": {"actions": ["bad action", {"type": ["edit"]}, {"type": "inspect"}]}},
+                    {
+                        "input": {
+                            "actions": [
+                                "bad action",
+                                {"type": ["edit"]},
+                                {"type": "inspect"},
+                            ]
+                        }
+                    },
                 ],
                 "toolResults": [
-                    {"output": {"actions": ["bad result", {"status": "ok", "action": "not an object"}]}},
+                    {
+                        "output": {
+                            "actions": [
+                                "bad result",
+                                {"status": "ok", "action": "not an object"},
+                            ]
+                        }
+                    },
                 ],
             }
         ],
@@ -371,22 +700,38 @@ def test_native_malformed_actions_and_results_do_not_crash_metrics(tmp_path):
 
 
 def test_smol_counts_requests_not_task_memory_steps(tmp_path):
-    write(tmp_path / "stats.json", {"cost_usd": 0.0, "num_steps": 3, "input_tokens": 0, "output_tokens": 0})
+    write(
+        tmp_path / "stats.json",
+        {"cost_usd": 0.0, "num_steps": 3, "input_tokens": 0, "output_tokens": 0},
+    )
     write(tmp_path / "status.json", {"completed": True})
     (tmp_path / "model-request-trace.jsonl").write_text(
         "\n".join(
             json.dumps(event)
             for event in [
                 {"phase": "request", "call": 1},
-                {"phase": "response", "call": 1, "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+                {
+                    "phase": "response",
+                    "call": 1,
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                },
                 {"phase": "request", "call": 2},
-                {"phase": "response", "call": 2, "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+                {
+                    "phase": "response",
+                    "call": 2,
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                },
             ]
         )
     )
     (tmp_path / "executions.jsonl").write_text(json.dumps({"error": None, "is_final_answer": True}) + "\n")
     metrics = normalize_attempt(tmp_path, system="smolagents", task_wall_seconds=1)
-    assert metrics["requests"] == {"attempted": 2, "succeeded": 2, "failed": 0, "usage_missing": 0}
+    assert metrics["requests"] == {
+        "attempted": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "usage_missing": 0,
+    }
     assert metrics["cost"]["total_usd"] == 0.0
     assert metrics["actions"]["by_type"] == {"python_execute": 1}
 
@@ -396,7 +741,10 @@ def test_native_without_owned_service_scope_is_incomplete(tmp_path):
     write(tmp_path / "status.json", {"completed": False})
     write(tmp_path / "react_steps.json", [])
     metrics = normalize_attempt(
-        tmp_path, system="native", task_wall_seconds=1, resources={"scope": {"kind": "process_tree"}}
+        tmp_path,
+        system="native",
+        task_wall_seconds=1,
+        resources={"scope": {"kind": "process_tree"}},
     )
     assert metrics["resource_completeness"]["complete"] is False
     assert "native" in metrics["resource_completeness"]["reason"].lower()
@@ -406,7 +754,12 @@ def test_missing_native_action_trace_does_not_claim_complete_zero(tmp_path):
     write(tmp_path / "stats.json", {"cost_usd": 0.01})
     write(
         tmp_path / "model-accounting.json",
-        {"attemptedRequests": 1, "succeededRequests": 1, "failedRequests": 0, "usageStatus": "complete"},
+        {
+            "attemptedRequests": 1,
+            "succeededRequests": 1,
+            "failedRequests": 0,
+            "usageStatus": "complete",
+        },
     )
     metrics = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)
     assert metrics["requests"]["attempted"] == 1
@@ -417,12 +770,20 @@ def test_missing_native_action_trace_does_not_claim_complete_zero(tmp_path):
     assert metrics["actions"]["final_answers"] is None
 
 
-def test_missing_script_execution_trace_is_independent_of_complete_model_usage(tmp_path):
+def test_missing_script_execution_trace_is_independent_of_complete_model_usage(
+    tmp_path,
+):
     write(tmp_path / "stats.json", {"cost_usd": 0.01})
     (tmp_path / "model-request-trace.jsonl").write_text(
         json.dumps({"phase": "request", "call": 1})
         + "\n"
-        + json.dumps({"phase": "response", "call": 1, "usage": {"prompt_tokens": 10, "completion_tokens": 1}})
+        + json.dumps(
+            {
+                "phase": "response",
+                "call": 1,
+                "usage": {"prompt_tokens": 10, "completion_tokens": 1},
+            }
+        )
         + "\n"
     )
     metrics = normalize_attempt(tmp_path, system="smolagents", task_wall_seconds=1)
@@ -441,8 +802,13 @@ def test_missing_legacy_execution_final_answer_flag_is_unknown_not_zero(tmp_path
     assert metrics["actions"]["final_answer_count_complete"] is False
 
 
-def test_explicit_provider_preflight_block_has_known_zero_actions_without_execution_trace(tmp_path):
-    write(tmp_path / "status.json", {"state": "preflight_blocked", "inference_requests_attempted": 0})
+def test_explicit_provider_preflight_block_has_known_zero_actions_without_execution_trace(
+    tmp_path,
+):
+    write(
+        tmp_path / "status.json",
+        {"state": "preflight_blocked", "inference_requests_attempted": 0},
+    )
     metrics = normalize_attempt(tmp_path, system="smolagents", task_wall_seconds=0)
     assert metrics["actions"]["complete"] is True
     assert metrics["actions"]["total"] == 0
@@ -453,7 +819,10 @@ def test_explicit_provider_preflight_block_has_known_zero_actions_without_execut
 def test_authoritative_ledger_keeps_hidden_retry_and_unknown_failed_tokens(tmp_path):
     from benchmark.dsbench.accounting import capture_model_accounting
 
-    write(tmp_path / "stats.json", {"cost_usd": 0.01, "input_tokens": 100, "output_tokens": 10})
+    write(
+        tmp_path / "stats.json",
+        {"cost_usd": 0.01, "input_tokens": 100, "output_tokens": 10},
+    )
     write(tmp_path / "react_steps.json", [])
     write(tmp_path / "config.json", {"model": "exact", "task_id": "task"})
     write(
@@ -468,7 +837,12 @@ def test_authoritative_ledger_keeps_hidden_retry_and_unknown_failed_tokens(tmp_p
             "usageStatus": "partial",
             "unknownUsageRequestIds": ["retry"],
             "requests": [
-                {"requestId": "retry", "requestedModel": "exact", "status": "http_error", "usage": None},
+                {
+                    "requestId": "retry",
+                    "requestedModel": "exact",
+                    "status": "http_error",
+                    "usage": None,
+                },
                 {
                     "requestId": "ok",
                     "requestedModel": "exact",
@@ -504,7 +878,12 @@ def test_common_smol_pricing_is_per_request_for_tiers_and_unknown_rate(tmp_path)
             "task_id": "task",
             "pricing": {
                 "model": "exact",
-                "rates": {"input": 1, "output": 2, "cache_read": None, "cache_creation": None},
+                "rates": {
+                    "input": 1,
+                    "output": 2,
+                    "cache_read": None,
+                    "cache_creation": None,
+                },
                 "tiers": [{"min_input_tokens": 200, "input_multiplier": 2}],
             },
         },
@@ -513,12 +892,20 @@ def test_common_smol_pricing_is_per_request_for_tiers_and_unknown_rate(tmp_path)
         {
             "phase": "response",
             "call": 1,
-            "usage": {"prompt_tokens": 150, "completion_tokens": 10, "prompt_tokens_details": {"cached_tokens": 0}},
+            "usage": {
+                "prompt_tokens": 150,
+                "completion_tokens": 10,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            },
         },
         {
             "phase": "response",
             "call": 2,
-            "usage": {"prompt_tokens": 150, "completion_tokens": 10, "prompt_tokens_details": {"cached_tokens": 1}},
+            "usage": {
+                "prompt_tokens": 150,
+                "completion_tokens": 10,
+                "prompt_tokens_details": {"cached_tokens": 1},
+            },
         },
     ]
     (tmp_path / "model-request-trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
@@ -528,7 +915,9 @@ def test_common_smol_pricing_is_per_request_for_tiers_and_unknown_rate(tmp_path)
     assert common["cost"]["known_calls"] == 1
 
 
-def test_script_sdk_retry_is_two_transport_attempts_with_unknown_first_billing(tmp_path):
+def test_script_sdk_retry_is_two_transport_attempts_with_unknown_first_billing(
+    tmp_path,
+):
     from benchmark.dsbench.accounting import capture_model_accounting
 
     write(tmp_path / "config.json", {"model": "exact", "task_id": "task"})
@@ -541,7 +930,11 @@ def test_script_sdk_retry_is_two_transport_attempts_with_unknown_first_billing(t
         {
             "phase": "response",
             "call": 1,
-            "usage": {"prompt_tokens": 100, "completion_tokens": 10, "prompt_tokens_details": {"cached_tokens": 0}},
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 10,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            },
         },
     ]
     (tmp_path / "model-request-trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
@@ -554,11 +947,23 @@ def test_script_sdk_retry_is_two_transport_attempts_with_unknown_first_billing(t
 
 
 def test_required_new_native_ledger_cannot_fall_back_to_clean_trace(tmp_path):
-    write(tmp_path / "config.json", {"expected_service_source_hashes": {"src/server.ts": "frozen"}})
-    write(tmp_path / "stats.json", {"input_tokens": 100, "output_tokens": 10, "cost_usd": 0.01})
+    write(
+        tmp_path / "config.json",
+        {"expected_service_source_hashes": {"src/server.ts": "frozen"}},
+    )
+    write(
+        tmp_path / "stats.json",
+        {"input_tokens": 100, "output_tokens": 10, "cost_usd": 0.01},
+    )
     write(
         tmp_path / "react_steps.json",
-        [{"role": "agent", "inputMessages": [], "usage": {"inputTokens": 100, "outputTokens": 10}}],
+        [
+            {
+                "role": "agent",
+                "inputMessages": [],
+                "usage": {"inputTokens": 100, "outputTokens": 10},
+            }
+        ],
     )
     metrics = normalize_attempt(tmp_path, system="native", task_wall_seconds=1)
     assert metrics["usage_complete"] is False
@@ -571,12 +976,20 @@ def test_required_new_native_ledger_cannot_fall_back_to_clean_trace(tmp_path):
 def test_native_outer_timeout_cannot_claim_complete_watchdog_lifecycle(tmp_path):
     write(
         tmp_path / "config.json",
-        {"resource_scope": {"ownership_verified": True, "owned_service_pids": {"agent-service": 1}}},
+        {
+            "resource_scope": {
+                "ownership_verified": True,
+                "owned_service_pids": {"agent-service": 1},
+            }
+        },
     )
     write(tmp_path / "status.json", {"completed": False, "harness_timeout": True})
     resources = {
         "scope": {"complete": True},
-        "measurement": {"cpu": {"complete": True, "exact": True}, "memory": {"complete": True, "exact": True}},
+        "measurement": {
+            "cpu": {"complete": True, "exact": True},
+            "memory": {"complete": True, "exact": True},
+        },
         "cpu_total_seconds": 3,
         "peak_memory_bytes": 1000,
     }
@@ -587,7 +1000,9 @@ def test_native_outer_timeout_cannot_claim_complete_watchdog_lifecycle(tmp_path)
     assert metric["resources"]["measurement"]["cpu"]["exact"] is True
 
 
-def test_failed_native_trace_export_retains_observed_actions_but_marks_coverage_unknown(tmp_path):
+def test_failed_native_trace_export_retains_observed_actions_but_marks_coverage_unknown(
+    tmp_path,
+):
     write(tmp_path / "trace-fetch-error.json", {"error": "Trace endpoint failed"})
     write(
         tmp_path / "react_steps.json",
@@ -637,13 +1052,24 @@ def test_partial_execution_final_flags_preserve_only_observed_final_answers(tmp_
     assert metrics["actions"]["complete"] is False
 
 
-def test_malformed_native_result_preserves_observed_final_count_without_claiming_complete(tmp_path):
+def test_malformed_native_result_preserves_observed_final_count_without_claiming_complete(
+    tmp_path,
+):
     write(
         tmp_path / "react_steps.json",
         [
             {
                 "role": "agent",
-                "toolResults": [{"output": {"actions": ["malformed", {"status": "ok", "action": {"type": "answer"}}]}}],
+                "toolResults": [
+                    {
+                        "output": {
+                            "actions": [
+                                "malformed",
+                                {"status": "ok", "action": {"type": "answer"}},
+                            ]
+                        }
+                    }
+                ],
             }
         ],
     )

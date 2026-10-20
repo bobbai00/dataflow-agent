@@ -185,6 +185,25 @@ test("cached observe preserves version and a verified cache hit reuses the produ
   expect(s.getOperatorResult("A", "answer")).toEqual(before);
 });
 
+test("changing native rendering metadata retains the exact bound cached result and producer", () => {
+  const wf = workflow();
+  const s = storage(wf);
+  persist(s, response(wf));
+  const original = s.getOperatorResult("A", "answer")!;
+  const changed = structuredClone(wf);
+  for (const operator of changed.operators) {
+    operator.nativeOp!.source = "rendered spelling only";
+    operator.nativeOp!.functions = { rendered_copy: "def helper():\n    return 1" };
+    operator.nativeOp!.jsonDefinition = { operator: operator.nativeOp!.type, params: { rendering: true } };
+  }
+  s.updatePendingWorkflow("A", changed);
+  const preserved = s.getOperatorResult("A", "answer")!;
+  expect(preserved.resultVersion).toEqual(original.resultVersion);
+  expect(preserved.resultVersion!.complete).toBe(true);
+  expect(preserved.result).toEqual(original.result);
+  expect(preserved.materialization).toEqual(original.materialization);
+});
+
 test("same-shaped upstream edits invalidate profiles, while historical observations stay pinned", () => {
   const wf = workflow();
   const s = storage(wf);
@@ -233,10 +252,46 @@ test("self-joins preserve two logical roles even with one physical input", () =>
   const wf = workflow([op("source"), op("answer", ["source", "source"], "join")]);
   const s = storage(wf);
   persist(s, response(wf));
+  expect(s.getOperatorResult("A", "answer")!.resultVersion!.complete).toBe(true);
   const inputs = s.getOperatorResult("A", "answer")!.resultVersion!.inputs;
   expect(inputs.map(i => i.inputIndex)).toEqual([0, 1]);
   expect(inputs[0].resultVersion).toBe(inputs[1].resultVersion);
 });
+
+for (const [type, count] of [
+  ["join", 2],
+  ["union", 3],
+] as const) {
+  test(`explicit graph ${type} binds repeated sources on every physical port`, () => {
+    const repeated = {
+      ...op("answer", Array(count).fill("source"), type),
+      inputPorts: Array.from({ length: count }, (_, i) => ({ portID: `answer-in-${i}` })),
+    };
+    repeated.nativeOp!.graph = { inputPorts: Array.from({ length: count }, (_, i) => `in[${i}]`) };
+    const wf = {
+      ...workflow([op("source"), repeated]),
+      links: Array.from({ length: count }, (_, i) => ({
+        linkID: `source-answer-${i}`,
+        source: { operatorID: "source", portID: "source-out" },
+        target: { operatorID: "answer", portID: `answer-in-${i}` },
+      })),
+    };
+    const s = storage(wf);
+    persist(s, response(wf));
+    const version = s.getOperatorResult("A", "answer")!.resultVersion!;
+    expect(version.complete).toBe(true);
+    expect(version.inputs.map(input => input.inputIndex)).toEqual(Array.from({ length: count }, (_, i) => i));
+    expect(
+      version.inputs.every(input => input.resultVersion === s.getOperatorResult("A", "source")!.resultVersion!.id)
+    ).toBe(true);
+    const cached = wf.operators.map(o => ({
+      ...info(o),
+      materialization: { outputPort: 0, executionId: "100", cached: true },
+    }));
+    persist(s, response(wf, "101", cached));
+    expect(s.getOperatorResult("A", "answer")!.resultVersion).toMatchObject({ complete: true, id: version.id });
+  });
+}
 
 test("missing cache origin/profile stays unavailable rather than using the current retrieval as producer", () => {
   const wf = workflow([op("source")]);

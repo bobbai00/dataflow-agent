@@ -712,6 +712,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
     dataflowReasoning: agentSettings.dataflowReasoning,
+    nativeFormat: agentSettings.nativeFormat,
     nativePromptDetail: agentSettings.nativePromptDetail,
     nativeChecks: agentSettings.nativeChecks,
     stateHistory: agentSettings.stateHistory,
@@ -775,6 +776,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
           computingUnitId: delegateConfig.computingUnitId,
         }
       : undefined,
+    nativeProtocol: agent.getNativeProtocol(),
     settings: settingsApi,
   };
 }
@@ -909,7 +911,14 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/",
     async ({ body, headers }) => {
       const {
-        modelType, name, workflowId, computingUnitId, settings, driver, modelCapabilities, modelRequestTimeoutMs,
+        modelType,
+        name,
+        workflowId,
+        computingUnitId,
+        settings,
+        driver,
+        modelCapabilities,
+        modelRequestTimeoutMs,
       } = body as CreateAgentRequest;
 
       if (!modelType) {
@@ -938,7 +947,12 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       };
 
       const { agentId, agent } = await createAgentInstance(
-        modelType, delegateConfig, name, driver, modelCapabilities, modelRequestTimeoutMs
+        modelType,
+        delegateConfig,
+        name,
+        driver,
+        modelCapabilities,
+        modelRequestTimeoutMs
       );
 
       try {
@@ -975,6 +989,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
+            nativeFormat: settings.nativeFormat,
             nativePromptDetail: settings.nativePromptDetail,
             nativeChecks: settings.nativeChecks,
             stateHistory: settings.stateHistory,
@@ -1052,7 +1067,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         // Explicit driver override. Must be in the schema or Elysia's
         // normalize pass strips it from the body before the handler reads it.
         driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
-        modelCapabilities: t.Optional(t.Object({ forcedToolChoice: t.Optional(t.Boolean()) }, { additionalProperties: false })),
+        modelCapabilities: t.Optional(
+          t.Object({ forcedToolChoice: t.Optional(t.Boolean()) }, { additionalProperties: false })
+        ),
         // Elysia's Integer transform accepts numeric strings; require a JSON number.
         modelRequestTimeoutMs: t.Optional(
           t.Number({ minimum: 1, maximum: MAX_MODEL_REQUEST_TIMEOUT_MS, multipleOf: 1 })
@@ -1083,6 +1100,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
+            nativeFormat: t.Optional(t.Union([t.Literal("expression"), t.Literal("json")])),
             nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
             nativeChecks: t.Optional(t.Boolean()),
             stateHistory: t.Optional(t.Boolean()),
@@ -1526,6 +1544,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
         dataflowReasoning: settings.dataflowReasoning,
+        nativeFormat: settings.nativeFormat,
         nativePromptDetail: settings.nativePromptDetail,
         nativeChecks: settings.nativeChecks,
         stateHistory: settings.stateHistory,
@@ -1598,6 +1617,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
+        nativeFormat: t.Optional(t.Union([t.Literal("expression"), t.Literal("json")])),
         nativePromptDetail: t.Optional(t.Union([t.Literal("full"), t.Literal("on_demand")])),
         nativeChecks: t.Optional(t.Boolean()),
         stateHistory: t.Optional(t.Boolean()),

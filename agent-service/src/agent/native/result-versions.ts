@@ -182,7 +182,7 @@ export function bindResultVersion(
   if (info.materialization?.outputPort !== 0) omissions.push("output_port_unknown");
   if (!native.revision || !/^[a-f0-9]{16}$/.test(native.revision)) omissions.push("operator_revision_unknown");
 
-  const physicalInputs = [...new Set(native.inputs)];
+  const physicalInputs = native.graph ? native.inputs : [...new Set(native.inputs)];
   const wiring = proof.plan.links.filter(link => link.toOpId === operatorId);
   const wiringValid =
     physicalInputs.length === wiring.length &&
@@ -194,7 +194,10 @@ export function bindResultVersion(
   for (const [inputIndex, inputId] of native.inputs.entries()) {
     const input = current.get(inputId);
     const binding = context?.inputs?.find(
-      i => i.operatorId === inputId && i.inputPort === physicalInputs.indexOf(inputId) && i.outputPort === 0
+      i =>
+        i.operatorId === inputId &&
+        i.inputPort === (native.graph ? inputIndex : physicalInputs.indexOf(inputId)) &&
+        i.outputPort === 0
     );
     // A materialized current input disproves a delayed response's old input.
     if (

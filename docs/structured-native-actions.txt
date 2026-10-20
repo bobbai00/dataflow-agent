@@ -1,0 +1,297 @@
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements. See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Structured native actions: v3 portable design and bounded experiment
+2026-10-08
+
+Problem and evidence
+
+The original dataflow tool carries JSON actions containing a second assignment
+language. That language couples graph structure with indented Python blocks.
+An audit of 180 native attempts found 1,061 calls and 238 error receipts, but
+only two malformed JSON argument strings. These are different denominators
+and categories. Qwen's 98 cardinality rejections came from 49 two-call
+responses; DeepSeek's 35 came from one response with 34 duplicate batches and
+one missing-actions call. Some rejected Qwen payloads also contain invalid
+actions. Accepting multiple calls does not guarantee those calls succeed.
+
+The cited Luna and DeepSeek RESULT_NOT_RUN examples followed failed execution
+in the same batch, rather than genuine omission of execution. The smolagents
+control already uses structured JSON for thought/code output. Its JSON/Python
+parse errors do not compare text tags with JSON. Provider strict declarations
+were serialized in this campaign, but actual grammar enforcement is unknown.
+The September character-overhead claim is not an October token measurement.
+
+Rollback and compatibility
+
+Checkpoint before implementation: root a288509159b9f403a38688c712aedb3b574fbd20;
+KramaBench submodule 4d61e31fcae5c35cf909b9b7681b648a49ed8f33.
+nativeFormat='expression' remains the default and historical contract.
+nativeFormat='json' opts a fresh agent into this candidate. Changing formats on
+an authored workflow is rejected atomically. Historical attempts are immutable.
+Both formats use the same catalog, graph planner, engine and evidence storage.
+The candidate does not translate JSON back into the assignment language.
+
+Protocol
+
+One closed typed dataflow tool takes reasoning and an ordered actions array,
+with at most 32 actions per call. The JSON candidate explicitly sends provider
+strict=false on all three model routes: Sonnet, Qwen and DeepSeek. This is one
+declared treatment, with no hidden model-specific fallback. Local Ajv validates
+the complete correlated action schema before actions run; local typing is not
+a provider constrained-sampling guarantee. Multiple calls are accepted in wire order;
+there is no accidental 32-action limit across the entire response. The provider
+parallel flag stays disabled for the paired experiment. The schema carries
+operator enums, arities, types and concrete neutral defaults. Local semantic
+validation remains necessary for graph cycles, missing IDs, column existence,
+cross-field constraints and ordinary Python binding.
+
+set: id, operator, inputs (ordered IDs), params. Replaces an entire definition
+while preserving its consumers. All 15 catalog operators have distinct schemas.
+Contiguous set/delete actions, including across calls, form one atomic draft.
+Forward references are resolved against its final graph. The last command for
+an ID wins; earlier commands have superseded receipts. Invalid final graphs
+roll back the whole edit phase. Read/inspect actions separate edit phases.
+
+delete: ids. Removes selected definitions in the same atomic graph planner.
+
+read: ids, view and nullable columns. Computes selected missing/stale results
+and their upstream dependencies, then returns bounded tables and evidence.
+Current cached results are reused; switching views does not execute again.
+Known failed unchanged results are not silently retried. Available view enums
+are specific to the session. Partial reads preserve successful table receipts.
+
+answer: either content plus nullable operator_ids, or source with id, nullable
+column, shape (scalar/list/records), and nullable decimals. It must occur once,
+as the final action of the final returned call. A source answer computes its
+dependencies if necessary and requires a complete current result. Scalar emits
+the selected cell, list requires a column and emits its values, records emits
+row objects. Null decimals preserves numeric values; explicit decimals rounds
+numbers only. Strings, including timestamps, are preserved exactly.
+
+inspect remains available for graph/operator/reference metadata without engine
+execution. Existing history inspection and fork are gated by session settings.
+A failed typed action skips all later actions in that response. Successful
+prior edit phases remain committed. SDK preparation errors and missing receipts
+are explicit ordered failures, never dropped while later writes proceed.
+
+Python and runtime semantics
+
+Python occupies a dedicated code field. entry names a synchronous callback, or
+an empty string infers a sole function/lambda. Empty doc uses the generic
+operator description; nonempty text is preserved verbatim. Imports and helpers
+are ordinary Python.
+Validation parses/compiles but never executes imports, decorators or defaults.
+Inputs bind positionally; defaults and variadic arguments are allowed when
+binding is valid. Filter returns a row boolean, map a scalar-cell dictionary,
+process a DataFrame. Exceptions and invalid return types remain runtime errors.
+
+Naive calendar values become ISO text at output table boundaries without an
+invented timezone; aware timestamps keep the existing UTC normalization. These
+semantics and callback validation are revision-bound so cached results cannot
+cross incompatible execution policies. Rendering-only source/functions/typed
+definitions do not invalidate otherwise identical physical computations.
+Repeated input IDs retain separate physical ports for joins and unions.
+
+Provider compatibility and preserved strict trials
+
+The v1 pilot was halted with five finalized attempts and an interrupted sixth:
+three answers, one provider-schema rejection and one controlled stop. The sixth
+attempt has partial artifacts and no final task metrics. No V1 attempt was graded.
+Its original manifest, traces and frozen source archive remain immutable.
+Sonnet rejected the JSON schema before returning actions: the actual provider
+error reports 51 union-typed parameters against its limit of 16. A separate
+Qwen execution exposed the isolated worker wrapper's missing allowlist entry
+for the new compile-only function_parser.py; this is an execution-infrastructure
+failure, not evidence that the Python function syntax was invalid.
+
+Anthropic's official strict-output limits combine all strict schemas in one
+request: 20 strict tools, 24 optional parameters and 16 union-typed parameters.
+Further internal grammar-size limits apply even below those published limits.
+Splitting the unchanged catalog into tools does not reduce the combined union
+budget. Optional fields also do not provide an equivalent portable replacement:
+OpenAI strict schemas require every property and disallow extra properties.
+Official sources:
+https://platform.claude.com/docs/en/build-with-claude/structured-outputs#schema-complexity-limits
+https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use
+https://developers.openai.com/api/docs/guides/structured-outputs
+
+V3 retains V2's complete 15 correlated typed operator branches in one ordered
+tool and its exact local validators. Required fields
+carry concrete defaults where those values are neutral:
+
+scan: format="auto", skip_lines=0, header=true, names=[], all_text=false,
+comment="", widths=[], encoding="", file_column="", preview=0.
+project: keep=[], drop=[], rename=[]; at least one must be nonempty, and keep
+and drop cannot both be nonempty.
+cast: errors="raise".
+filter/map/process: entry="", doc=""; code remains ordinary Python.
+aggregate: by=[].
+join: how="inner" for keyed joins, nulls_equal=false, suffix="_right",
+validate="many_to_many". Cross joins retain their explicit how="cross".
+union: schema="strict".
+distinct: columns=[], keep="first".
+sort: nulls="last".
+limit: offset=0.
+window: partition_by=[], lag/lead offset=1; rank-like functions still carry
+their required null col/offset fields.
+unpivot: name="variable", value="value". Pivot has no nullable defaults.
+
+The decoder removes neutral defaults before validating/compiling runtime
+properties. It never forwards irrelevant header/text options into JSON or
+Parquet scans. Internal omission and explicit neutral values canonicalize to
+the same typed definition and revision. Empty collections or strings have only
+the documented meanings above; they are not code or a second grammar.
+
+Genuine inference/presentation choices remain nullable: scan delimiter and
+sheet; datetime cast format and timezone; count's column for row counts; read
+columns and prose-answer operator_ids; source-answer column and decimals;
+configured history selections and views. No UTC or other timezone is supplied
+to eliminate a schema union. The source schema uses one closed object with a
+shape enum; list requires a named non-null column, which preparation checks
+before any action runs. Scalar and records retain their existing null meanings.
+
+Offline V2 counts are 10 directly union-typed property nodes / 14 total union
+nodes for the single-task tool, and 15 / 20 with history and references enabled.
+The provider's precise counting algorithm is not documented. Sonnet still
+rejected the actual single-task V2 schema with HTTP400 and "The compiled grammar
+is too large" after the union-limit error was removed. Qwen and DeepSeek accepted
+their strict V2 SCHEMA_OK checks. These results establish route compatibility
+for those requests; they do not establish inference accuracy.
+
+Two separate Sonnet feasibility requests also returned the same grammar-size
+error. A factored set prototype shared 13 parameter shapes among 15 operators,
+reducing schema characters from 20,794 to 14,560 (about 30 percent), but moved
+operator/parameter and input-arity correlation out of the provider schema. A
+19-tool prototype kept those correlations and reduced maximum union fanout
+from 22 to 3, but would require a wider batching and ordered-call contract.
+Neither prototype was installed in the SUT or mixed into a benchmark cohort.
+Their requests, errors, source payloads and unknown billing coverage are retained.
+
+The portable V3 choice keeps the full correlated batch schema and sets provider
+strict=false uniformly. No further strict compiler trials or silent fallback
+are part of this pilot. Arguments still pass JSON syntax, closed local schema,
+operator/Python and final-graph checks before mutation. A schema error produces
+ordered failure receipts; valid execution and correct reasoning remain separate
+questions. Inference quality and repair cost are unknown until the paired pilot.
+
+Before the fresh V3 pilot, freeze exact source/prompt/tool hashes and perform
+fresh actual SCHEMA_OK checks on all three routes with strict=false. Independently
+run a no-LLM ordinary callback through the real isolated Texera engine worker,
+then retrieve the result and verify terminal state and owned cleanup. Bind the
+probe to the loaded service sources and isolated wrapper dependencies, including
+function_parser.py and its actual allowlist entry. Preserve all compatibility
+errors and missing billing usage explicitly. A mock decoder or host-Python
+test does not replace either gate. Optional helpers remain disabled for the
+single-task experiment. Passing these infrastructure gates authorizes only the
+separately frozen 36-attempt pilot, not a larger cohort or automatic retries.
+
+Metrics and provenance
+
+Before inference, the adapter compares the actual rendered prompt and tool
+protocol hashes with frozen expected hashes and independently checks system-info.
+The JSON protocol hash binds both inputSchema and the explicit strict boolean,
+so changing strict cannot preserve an accepted schema fingerprint. The expression
+protocol keeps its historical schema-only hash and historical strict setting.
+Loaded-service source hashes, PID ownership, prices/routes, question/input bytes,
+settings and deadlines are recorded. Count JSON syntax, schema rejection,
+preparation errors, action errors, operator errors and call outcomes separately;
+their overlapping counts must not be summed into a synthetic error total.
+
+Execution receipts report executeWorkflowAndPersist invocation counts, including
+observed zero for cached reads. This boundary is not a claim about remote engine
+start counts. Missing observability remains unknown. Capture every attempted
+provider request, input/output/reasoning/cache tokens and known costs, preserving
+incomplete billing after timeouts. Judge cost is separate from solving cost.
+
+Local resources use the existing exclusive owned native service/engine scope,
+with the gateway measured separately: cgroup CPU total, tick-resolution user/
+system CPU, kernel-charged peak memory and baseline, sampled RSS and full task
+wall time including capture/cleanup. Kernel memory includes resident service
+baseline and page cache, and is not process RSS. Independent peaks are never
+summed. Setup stays outside the supervised solve window as explicitly recorded.
+
+Experiment, before widening scope
+
+The original V1 preregistration proposed 36 fresh attempts, but its interrupted
+cohort must not be silently completed or mixed with later contracts. The V2
+36-attempt manifest remained unstarted when compatibility gates failed. A
+separately frozen V3 pilot, after the gates above, uses the same geometry:
+three models x six tasks x two formats, one first attempt
+each, BobBoth evidence settings throughout. Models: Sonnet 5.5, Qwen3.8-27B,
+DeepSeek V4.1-Flash on their existing exact routes. KramaBench: legal-easy-3,
+biomedical-hard-7, environment-easy-3. DSBench: 00000034-question5,
+00000032-question4, 00000006-question25. These selected cases cover scalar
+formatting, Excel, join grain, distinct invoices, headerless rolling windows,
+and sparse typed-code lookup. No automatic reruns or task substitutions.
+
+Keep question/input bytes and general principles identical; maxSteps 25,
+output 8192, task deadline 900 seconds, absolute model deadline 240 seconds,
+all model/controller retries zero. Pair adjacent runs with balanced format-first
+order. Freeze source, routes, prices, schema and prompts before the first call.
+Compare original official scores and separate diagnostic eligibility, errors,
+requests, tokens, costs, CPU, memory and wall time, with all failures retained.
+
+This is a whole-contract treatment (typed graph structure, ordered calls,
+automatic reads, ordinary callbacks, typed answers), not an isolated JSON
+envelope ablation. Larger schemas can outweigh the shorter system prompt, and
+additional repair steps can dominate cost. Actual cached/uncached usage decides.
+Three selected tasks per benchmark and one draw per pair cannot establish a
+leaderboard improvement or statistical significance. Further experiments depend
+on the observed tradeoff, not an assumption that typed JSON must win.
+
+Completed V3 findings and next work
+
+All 36 first attempts finished: 35 answers and one model-request timeout.
+All local resource windows and owned cleanup are complete. Original official
+full-score counts out of six, expression -> JSON: Sonnet 5 -> 5, Qwen 4 -> 5,
+DeepSeek 2 -> 4. This pilot's scores are binary; the reporter still preserves
+the original headline mean and separate diagnostics.
+
+The three gains are Qwen's header handling (15 -> 16 genes), DeepSeek's explicit
+multiple-choice presentation of the same computed 17.237, and DeepSeek's answer
+on a task whose expression attempt timed out. The latter two do not establish
+better calculation or a causal protocol effect. No official regression occurred.
+
+Token totals increased: Sonnet 230,015 -> 376,605; Qwen 410,824 -> 579,706.
+Registry token estimates decreased about two percent, but Qwen's provider-
+reported charge increased 33.87 percent. DeepSeek's full control token/cost
+totals remain unknown. Compatibility checks warmed some JSON prefixes before
+task execution; setup expense is separate and observed warm charges cannot
+establish equal cold-start costs. All 243 captured calls contain valid JSON;
+JSON had 16 schema rejections, expression three. No returned response used
+multiple calls, so that runtime feature lacks live cohort coverage here.
+
+Retain expression as the default and JSON as an experimental opt-in. The
+portable report, detailed metrics and cleanup/experiment plan are under
+benchmark/retrieval/results/20261008-native-json-format-pilot-v3.*.
+The tested source archive and every original attempt remain immutable. A
+post-study label correction makes executions.unit explicitly count
+executeWorkflowAndPersist invocations; one invocation can produce several
+partitioned backend executions. It changes no counts or recorded metrics.
+
+Next cleanup: make the operator discriminated types, schema builders and
+decoder one maintainable contract; isolate preparation, graph planning and
+execution from the large agent loop; provide precise branch-specific schema
+errors; consolidate accounting around the durable request ledger and preserve
+unknown billing; keep numeric counters and backend history as separate units.
+Preserve the checkpoint, default-mode behavior and real isolated-worker gate.
+
+Next experiments: first measure a smaller schema with only genuinely optional
+neutral parameters omitted, retaining local validation and meaningful cross-
+field constraints. Separately test worksheet/header discovery, informative raw
+previews, short batching examples and exact final-answer shape. Use small
+paired cohorts before replication on held-out cases. Match actual deadlines,
+retries, inputs, output limits, model routes and cache-start conditions with
+fresh script/smolagents controls. Compare provider charges as well as token
+estimates; require replicated accuracy and cost gains before changing defaults.

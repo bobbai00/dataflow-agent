@@ -104,6 +104,8 @@ function target(action: DataflowAction): string {
     return ` ${action.operator_id}`;
   }
   if (action.type === "retrieve") return ` ${action.operator_id}`;
+  if (action.type === "set") return ` ${action.id}`;
+  if (action.type === "delete" || action.type === "read") return ` ${action.ids.join(", ")}`;
   if (action.type === "execute" && action.operator_ids) return ` ${action.operator_ids.join(", ")}`;
   return "";
 }
@@ -122,23 +124,25 @@ export function renderActionObservations(result: DataflowActionsResult): string 
         return `${title} (${failed ? `action ${failed.index} failed` : "an earlier action failed"})`;
       }
       const output = item.output as any;
+      const editing = ["edit", "set", "delete"].includes(item.action.type);
+      const readTables = item.action.type === "read" && Array.isArray(output?.tables);
       if (item.status === "ok" && item.action.type === "inspect" && item.action.target === "reference")
         return `${title}\n${output.text}`;
-      if (item.status === "error" && !(output && typeof output === "object" && Array.isArray(output.operators)))
+      if (
+        item.status === "error" &&
+        !readTables &&
+        !(output && typeof output === "object" && Array.isArray(output.operators))
+      )
         return [
           title,
-          ...(item.action.type === "edit" ? ["No changes were applied."] : []),
+          ...(editing ? ["No changes were applied."] : []),
           issueText(
             // The line above already says that nothing was applied.
             String(typeof output === "string" ? output : (output?.error ?? "Action failed.")).replace(
-              item.action.type === "edit" ? /\s*No changes were applied\.(?=\n|$)/ : /$^/,
+              editing ? /\s*No changes were applied\.(?=\n|$)/ : /$^/,
               ""
             ),
-            item.action.type === "edit"
-              ? "EDIT_REJECTED"
-              : item.action.type === "answer"
-                ? "ANSWER_REFUSED"
-                : "ACTION_FAILED"
+            editing ? "EDIT_REJECTED" : item.action.type === "answer" ? "ANSWER_REFUSED" : "ACTION_FAILED"
           ),
         ].join("\n");
       const blocks: OperatorBlock[] =
@@ -273,7 +277,9 @@ export function renderActionObservations(result: DataflowActionsResult): string 
             )
           );
         }
-      } else if (item.action.type === "edit") {
+      } else if (editing) {
+        if (output.phase_action_indexes?.length > 1)
+          lines.push(`Atomic write phase: actions ${output.phase_action_indexes.join(", ")}.`);
         // One line per change: `operator x created (filter)`, `edge a -> x created`.
         for (const change of (output.changes ?? []) as GraphChangeReceipt[])
           lines.push(
@@ -281,6 +287,11 @@ export function renderActionObservations(result: DataflowActionsResult): string 
               ? `edge ${change.edge} ${change.action}`
               : `operator ${change.operator_id} ${change.action}${change.action === "created" || change.action === "updated" ? ` (${change.operator})` : ""}`
           );
+        for (const command of output.command_results ?? [])
+          if (command.status === "superseded")
+            lines.push(
+              `write ${command.index + 1}: ${command.operator_id} superseded by a later write in this atomic phase.`
+            );
         lines.push(...blocks.map(operatorBlock));
         if (output.invalidated_results?.length)
           lines.push(`results invalidated: ${output.invalidated_results.join(", ")}`);
@@ -295,6 +306,24 @@ export function renderActionObservations(result: DataflowActionsResult): string 
           );
         if (output.version_notes?.length) lines.push(...output.version_notes.map((note: string) => `note: ${note}`));
         if (output.provenance?.length) lines.push(...output.provenance);
+      } else if (item.action.type === "read") {
+        // The runtime stores one retrieval receipt per selected table. Keep
+        // independent successful tables visible even when another branch fails.
+        for (const table of output.tables ?? []) {
+          const tableBlocks: OperatorBlock[] = table.operator_blocks ?? [];
+          const text = typeof table.text === "string" ? table.text : "";
+          lines.push(
+            ...tableBlocks.map(block => operatorBlock(text.startsWith("columns: ") ? { ...block, columns: [] } : block))
+          );
+          if (text.startsWith("columns: ")) {
+            const newline = text.indexOf("\n");
+            lines.push(`  - ${newline < 0 ? text : text.slice(0, newline)}`);
+            if (newline >= 0) lines.push(text.slice(newline + 1));
+          } else if (text) lines.push(text);
+          if (table.superseded_in_call) lines.push("- note: this result was superseded later in the call.");
+        }
+        const failure = output.error ?? output.execution?.error;
+        if (failure) lines.push(issueText(String(failure), "RESULT_FAILED"));
       } else if (item.action.type === "execute") {
         const all = output.operators ?? [];
         const counts = [

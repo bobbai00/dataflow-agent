@@ -42,6 +42,7 @@ export interface CompiledNativeOp {
 }
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
+const functionParserPath = fileURLToPath(new URL("./python/function_parser.py", import.meta.url));
 const runtimeSource = readFileSync(runtimePath, "utf8");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
@@ -55,20 +56,30 @@ export function nativePython(): string {
  * not invalidate results. */
 export function nativeRevision(view: NativeOpView): string {
   return createHash("sha256")
-    .update(JSON.stringify({ type: view.type, inputs: view.inputs, properties: view.properties }))
+    .update(
+      JSON.stringify({
+        type: view.type,
+        inputs: view.inputs,
+        properties: view.properties,
+        ...(view.functionValidation ? { functionValidation: view.functionValidation } : {}),
+        ...(view.datetimePolicy ? { datetimePolicy: view.datetimePolicy } : {}),
+      })
+    )
     .digest("hex")
     .slice(0, 16);
 }
 
 function runtimeSpec(view: NativeOpView, operatorId: string) {
-  const { source: _source, functions: _functions, ...rest } = view;
+  const { source: _source, functions: _functions, jsonDefinition: _jsonDefinition, ...rest } = view;
   return { ...rest, id: operatorId, revision: view.revision ?? nativeRevision(view) };
 }
 
 /** Run the runtime script as a bounded subprocess with a JSON request on stdin.
  * Nothing the model wrote is executed: parsing and validation only. */
 export async function runNativePython(request: unknown, timeoutMs = 10_000): Promise<unknown> {
-  const child = Bun.spawn([nativePython(), runtimePath], {
+  const parser =
+    request && typeof request === "object" && "pythonFunction" in request ? functionParserPath : runtimePath;
+  const child = Bun.spawn([nativePython(), parser], {
     stdin: new Blob([JSON.stringify(request)]),
     stdout: "pipe",
     stderr: "pipe",

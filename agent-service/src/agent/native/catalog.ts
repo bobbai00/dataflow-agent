@@ -77,6 +77,12 @@ export interface NativeOpView {
   source?: string;
   /** Top-level `def` sources the statement refers to, by name. */
   functions?: Record<string, string>;
+  /** Typed surface definition, separate from engine properties and graph edges. */
+  jsonDefinition?: { operator: string; params: Record<string, unknown> };
+  /** JSON callbacks use ordinary Python positional callability. */
+  functionValidation?: "callable";
+  /** Preserve timezone-naive calendar values as ISO text at table boundaries. */
+  datetimePolicy?: "preserve";
 }
 
 /* ----------------------------------------------------------------------------
@@ -967,6 +973,14 @@ export function catalogIndexText(): string {
  * current inputs; an unconnected input shows as `?`. Stored sources omit the
  * inputs because edges own them. */
 export function nativeAssignmentText(id: string, view: NativeOpView): string | undefined {
+  if (view.jsonDefinition)
+    return JSON.stringify({
+      type: "set",
+      id,
+      operator: view.jsonDefinition.operator,
+      inputs: view.inputs,
+      params: view.jsonDefinition.params,
+    });
   if (!view.source) return undefined;
   // Expression-mode programs stored the whole assignment, inputs included.
   if (!view.graph) return view.source;

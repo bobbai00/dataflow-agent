@@ -13,6 +13,126 @@
  * limitations under the License.
  */
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
+
+type NativeFormat = "expression" | "json";
+
+/** Validate the declared protocol before importing SDKs or provisioning. */
+export function nativeFormatSettings(config: {
+  native_format?: unknown;
+  native_format_schema_sha256?: unknown;
+  native_format_prompt_sha256?: unknown;
+  settings?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const format = config.native_format;
+  if (format !== undefined && format !== "expression" && format !== "json")
+    throw new TypeError("native format must be expression or json");
+  for (const value of [
+    config.native_format_schema_sha256,
+    config.native_format_prompt_sha256,
+  ])
+    if (
+      value !== undefined &&
+      (format === undefined ||
+        typeof value !== "string" ||
+        !/^[a-f0-9]{64}$/.test(value))
+    )
+      throw new TypeError(
+        "native format hashes require an explicit format and SHA-256 hex",
+      );
+  const settings = { ...config.settings };
+  if (format !== undefined) {
+    if (settings.nativeFormat !== undefined && settings.nativeFormat !== format)
+      throw new TypeError("native format differs from recorded settings");
+    settings.nativeFormat = format;
+  }
+  return settings;
+}
+
+/** Match the API attestation to the actual model-facing prompt and schema. */
+export function verifyNativeProtocol(
+  protocol: any,
+  info: any,
+  format: NativeFormat,
+  expectedSchema?: string,
+  expectedPrompt?: string,
+): {
+  format: NativeFormat;
+  toolSchemaSha256: string;
+  systemPromptSha256: string;
+} {
+  assert(
+    protocol?.format === format,
+    "Resolved native format differs or is not reported",
+  );
+  const tool = info?.tools?.find((item: any) => item.name === "dataflow");
+  assert(
+    tool?.inputSchema && typeof info?.systemPrompt === "string",
+    "Model-facing native format bundle is required",
+  );
+  const hash = (value: string) =>
+    createHash("sha256").update(value).digest("hex");
+  if (format === "json")
+    assert(
+      typeof tool.strict === "boolean",
+      "JSON native tool strict flag must be boolean",
+    );
+  const schema = hash(
+    JSON.stringify(
+      format === "json"
+        ? {
+            inputSchema: tool.inputSchema,
+            strict: tool.strict,
+          }
+        : tool.inputSchema,
+    ),
+  );
+  const prompt = hash(info.systemPrompt);
+  assert.equal(
+    protocol.toolSchemaSha256,
+    schema,
+    "Native tool schema hash differs from system-info",
+  );
+  assert.equal(
+    protocol.systemPromptSha256,
+    prompt,
+    "Native system prompt hash differs from system-info",
+  );
+  if (expectedSchema !== undefined)
+    assert.equal(
+      schema,
+      expectedSchema,
+      "Native tool schema hash differs from frozen protocol",
+    );
+  if (expectedPrompt !== undefined)
+    assert.equal(
+      prompt,
+      expectedPrompt,
+      "Native system prompt hash differs from frozen protocol",
+    );
+  return { format, toolSchemaSha256: schema, systemPromptSha256: prompt };
+}
+
+export function verifyNativeRetrievalViews(
+  info: any,
+  format: NativeFormat,
+  views: readonly string[],
+): void {
+  const tool = info?.tools?.find((item: any) => item.name === "dataflow");
+  const action = format === "json" ? "read" : "retrieve";
+  const retrieval = tool?.inputSchema?.properties?.actions?.items?.anyOf?.find(
+    (item: any) => item.properties?.type?.const === action,
+  );
+  assert(
+    retrieval,
+    "Native format retrieval action is absent from tool schema",
+  );
+  assert.deepEqual(
+    retrieval.properties.view.enum,
+    views,
+    "Retrieval views differ from frozen settings",
+  );
+}
 
 export function verifyLoadedService(
   ledger: any,

@@ -84,6 +84,11 @@ export interface OperatorPredicate {
     source?: string;
     /** Top-level `def` sources the statement refers to, by name. */
     functions?: Record<string, string>;
+    /** Model-facing typed definition; rendering metadata, not engine state. */
+    jsonDefinition?: { operator: string; params: Record<string, unknown> };
+    /** Execution policies for ordinary Python callbacks and calendar values. */
+    functionValidation?: "callable";
+    datetimePolicy?: "preserve";
   };
 }
 

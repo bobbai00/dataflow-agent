@@ -32,9 +32,9 @@ its scratch directory, with a relative_path inside NATIVE_SOURCE_DATA. Only
 that input directory is mounted; the mapping itself is read-only in the worker.
 
 The agent service reads the same variable for its own interpreter: it runs
-the native runtime script with a JSON request on stdin to parse and validate
-edits (nothing is executed). That one invocation runs sandboxed as well, with
-only the runtime's directory mounted and no network.
+the native runtime or function-parser script with a JSON request on stdin to
+parse and validate edits (model-written code is never executed). These exact
+allowlisted scripts run sandboxed with only their directory mounted and no network.
 """
 import base64
 import json
@@ -78,11 +78,19 @@ def main():
     if args[:1] == ["-u"]:
         args = args[1:]
     validator = root / "agent-service/src/agent/native/python"
-    if len(args) == 1 and Path(args[0]).resolve() == validator / "runtime.py":
+    validation_scripts = {validator / "runtime.py", validator / "function_parser.py"}
+    if len(args) == 1 and Path(args[0]).resolve() in validation_scripts:
+        script = Path(args[0]).resolve()
         workspace = Path(os.environ["NATIVE_WORKSPACE"]) / "validation"
         workspace.mkdir(parents=True, exist_ok=True)
-        command = isolated_command([python, str(validator / "runtime.py")], python=python, data_roots=[],
-                                   workspace=workspace, read_only=[(validator, validator)], network=False)
+        command = isolated_command(
+            [python, str(script)],
+            python=python,
+            data_roots=[],
+            workspace=workspace,
+            read_only=[(validator, validator)],
+            network=False,
+        )
         os.execv(command[0], command)
     if len(args) != 2 or Path(args[0]).name != "texera_run_python_worker.py":
         raise RuntimeError("This benchmark wrapper accepts only a Texera Python worker")
@@ -99,9 +107,14 @@ def main():
     # paths a receipt showed still open.
     data_roots, data_mounts = worker_data_mounts(source_data, workspace, root)
     command = isolated_command(
-        [python, "-u", *args], python=python, data_roots=data_roots, workspace=workspace,
+        [python, "-u", *args],
+        python=python,
+        data_roots=data_roots,
+        workspace=workspace,
         read_only=[(python_source, python_source), *data_mounts],
-        read_write=[(warehouse, warehouse)], cwd=amber, network=True,
+        read_write=[(warehouse, warehouse)],
+        cwd=amber,
+        network=True,
         environment={"PYTHONPATH": str(python_source), "HOME": "/workspace"},
     )
     os.execv(command[0], command)

@@ -25,7 +25,12 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { verifyLoadedService } from "./native_integrity";
+import {
+  nativeFormatSettings,
+  verifyLoadedService,
+  verifyNativeProtocol,
+  verifyNativeRetrievalViews,
+} from "./native_integrity";
 import {
   nativeGenerationProvenance,
   nativeModelCapabilityOptions,
@@ -36,6 +41,7 @@ import {
 const root = resolve(import.meta.dir, "../..");
 const config = JSON.parse(readFileSync(Bun.argv[2], "utf8"));
 // Validate before loading SDKs or allocating workflows/computing units.
+config.settings = nativeFormatSettings(config);
 const modelCapabilityOptions = nativeModelCapabilityOptions(
   config.model_capabilities,
 );
@@ -170,7 +176,9 @@ async function collect() {
       : "Agent-service per-request inputMessages/usage; gateway wire audit recorded separately",
     usage_incomplete: accounting
       ? accounting.usageStatus !== "complete"
-      : Boolean(config.expected_service_source_hashes) || !completeTrace || errors.length > 0,
+      : Boolean(config.expected_service_source_hashes) ||
+        !completeTrace ||
+        errors.length > 0,
     native_agent_error_steps: errors.length,
     num_steps: modelSteps.length,
     elapsed_seconds: (performance.now() - started) / 1000,
@@ -293,6 +301,26 @@ try {
   const info = await get(`${base}/api/agents/${agent.id}/system-info`);
   save("system-info.json", info);
   try {
+    if (config.native_format !== undefined) {
+      save("native-format-protocol.json", {
+        requested_format: config.native_format,
+        nativeProtocol: agent.nativeProtocol ?? null,
+        expected_tool_schema_sha256: config.native_format_schema_sha256 ?? null,
+        expected_system_prompt_sha256:
+          config.native_format_prompt_sha256 ?? null,
+        system_prompt_characters: info.systemPrompt?.length ?? null,
+        tool_schema_characters: JSON.stringify(info.tools)?.length ?? null,
+        strict_enforcement:
+          "Advertised schema requirements; provider enforcement is not inferred from metadata.",
+      });
+      verifyNativeProtocol(
+        agent.nativeProtocol,
+        info,
+        config.native_format,
+        config.native_format_schema_sha256,
+        config.native_format_prompt_sha256,
+      );
+    }
     if (config.expected_service_source_hashes) {
       const preflightAccounting = await get(
         `${base}/api/agents/${agent.id}/model-metrics`,
@@ -314,12 +342,9 @@ try {
       info.systemPrompt.split("## Analysis principles").length - 1,
       1,
     );
-    const tool = info.tools.find((item: any) => item.name === "dataflow");
-    const retrieval = tool.inputSchema.properties.actions.items.anyOf.find(
-      (item: any) => item.properties.type.const === "retrieve",
-    );
-    assert.deepEqual(
-      retrieval.properties.view.enum,
+    verifyNativeRetrievalViews(
+      info,
+      config.native_format ?? "expression",
       config.settings.retrievalViews,
     );
   } catch (error) {

@@ -20,7 +20,7 @@
 import { expect, test } from "bun:test";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
-import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import { planGraphEdit, planGraphDefinitions, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { compileNativeOp } from "../native/codegen";
 import { validateNativeSettings } from "../native/settings";
@@ -43,6 +43,205 @@ const lines = (result: Awaited<ReturnType<typeof edit>>) =>
   result.changes.map(c =>
     c.change === "edge" ? `edge ${c.edge} ${c.action}` : `operator ${c.operator_id} ${c.action} (${c.operator})`
   );
+
+test("typed definitions resolve forward references and compile ordered repeated physical ports", async () => {
+  const state = new WorkflowState();
+  const before = state.getWorkflowContent();
+  const plan = await planGraphDefinitions(
+    before,
+    [
+      {
+        type: "set",
+        definition: {
+          id: "joined",
+          operator: "join",
+          inputs: ["source", "source"],
+          params: { on: [{ left: "id", right: "id" }] },
+        },
+      },
+      {
+        type: "set",
+        definition: { id: "unioned", operator: "union", inputs: ["joined", "source", "joined"], params: {} },
+      },
+      { type: "set", definition: { id: "source", operator: "scan", inputs: [], params: { files: ["a.csv"] } } },
+    ],
+    context()
+  );
+  expect(state.getWorkflowContent()).toEqual(before);
+  state.setWorkflowContent(plan.workflow);
+  expect(state.getOperator("joined")!.inputPorts).toHaveLength(2);
+  expect(state.getOperator("unioned")!.inputPorts).toHaveLength(3);
+  expect(state.getOperator("unioned")!.nativeOp!.inputs).toEqual(["joined", "source", "joined"]);
+  expect(state.getAllLinks()).toHaveLength(5);
+  expect(state.getOperator("unioned")!.operatorProperties.code).toContain("def process(_input_0, _input_1, _input_2)");
+  expect(nativeAssignmentText("source", state.getOperator("source")!.nativeOp!)).toContain('"type":"set"');
+});
+
+test("typed replacements preserve consumers and invalidate only their downstream cached graph", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain + '\nbystander = scan("other.csv")');
+  const before = state.getWorkflowContent();
+  const plan = await planGraphDefinitions(
+    before,
+    [
+      {
+        type: "set",
+        definition: {
+          id: "selected",
+          operator: "project",
+          inputs: ["source"],
+          params: { keep: ["region", "amount"], rename: [{ from: "amount", to: "value" }] },
+        },
+      },
+    ],
+    context()
+  );
+  expect(plan.workflow.links).toEqual(before.links);
+  expect(new Set(plan.invalidated_results)).toEqual(new Set(["selected", "total"]));
+  state.setWorkflowContent(plan.workflow);
+  const unchanged = await planGraphDefinitions(
+    state.getWorkflowContent(),
+    [
+      {
+        type: "set",
+        definition: {
+          id: "selected",
+          operator: "project",
+          inputs: ["source"],
+          params: { keep: ["region", "amount"], drop: [], rename: [{ from: "amount", to: "value" }] },
+        },
+      },
+    ],
+    context()
+  );
+  expect(unchanged.invalidated_results).toEqual([]);
+  const deleted = await planGraphDefinitions(
+    state.getWorkflowContent(),
+    [{ type: "delete", ids: ["selected"] }],
+    context()
+  );
+  expect(deleted.unconnected_inputs).toEqual(["total.in"]);
+  expect(new Set(deleted.invalidated_results)).toEqual(new Set(["total"]));
+});
+
+test("typed writes use their final definitions, including delete/recreate, without losing consumers", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const before = state.getWorkflowContent();
+  const same = { id: "selected", operator: "project", inputs: ["source"], params: { keep: ["region", "amount"] } };
+  const replacement = { ...same, params: { keep: ["region", "amount"], rename: [{ from: "amount", to: "value" }] } };
+  for (const commands of [
+    [
+      { type: "set" as const, definition: same },
+      { type: "set" as const, definition: replacement },
+    ],
+    [
+      { type: "delete" as const, ids: ["selected"] },
+      { type: "set" as const, definition: replacement },
+    ],
+  ]) {
+    const plan = await planGraphDefinitions(before, commands, context());
+    expect(plan.workflow.links).toEqual(before.links);
+    expect(plan.workflow.operators.find(op => op.operatorID === "selected")!.nativeOp!.properties.rename).toEqual({
+      amount: "value",
+    });
+    expect(plan.command_results!.map(command => command.status)).toEqual(["superseded", "applied"]);
+    expect(plan.operators.filter(op => op.id === "selected")).toHaveLength(1);
+  }
+  const identical = await planGraphDefinitions(
+    before,
+    [
+      { type: "set", definition: replacement },
+      { type: "set", definition: replacement },
+    ],
+    context()
+  );
+  expect(identical.command_results!.map(command => command.status)).toEqual(["superseded", "applied"]);
+  const canceled = await planGraphDefinitions(
+    before,
+    [
+      { type: "set", definition: { id: "temporary", operator: "scan", inputs: [], params: { files: ["other.csv"] } } },
+      { type: "delete", ids: ["temporary"] },
+    ],
+    context()
+  );
+  expect(canceled.workflow).toEqual(before);
+  await expect(
+    planGraphDefinitions(
+      before,
+      [
+        { type: "delete", ids: ["selected"] },
+        { type: "set", definition: { ...replacement, inputs: ["total"] } },
+      ],
+      context()
+    )
+  ).rejects.toThrow("cycle");
+  expect(state.getWorkflowContent()).toEqual(before);
+});
+
+test("invalid typed definitions and cyclic rewiring roll back the complete private draft", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const before = state.getWorkflowContent();
+  for (const commands of [
+    [
+      { type: "delete" as const, ids: ["selected"] },
+      { type: "set" as const, definition: { id: "bad", operator: "limit", inputs: ["missing"], params: { n: 2 } } },
+    ],
+    [{ type: "set" as const, definition: { id: "source", operator: "limit", inputs: ["total"], params: { n: 2 } } }],
+    [
+      {
+        type: "set" as const,
+        definition: {
+          id: "kept",
+          operator: "filter",
+          inputs: ["source"],
+          params: { code: "def keep(x, y):\n    return True", entry: "keep", doc: "" },
+        },
+      },
+    ],
+  ]) {
+    await expect(planGraphDefinitions(before, commands, context())).rejects.toThrow("No changes were applied.");
+    expect(state.getWorkflowContent()).toEqual(before);
+  }
+});
+
+test("typed edits preserve established profile settings and keep rendering metadata out of engine code", async () => {
+  const state = new WorkflowState();
+  const metadata = context();
+  const original = await planGraphEdit(state.getWorkflowContent(), 'source = scan("a.csv")', {
+    ...metadata,
+    settings: { nativeProfileCollection: false },
+  });
+  const plan = await planGraphDefinitions(
+    original.workflow,
+    [
+      { type: "set", definition: { id: "source", operator: "scan", inputs: [], params: { files: ["b.csv"] } } },
+      {
+        type: "set",
+        definition: {
+          id: "kept",
+          operator: "filter",
+          inputs: ["source"],
+          params: {
+            code: "def ordinary_name(record, limit=2):\n    return record['x'] > limit",
+            entry: "",
+            doc: "",
+          },
+        },
+      },
+    ],
+    { ...metadata, settings: { nativeProfileCollection: true, nativeProfileScope: "full" } }
+  );
+  const source = plan.workflow.operators.find(op => op.operatorID === "source")!;
+  const kept = plan.workflow.operators.find(op => op.operatorID === "kept")!;
+  expect(source.nativeOp!.profileCollection).toBe(false);
+  expect(kept.nativeOp!.profileCollection).toBe(true);
+  expect(kept.nativeOp!.profileScope).toBe("full");
+  expect(kept.operatorProperties.code).toContain('\\"functionValidation\\":\\"callable\\"');
+  expect(kept.operatorProperties.code).toContain('\\"datetimePolicy\\":\\"preserve\\"');
+  expect(kept.operatorProperties.code).not.toContain("jsonDefinition");
+});
 
 test("project accepts explicit None defaults like omitted optional parameters", async () => {
   for (const [explicit, omitted] of [

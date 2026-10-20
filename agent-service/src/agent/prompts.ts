@@ -28,6 +28,7 @@
  *   function written through `createOrModifyOperator`. Includes a worked example.
  */
 
+import { NATIVE_OPERATORS } from "./native/catalog";
 import { readFileSync } from "node:fs";
 import {
   ContextMode,
@@ -39,6 +40,7 @@ import {
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { catalogText, catalogIndexText } from "./native/catalog";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
+import { structuredSetSchemas } from "./native/structured-operators";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -233,6 +235,7 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   stateHistory?: boolean;
   /** `stateLedger`: task ledgers in Answer receipts, provenance cards in Edit receipts, execution notes. */
   stateLedger?: boolean;
+  nativeFormat?: "expression" | "json";
   nativePromptDetail?: "full" | "on_demand";
 }
 
@@ -439,6 +442,122 @@ export function nativeStateText(options: NativePromptLayoutOptions = {}): string
 }
 export const NATIVE_STATE_HISTORY = NATIVE_FRAGMENTS.history;
 
+/** Surface-specific terminology; expression contracts retain their catalog text. */
+const JSON_OPERATOR_BRIEFS: Record<string, string> = {
+  scan: "Read files or globs as CSV, text, Excel, HTML, JSON or Parquet. Format selects the parser; preview reads raw lines or sheet rows for inspection, not full computation. Names requires header false; all_text true preserves codes such as 001. Sheet selects an Excel sheet or HTML table; file_column records the source.",
+  project:
+    "Keep or drop columns, then rename with from/to entries. Rows stay unchanged. Empty arrays disable the corresponding operation. Keep and drop cannot both be nonempty; provide at least one nonempty operation.",
+  cast: "Convert columns using typed column entries and dtype names. Failed conversions raise or become missing according to errors. A null timezone preserves timezone-naive calendar values as ISO text; an explicit timezone localizes them.",
+  filter:
+    "The Python entry receives one row and returns true to keep it, false or None to drop it. Row order and columns stay unchanged.",
+  map: "The Python entry receives one row and returns its whole replacement dictionary. Retain existing fields explicitly when needed. Return consistent keys and scalar cells, one output row per input.",
+  aggregate:
+    "One row per group; empty by gives one group. Aggregation entries name fn, col and as. Count with null col counts rows; count with col counts non-null values. Other reducers skip nulls except first; an all-null sum is null. Stddev is the sample standard deviation.",
+  join: "Join the two ordered inputs using left/right key entries. Cross requires null on; other join modes require keys. Semi and anti preserve qualifying left rows once. Null keys do not match by default. Validate checks declared key cardinality; suffix resolves colliding right columns. Output order is unspecified.",
+  union:
+    "Stack tables in input order, retaining duplicates. Strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.",
+  distinct:
+    "Keep one whole row per key, using all columns when columns is empty. Keep selects first or last; missing keys compare equal. Relative row order is preserved.",
+  sort: "Stable sort using ordered col/direction entries. Nulls selects first or last.",
+  limit: "Keep n rows from offset. Sort first when selecting a top-k.",
+  window:
+    "Add columns using fn/col/as/offset entries within partition_by and ordered col/direction keys. Lag and lead require col; row_number, rank and dense_rank require null col and offset. Ranks start at one; preserve input row order.",
+  unpivot:
+    "Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.",
+  pivot:
+    "Long to wide. Each index/columns pair must be unique; aggregate first if needed. Absent cells become null and null pivot keys fail. Read the result to learn its new column names.",
+  process:
+    "One custom operation the catalog cannot express. The Python entry receives one DataFrame per ordered input and returns one DataFrame. Zero inputs can load unsupported formats. Imports and helpers belong in code; ordinary synchronous functions may use defaults or variadic arguments when positionally callable with the inputs.",
+};
+
+function structuredNativeReferenceText(
+  request: Parameters<typeof nativeReferenceText>[0],
+  options: NativePromptLayoutOptions
+): string {
+  if (request.topic === "operators") {
+    const schemas = structuredSetSchemas();
+    for (const name of request.operator_names)
+      if (!schemas.some(schema => schema.properties.operator.const === name))
+        throw new Error(`Unknown operator ${name}.`);
+    return schemas
+      .filter(schema => request.operator_names.includes(schema.properties.operator.const))
+      .map(schema => {
+        const name = schema.properties.operator.const;
+        return `${name}: ${JSON_OPERATOR_BRIEFS[name]}\n\n\`\`\`json\n${JSON.stringify(schema, null, 2)}\n\`\`\``;
+      })
+      .join("\n\n");
+  }
+  const flags = nativeFlags(options);
+  if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");
+  if (request.example === "statistics" && !flags.data && !flags.flow)
+    throw new Error("Data and flow statistics are disabled for this session.");
+  const views = availableRetrievalViews(options);
+  const view = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : views[0];
+  const call = (reasoning: string, actions: unknown[]) =>
+    "```json\n" + JSON.stringify({ reasoning, actions }, null, 2) + "\n```";
+  const count = (input: string) => ({
+    type: "set",
+    id: "row_count",
+    operator: "aggregate",
+    inputs: [input],
+    params: { by: [], aggregations: [{ fn: "count", col: null, as: "count" }] },
+  });
+  const read = { type: "read", ids: ["row_count"], view, columns: null };
+  const answer = { type: "answer", source: { id: "row_count", column: "count", shape: "scalar", decimals: null } };
+  if (request.example === "history")
+    return [
+      "Inspect a saved task before deciding whether its complete eligible records satisfy the new question. Saved answers and row coverage do not establish that the selection rule was correct.",
+      call("Check the saved eligibility rule and available rows.", [
+        {
+          type: "inspect",
+          target: "task",
+          task_id: 1,
+          operator_id: "eligible",
+          include_implementation: true,
+          view,
+        },
+      ]),
+      "When the inspected branch matches the request, fork its historical inputs and compute the new count. Make this decision in the next model response.",
+      call("Count the checked saved records and answer from the complete result.", [
+        { type: "fork", task_id: 1, operator_id: "eligible", new_operator_id: "saved_eligible" },
+        count("saved_eligible"),
+        read,
+        answer,
+      ]),
+    ].join("\n\n");
+  return [
+    request.example === "statistics"
+      ? "Count all records in this illustrative file. Read exposes only the session's enabled data and flow evidence; coverage and statistics describe the computed selection, not whether it satisfies the user's rule."
+      : "For a question asking for every row's count, scan the file, reduce it in the graph and answer from the scalar result. Read computes missing results; a complete source answer emits the selected value.",
+    call("Compute the full row count and return its scalar value.", [
+      {
+        type: "set",
+        id: "orders",
+        operator: "scan",
+        inputs: [],
+        params: {
+          files: ["data/orders.csv"],
+          format: "auto",
+          skip_lines: 0,
+          header: true,
+          names: [],
+          all_text: false,
+          delim: null,
+          comment: "",
+          widths: [],
+          sheet: null,
+          encoding: "",
+          file_column: "",
+          preview: 0,
+        },
+      },
+      count("orders"),
+      read,
+      answer,
+    ]),
+  ].join("\n\n");
+}
+
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.DELTA,
   options: NativePromptLayoutOptions = {}
@@ -485,6 +604,31 @@ export function buildNativeModeSystemPrompt(
         ? NATIVE_FRAGMENTS.leanExamples
         : nativeRetrievalExamples(options),
   };
+  if (options.nativeFormat === "json") {
+    return [
+      "You are a data-science agent. Answer the user's question by building and inspecting a dataflow with the dataflow tool.",
+      SINGLE_TASK_ANALYSIS_PRINCIPLES,
+      "Use the closed typed action schema for syntax and allowed parameter values. Arguments are validated locally before actions run. Every field is required: supply its concrete default when unused. Empty arrays or strings apply no override where documented. Delimiter, sheet, date-format and timezone inference keep their explicit null values; no timezone is invented. Operator inputs are ordered table IDs; a set replaces the whole definition while keeping its consumers.",
+      "Contiguous set/delete actions form one atomic edit, including forward references within that edit. Read and inspect separate edit phases. A read computes its selected tables and dependencies when needed, reuses current cached results, and returns bounded results. Inspect reads definitions without executing.",
+      "One or several tool calls are accepted. Calls and actions run in their returned order. A failure skips every later action. Answer once, as the final action in the final call of the response.",
+      "Python belongs only in an operator's code field: write ordinary Python with imports and helper functions as needed. entry names its synchronous function, or an empty string selects the sole function or lambda. Empty doc uses the generic description. Inputs bind positionally, independent of function parameter names. filter returns a boolean per row; map returns a dictionary of scalar cells per row; process receives pandas DataFrames and returns one DataFrame. Timezone-naive calendar values preserve their wall-clock meaning as ISO text at table boundaries; no timezone is invented.",
+      "Operators:\n" + NATIVE_OPERATORS.map(op => `${op.name}: ${JSON_OPERATOR_BRIEFS[op.name]}`).join("\n"),
+      options.nativePromptDetail === "on_demand"
+        ? "Inspect target=reference, topic=operators, operator_names=[...] to read selected typed schemas, or topic=example with a session-enabled example. Reuse documentation already in context."
+        : "",
+      `Read views available: ${views.join(", ")}. full holds rows up to the result cap; sample shows a bounded subset; sample_stats adds coverage-labeled statistics. Check completeness and reduce large results in the graph before reporting them.`,
+      fields.DATA_STATISTICS,
+      fields.FLOW_STATISTICS,
+      "Answer with content for prose, or with a typed source selecting a table, column, shape and decimal places. scalar emits the single selected cell, list emits column values, and records emits row objects. null decimal places preserves computed values. Source answers require a complete current result and can compute it automatically.",
+      options.stateHistory
+        ? "Saved tasks remain inspectable through the history actions in the schema. Fork copies a saved upstream branch into the current graph; current operators retain their IDs and results across tasks."
+        : "",
+      context.replace("Execute when you need a current result", "Read when you need a current result"),
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+  }
   const template = flags.multi ? NATIVE_MODE_TEMPLATE : NATIVE_SINGLE_TASK_TEMPLATE;
   let prompt = template.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => {
     if (!(key in fields)) throw new Error(`unknown prompt field {{${key}}}`);
@@ -504,6 +648,7 @@ export function nativeReferenceText(
     | { topic: "example"; example: "single" | "statistics" | "history" },
   options: NativePromptLayoutOptions
 ): string {
+  if (options.nativeFormat === "json") return structuredNativeReferenceText(request, options);
   if (request.topic === "operators") return catalogText(request.operator_names);
   const flags = nativeFlags(options);
   if (request.example === "history" && !flags.history) throw new Error("Historical state tools are disabled.");

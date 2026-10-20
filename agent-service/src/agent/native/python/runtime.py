@@ -143,18 +143,26 @@ def _validate_function(spec, source, field, entry, parameters=None):
     entries = [
         node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry
     ]
+    expected = len(parameters) if parameters is not None else 1
     valid = len(entries) == 1 and isinstance(entries[0], ast.FunctionDef)
     if valid:
         node = entries[0]
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
-        valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
-        # Inputs bind positionally (`function(*frames)` below), so only the arity
-        # has to match the ordered inputs; the parameter names are the author's.
-        expected = len(parameters) if parameters is not None else 1
-        valid = valid and len(positional) == expected
+        if spec.get("functionValidation") == "callable":
+            # Check positional bindability from syntax without evaluating the
+            # module, defaults, imports, decorators or user function bodies.
+            required = len(positional) - len(args.defaults)
+            valid = (required <= expected and (args.vararg is not None or expected <= len(positional))
+                     and all(default is not None for default in args.kw_defaults))
+        else:
+            valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
+            # Recorded expression policy: exact positional arity.
+            valid = valid and len(positional) == expected
     if not valid:
-        if parameters is not None:
+        if spec.get("functionValidation") == "callable":
+            message = f"Entry {entry!r} must be one synchronous function accepting {expected} positional argument(s); defaults and variadic arguments are supported."
+        elif parameters is not None:
             message = (
                 f"Define exactly one synchronous def {entry} with {expected} positional parameter(s), one per input "
                 f"in order ({', '.join(parameters)}); names are yours. No decorators, defaults or variadic arguments."
@@ -431,6 +439,32 @@ def _columns(spec, frame, names, field):
         )
 
 
+def _calendar_text(value):
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+        return value.isoformat()
+    if isinstance(value, (datetime.datetime, pd.Timestamp, np.datetime64)):
+        return pd.Timestamp(value).isoformat()
+    return value
+
+
+def _preserve_calendar_frame(value):
+    """Preserve naive civil times without assigning a timezone at a table boundary."""
+    result = value
+    for name in value.columns:
+        column = value[name]
+        naive = (pd.api.types.is_datetime64_any_dtype(column.dtype) and getattr(column.dt, "tz", None) is None)
+        if column.dtype == object:
+            naive = any(isinstance(v, (datetime.date, datetime.datetime, pd.Timestamp, np.datetime64))
+                        and getattr(v, "tzinfo", None) is None for v in column.dropna())
+        if naive:
+            if result is value:
+                result = value.copy(deep=False)
+            result[name] = column.map(_calendar_text).astype("string")
+    return result
+
+
 def _frame(spec, value):
     if not isinstance(value, pd.DataFrame):
         raise _error(
@@ -438,6 +472,8 @@ def _frame(spec, value):
         )
     if not all(isinstance(name, str) for name in value.columns) or value.columns.has_duplicates:
         raise _error(spec, "OUTPUT_SCHEMA", "Table columns must be unique string names.", stage="contract")
+    if spec.get("datetimePolicy") == "preserve":
+        value = _preserve_calendar_frame(value)
     for name in value.columns:
         column = value[name]
         if pd.api.types.is_numeric_dtype(column.dtype) and not pd.api.types.is_bool_dtype(column.dtype):
@@ -536,6 +572,8 @@ def _convert(value, dtype, *, cast=False, options=None):
         result = pd.Timestamp(value)
         if result.tzinfo is None:
             if not options.get("timezone"):
+                if options.get("preserve_naive"):
+                    return result.isoformat()
                 raise ValueError("timezone-naive values require an explicit timezone")
             result = result.tz_localize(options["timezone"], ambiguous="raise", nonexistent="raise")
         return result.tz_convert("UTC")
@@ -1700,6 +1738,11 @@ def _map(spec, source, operations):
     output = pd.DataFrame(index=range(len(source)))
     for key in keys:
         fallback = _dtype(source[key]) if key in source.columns else None
+        if spec.get("datetimePolicy") == "preserve" and any(
+            isinstance(v, (datetime.date, datetime.datetime, pd.Timestamp, np.datetime64))
+            and getattr(v, "tzinfo", None) is None for v in columns[key] if v is not None
+        ):
+            columns[key] = [_calendar_text(v) for v in columns[key]]
         dtype = _map_dtype(spec, key, columns[key], fallback, props["func"], entry)
         try:
             output[key] = _series(columns[key], dtype)
@@ -1729,7 +1772,7 @@ def _cast(spec, source, operations):
         collect = spec.get("profileCollection") is True and i < _WITNESS_WIDTH
         for value in source[name]:
             try:
-                values.append(_convert(value, item["dtype"], cast=True, options=item))
+                values.append(_convert(value, item["dtype"], cast=True, options={**item, "preserve_naive": spec.get("datetimePolicy") == "preserve"}))
             except (ValueError, TypeError, OverflowError) as error:
                 if props.get("errors", "raise") != "null":
                     raise _error(
@@ -1749,7 +1792,10 @@ def _cast(spec, source, operations):
                         example = _witness([raw], 1)
                         if example is not None:
                             witnessed[key] = example
-        output[name] = _series(values, item["dtype"])
+        if item["dtype"] == "datetime" and spec.get("datetimePolicy") == "preserve" and any(isinstance(v, str) for v in values):
+            output[name] = pd.Series([_calendar_text(v) for v in values], dtype="string")
+        else:
+            output[name] = _series(values, item["dtype"])
         failures[name] = failed
         if witnessed:
             examples[name] = {

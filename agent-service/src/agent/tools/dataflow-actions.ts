@@ -27,7 +27,9 @@ import type { ObservationFormatSettings } from "../native/observation-format";
 import type { TaskReference } from "../task-history";
 import { NATIVE_OPERATOR_NAMES } from "../native/catalog";
 
-export type DataflowAction =
+import type { JsonDataflowAction } from "./structured-dataflow-actions";
+
+export type ExpressionDataflowAction =
   | { type: "inspect"; target: "reference"; topic: "operators"; operator_names: string[] }
   | { type: "inspect"; target: "reference"; topic: "example"; example: "single" | "statistics" | "history" }
   | { type: "inspect"; target: "graph" }
@@ -57,6 +59,8 @@ export type DataflowAction =
   | { type: "answer"; content: string; operator_ids?: string[] }
   | { type: "answer"; from: string };
 
+export type DataflowAction = ExpressionDataflowAction | JsonDataflowAction;
+
 export interface DataflowActionsInput {
   reasoning: string;
   actions: DataflowAction[];
@@ -69,6 +73,7 @@ export interface ActionOutcome {
 
 export interface DataflowActionsResult {
   kind: "dataflow-actions";
+  protocol?: "json";
   status: "pending" | "completed" | "error";
   actions: Array<{
     index: number;
@@ -97,7 +102,7 @@ const object = <T extends Record<string, unknown>>(properties: T) => ({
   properties,
   required: Object.keys(properties),
 });
-const action = (type: DataflowAction["type"], description: string, properties = {}) => ({
+const action = (type: ExpressionDataflowAction["type"], description: string, properties = {}) => ({
   ...object({ type: { type: "string", const: type }, ...properties }),
   description,
 });
@@ -482,7 +487,10 @@ export async function runDataflowActions(
       item.output = error instanceof Error ? error.message : String(error);
       result.error ??= `Action ${item.index} (${item.action.type}) failed: ${item.output}`;
     }
-    if (item.action.type === "execute" && item.status === "error") allowReads = true;
+    // Historical expression execution can leave independent completed results
+    // available to inspect or retrieve. Typed reads may execute a branch, so
+    // their failure must stop the remaining typed actions instead.
+    if (result.protocol !== "json" && item.action.type === "execute" && item.status === "error") allowReads = true;
   }
   result.status = result.error ? "error" : "completed";
 }

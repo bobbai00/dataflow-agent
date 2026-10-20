@@ -1,0 +1,68 @@
+Portable typed JSON: completed small paired pilot and next plan
+2026-10-08
+
+36 first attempts, 18 paired comparisons, three selected tasks per benchmark/model.
+35 answers, one DeepSeek control timeout; all36 official scores/resources/cleanup audited.
+
+Model | format | full-score/6 | official mean | estimate USD/task | provider USD/task | tokens/task | CPU seconds/task | wall seconds/task | peak/baseline GiB
+DeepSeek V4.1-Flash | expression | 2/6 | 0.3333 | unknown | unknown | unknown | 15.897 | 86.311 | 4.022/3.754
+DeepSeek V4.1-Flash | json | 4/6 | 0.6667 | 0.010408 | 0.008698 | 127310.8 | 7.863 | 32.816 | 3.948/3.754
+Qwen3.8-27B | expression | 4/6 | 0.6667 | 0.020031 | 0.008435 | 68470.7 | 9.687 | 76.338 | 3.930/3.739
+Qwen3.8-27B | json | 5/6 | 0.8333 | 0.019639 | 0.011292 | 96617.7 | 10.172 | 94.892 | 3.943/3.737
+Sonnet 5.5 | expression | 5/6 | 0.8333 | 0.036137 | unknown | 38335.8 | 8.062 | 21.906 | 3.917/3.712
+Sonnet 5.5 | json | 5/6 | 0.8333 | 0.035424 | unknown | 62767.5 | 4.873 | 17.751 | 3.904/3.719
+
+Three paired official gains, zero regressions:
+Qwen biomedical:15 ->16; JSON retained BRD8, which expression consumed as a header.
+DeepSeek DS32q4: both computed17.237; official judge rejected the object answer and accepted prose with option a. This is an answer-presentation difference.
+DeepSeek DS34q5: control request2 timed out at240seconds; JSON returned650 invoices.
+This does not establish three improvements in underlying reasoning or computation.
+
+Token totals increased: Sonnet230015 ->376605 (+63.7%); Qwen410824 ->579706 (+41.1%).
+Estimated solving spend fell1.97%/1.95%; Qwen provider charge rose33.87%. DeepSeek full control charge is unknown.
+All243 captured tool calls parse as JSON; candidate16 schema rejections, control3. No live response used multiple calls.
+JSON nested failures include sheet guesses, callback input/type mistakes and invalid reader options. Legacy grammar/scope/signature restrictions remain in expression.
+
+Earlier six-model study, BobBoth vs custom smol (10 selected tasks each; historical context):
+Model | derived full-score ours/smol | estimate USD/task ours/smol | official mean ours/smol
+Luna | 7/10 vs 7/10 | 0.003152 / 0.003150 | 0.7500 / 0.7000
+Terra | 7/10 vs 6/10 | 0.028625 / unknown | 0.7500 / 0.6000
+Sol | 8/10 vs 10/10 | 0.044984 / 0.043531 | 0.8500 / 1.0000
+Sonnet 5.5 | 7/10 vs 2/10 | 0.048340 / 0.012964 | 0.7000 / 0.2000
+Qwen3.8-27B | 7/10 vs 7/10 | unknown / unknown | 0.7000 / 0.7000
+DeepSeek V4.1-Flash | 7/10 vs 10/10 | 0.009427 / 0.004345 | 0.7500 / 1.0000
+Sonnet smol had8 provider content_filter failures; its cheap average reflects early failures.
+No general superiority to smolagents at equal cost is established.
+
+Interpretation and comparable metrics:
+- Three selected tasks per benchmark/model, one first attempt per format; 36 runs, 18 pairs. No benchmark-wide or statistical claim.
+- Original official graders and answer parsers unchanged. Full-score >=1 is a derived count; original mean is retained.
+- JSON combines typed operators, ordinary callbacks, automatic reads, answer shapes and ordered-call support. This is not an isolated envelope ablation.
+- Expression requests provider strict=true; JSON requests strict=false uniformly and retains full local Ajv validation. Provider grammar enforcement is not inferred.
+- Unknown timeout billing remains null. Known subtotals are separate. Reasoning is included in output; cached tokens are included in input.
+- Provider-reported charges and registry token estimates are distinct. Solving, compatibility/setup and grading costs are separate.
+- JSON-only compatibility checks primed some candidate prefixes. Observed warm-cache savings are not an equal cold-start comparison.
+- CPU total is cgroup scheduler-runtime seconds. User/system are independent tick counters, not an exact partition.
+- Memory is per-attempt kernel-charged peak including persistent native baseline and page cache. Sampled RSS has a different scope. Gateway stays separate; peaks are never summed.
+- Task wall includes supervised setup, solve, capture and cleanup. Remote provider CPU/memory is unobserved.
+- engine_invocations is the historical field for executeWorkflowAndPersist helper invocations. Backend history records are a separate unit.
+- Original240 smol comparisons are historical context: native180s absolute versus script240s network-inactivity policies and persistent native versus fresh script scopes differ.
+- No default-format change; expression remains default and JSON is experimental. No automated retries or enlarged follow-up cohort.
+
+Cleanup and experimental plan:
+- Cleanup 1: unify operator discriminated types, schema builders and decoding; remove broad any types at validated boundaries and document neutral defaults once.
+- Cleanup 2: separate call preparation, atomic graph planning and action execution from the 3704-line agent coordinator; retain one graph engine and explicit failure/order receipts.
+- Cleanup 3: give branch-specific schema errors; expose meaningful reader cross-field constraints and worksheet/header metadata. Avoid adding another broad prompt manual.
+- Cleanup 4: consolidate accounting around the durable request ledger; preserve raw usage, normalized classes, coverage, source/route/deadline hashes, local ownership and unknown charges.
+- Cleanup 5: distinguish helper calls, backend execution records, operator outcomes and requested actions; keep CPU and memory scopes/units explicit.
+- Experiment 1: quantify schema overhead separately from prose trimming. Compare a compact optional-neutral-parameter schema with this frozen full schema, keeping local validation and real runtime semantics.
+- Experiment 2: separately test worksheet/header discovery, informative raw preview, short batching guidance and final-answer shape. Preserve grouping grain, full-population and formula checks.
+- Experiment 3: use small fixed paired tasks before held-out replication, retaining failures and no answer repairs. Treat timeout differences and same-value answer presentation as separate mechanisms.
+- Experiment 4: add fresh script/smolagents controls with identical absolute deadlines, retries, input visibility, output limits, routes, shared principles and recorded cache-start exposure. Keep architecture footprints and warm baselines visible.
+- Adoption gate: replicated official accuracy gains with acceptable provider-reported charges, token estimates, token classes, CPU, memory and wall time. A two-percent warm-cache estimate difference is insufficient to change defaults.
+
+Validation:1536 Bun tests; typecheck; real isolated Python/engine probe; three actual model-route checks.
+After the study, corrected only execution-unit wording and documentation;32 existing metric tests pass. Recorded attempts and archives remain unchanged.
+Rollback checkpoint:a288509159b9f403a38688c712aedb3b574fbd20 (KB4d61e31fcae5c35cf909b9b7681b648a49ed8f33).
+See siblingJSON for36 attempt metrics,18 paired deltas, benchmark splits and exact evidence hashes.
+Frozen studied archive SHA256:90e2f1f9f0b2da8f1d5ac4b64cf0a7ce1e93803df2b56340b7738c12f472fc93

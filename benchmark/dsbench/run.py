@@ -34,10 +34,10 @@ HERE = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from benchmark.runtime import run_supervised  # noqa: E402 - direct script entrypoint
-from benchmark.runtime.model_limits import (
+from benchmark.runtime.model_limits import (  # noqa: E402
     DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
     validate_model_request_timeout_seconds,
-)  # noqa: E402
+)
 from benchmark.dsbench.metrics import normalize_attempt  # noqa: E402
 from benchmark.dsbench.accounting import capture_model_accounting  # noqa: E402
 from benchmark.retrieval.attempt_runtime import supervise_adapter  # noqa: E402
@@ -215,7 +215,17 @@ def run_task(
     model_capabilities=None,
     expected_service_source_hashes=None,
     model_request_timeout_seconds=DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
+    native_format=None,
+    native_format_schema_sha256=None,
+    native_format_prompt_sha256=None,
 ):
+    if native_format is not None and (native_format not in ("expression", "json") or arm == "smol_custom"):
+        raise ValueError("native format requires a native arm and expression or json")
+    for value in (native_format_schema_sha256, native_format_prompt_sha256):
+        if value is not None and (
+            native_format is None or not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value)
+        ):
+            raise ValueError("native format hashes require an explicit format and SHA-256 hex")
     if model_request_timeout_seconds is not None:
         model_request_timeout_seconds = validate_model_request_timeout_seconds(model_request_timeout_seconds)
     if arm != "smol_custom" and benchmark == "dsbench":
@@ -256,6 +266,13 @@ def run_task(
         config["model_capabilities"] = model_capabilities
     if expected_service_source_hashes is not None:
         config["expected_service_source_hashes"] = expected_service_source_hashes
+    if native_format is not None:
+        config["native_format"] = native_format
+        config["settings"]["nativeFormat"] = native_format
+    if native_format_schema_sha256 is not None:
+        config["native_format_schema_sha256"] = native_format_schema_sha256
+    if native_format_prompt_sha256 is not None:
+        config["native_format_prompt_sha256"] = native_format_prompt_sha256
     save(destination / "config.json", config)
     (destination / "prompt.txt").write_text(config["prompt"])
     save(

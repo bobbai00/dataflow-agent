@@ -90,11 +90,50 @@ export class VercelToolUseDriver implements LLMDriver {
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
-      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
+      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, content, usage, response }) => {
         const stepUsage = normalizeSdkUsage(usage, (response as any)?.body?.usage);
         const stepCacheCreation = stepUsage?.cacheCreationInputTokens ?? 0;
         cacheCreationTotal += stepCacheCreation;
-        const before = new Map(toolResults?.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
+        // SDK validation failures live in content as tool-error, rather than
+        // toolResults. Keep them beside successful receipts in provider order.
+        const receipts = new Map(
+          content.flatMap(part => {
+            if (part.type === "tool-result") {
+              const output = part.output;
+              return [
+                [
+                  part.toolCallId,
+                  {
+                    toolCallId: part.toolCallId,
+                    output,
+                    isError: !!(output as any)?.error || (typeof output === "string" && output.startsWith("[ERROR]")),
+                  },
+                ] as const,
+              ];
+            }
+            if (part.type === "tool-error") {
+              const error = part.error;
+              const message =
+                error instanceof Error
+                  ? `${error.name}: ${error.message}`
+                  : typeof error === "string"
+                    ? error
+                    : (JSON.stringify(error) ?? String(error));
+              return [
+                [
+                  part.toolCallId,
+                  { toolCallId: part.toolCallId, output: `[ERROR] ${message}`, isError: true },
+                ] as const,
+              ];
+            }
+            return [];
+          })
+        );
+        const orderedResults = toolCalls.flatMap(call => {
+          const receipt = receipts.get(call.toolCallId);
+          return receipt ? [receipt] : [];
+        });
+        const before = new Map(orderedResults.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
         await input.onStepFinish({
           text: text || "",
           reasoningText: reasoningText || undefined,
@@ -103,23 +142,17 @@ export class VercelToolUseDriver implements LLMDriver {
             toolCallId: tc.toolCallId,
             input: tc.input,
           })),
-          toolResults: toolResults?.map(tr => {
-            const outputStr = typeof tr.output === "string" ? tr.output : "";
-            const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
-            return {
-              toolCallId: tr.toolCallId,
-              output: tr.output,
-              isError,
-            };
-          }),
+          toolResults: orderedResults,
           usage: stepUsage,
         });
         // The SDK cloned response.messages before calling this hook. Preserve
         // outputs completed by the agent here so the returned archive reflects
         // the same completed actions used by the next prepareStep.
-        for (const tr of toolResults ?? []) {
+        for (const tr of orderedResults) {
           if (JSON.stringify(tr.output) !== before.get(tr.toolCallId)) {
             updatedToolOutputs.set(tr.toolCallId, structuredClone(tr.output));
+            const original = toolResults.find(result => result.toolCallId === tr.toolCallId);
+            if (original) original.output = tr.output;
           }
         }
       },
@@ -142,11 +175,14 @@ export class VercelToolUseDriver implements LLMDriver {
           : {
               ...message,
               content: message.content.map(part =>
-                part.type === "tool-result" && part.output.type === "json" && updatedToolOutputs.has(part.toolCallId)
+                part.type === "tool-result" && updatedToolOutputs.has(part.toolCallId)
                   ? {
                       ...part,
                       output: {
-                        type: "json" as const,
+                        type:
+                          part.output.type === "error-text" || part.output.type === "error-json"
+                            ? ("error-json" as const)
+                            : ("json" as const),
                         value: JSON.parse(JSON.stringify(updatedToolOutputs.get(part.toolCallId))),
                       },
                     }

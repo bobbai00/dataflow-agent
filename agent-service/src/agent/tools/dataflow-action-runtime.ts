@@ -37,8 +37,8 @@ import {
 } from "../native/observation-format";
 import { loadedRevision, originTask } from "../state-ledger";
 import { nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
-import { composeAnswerParts, parseAnswerFromParts, statedDecimals } from "../native/answer";
-import { edgeEnds, planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import { composeAnswerParts, composeStructuredAnswer, parseAnswerFromParts, statedDecimals } from "../native/answer";
+import { edgeEnds, planGraphEdit, planGraphDefinitions, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
@@ -66,6 +66,8 @@ export interface DataflowActionRuntime {
   settings: AgentSettings;
   context: ToolContext;
   execute: (operatorIds?: readonly string[]) => Promise<void>;
+  /** Exact workflow executor invocations, distinct from requested actions. */
+  executionCount?: () => number;
   edited: (ids: string[]) => void;
   isCurrent: () => boolean;
   signal?: AbortSignal;
@@ -141,7 +143,7 @@ export async function executeDataflowActionBatch(
     signal?.throwIfAborted();
     if (!runtime.isCurrent()) throw new DOMException("The active workflow changed during this action.", "AbortError");
   };
-  const retrieved = new Map<number, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
+  const retrieved = new Map<string, { operatorId: string; info: OperatorInfo; observation: NativeObservation }>();
   const savedReads = new Set<number>();
   const forkReads = new Map<number, { operatorId: string; info: OperatorInfo }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
@@ -253,8 +255,117 @@ export async function executeDataflowActionBatch(
       nativeEvidence: { ...options, workflow: state.getWorkflowContent(), resolveInput: current },
     });
 
-  await runDataflowActions(result, async (action, index) => {
+  const writePhases = new Map<number, typeof result.actions>();
+  for (let i = 0; i < result.actions.length; ) {
+    if (!["set", "delete"].includes(result.actions[i].action.type)) {
+      i++;
+      continue;
+    }
+    const begin = i;
+    while (i < result.actions.length && ["set", "delete"].includes(result.actions[i].action.type)) i++;
+    const phase = result.actions.slice(begin, i);
+    for (const item of phase) writePhases.set(item.index, phase);
+  }
+  const writeOutputs = new Map<number, unknown>();
+  const needsExecution = (ids: readonly string[]) =>
+    ids.some(id => {
+      const info = current(id);
+      return !info || (!info.error && !["Completed", "CompletedFromCache"].includes(info.state));
+    });
+  const ensureResults = async (ids: readonly string[], index: number) => {
+    if (needsExecution(ids)) return run({ type: "execute", operator_ids: [...new Set(ids)] }, index);
+    return { status: "ok" as const, output: { executions: 0 } };
+  };
+  const run = async (
+    action: import("./dataflow-actions").DataflowAction,
+    index: number
+  ): Promise<import("./dataflow-actions").ActionOutcome> => {
     assertCurrent();
+    if (action.type === "set" || action.type === "delete") {
+      if (!writeOutputs.has(index)) {
+        const phase = writePhases.get(index)!;
+        const commands = phase.map(item =>
+          item.action.type === "set"
+            ? { type: "set" as const, definition: item.action }
+            : { type: "delete" as const, ids: (item.action as { ids: string[] }).ids }
+        );
+        const plan = await planGraphDefinitions(state.getWorkflowContent(), commands, context);
+        assertCurrent();
+        state.setWorkflowContent(plan.workflow);
+        storage.updatePendingWorkflow(stepId, plan.workflow);
+        const accepted = plan.operators.map(op => op.id);
+        storage.clearNativeRejectedEdits(stepId, accepted);
+        runtime.edited(accepted.filter(id => !!state.getOperator(id)));
+        result.operators.push(...plan.operators);
+        const { workflow: _workflow, ...output } = plan;
+        phase.forEach((item, i) =>
+          writeOutputs.set(
+            item.index,
+            i === 0
+              ? { ...output, phase_action_indexes: phase.map(p => p.index) }
+              : {
+                  command_results: plan.command_results?.filter(command => command.index === i),
+                  phase_action_indexes: phase.map(p => p.index),
+                }
+          )
+        );
+      }
+      return { status: "ok", output: writeOutputs.get(index) };
+    }
+    if (action.type === "read") {
+      for (const id of action.ids)
+        if (!state.getOperator(id)) throw new Error(`UNKNOWN_OPERATOR: no operator ${JSON.stringify(id)}.`);
+      const execution = await ensureResults(action.ids, index);
+      const tables: unknown[] = [];
+      const errors: string[] = [];
+      for (const id of action.ids) {
+        try {
+          const table = await run(
+            {
+              type: "retrieve",
+              operator_id: id,
+              view: action.view,
+              ...(action.columns ? { columns: action.columns } : {}),
+            },
+            index
+          );
+          tables.push(table.output);
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+      const executionOutput = execution.output as any;
+      return {
+        status: errors.length || execution.status === "error" ? "error" : "ok",
+        output: {
+          tables,
+          executions: executionOutput?.executions ?? null,
+          execution: executionOutput,
+          operator_blocks: tables.flatMap(t => (t as any).operator_blocks ?? []),
+          text: tables
+            .map(t => (t as any).text ?? "")
+            .filter(Boolean)
+            .join("\n\n"),
+          ...(errors.length ? { errors, error: errors.join("\n") } : {}),
+        },
+      };
+    }
+    if (action.type === "answer" && "source" in action) {
+      const execution = await ensureResults([action.source.id], index);
+      if (execution.status === "error") return execution;
+      const outcome = composeStructuredAnswer(action.source, current(action.source.id));
+      if ("reason" in outcome) throw new Error(`ANSWER_REFUSED: ${outcome.reason}`);
+      recordReference(action.source.id, "read", index);
+      return {
+        status: "ok",
+        output: {
+          composed: true,
+          answer_from: action.source.id,
+          answer: outcome.json,
+          executions: (execution.output as any)?.executions ?? null,
+        },
+      };
+    }
     if (action.type === "inspect") {
       if (action.target === "reference") {
         return {
@@ -645,6 +756,7 @@ export async function executeDataflowActionBatch(
           `Unconnected required inputs: ${missing.join(", ")}. Restate those operators with every input, or delete them, before execute.`
         );
       let failure: string | undefined;
+      const executionBefore = runtime.executionCount?.();
       try {
         await runtime.execute(action.operator_ids);
       } catch (error) {
@@ -708,6 +820,8 @@ export async function executeDataflowActionBatch(
       return {
         status: failure || outcomes.some(o => o.status === "error") ? "error" : "ok",
         output: {
+          executions: executionBefore === undefined ? null : runtime.executionCount!() - executionBefore,
+          execution_method: "executeWorkflowAndPersist_invocation",
           operators: outcomes,
           // Blocks only for operators this call ran or failed: a cached
           // operator's notes and flow lines were shown when it ran, and
@@ -832,7 +946,8 @@ export async function executeDataflowActionBatch(
         historical?.task_id,
         historical ? resultStep : undefined
       );
-      if (!historical) retrieved.set(index, { operatorId: action.operator_id, info, observation });
+      if (!historical)
+        retrieved.set(`${index}:${action.operator_id}`, { operatorId: action.operator_id, info, observation });
       return {
         status: "ok",
         output: {
@@ -910,11 +1025,18 @@ export async function executeDataflowActionBatch(
       status: "ok",
       output: composed ? { composed: true, ...composed } : "content" in action ? action.content : "",
     };
-  });
+  };
+  await runDataflowActions(result, run);
   assertCurrent();
   // A later edit/execute in this batch may supersede a retrieved version.
   // Its text remains in the action receipt, but must not expose today's table.
   for (const item of result.actions) {
+    if (item.action.type === "read" && (item.output as any)?.tables) {
+      for (const table of (item.output as any).tables) {
+        if (current(table.operator_id) !== retrieved.get(`${item.index}:${table.operator_id}`)?.info)
+          table.superseded_in_call = true;
+      }
+    }
     if (item.action.type !== "retrieve" || item.status !== "ok") continue;
     const fork = forkReads.get(item.index);
     if (
@@ -924,7 +1046,7 @@ export async function executeDataflowActionBatch(
     )
       (item.output as Record<string, unknown>).superseded_in_call = true;
     if (savedReads.has(item.index)) continue;
-    if (current(item.action.operator_id) !== retrieved.get(item.index)?.info) {
+    if (current(item.action.operator_id) !== retrieved.get(`${item.index}:${item.action.operator_id}`)?.info) {
       (item.output as Record<string, unknown>).superseded_in_call = true;
     }
   }

@@ -421,7 +421,10 @@ describe("WorkflowSnapshotStorage — DAG-staleness behavior", () => {
  * tests can assemble arbitrary chains via `linksFromChain` without each test
  * having to spell out port descriptions.
  */
-function makeDagWorkflow(opSpecs: Array<{ id: string; props?: Record<string, any> }>, links: OperatorLink[] = []): WorkflowContent {
+function makeDagWorkflow(
+  opSpecs: Array<{ id: string; props?: Record<string, any> }>,
+  links: OperatorLink[] = []
+): WorkflowContent {
   return {
     operators: opSpecs.map(
       ({ id, props }) =>
@@ -615,6 +618,45 @@ describe("WorkflowSnapshotStorage — DAG-aware inheritance (tight accuracy)", (
 });
 
 describe("computeStaleResultOps — unit tests", () => {
+  test("native rendering metadata changes preserve results while every runtime field still invalidates descendants", () => {
+    const prev = makeDagWorkflow([{ id: "A", props: { code: "compiled" } }, { id: "B" }], [link("A", "B")]);
+    (prev.operators[0] as any).nativeOp = {
+      type: "Scan",
+      inputs: [],
+      properties: { files: ["a.csv"] },
+      revision: "0123456789abcdef",
+      profileCollection: false,
+      graph: { inputPorts: [] },
+      datetimePolicy: "preserve",
+      source: "scan('a.csv')",
+      functions: {},
+      jsonDefinition: { operator: "scan", params: { files: ["a.csv"] } },
+    };
+    const rendered = structuredClone(prev);
+    const view = rendered.operators[0].nativeOp!;
+    view.source = 'scan("a.csv")';
+    view.functions = { unused_rendering_copy: "def helper():\n    return 1" };
+    view.jsonDefinition = { operator: "scan", params: { files: ["a.csv"], format: null } };
+    expect(computeStaleResultOps(prev, rendered)).toEqual(new Set());
+    for (const change of [
+      { revision: "fedcba9876543210" },
+      { properties: { files: ["b.csv"] } },
+      { inputs: ["other"] },
+      { graph: { inputPorts: ["in"] } },
+      { profileCollection: true },
+      { profileScope: "full" },
+      { functionValidation: "callable" },
+      { datetimePolicy: undefined },
+      { lineage: { multiSource: true, provenanceColumns: ["file"] } },
+    ]) {
+      const changed = structuredClone(rendered);
+      Object.assign(changed.operators[0].nativeOp!, change);
+      expect(computeStaleResultOps(prev, changed)).toEqual(new Set(["A", "B"]));
+    }
+    const rewired = { ...rendered, links: [link("A", "B", "in-1")] };
+    expect(computeStaleResultOps(prev, rewired)).toEqual(new Set(["B"]));
+  });
+
   test("returns empty when both workflows are empty", () => {
     expect(computeStaleResultOps(emptyWorkflow(), emptyWorkflow()).size).toBe(0);
   });

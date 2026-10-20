@@ -99,3 +99,70 @@ for (const [modelId, forcedToolChoice, expected] of [
     expect(choices).toEqual([{ type: expected }]);
   });
 }
+
+test("SDK preparation errors are reported in call order with successful receipts", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [
+        { type: "tool-call", toolCallId: "bad", toolName: "fixture", input: "{" },
+        { type: "tool-call", toolCallId: "good", toolName: "fixture", input: "{}" },
+      ],
+      finishReason: { unified: "tool-calls", raw: "tool_calls" },
+      usage: {
+        inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 2, text: 2, reasoning: 0 },
+      },
+      warnings: [],
+    }),
+  });
+  const steps: DriverStepFinish[] = [];
+  await new VercelToolUseDriver({ model }).runTurn({
+    initialMessages: [{ role: "user", content: "Use the tool." }],
+    systemPrompt: undefined,
+    tools: {
+      fixture: tool({ inputSchema: jsonSchema({ type: "object", properties: {} }), execute: async () => "ready" }),
+    },
+    maxSteps: 1,
+    parallelToolCalls: false,
+    prepareStep: async ({ messages }) => ({ messages }),
+    onStepFinish: async step => {
+      steps.push(step);
+    },
+  });
+  expect(steps[0].toolResults?.map(result => result.toolCallId)).toEqual(["bad", "good"]);
+  expect(steps[0].toolResults?.[0].isError).toBe(true);
+  expect(String(steps[0].toolResults?.[0].output)).toContain("JSON parsing failed");
+  expect(steps[0].toolResults?.[1].output).toBe("ready");
+});
+
+test("replacement post-step receipts survive in the returned tool archive", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [{ type: "tool-call", toolCallId: "call", toolName: "fixture", input: "{}" }],
+      finishReason: { unified: "tool-calls", raw: "tool_calls" },
+      usage: {
+        inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 2, text: 2, reasoning: 0 },
+      },
+      warnings: [],
+    }),
+  });
+  const result = await new VercelToolUseDriver({ model }).runTurn({
+    initialMessages: [{ role: "user", content: "Use the tool." }],
+    systemPrompt: undefined,
+    tools: {
+      fixture: tool({ inputSchema: jsonSchema({ type: "object", properties: {} }), execute: async () => "pending" }),
+    },
+    maxSteps: 1,
+    parallelToolCalls: false,
+    prepareStep: async ({ messages }) => ({ messages }),
+    onStepFinish: async step => {
+      step.toolResults![0].output = { status: "completed", answer: "13.1628" };
+    },
+  });
+  const toolMessage = result.messages.find(message => message.role === "tool")!;
+  expect((toolMessage.content as any[])[0].output).toEqual({
+    type: "json",
+    value: { status: "completed", answer: "13.1628" },
+  });
+});

@@ -19,6 +19,8 @@ from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 
 def module(name):
@@ -59,6 +61,73 @@ def prepared(root):
 
 
 class RunnerProtocolTests(unittest.TestCase):
+    def test_native_format_is_explicit_and_only_setting_difference(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            task = {
+                "task_id": "task",
+                "input_path": str(root),
+                "allowed_files": [],
+                "files": [],
+                "question": "Q",
+                "introduction": "",
+            }
+            fake = SimpleNamespace(returncode=0, timed_out=False, wall_seconds=1, resources={})
+            configs = []
+            with (
+                patch.object(runner, "supervise_adapter", return_value=fake),
+                patch.object(runner, "capture_model_accounting", return_value=None),
+            ):
+                for format in (None, "expression", "json"):
+                    destination = root / (format or "legacy")
+                    runner.run_task(
+                        task,
+                        "data1_flow1",
+                        output_root=root,
+                        destination=destination,
+                        endpoint="http://invalid",
+                        script_endpoint="http://invalid",
+                        shared_principles="principles",
+                        pricing=None,
+                        benchmark="kramabench",
+                        native_format=format,
+                        native_format_schema_sha256="a" * 64 if format else None,
+                    )
+                    configs.append(json.loads((destination / "config.json").read_text()))
+            self.assertNotIn("native_format", configs[0])
+            self.assertNotIn("nativeFormat", configs[0]["settings"])
+            for config, format in zip(configs[1:], ("expression", "json")):
+                self.assertEqual(config["native_format"], format)
+                self.assertEqual(config["native_format_schema_sha256"], "a" * 64)
+                self.assertEqual(config["settings"], {**configs[0]["settings"], "nativeFormat": format})
+                self.assertEqual(config["prompt"], configs[0]["prompt"])
+
+    def test_invalid_native_format_fails_before_destination_or_supervision(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            for arm, format, schema in (
+                ("data1_flow1", "tags", None),
+                ("smol_custom", "json", None),
+                ("data1_flow1", None, "a" * 64),
+                ("data1_flow1", "json", "bad"),
+            ):
+                with patch.object(runner, "supervise_adapter") as supervise:
+                    with self.assertRaisesRegex(ValueError, "native format"):
+                        runner.run_task(
+                            {},
+                            arm,
+                            output_root=root,
+                            destination=root / "attempt",
+                            endpoint="http://invalid",
+                            script_endpoint="http://invalid",
+                            shared_principles="principles",
+                            pricing=None,
+                            native_format=format,
+                            native_format_schema_sha256=schema,
+                        )
+                    supervise.assert_not_called()
+                    self.assertFalse((root / "attempt").exists())
+
     def test_statistics_switches_change_available_views(self):
         for arm, settings in runner.ARMS.items():
             self.assertEqual(

@@ -359,6 +359,8 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  process function). Off by default. */
   nativeChecks: boolean;
   /** Initial native reference material; omitted/full retains the complete prompt. */
+  /** Native tool surface; expression is the recorded control, json uses typed operators. */
+  nativeFormat?: "expression" | "json";
   nativePromptDetail?: "full" | "on_demand";
   /** Historical inspect/retrieve and dependency-preserving fork in native mode. */
   stateHistory: boolean;
@@ -623,6 +625,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   flowEvidence: false,
   dataflowReasoning: true,
   nativeChecks: false,
+  nativeFormat: "expression",
   nativePromptDetail: "full",
   stateHistory: false,
   stateLedger: false,
@@ -746,6 +749,8 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
+  /** Native tool surface; expression is the recorded control, json uses typed operators. */
+  nativeFormat?: "expression" | "json";
   nativePromptDetail?: "full" | "on_demand";
   stateHistory?: boolean;
   stateLedger?: boolean;
@@ -825,7 +830,14 @@ export interface ResolvedModelRequestTimeout {
   readonly source: "explicit" | "environment" | "default";
 }
 
+export interface NativeProtocol {
+  format: "expression" | "json";
+  toolSchemaSha256: string;
+  systemPromptSha256: string;
+}
+
 export interface AgentInfo {
+  nativeProtocol?: NativeProtocol;
   id: string;
   name: string;
   modelType: string;
@@ -875,6 +887,8 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
   nativeChecks?: boolean;
+  /** Native tool surface; expression is the recorded control, json uses typed operators. */
+  nativeFormat?: "expression" | "json";
   nativePromptDetail?: "full" | "on_demand";
   stateHistory?: boolean;
   stateLedger?: boolean;

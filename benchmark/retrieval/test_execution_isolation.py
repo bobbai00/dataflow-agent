@@ -33,6 +33,86 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class ExecutionIsolationTests(unittest.TestCase):
+    def test_native_function_parser_uses_the_real_isolated_compile_only_path(self):
+        parser = REPO / "agent-service/src/agent/native/python/function_parser.py"
+        wrapper = REPO / "benchmark/retrieval/native_isolated_python.py"
+        with tempfile.TemporaryDirectory() as temp:
+            env = dict(
+                os.environ,
+                NATIVE_ISOLATED_PYTHON=sys.executable,
+                NATIVE_WORKSPACE=temp,
+                NATIVE_SOURCE_DATA=str(REPO / "benchmark/Kramabench/data"),
+            )
+            # Valid module side effects must be compiled, never evaluated.
+            code = "raise RuntimeError('This module must never run')\ndef apply(row):\n    return row['x']\n"
+            for request in (
+                {"code": code, "entry": None},
+                {"code": "lambda row: row['x'] > 3", "entry": None},
+                {"code": "def apply(:", "entry": None},
+            ):
+                with self.subTest(code=request["code"]):
+                    result = subprocess.run(
+                        [sys.executable, str(wrapper), "-u", str(parser)],
+                        input=json.dumps({"pythonFunction": request}),
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                        timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    parsed = json.loads(result.stdout)
+                    if request["code"] == "def apply(:":
+                        self.assertFalse(parsed["ok"])
+                        self.assertIn("Python syntax error", parsed["error"])
+                    else:
+                        self.assertTrue(parsed["ok"], parsed)
+                        self.assertEqual(parsed["entry"], "apply")
+
+    def test_native_function_parser_keeps_validation_mounts_and_network_disabled(self):
+        validator = REPO / "agent-service/src/agent/native/python"
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.dict(
+                os.environ,
+                {
+                    "NATIVE_ISOLATED_PYTHON": sys.executable,
+                    "NATIVE_WORKSPACE": temp,
+                    "NATIVE_SOURCE_DATA": str(REPO / "benchmark/Kramabench/data"),
+                },
+            ),
+            mock.patch.object(sys, "argv", ["wrapper", str(validator / "function_parser.py")]),
+            mock.patch.object(
+                native_isolated_python, "isolated_command", return_value=["sandbox", "python"]
+            ) as isolated,
+            mock.patch.object(native_isolated_python.os, "execv", side_effect=SystemExit(0)),
+        ):
+            with self.assertRaises(SystemExit):
+                native_isolated_python.main()
+            self.assertEqual(
+                isolated.call_args.args[0], [Path(sys.executable).absolute(), str(validator / "function_parser.py")]
+            )
+            self.assertEqual(isolated.call_args.kwargs["data_roots"], [])
+            self.assertEqual(isolated.call_args.kwargs["read_only"], [(validator, validator)])
+            self.assertFalse(isolated.call_args.kwargs["network"])
+
+    def test_native_wrapper_rejects_same_named_parser_outside_the_allowlist(self):
+        wrapper = REPO / "benchmark/retrieval/native_isolated_python.py"
+        with tempfile.TemporaryDirectory() as temp:
+            outside = Path(temp) / "function_parser.py"
+            outside.write_text("raise AssertionError('An arbitrary script must not execute')\n")
+            env = dict(
+                os.environ,
+                NATIVE_ISOLATED_PYTHON=sys.executable,
+                NATIVE_WORKSPACE=temp,
+                NATIVE_SOURCE_DATA=str(REPO / "benchmark/Kramabench/data"),
+            )
+            result = subprocess.run(
+                [sys.executable, str(wrapper), str(outside)], capture_output=True, text=True, env=env, timeout=10
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("only a Texera Python worker", result.stderr)
+            self.assertNotIn("An arbitrary script must not execute", result.stderr)
+
     def test_data_is_read_only_and_repository_and_answers_are_invisible(self):
         with tempfile.TemporaryDirectory() as temp:
             tmp = Path(temp)
@@ -68,8 +148,9 @@ Path('saved.txt').write_text('persistent')
 print(json.dumps({{'isolated': True}}))
 """
             env = dict(os.environ, ISOLATION_TEST_SECRET="must-not-reach-code")
-            command = isolated_command([sys.executable, "-c", code], python=sys.executable,
-                                       data_roots=[data], workspace=workspace)
+            command = isolated_command(
+                [sys.executable, "-c", code], python=sys.executable, data_roots=[data], workspace=workspace
+            )
             result = subprocess.run(command, capture_output=True, text=True, env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(json.loads(result.stdout)["isolated"])
@@ -82,16 +163,20 @@ print(json.dumps({{'isolated': True}}))
             b.mkdir()
             (a / "previous-result.json").write_text("not a source")
             code = f"from pathlib import Path; assert not Path({str(a / 'previous-result.json')!r}).exists()"
-            result = subprocess.run(isolated_command([sys.executable, "-c", code], python=sys.executable,
-                                                     data_roots=[], workspace=b), capture_output=True, text=True)
+            result = subprocess.run(
+                isolated_command([sys.executable, "-c", code], python=sys.executable, data_roots=[], workspace=b),
+                capture_output=True,
+                text=True,
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_missing_bubblewrap_fails_closed(self):
-        with tempfile.TemporaryDirectory() as temp, \
-                mock.patch.object(execution_isolation.shutil, "which", return_value=None):
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(execution_isolation.shutil, "which", return_value=None),
+        ):
             with self.assertRaisesRegex(RuntimeError, "bubblewrap"):
-                isolated_command([sys.executable, "-c", "pass"], python=sys.executable,
-                                 data_roots=[], workspace=temp)
+                isolated_command([sys.executable, "-c", "pass"], python=sys.executable, data_roots=[], workspace=temp)
 
     def test_native_task_mapping_hides_other_questions_and_gold(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -123,8 +208,17 @@ except OSError:
 else:
     raise AssertionError('Task mapping was writable')
 """
-            result = subprocess.run(isolated_command([sys.executable, "-c", code], python=sys.executable,
-                data_roots=roots, workspace=workspace, read_only=mounts), capture_output=True, text=True)
+            result = subprocess.run(
+                isolated_command(
+                    [sys.executable, "-c", code],
+                    python=sys.executable,
+                    data_roots=roots,
+                    workspace=workspace,
+                    read_only=mounts,
+                ),
+                capture_output=True,
+                text=True,
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_native_task_mapping_rejects_parent_and_symlink_escape(self):

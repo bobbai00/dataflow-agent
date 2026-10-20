@@ -46,6 +46,8 @@ const REMOVED_SETTINGS = [
 /** Deliberate breaking change: never silently reinterpret old experiments. */
 export function validateEvidenceSettings(settings: object): void {
   const supplied = settings as Record<string, unknown>;
+  if (supplied.nativeFormat !== undefined && !["expression", "json"].includes(String(supplied.nativeFormat)))
+    throw new NativeCatalogSettingsError("nativeFormat must be expression or json");
   if (supplied.nativePromptDetail !== undefined && !["full", "on_demand"].includes(String(supplied.nativePromptDetail)))
     throw new NativeCatalogSettingsError("nativePromptDetail must be full or on_demand");
   if (supplied.taskContext !== undefined && !["trajectory", "dependencies"].includes(String(supplied.taskContext)))

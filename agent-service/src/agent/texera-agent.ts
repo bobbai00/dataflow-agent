@@ -20,6 +20,9 @@
 import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
 
 import { asSchema, type ModelMessage } from "ai";
+import { createHash } from "node:crypto";
+import { createStructuredDataflowTool } from "./tools/structured-dataflow-actions";
+import { executeDataflowActionCalls } from "./tools/dataflow-action-calls";
 import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-budget";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
@@ -379,6 +382,7 @@ export class TexeraAgent {
   private tools: Record<string, any>;
 
   private abortController: AbortController | null = null;
+  private nativeExecutionInvocations = 0;
   private nativeActionAnswer: string | undefined;
 
   private workflowChangeSubscription: Subscription | null = null;
@@ -611,6 +615,7 @@ export class TexeraAgent {
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
         checks: this.settings.nativeChecks === true,
+        nativeFormat: this.settings.nativeFormat,
         nativePromptDetail: this.settings.nativePromptDetail,
         retrievalViews: availableRetrievalViews(this.settings),
         fullResultCharLimit: this.settings.fullResultCharLimit,
@@ -718,12 +723,20 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
-        availableRetrievalViews(this.settings),
-        this.settings.stateHistory,
-        this.settings.multiTask || this.settings.stateHistory,
-        this.settings.nativePromptDetail === "on_demand"
-      );
+      tools[TOOL_NAME_DATAFLOW] =
+        this.settings.nativeFormat === "json"
+          ? createStructuredDataflowTool({
+              views: availableRetrievalViews(this.settings),
+              stateHistory: this.settings.stateHistory,
+              multiTask: this.settings.multiTask || this.settings.stateHistory,
+              references: this.settings.nativePromptDetail === "on_demand",
+            })
+          : createDataflowTool(
+              availableRetrievalViews(this.settings),
+              this.settings.stateHistory,
+              this.settings.multiTask || this.settings.stateHistory,
+              this.settings.nativePromptDetail === "on_demand"
+            );
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1500,6 +1513,22 @@ export class TexeraAgent {
     return { ...this.settings };
   }
 
+  /** Bind JSON's provider compilation flag as well as its typed schema.
+   * Expression keeps its historical schema-only hash. */
+  getNativeProtocol(): import("../types/agent").NativeProtocol | undefined {
+    if (this.settings.agentMode !== AgentMode.NATIVE) return undefined;
+    const toolDef = this.tools[TOOL_NAME_DATAFLOW];
+    const schema = asSchema(toolDef.inputSchema).jsonSchema;
+    const format = this.settings.nativeFormat ?? "expression";
+    const contract = format === "json" ? { inputSchema: schema, strict: toolDef.strict } : schema;
+    const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+    return {
+      format,
+      toolSchemaSha256: hash(JSON.stringify(contract)),
+      systemPromptSha256: hash(this.systemPrompt),
+    };
+  }
+
   updateSettings(
     updates: {
       maxOperatorResultCharLimit?: number;
@@ -1517,6 +1546,7 @@ export class TexeraAgent {
       flowEvidence?: boolean;
       dataflowReasoning?: boolean;
       nativeChecks?: boolean;
+      nativeFormat?: "expression" | "json";
       nativePromptDetail?: "full" | "on_demand";
       taskContext?: "trajectory" | "dependencies";
       stateHistory?: boolean;
@@ -1575,6 +1605,13 @@ export class TexeraAgent {
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
     validateTaskContextSettings({ ...this.settings, ...updates });
+    if (
+      updates.nativeFormat !== undefined &&
+      updates.nativeFormat !== this.settings.nativeFormat &&
+      (this.state !== AgentStateEnum.AVAILABLE || this.workflowState.getAllOperators().length > 0)
+    ) {
+      throw new NativeCatalogSettingsError("Changing nativeFormat requires a fresh agent and workflow.");
+    }
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
     if (
@@ -1587,6 +1624,10 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
+    if (updates.nativeFormat !== undefined && updates.nativeFormat !== this.settings.nativeFormat) {
+      this.settings.nativeFormat = updates.nativeFormat;
+      promptNeedsRebuild = true;
+    }
     if (updates.nativePromptDetail !== undefined && updates.nativePromptDetail !== this.settings.nativePromptDetail) {
       this.settings.nativePromptDetail = updates.nativePromptDetail;
       promptNeedsRebuild = true;
@@ -3024,10 +3065,49 @@ export class TexeraAgent {
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
     overrides?: { maxChars?: number }
   ): Promise<void> {
-    const actions = (toolResults ?? []).map(tr => asDataflowActionsResult(tr.output)).filter(r => r !== undefined);
+    const actions: DataflowActionsResult[] = [];
+    const preparedById = new Map(toolResults?.map(result => [result.toolCallId, result]));
+    for (const call of toolCalls ?? []) {
+      if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
+      const receipt = preparedById.get(call.toolCallId);
+      let prepared = asDataflowActionsResult(receipt?.output);
+      if (!prepared && this.settings.nativeFormat === "json") {
+        const message = receipt
+          ? typeof receipt.output === "string"
+            ? receipt.output
+            : (JSON.stringify(receipt.output) ?? "Tool preparation failed.")
+          : `No prepared result was returned for dataflow call ${call.toolCallId}.`;
+        prepared = {
+          kind: "dataflow-actions",
+          protocol: "json",
+          status: "error",
+          actions: [],
+          operators: [],
+          observe: [],
+          observationErrors: [],
+          error: message,
+        };
+        if (receipt) {
+          receipt.output = prepared;
+          receipt.isError = true;
+        } else {
+          preparedById.set(call.toolCallId, { toolCallId: call.toolCallId, output: prepared, isError: true });
+        }
+      }
+      if (prepared) actions.push(prepared);
+    }
+    if (this.settings.nativeFormat === "json" && this.head) {
+      const step = this.stepsById.get(this.head);
+      if (step) {
+        step.toolResults = (toolCalls ?? []).flatMap(call => {
+          const receipt = preparedById.get(call.toolCallId);
+          return receipt ? [{ ...receipt }] : [];
+        });
+      }
+    }
     if (actions.length && this.head) {
       const stepId = this.head;
-      if (actions.length > 1) {
+      if (actions.length > 1 && this.settings.nativeFormat !== "json") {
         for (const result of actions) {
           result.status = "error";
           result.error =
@@ -3041,8 +3121,7 @@ export class TexeraAgent {
       const previousTasks = this.archivedTaskHistory().filter(
         task => task.steps[0]?.messageId !== this.stepsById.get(stepId)?.messageId
       );
-      for (const result of actions) {
-        if (actions.length > 1) continue;
+      const executeActions = async (result: DataflowActionsResult) => {
         await executeDataflowActionBatch(result, {
           state: this.workflowState,
           storage: this.snapshotStorage,
@@ -3057,6 +3136,7 @@ export class TexeraAgent {
             settings: this.settings,
           },
           execute: operatorIds => this.executePostStepChanges([], [], true, operatorIds),
+          executionCount: () => this.nativeExecutionInvocations,
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
@@ -3088,8 +3168,10 @@ export class TexeraAgent {
             .filter(step => step.role === "user" && step.isBegin)
             .map(step => String(step.content ?? "")),
         });
-        if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
-      }
+      };
+      if (this.settings.nativeFormat === "json") await executeDataflowActionCalls(actions, executeActions);
+      else if (actions.length === 1) await executeActions(actions[0]);
+      for (const result of actions) if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
       const step = this.stepsById.get(stepId);
       if (step) {
         step.operatorAccess = computeOperatorAccess(step.toolCalls, step.toolResults);
@@ -3336,6 +3418,7 @@ export class TexeraAgent {
       !!info.error || info.state === "Completed" || info.state === "CompletedFromCache";
     let failure: string | undefined;
     try {
+      this.nativeExecutionInvocations++;
       const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
         abortSignal: owningSignal,
         opsToViewResult: [...targets],

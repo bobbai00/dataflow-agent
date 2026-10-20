@@ -35,6 +35,7 @@ import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
+import { normalizeStructuredOperator, type StructuredOperatorDefinition } from "../native/structured-operators";
 
 type Edge = { source: string; sourcePort: string; target: string; targetPort: string };
 
@@ -52,6 +53,11 @@ export type EditStatement =
     }
   | { kind: "delete"; ids: string[]; line: number };
 
+export type GraphDefinitionCommand =
+  | { type: "set"; definition: StructuredOperatorDefinition }
+  | { type: "delete"; ids: string[] };
+type DraftStatement = EditStatement | { kind: "structured"; definition: StructuredOperatorDefinition; line: number };
+
 /** One line of an edit receipt: `operator x created (filter)`, `edge a -> x removed`. */
 export type GraphChangeReceipt =
   | {
@@ -67,6 +73,14 @@ export interface GraphEditPlan {
   changes: GraphChangeReceipt[];
   unconnected_inputs: string[];
   invalidated_results: string[];
+  /** Atomic typed writes report superseded commands without pretending their
+   * intermediate definitions were compiled or committed. */
+  command_results?: Array<{
+    index: number;
+    type: "set" | "delete";
+    operator_id: string;
+    status: "applied" | "superseded";
+  }>;
 }
 
 const edgeKey = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;
@@ -142,7 +156,14 @@ export async function parseGraphEdit(changes: string): Promise<EditStatement[]> 
 
 /** What identifies a definition apart from its inputs. */
 const definitionKey = (view: NativeOpView) =>
-  JSON.stringify([view.type, view.properties, view.functions ?? {}, ports(view)]);
+  JSON.stringify([
+    view.type,
+    view.properties,
+    view.functions ?? {},
+    ports(view),
+    view.functionValidation ?? null,
+    view.datetimePolicy ?? null,
+  ]);
 
 /** Validate and compile against a private draft. The caller commits the returned
  * workflow only after checking cancellation/HEAD ownership. No mutation occurs here.
@@ -157,6 +178,63 @@ export async function planGraphEdit(
   context: ToolContext
 ): Promise<GraphEditPlan> {
   const statements = await parseGraphEdit(changes);
+  return planGraphStatements(original, statements, context);
+}
+
+/** Typed definitions share the same atomic draft, validation, compilation and
+ * cache invalidation as expression edits. No assignment parser is involved. */
+export async function planGraphDefinitions(
+  original: WorkflowContent,
+  commands: GraphDefinitionCommand[],
+  context: ToolContext
+): Promise<GraphEditPlan> {
+  type Write = { index: number; type: "set" | "delete"; id: string; definition?: StructuredOperatorDefinition };
+  const writes = commands.flatMap<Write>((command, index) =>
+    command.type === "delete"
+      ? command.ids.map(id => ({ index, type: "delete" as const, id, definition: undefined }))
+      : [{ index, type: "set" as const, id: command.definition.id, definition: command.definition }]
+  );
+  const latest = new Map(writes.map(write => [write.id, write]));
+  const statements: DraftStatement[] = [];
+  for (const write of writes) {
+    if (latest.get(write.id) !== write) continue;
+    if (write.type === "set") {
+      statements.push({ kind: "structured", definition: write.definition!, line: write.index + 1 });
+    } else {
+      // An operator created and deleted inside an atomic phase never existed
+      // physically. Deleting/recreating an original operator likewise keeps
+      // its consumers because only the final definition reaches the draft.
+      const canceledCreation =
+        !original.operators.some(op => op.operatorID === write.id) &&
+        writes.some(previous => previous.id === write.id && previous.type === "set" && previous.index < write.index);
+      if (!canceledCreation) statements.push({ kind: "delete", ids: [write.id], line: write.index + 1 });
+    }
+  }
+  const plan = statements.length
+    ? await planGraphStatements(original, statements, context)
+    : {
+        workflow: structuredClone(original),
+        operators: [],
+        changes: [],
+        unconnected_inputs: missingGraphInputs(original),
+        invalidated_results: [],
+      };
+  return {
+    ...plan,
+    command_results: writes.map(write => ({
+      index: write.index,
+      type: write.type,
+      operator_id: write.id,
+      status: latest.get(write.id) === write ? "applied" : "superseded",
+    })),
+  };
+}
+
+async function planGraphStatements(
+  original: WorkflowContent,
+  statements: DraftStatement[],
+  context: ToolContext
+): Promise<GraphEditPlan> {
   if (!context.metadataStore) throw new Error("Metadata store not available for graph editing.");
   const nodes = new Map<string, NativeOpView>();
   for (const op of original.operators) {
@@ -201,34 +279,48 @@ export async function planGraphEdit(
         }
         continue;
       }
-      const { id, statement: parsed } = statement;
+      const id = statement.kind === "structured" ? statement.definition.id : statement.id;
       if (assigned.has(id)) throw new Error(`${id} is assigned twice in this edit; write one definition.`);
       const existing = nodes.get(id);
       // An existing operator keeps the profile setting it was compiled with.
-      const normalized = normalizeStatement(parsed, statement.functions, {
-        profileCollection: existing?.profileCollection ?? context.settings?.nativeProfileCollection,
+      const profileOptions = {
+        // Legacy absence means collection was disabled, not an invitation to
+        // change the compiled policy when the session setting later changes.
+        profileCollection: existing ? existing.profileCollection === true : context.settings?.nativeProfileCollection,
         profileScope: existing
           ? existing.profileScope
           : context.settings?.nativeProfileScope === "full"
             ? "full"
             : undefined,
-      });
-      if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
-      const inputs = normalized.view.inputs;
+      } as const;
+      let normalizedView: NativeOpView;
+      if (statement.kind === "structured") {
+        normalizedView = await normalizeStructuredOperator(statement.definition, profileOptions);
+      } else {
+        const normalized = normalizeStatement(statement.statement, statement.functions, profileOptions);
+        if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
+        normalizedView = normalized.view;
+      }
+      const opName = nativeOperatorName(normalizedView.type);
+      const inputs = normalizedView.inputs;
       if (inputs.includes(id))
         throw new Error(
-          `${id} cannot be its own input. Give the new table its own name, for example \`${id}_2 = ${parsed.op}(${id}, ...)\`.`
+          `${id} cannot be its own input. Give the new table its own name, for example \`${id}_2 = ${opName}(${id}, ...)\`.`
         );
-      const arity = NATIVE_BY_NAME.get(parsed.op)!.inputs;
-      if (parsed.op === "union" && inputs.length < 2)
+      const arity = NATIVE_BY_NAME.get(opName)!.inputs;
+      if (opName === "union" && inputs.length < 2)
         throw new Error(`union takes two or more input tables: \`${id} = union(first, second, ...)\`.`);
       const inputPorts = arity === 1 ? ["in"] : arity === 2 ? ["left", "right"] : indexed(inputs.length);
       // The stored source omits the inputs: edges own them, so a fork or a
       // rewiring never leaves stale input names in a definition.
       const view: NativeOpView = {
-        ...normalized.view,
+        ...normalizedView,
         inputs: inputPorts.map(() => ""),
-        source: `${parsed.op}(${[...statement.positional.slice(inputs.length), ...statement.keywords].join(", ")})`,
+        ...(statement.kind === "structured"
+          ? {}
+          : {
+              source: `${opName}(${[...statement.positional.slice(inputs.length), ...statement.keywords].join(", ")})`,
+            }),
         graph: { inputPorts },
       };
       const definition = !existing ? "created" : definitionKey(existing) === definitionKey(view) ? "same" : "updated";
@@ -240,17 +332,17 @@ export async function planGraphEdit(
       });
       if (definition === "same") {
         // Reported as unchanged unless its inputs turn out to differ.
-        operatorChanges.push({ change: "operator", operator_id: id, operator: parsed.op, action: "unchanged" });
+        operatorChanges.push({ change: "operator", operator_id: id, operator: opName, action: "unchanged" });
         continue;
       }
       nodes.set(id, view);
       changed.add(id);
-      operatorChanges.push({ change: "operator", operator_id: id, operator: parsed.op, action: definition });
+      operatorChanges.push({ change: "operator", operator_id: id, operator: opName, action: definition });
       outcomes.push({
         id,
-        op: parsed.op,
+        op: opName,
         status: existing ? "modified" : "added",
-        message: `${existing ? "updated" : "added"} ${parsed.op} operator \`${id}\``,
+        message: `${existing ? "updated" : "added"} ${opName} operator \`${id}\``,
       });
     }
     // Inputs become edges once every definition and deletion is known.

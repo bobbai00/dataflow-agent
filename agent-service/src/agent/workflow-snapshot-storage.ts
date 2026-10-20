@@ -893,7 +893,14 @@ function operatorPredicateEqual(a: OperatorPredicate, b: OperatorPredicate): boo
   if (JSON.stringify(a.operatorProperties) !== JSON.stringify(b.operatorProperties)) return false;
   if (JSON.stringify(a.inputPorts) !== JSON.stringify(b.inputPorts)) return false;
   if (JSON.stringify(a.outputPorts) !== JSON.stringify(b.outputPorts)) return false;
-  if (JSON.stringify(a.nativeOp) !== JSON.stringify(b.nativeOp)) return false;
+  const nativeSemantics = (view: OperatorPredicate["nativeOp"]) => {
+    if (!view) return view;
+    // Function source used at runtime lives in properties. These three fields
+    // only render a definition; all execution fields and revision stay bound.
+    const { source: _source, functions: _functions, jsonDefinition: _jsonDefinition, ...semantics } = view;
+    return semantics;
+  };
+  if (JSON.stringify(nativeSemantics(a.nativeOp)) !== JSON.stringify(nativeSemantics(b.nativeOp))) return false;
   return true;
 }
 

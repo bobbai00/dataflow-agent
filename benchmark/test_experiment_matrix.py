@@ -36,6 +36,164 @@ def test_matrix_declares_240_attempts_without_model_substitution():
     assert jobs == build_jobs(models, tasks)
 
 
+def test_explicit_native_formats_create_distinct_pairs_without_relabeling_legacy_jobs():
+    models = [{"requested_model": "exact", "native_model_id": "exact"}]
+    tasks = [{"benchmark": "dsbench", "task_id": "task"}]
+    legacy = build_jobs(models, tasks)
+    assert all("native_format" not in job and "pair_id" not in job for job in legacy)
+    jobs = build_jobs(models, tasks, arms=["bob_both"], native_formats=["expression", "json"])
+    assert len(jobs) == 2 and len({job["attempt_id"] for job in jobs}) == 2
+    assert {job["native_format"] for job in jobs} == {"expression", "json"}
+    assert {job["arm"] for job in jobs} == {"bob_both"}
+    assert len({job["pair_id"] for job in jobs}) == 1
+    assert not {job["attempt_id"] for job in jobs} & {job["attempt_id"] for job in legacy}
+
+
+@pytest.mark.parametrize(
+    "formats,arms",
+    [(["text"], ["bob_both"]), (["json", "json"], ["bob_both"]), ([], ["bob_both"]), (["json"], ["smol_custom"])],
+)
+def test_invalid_format_protocol_fails_before_declaring_jobs(formats, arms):
+    with pytest.raises(ValueError, match="format"):
+        build_jobs(
+            [{"requested_model": "exact", "native_model_id": "exact"}],
+            [{"benchmark": "dsbench", "task_id": "task"}],
+            arms=arms,
+            native_formats=formats,
+        )
+
+
+def test_pilot_pairs_are_adjacent_balanced_and_deterministic():
+    from benchmark.experiment_matrix import build_paired_format_jobs
+
+    models = [{"requested_model": f"model-{n}", "native_model_id": f"alias-{n}"} for n in range(3)]
+    tasks = [
+        {"benchmark": benchmark, "task_id": f"task-{n}"} for benchmark in ("kramabench", "dsbench") for n in range(3)
+    ]
+    jobs = build_paired_format_jobs(models, tasks, seed=61009)
+    assert len(jobs) == 36 and jobs == build_paired_format_jobs(models, tasks, seed=61009)
+    first = {model["requested_model"]: [] for model in models}
+    for index in range(0, 36, 2):
+        pair = jobs[index : index + 2]
+        assert pair[0]["pair_id"] == pair[1]["pair_id"]
+        assert {job["native_format"] for job in pair} == {"expression", "json"}
+        first[pair[0]["requested_model"]].append(pair[0]["native_format"])
+    assert all(values.count("json") == values.count("expression") == 3 for values in first.values())
+
+
+def test_format_report_never_pools_candidate_and_control(tmp_path):
+    from benchmark.experiment_matrix import report_matrix
+
+    jobs = build_jobs(
+        [{"requested_model": "exact", "native_model_id": "exact"}],
+        [{"benchmark": "dsbench", "task_id": "task"}],
+        arms=["bob_both"],
+        native_formats=["expression", "json"],
+    )
+    freeze_manifest(tmp_path, {"jobs": jobs, "selection": "diagnostic", "attempt_policy": "one"})
+    summary = report_matrix(tmp_path)["summary"]
+    assert len(summary) == 2 and {row["native_format"] for row in summary} == {"expression", "json"}
+    assert all(row["declared"] == 1 for row in summary)
+
+
+def test_manifest_binds_explicit_protocol_hashes_and_paired_order_without_changing_settings(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import benchmark.experiment_matrix as matrix
+    from benchmark.dsbench import run as runner
+
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps({"models": [{"requested_model": "exact", "native_model_id": "route", "available": True}]})
+    )
+    principles = tmp_path / "principles.txt"
+    principles.write_text("## Analysis principles\nPreserved principles.")
+    protocols = tmp_path / "protocols.json"
+    hashes = {
+        format: {"toolSchemaSha256": str(index) * 64, "systemPromptSha256": str(index + 2) * 64}
+        for index, format in enumerate(("expression", "json"), 1)
+    }
+    protocols.write_text(json.dumps(hashes))
+    monkeypatch.setattr(runner, "load_tasks", lambda *args: ([], [{"task_id": "task", "files": []}]))
+    monkeypatch.setattr(matrix, "kb_tasks", lambda _: [])
+    monkeypatch.setattr(matrix, "source_inventory", lambda: {"source.ts": "f" * 64})
+    args = SimpleNamespace(
+        model_facts=facts,
+        models=None,
+        ds_prepared_root=tmp_path,
+        ds_tasks=["task"],
+        kb_tasks=[],
+        native_source_data=tmp_path,
+        dry_run=True,
+        shared_principles=principles,
+        owned_services=None,
+        component_scopes=None,
+        endpoint="http://native",
+        script_endpoint="http://script",
+        scorer_python=tmp_path / "python",
+        native_formats=["expression", "json"],
+        arms=["bob_both"],
+        native_protocol_hashes=protocols,
+        paired_native_formats=True,
+        seed=61009,
+    )
+    manifest = matrix.make_manifest(args)
+    assert manifest["native_protocol_hashes"] == hashes
+    assert manifest["native_protocol_hashes_sha256"] == matrix.digest(protocols)
+    assert manifest["source_hashes"] == {"source.ts": "f" * 64}
+    assert manifest["arms"] == {"bob_both": "data1_flow1"}
+    assert manifest["native_settings"] == runner.NATIVE_SETTINGS
+    assert manifest["model_request_timeout_seconds"] == 240
+    assert len(manifest["jobs"]) == 2 and manifest["jobs"][0]["pair_id"] == manifest["jobs"][1]["pair_id"]
+    args.native_formats = None
+    args.arms = None
+    args.native_protocol_hashes = None
+    args.paired_native_formats = False
+    legacy = matrix.make_manifest(args)
+    assert "native_protocol_hashes" not in legacy and "native_formats" not in legacy
+    assert len(legacy["jobs"]) == 4 and legacy["arms"] == matrix.ARMS
+
+
+@pytest.mark.parametrize(
+    "formats,hashes",
+    [
+        (["expression", "json"], None),
+        (["expression", "json"], {"expression": {"toolSchemaSha256": "a" * 64, "systemPromptSha256": "b" * 64}}),
+        (["json"], {"json": {"toolSchemaSha256": "invalid", "systemPromptSha256": "b" * 64}}),
+        (None, {"json": {"toolSchemaSha256": "a" * 64, "systemPromptSha256": "b" * 64}}),
+    ],
+)
+def test_native_protocol_hashes_require_complete_explicit_format_binding(formats, hashes):
+    from benchmark.experiment_matrix import validate_native_protocol_hashes
+
+    with pytest.raises(ValueError, match="protocol"):
+        validate_native_protocol_hashes(formats, hashes)
+
+
+def test_format_execution_requires_frozen_protocol_before_any_attempt(tmp_path, monkeypatch):
+    import benchmark.experiment_matrix as matrix
+    from benchmark.dsbench import run as runner
+
+    jobs = build_jobs(
+        [{"requested_model": "exact", "native_model_id": "exact"}],
+        [{"benchmark": "dsbench", "task_id": "task"}],
+        arms=["bob_both"],
+        native_formats=["expression", "json"],
+    )
+    freeze_manifest(
+        tmp_path,
+        {
+            "jobs": jobs,
+            "native_settings": runner.NATIVE_SETTINGS,
+            "smol_settings": runner.SMOL_SETTINGS,
+            "source_hashes": {},
+        },
+    )
+    monkeypatch.setattr(runner, "run_task", lambda *args, **kwargs: pytest.fail("Inference must not be reached"))
+    with pytest.raises(ValueError, match="protocol"):
+        matrix.run_matrix(tmp_path)
+    assert not (tmp_path / "attempts").exists()
+
+
 def test_resume_never_overwrites_completed_or_interrupted_attempt(tmp_path):
     job = build_jobs(
         [{"requested_model": "exact", "native_model_id": "exact", "available": True}],

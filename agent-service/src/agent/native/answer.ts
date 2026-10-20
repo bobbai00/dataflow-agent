@@ -104,7 +104,8 @@ export function parseAnswerFromParts(text: string): { parts: AnswerPart[] } | { 
   }
   if (!parts.length) return { error: "answer_from names no table." };
   const keys = parts.map(part => part.key);
-  if (new Set(keys).size !== keys.length) return { error: "answer_from repeats a key; name each part, e.g. leaders=t1; movers=t2." };
+  if (new Set(keys).size !== keys.length)
+    return { error: "answer_from repeats a key; name each part, e.g. leaders=t1; movers=t2." };
   return { parts };
 }
 
@@ -126,11 +127,14 @@ export function composeAnswerParts(
     // single column under the column name; inside a multi-table answer the
     // part's key is that wrapper.
     const keys = Object.keys(parsed);
-    value[part.key] = keys.length === 1 && (keys[0] === part.id || Array.isArray(parsed[keys[0]])) ? parsed[keys[0]] : parsed;
+    value[part.key] =
+      keys.length === 1 && (keys[0] === part.id || Array.isArray(parsed[keys[0]])) ? parsed[keys[0]] : parsed;
   }
   const json = JSON.stringify(value);
   if (json.length > ANSWER_CHAR_LIMIT)
-    return { reason: `the answer composed from ${parts.map(p => `\`${p.id}\``).join(", ")} is ${json.length} characters; keep it under ${ANSWER_CHAR_LIMIT}` };
+    return {
+      reason: `the answer composed from ${parts.map(p => `\`${p.id}\``).join(", ")} is ${json.length} characters; keep it under ${ANSWER_CHAR_LIMIT}`,
+    };
   return { json, text: `**${ANSWER_MARKER} ${json}**` };
 }
 
@@ -232,9 +236,13 @@ export function composeAnswer(
   const total = info.totalRowCount ?? held.length;
   if (total === 0) return { reason: `\`${id}\` is empty (0 rows)` };
   if (held.length < total)
-    return { reason: `only ${held.length} of ${total} rows of \`${id}\` are held; the answer needs the complete table` };
+    return {
+      reason: `only ${held.length} of ${total} rows of \`${id}\` are held; the answer needs the complete table`,
+    };
   if (total > ANSWER_ROW_LIMIT)
-    return { reason: `\`${id}\` has ${total} rows; an answer table holds at most ${ANSWER_ROW_LIMIT} (aggregate, project or limit it)` };
+    return {
+      reason: `\`${id}\` has ${total} rows; an answer table holds at most ${ANSWER_ROW_LIMIT} (aggregate, project or limit it)`,
+    };
   const available = Object.keys(held[0] ?? {}).filter(name => !name.startsWith("__"));
   if (!available.length) return { reason: `\`${id}\` has no columns` };
   const every = shape?.find(item => item.column === EVERY_COLUMN)?.digits;
@@ -251,7 +259,12 @@ export function composeAnswer(
       projection.map(item => {
         const digits = item.digits ?? every;
         const raw = row[item.column];
-        if (digits === undefined && typeof raw === "number" && Number.isFinite(raw) && !Number.isInteger(cleanNumber(raw)))
+        if (
+          digits === undefined &&
+          typeof raw === "number" &&
+          Number.isFinite(raw) &&
+          !Number.isInteger(cleanNumber(raw))
+        )
           if (!unstated.has(item.name)) unstated.set(item.name, raw);
         return [item.name, cell(raw, digits)];
       })
@@ -266,7 +279,9 @@ export function composeAnswer(
     };
   }
   if (rows.every(row => columns.every(name => row[name] === null)))
-    return { reason: `every value answer_from would report from \`${id}\` is null, so the table does not hold the answer` };
+    return {
+      reason: `every value answer_from would report from \`${id}\` is null, so the table does not hold the answer`,
+    };
   // A precision no request of the session states (survey-2020 task 3 t17:
   // 4 decimals where the session's rule is 3).
   const rules = options.decimalRules ?? [];
@@ -288,7 +303,9 @@ export function composeAnswer(
   if (rows.length > 1 && named.length) {
     const kept = new Set(projection.map(item => item.column));
     const numeric = projection.every(item =>
-      held.every(row => row[item.column] === null || row[item.column] === undefined || typeof row[item.column] === "number")
+      held.every(
+        row => row[item.column] === null || row[item.column] === undefined || typeof row[item.column] === "number"
+      )
     );
     const label = numeric
       ? available.find(
@@ -310,6 +327,63 @@ export function composeAnswer(
   else value = { [id]: rows };
   const json = JSON.stringify(value);
   if (json.length > ANSWER_CHAR_LIMIT)
-    return { reason: `the answer composed from \`${id}\` is ${json.length} characters; keep it under ${ANSWER_CHAR_LIMIT}` };
+    return {
+      reason: `the answer composed from \`${id}\` is ${json.length} characters; keep it under ${ANSWER_CHAR_LIMIT}`,
+    };
   return { json, text: `**${ANSWER_MARKER} ${json}**` };
+}
+
+/** Typed source answers round only numeric JSON values. Null precision preserves
+ * the computed number, and strings (including timestamps) are never rewritten. */
+function structuredCell(value: unknown, decimals: number | null): unknown {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return decimals === null ? value : roundHalfEven(value, decimals);
+  }
+  if (typeof value === "bigint") return Number(value);
+  if (Array.isArray(value)) return value.map(item => structuredCell(item, decimals));
+  if (typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, structuredCell(item, decimals)]));
+  return value;
+}
+
+/** Explicit JSON answer shape: no projection language or implicit object wrapper. */
+export function composeStructuredAnswer(
+  source: { id: string; column: string | null; shape: "scalar" | "list" | "records"; decimals: number | null },
+  info: OperatorInfo | undefined
+): ComposedAnswer {
+  if (!info || info.error || !["Completed", "CompletedFromCache"].includes(info.state))
+    return { reason: `${source.id} has no completed current result.` };
+  if (info.resultVersion?.complete === false) return { reason: `${source.id} has an incomplete result version.` };
+  if (!Array.isArray(info.result)) return { reason: `${source.id} is not a table result.` };
+  const rows = info.result as Array<Record<string, unknown>>;
+  const total = info.totalRowCount ?? info.outputTuples ?? rows.length;
+  if (rows.length !== total)
+    return { reason: `Only ${rows.length} of ${total} rows are held; a source answer requires the complete table.` };
+  if (!rows.length) return { reason: `${source.id} is empty.` };
+  if (rows.length > ANSWER_ROW_LIMIT)
+    return { reason: `Source answers hold at most ${ANSWER_ROW_LIMIT} rows; reduce the table first.` };
+  const columns = (info.resultSchema?.map(c => c.name) ?? Object.keys(rows[0])).filter(name => !name.startsWith("__"));
+  if (source.column !== null && !columns.includes(source.column))
+    return { reason: `Unknown column ${JSON.stringify(source.column)} in ${source.id}.` };
+  const column = source.column ?? (columns.length === 1 ? columns[0] : undefined);
+  let value: unknown;
+  if (source.shape === "scalar") {
+    if (rows.length !== 1 || column === undefined)
+      return { reason: "A scalar answer requires one row and one selected column." };
+    value = structuredCell(rows[0][column], source.decimals);
+  } else if (source.shape === "list") {
+    if (column === undefined) return { reason: "A list answer requires a selected column." };
+    value = rows.map(row => structuredCell(row[column], source.decimals));
+  } else {
+    const selected = source.column === null ? columns : [source.column];
+    value = rows.map(row =>
+      Object.fromEntries(selected.map(name => [name, structuredCell(row[name], source.decimals)]))
+    );
+  }
+  const json = JSON.stringify(value);
+  if (json.length > ANSWER_CHAR_LIMIT)
+    return { reason: `Source answers hold at most ${ANSWER_CHAR_LIMIT} characters; reduce the table first.` };
+  return { json, text: json };
 }

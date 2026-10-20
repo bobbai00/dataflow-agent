@@ -38,10 +38,10 @@ from benchmark.dsbench import run as ds_runner  # noqa: E402 - direct script ent
 from benchmark.dsbench.metrics import normalize_attempt, read_json  # noqa: E402
 from benchmark.retrieval.catalog import inventory  # noqa: E402
 from benchmark.retrieval.attempt_runtime import validate_resource_scope  # noqa: E402
-from benchmark.runtime.model_limits import (
+from benchmark.runtime.model_limits import (  # noqa: E402
     DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
     validate_model_request_timeout_seconds,
-)  # noqa: E402
+)
 
 ARMS = {"smol_custom": "smol_custom", "bob_data": "data1_flow0", "bob_flow": "data0_flow1", "bob_both": "data1_flow1"}
 KB_TASKS = ["legal-easy-3", "wildfire-hard-16", "biomedical-hard-7", "environment-easy-3", "astronomy-hard-10"]
@@ -150,29 +150,94 @@ def write_new(path, value):
         stream.write("\n")
 
 
-def build_jobs(models, tasks, *, seed=61008):
+def build_jobs(models, tasks, *, seed=61008, arms=None, native_formats=None):
     if len({m["requested_model"] for m in models}) != len(models):
         raise ValueError("Duplicate requested model")
     if len({(t["benchmark"], t["task_id"]) for t in tasks}) != len(tasks):
         raise ValueError("Duplicate benchmark/task identity")
+    selected_arms = list(ARMS) if arms is None else list(arms)
+    if (
+        not selected_arms
+        or len(set(selected_arms)) != len(selected_arms)
+        or any(arm not in ARMS for arm in selected_arms)
+    ):
+        raise ValueError("Invalid or duplicate matrix arm")
+    if native_formats is not None:
+        if (
+            not native_formats
+            or len(set(native_formats)) != len(native_formats)
+            or any(format not in ("expression", "json") for format in native_formats)
+            or "smol_custom" in selected_arms
+        ):
+            raise ValueError("Explicit native formats require distinct expression/json values and native arms")
     jobs = []
     for model_index, model in enumerate(models):
         for task in tasks:
-            for arm in ARMS:
+            for arm in selected_arms:
                 identity = [model["requested_model"], task["benchmark"], task["task_id"], arm]
-                key = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()[:16]
-                jobs.append(
-                    {
-                        "attempt_id": f"m{model_index:02d}-{task['benchmark']}-{task['task_id']}-{arm}-{key}",
+                pair = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()[:16]
+                for format in native_formats if native_formats is not None else [None]:
+                    key = (
+                        pair
+                        if format is None
+                        else hashlib.sha256(
+                            json.dumps([*identity, format], separators=(",", ":")).encode()
+                        ).hexdigest()[:16]
+                    )
+                    suffix = "" if format is None else f"-{format}"
+                    job = {
+                        "attempt_id": f"m{model_index:02d}-{task['benchmark']}-{task['task_id']}-{arm}{suffix}-{key}",
                         "requested_model": model["requested_model"],
                         "model": model["native_model_id"],
                         "benchmark": task["benchmark"],
                         "task_id": task["task_id"],
                         "arm": arm,
                     }
-                )
+                    if format is not None:
+                        job.update(native_format=format, pair_id=pair)
+                    jobs.append(job)
     random.Random(seed).shuffle(jobs)
     return jobs
+
+
+def build_paired_format_jobs(models, tasks, *, seed=61009, arm="bob_both"):
+    """Adjacent format pairs; alternate first format within each model."""
+    groups = defaultdict(list)
+    for job in build_jobs(models, tasks, seed=seed, arms=[arm], native_formats=["expression", "json"]):
+        groups[job["pair_id"]].append(job)
+    pairs = list(groups.values())
+    random.Random(seed).shuffle(pairs)
+    per_model = defaultdict(int)
+    jobs = []
+    for pair in pairs:
+        model = pair[0]["requested_model"]
+        first = "expression" if per_model[model] % 2 == 0 else "json"
+        jobs.extend(sorted(pair, key=lambda job: job["native_format"] != first))
+        per_model[model] += 1
+    return jobs
+
+
+def validate_native_protocol_hashes(native_formats, hashes):
+    """Bind explicit format variants to exact model-facing schema/prompt bytes."""
+    if native_formats is None:
+        if hashes is not None:
+            raise ValueError("Native protocol hashes require explicit native formats")
+        return None
+    if not isinstance(hashes, dict):
+        raise ValueError("Explicit native formats require native protocol hashes")
+    selected = {}
+    for format in native_formats:
+        protocol = hashes.get(format)
+        if not isinstance(protocol, dict):
+            raise ValueError(f"Missing native protocol hashes for {format}")
+        values = {}
+        for key in ("toolSchemaSha256", "systemPromptSha256"):
+            value = protocol.get(key)
+            if not isinstance(value, str) or len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+                raise ValueError(f"Invalid native protocol {key} for {format}")
+            values[key] = value
+        selected[format] = values
+    return selected
 
 
 def freeze_manifest(output, manifest):
@@ -361,6 +426,12 @@ def make_manifest(args):
     request_timeout = validate_model_request_timeout_seconds(
         getattr(args, "model_request_timeout_seconds", DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS)
     )
+    native_formats = getattr(args, "native_formats", None)
+    selected_arms = getattr(args, "arms", None)
+    protocol_path = getattr(args, "native_protocol_hashes", None)
+    protocol_hashes = validate_native_protocol_hashes(
+        native_formats, json.loads(protocol_path.read_text()) if protocol_path else None
+    )
     facts = json.loads(args.model_facts.read_text())
     models = facts["models"] if isinstance(facts, dict) else facts
     if args.models:
@@ -384,13 +455,21 @@ def make_manifest(args):
     if args.component_scopes:
         resource_scope.update(json.loads(args.component_scopes.read_text()))
     validate_resource_scope(resource_scope)
-    return {
+    if getattr(args, "paired_native_formats", False):
+        if native_formats != ["expression", "json"] or selected_arms is None or len(selected_arms) != 1:
+            raise ValueError("Paired native formats require expression/json and exactly one native arm")
+        jobs = build_paired_format_jobs(models, tasks, seed=getattr(args, "seed", 61008), arm=selected_arms[0])
+    else:
+        jobs = build_jobs(
+            models, tasks, seed=getattr(args, "seed", 61008), arms=selected_arms, native_formats=native_formats
+        )
+    manifest = {
         "schema_version": 1,
         "selection": SELECTION,
         "models": models,
         "tasks": tasks,
-        "jobs": build_jobs(models, tasks),
-        "arms": ARMS,
+        "jobs": jobs,
+        "arms": ARMS if selected_arms is None else {arm: ARMS[arm] for arm in selected_arms},
         "native_settings": ds_runner.NATIVE_SETTINGS,
         "smol_settings": ds_runner.SMOL_SETTINGS,
         "shared_principles": principles,
@@ -410,6 +489,18 @@ def make_manifest(args):
         "source_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "source_hashes": source_inventory(),
     }
+    if native_formats is not None:
+        manifest.update(
+            native_formats=native_formats,
+            native_protocol_hashes=protocol_hashes,
+            native_protocol_hashes_sha256=digest(protocol_path),
+            format_order_policy=(
+                "Adjacent paired formats; alternate first format within each model"
+                if getattr(args, "paired_native_formats", False)
+                else "Seeded individual attempt order"
+            ),
+        )
+    return manifest
 
 
 def run_matrix(output, *, limit=None):
@@ -427,6 +518,15 @@ def _run_matrix_locked(output, *, limit=None):
     manifest = json.loads((output / "manifest.json").read_text())
     if manifest["native_settings"] != ds_runner.NATIVE_SETTINGS or manifest["smol_settings"] != ds_runner.SMOL_SETTINGS:
         raise ValueError("Current executor settings differ from the locked manifest")
+    formats = []
+    for job in manifest["jobs"]:
+        if "native_format" in job:
+            format = job["native_format"]
+            if format not in ("expression", "json") or job["arm"] == "smol_custom":
+                raise ValueError("Invalid frozen native format protocol")
+            if format not in formats:
+                formats.append(format)
+    validate_native_protocol_hashes(formats or None, manifest.get("native_protocol_hashes"))
     verify_frozen_sources(manifest)
     expected_service = {
         relative.removeprefix("agent-service/"): value
@@ -473,6 +573,13 @@ def _run_matrix_locked(output, *, limit=None):
             expected_service_source_hashes=expected_service,
             # Legacy manifests omit the native override and retain their recorded defaults.
             model_request_timeout_seconds=manifest.get("model_request_timeout_seconds"),
+            native_format=job.get("native_format"),
+            native_format_schema_sha256=(
+                manifest.get("native_protocol_hashes", {}).get(job.get("native_format"), {}).get("toolSchemaSha256")
+            ),
+            native_format_prompt_sha256=(
+                manifest.get("native_protocol_hashes", {}).get(job.get("native_format"), {}).get("systemPromptSha256")
+            ),
         )
         if job["arm"] != "smol_custom" and not native_cleanup_safe(directory):
             (output / "PAUSE").write_text(
@@ -496,7 +603,7 @@ def report_matrix(output):
             "diagnostic_evaluation": read_json(directory / "diagnostic-evaluation.json", None),
         }
         rows.append(row)
-        groups[job["requested_model"], job["benchmark"], job["arm"]].append(row)
+        groups[job["requested_model"], job["benchmark"], job["arm"], job.get("native_format")].append(row)
     summary = []
     for identity, entries in groups.items():
         metrics = [entry["metrics"] for entry in entries if entry["metrics"] is not None]
@@ -509,6 +616,7 @@ def report_matrix(output):
                 "requested_model": identity[0],
                 "benchmark": identity[1],
                 "arm": identity[2],
+                **({"native_format": identity[3]} if identity[3] is not None else {}),
                 "declared": len(entries),
                 "finished": sum((output / "attempts" / row["attempt_id"] / "status.json").exists() for row in entries),
                 "completed": sum(row["status"].get("completed", False) for row in entries),
@@ -626,6 +734,26 @@ def main():
     prepare.add_argument("--output", type=Path, required=True)
     prepare.add_argument("--model-facts", type=Path, required=True)
     prepare.add_argument("--models", nargs="+")
+    prepare.add_argument(
+        "--arms", nargs="+", choices=list(ARMS), help="Explicit subset; historical default keeps all four arms"
+    )
+    prepare.add_argument(
+        "--native-formats",
+        nargs="+",
+        choices=["expression", "json"],
+        help="Explicit native format variants; never changes historical arm labels",
+    )
+    prepare.add_argument(
+        "--native-protocol-hashes",
+        type=Path,
+        help="Format-keyed exact toolSchemaSha256/systemPromptSha256 map from offline agent rendering",
+    )
+    prepare.add_argument(
+        "--paired-native-formats",
+        action="store_true",
+        help="Adjacent expression/json pairs within one explicit native arm",
+    )
+    prepare.add_argument("--seed", type=int, default=61008)
     prepare.add_argument("--model-request-timeout-seconds", type=float, default=DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS)
     prepare.add_argument("--ds-prepared-root", type=Path, required=True)
     prepare.add_argument(
