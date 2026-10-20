@@ -1,0 +1,24 @@
+{
+  "root": "@TEXERA_HOME@",
+  "state": "@STACK_DIR@",
+  "project": "@PROJECT@",
+  "ports": {
+    "postgres": 61432,
+    "minio": 65000,
+    "lakefs": 64000,
+    "lakekeeper": 64181,
+    "litellm": 60000,
+    "config-service": 65094,
+    "access-control-service": 65096,
+    "file-service": 65092,
+    "workflow-compiling-service": 65090,
+    "computing-unit-managing-service": 64082,
+    "texera-web": 64080,
+    "computing-unit-master": 64085,
+    "frontend": 60200,
+    "pekko": 58552,
+    "manager-api": 64888,
+    "web-admin": 64081,
+    "agent-service": 3130
+  }
+}

@@ -1,0 +1,176 @@
+{
+  "services": {
+    "postgres": {
+      "image": "groonga/pgroonga:4.0.1-debian-15",
+      "container_name": "@PROJECT@-postgres",
+      "restart": "unless-stopped",
+      "command": [
+        "postgres",
+        "-c",
+        "max_connections=10000"
+      ],
+      "env_file": [
+        "@STACK_DIR@/infra.env"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "texera",
+          "-d",
+          "texera_db"
+        ],
+        "interval": "10s",
+        "retries": 5,
+        "start_period": "5s"
+      },
+      "volumes": [
+        "postgres_data:/var/lib/postgresql/data",
+        "@TEXERA_HOME@/sql:/docker-entrypoint-initdb.d"
+      ],
+      "ports": [
+        "127.0.0.1:61432:5432"
+      ]
+    },
+    "minio": {
+      "image": "minio/minio:RELEASE.2025-02-28T09-55-16Z",
+      "container_name": "@PROJECT@-minio",
+      "ports": [
+        "127.0.0.1:65000:9000"
+      ],
+      "env_file": [
+        "@STACK_DIR@/infra.env"
+      ],
+      "environment": [
+        "MINIO_ROOT_USER=${STORAGE_S3_AUTH_USERNAME}",
+        "MINIO_ROOT_PASSWORD=${STORAGE_S3_AUTH_PASSWORD}"
+      ],
+      "volumes": [
+        "minio_data:/data"
+      ],
+      "command": "server --console-address \":9001\" /data",
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "curl",
+          "-sf",
+          "http://localhost:9000/minio/health/live"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 10
+      }
+    },
+    "minio-init": {
+      "image": "minio/mc:RELEASE.2025-05-21T01-59-54Z",
+      "container_name": "@PROJECT@-minio-init",
+      "depends_on": {
+        "minio": {
+          "condition": "service_healthy"
+        }
+      },
+      "env_file": [
+        "@STACK_DIR@/infra.env"
+      ],
+      "restart": "no",
+      "entrypoint": [
+        "/bin/sh",
+        "-c"
+      ],
+      "command": [
+        "set -e\nmc alias set local \"$$STORAGE_S3_ENDPOINT\" \"$$STORAGE_S3_AUTH_USERNAME\" \"$$STORAGE_S3_AUTH_PASSWORD\"\nmc mb --ignore-existing \"local/$$STORAGE_ICEBERG_CATALOG_REST_S3_BUCKET\"\necho \"MinIO bucket '$$STORAGE_ICEBERG_CATALOG_REST_S3_BUCKET' is ready.\"\n"
+      ]
+    },
+    "lakefs": {
+      "image": "treeverse/lakefs:1.51",
+      "container_name": "@PROJECT@-lakefs",
+      "restart": "unless-stopped",
+      "depends_on": {
+        "postgres": {
+          "condition": "service_healthy"
+        },
+        "minio": {
+          "condition": "service_started"
+        }
+      },
+      "env_file": [
+        "@STACK_DIR@/infra.env"
+      ],
+      "environment": [
+        "LAKEFS_BLOCKSTORE_S3_PRE_SIGNED_ENDPOINT=http://localhost:65000",
+        "LAKEFS_BLOCKSTORE_S3_CREDENTIALS_ACCESS_KEY_ID=${STORAGE_S3_AUTH_USERNAME}",
+        "LAKEFS_BLOCKSTORE_S3_CREDENTIALS_SECRET_ACCESS_KEY=${STORAGE_S3_AUTH_PASSWORD}"
+      ],
+      "entrypoint": [
+        "/bin/sh",
+        "-c"
+      ],
+      "command": [
+        "lakefs setup --user-name \"$LAKEFS_INSTALLATION_USER_NAME\" --access-key-id \"$LAKEFS_INSTALLATION_ACCESS_KEY_ID\" --secret-access-key \"$LAKEFS_INSTALLATION_SECRET_ACCESS_KEY\" || true\nlakefs run &\nwait\n"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "--spider",
+          "-q",
+          "http://localhost:8000/api/v1/healthcheck"
+        ],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 10
+      },
+      "ports": [
+        "127.0.0.1:64000:8000"
+      ]
+    },
+    "litellm": {
+      "image": "ghcr.io/berriai/litellm:v1.83.10-stable",
+      "container_name": "@PROJECT@-litellm",
+      "restart": "unless-stopped",
+      "environment": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
+        "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY:-}",
+        "OPENROUTER_BASE_URL": "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY:-}",
+        "LITELLM_MASTER_KEY": "${LITELLM_MASTER_KEY:-}"
+      },
+      "volumes": [
+        "@TEXERA_HOME@/bin/single-node/litellm-config.yaml:/app/config.yaml:ro",
+        "@TEXERA_HOME@/bin/strict_tools.py:/app/strict_tools.py:ro"
+      ],
+      "command": [
+        "--config",
+        "/app/config.yaml",
+        "--port",
+        "4000",
+        "--host",
+        "0.0.0.0"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness').read()"
+        ],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 10,
+        "start_period": "15s"
+      },
+      "ports": [
+        "127.0.0.1:60000:4000"
+      ]
+    }
+  },
+  "networks": {
+    "default": {}
+  },
+  "volumes": {
+    "minio_data": {},
+    "postgres_data": {}
+  }
+}

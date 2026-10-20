@@ -1,0 +1,3365 @@
+{
+ "prepbench-hard-1": {
+  "case": "case_001",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-2": {
+  "case": "case_002",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-3": {
+  "case": "case_003",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-4": {
+  "case": "case_004",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-5": {
+  "case": "case_005",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-6": {
+  "case": "case_006",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-7": {
+  "case": "case_007",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-8": {
+  "case": "case_008",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-9": {
+  "case": "case_009",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-10": {
+  "case": "case_010",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-11": {
+  "case": "case_011",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-12": {
+  "case": "case_012",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-13": {
+  "case": "case_013",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-14": {
+  "case": "case_014",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-15": {
+  "case": "case_015",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-16": {
+  "case": "case_016",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-17": {
+  "case": "case_017",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-18": {
+  "case": "case_018",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-19": {
+  "case": "case_019",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-20": {
+  "case": "case_020",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-21": {
+  "case": "case_021",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-22": {
+  "case": "case_022",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-23": {
+  "case": "case_023",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-24": {
+  "case": "case_024",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-25": {
+  "case": "case_025",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-26": {
+  "case": "case_026",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-27": {
+  "case": "case_027",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-28": {
+  "case": "case_028",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-29": {
+  "case": "case_029",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-30": {
+  "case": "case_030",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-31": {
+  "case": "case_031",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv",
+   "output_04.csv"
+  ]
+ },
+ "prepbench-hard-32": {
+  "case": "case_032",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-33": {
+  "case": "case_033",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-34": {
+  "case": "case_034",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-35": {
+  "case": "case_035",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-36": {
+  "case": "case_036",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-37": {
+  "case": "case_037",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-38": {
+  "case": "case_038",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-39": {
+  "case": "case_039",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-40": {
+  "case": "case_040",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-41": {
+  "case": "case_041",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-42": {
+  "case": "case_042",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-43": {
+  "case": "case_043",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-44": {
+  "case": "case_044",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-45": {
+  "case": "case_045",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-46": {
+  "case": "case_046",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-47": {
+  "case": "case_047",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-48": {
+  "case": "case_048",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-49": {
+  "case": "case_049",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-50": {
+  "case": "case_050",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-51": {
+  "case": "case_051",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-52": {
+  "case": "case_052",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-53": {
+  "case": "case_053",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-54": {
+  "case": "case_054",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-55": {
+  "case": "case_055",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-56": {
+  "case": "case_056",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-57": {
+  "case": "case_057",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-58": {
+  "case": "case_058",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-59": {
+  "case": "case_059",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-60": {
+  "case": "case_060",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-61": {
+  "case": "case_061",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-62": {
+  "case": "case_062",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-63": {
+  "case": "case_063",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-64": {
+  "case": "case_064",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-65": {
+  "case": "case_065",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-66": {
+  "case": "case_066",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-67": {
+  "case": "case_067",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-68": {
+  "case": "case_068",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-69": {
+  "case": "case_069",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-70": {
+  "case": "case_070",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-71": {
+  "case": "case_071",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-72": {
+  "case": "case_072",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-73": {
+  "case": "case_073",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-74": {
+  "case": "case_074",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-75": {
+  "case": "case_075",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-76": {
+  "case": "case_076",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-77": {
+  "case": "case_077",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-78": {
+  "case": "case_078",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-79": {
+  "case": "case_079",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-80": {
+  "case": "case_080",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-81": {
+  "case": "case_081",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-82": {
+  "case": "case_082",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-83": {
+  "case": "case_083",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-84": {
+  "case": "case_084",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-85": {
+  "case": "case_085",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-86": {
+  "case": "case_086",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-87": {
+  "case": "case_087",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-88": {
+  "case": "case_088",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-89": {
+  "case": "case_089",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-90": {
+  "case": "case_090",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-91": {
+  "case": "case_091",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-92": {
+  "case": "case_092",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-93": {
+  "case": "case_093",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-94": {
+  "case": "case_094",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-95": {
+  "case": "case_095",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-96": {
+  "case": "case_096",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-97": {
+  "case": "case_097",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-98": {
+  "case": "case_098",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-99": {
+  "case": "case_099",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-100": {
+  "case": "case_100",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-101": {
+  "case": "case_101",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-102": {
+  "case": "case_102",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-103": {
+  "case": "case_103",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-104": {
+  "case": "case_104",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-105": {
+  "case": "case_105",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-106": {
+  "case": "case_106",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-107": {
+  "case": "case_107",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-108": {
+  "case": "case_108",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-109": {
+  "case": "case_109",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-110": {
+  "case": "case_110",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-111": {
+  "case": "case_111",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-112": {
+  "case": "case_112",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-113": {
+  "case": "case_113",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-114": {
+  "case": "case_114",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-115": {
+  "case": "case_115",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-116": {
+  "case": "case_116",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-117": {
+  "case": "case_117",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-118": {
+  "case": "case_118",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-119": {
+  "case": "case_119",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-120": {
+  "case": "case_120",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-121": {
+  "case": "case_121",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-122": {
+  "case": "case_122",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-123": {
+  "case": "case_123",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-124": {
+  "case": "case_124",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-125": {
+  "case": "case_125",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-126": {
+  "case": "case_126",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-127": {
+  "case": "case_127",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-128": {
+  "case": "case_128",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-129": {
+  "case": "case_129",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-130": {
+  "case": "case_130",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-131": {
+  "case": "case_131",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-132": {
+  "case": "case_132",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-133": {
+  "case": "case_133",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-134": {
+  "case": "case_134",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-135": {
+  "case": "case_135",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-136": {
+  "case": "case_136",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-137": {
+  "case": "case_137",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-138": {
+  "case": "case_138",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-139": {
+  "case": "case_139",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-140": {
+  "case": "case_140",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-141": {
+  "case": "case_141",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-142": {
+  "case": "case_142",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-143": {
+  "case": "case_143",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-144": {
+  "case": "case_144",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-145": {
+  "case": "case_145",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv",
+   "input_13.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-146": {
+  "case": "case_146",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-147": {
+  "case": "case_147",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-148": {
+  "case": "case_148",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-149": {
+  "case": "case_149",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-150": {
+  "case": "case_150",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv",
+   "output_04.csv"
+  ]
+ },
+ "prepbench-hard-151": {
+  "case": "case_151",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-152": {
+  "case": "case_152",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-153": {
+  "case": "case_153",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-154": {
+  "case": "case_154",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-155": {
+  "case": "case_155",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-156": {
+  "case": "case_156",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-157": {
+  "case": "case_157",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-158": {
+  "case": "case_158",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv",
+   "input_13.csv",
+   "input_14.csv",
+   "input_15.csv",
+   "input_16.csv",
+   "input_17.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-159": {
+  "case": "case_159",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-160": {
+  "case": "case_160",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-161": {
+  "case": "case_161",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-162": {
+  "case": "case_162",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-163": {
+  "case": "case_163",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-164": {
+  "case": "case_164",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-165": {
+  "case": "case_165",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-166": {
+  "case": "case_166",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-167": {
+  "case": "case_167",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-168": {
+  "case": "case_168",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-169": {
+  "case": "case_169",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-170": {
+  "case": "case_170",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-171": {
+  "case": "case_171",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-172": {
+  "case": "case_172",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-173": {
+  "case": "case_173",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-174": {
+  "case": "case_174",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-175": {
+  "case": "case_175",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-176": {
+  "case": "case_176",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-177": {
+  "case": "case_177",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-178": {
+  "case": "case_178",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-179": {
+  "case": "case_179",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-180": {
+  "case": "case_180",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-181": {
+  "case": "case_181",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-182": {
+  "case": "case_182",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv",
+   "output_04.csv",
+   "output_05.csv",
+   "output_06.csv"
+  ]
+ },
+ "prepbench-hard-183": {
+  "case": "case_183",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-184": {
+  "case": "case_184",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-185": {
+  "case": "case_185",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-186": {
+  "case": "case_186",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-187": {
+  "case": "case_187",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-188": {
+  "case": "case_188",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-189": {
+  "case": "case_189",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv",
+   "output_04.csv"
+  ]
+ },
+ "prepbench-hard-190": {
+  "case": "case_190",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-191": {
+  "case": "case_191",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-192": {
+  "case": "case_192",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-193": {
+  "case": "case_193",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-194": {
+  "case": "case_194",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-195": {
+  "case": "case_195",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-196": {
+  "case": "case_196",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-197": {
+  "case": "case_197",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-198": {
+  "case": "case_198",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-199": {
+  "case": "case_199",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-200": {
+  "case": "case_200",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-201": {
+  "case": "case_201",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-202": {
+  "case": "case_202",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-203": {
+  "case": "case_203",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-204": {
+  "case": "case_204",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-205": {
+  "case": "case_205",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-206": {
+  "case": "case_206",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-207": {
+  "case": "case_207",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-208": {
+  "case": "case_208",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-209": {
+  "case": "case_209",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-210": {
+  "case": "case_210",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-211": {
+  "case": "case_211",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-212": {
+  "case": "case_212",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-213": {
+  "case": "case_213",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-214": {
+  "case": "case_214",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-215": {
+  "case": "case_215",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-216": {
+  "case": "case_216",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-217": {
+  "case": "case_217",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-218": {
+  "case": "case_218",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-219": {
+  "case": "case_219",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-220": {
+  "case": "case_220",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-221": {
+  "case": "case_221",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-222": {
+  "case": "case_222",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-223": {
+  "case": "case_223",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-224": {
+  "case": "case_224",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-225": {
+  "case": "case_225",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-226": {
+  "case": "case_226",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-227": {
+  "case": "case_227",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-228": {
+  "case": "case_228",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-229": {
+  "case": "case_229",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-230": {
+  "case": "case_230",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-231": {
+  "case": "case_231",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-232": {
+  "case": "case_232",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-233": {
+  "case": "case_233",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-234": {
+  "case": "case_234",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-235": {
+  "case": "case_235",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-236": {
+  "case": "case_236",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-237": {
+  "case": "case_237",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-238": {
+  "case": "case_238",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-239": {
+  "case": "case_239",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-240": {
+  "case": "case_240",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-241": {
+  "case": "case_241",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-242": {
+  "case": "case_242",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv",
+   "input_13.csv",
+   "input_14.csv",
+   "input_15.csv",
+   "input_16.csv",
+   "input_17.csv",
+   "input_18.csv",
+   "input_19.csv",
+   "input_20.csv",
+   "input_21.csv",
+   "input_22.csv",
+   "input_23.csv",
+   "input_24.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-243": {
+  "case": "case_243",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-244": {
+  "case": "case_244",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-245": {
+  "case": "case_245",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-246": {
+  "case": "case_246",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-247": {
+  "case": "case_247",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-248": {
+  "case": "case_248",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-249": {
+  "case": "case_249",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-250": {
+  "case": "case_250",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-251": {
+  "case": "case_251",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-252": {
+  "case": "case_252",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-253": {
+  "case": "case_253",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-254": {
+  "case": "case_254",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-255": {
+  "case": "case_255",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-256": {
+  "case": "case_256",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-257": {
+  "case": "case_257",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-258": {
+  "case": "case_258",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-259": {
+  "case": "case_259",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-260": {
+  "case": "case_260",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-261": {
+  "case": "case_261",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-262": {
+  "case": "case_262",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-263": {
+  "case": "case_263",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-264": {
+  "case": "case_264",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-265": {
+  "case": "case_265",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-266": {
+  "case": "case_266",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-267": {
+  "case": "case_267",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-268": {
+  "case": "case_268",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-269": {
+  "case": "case_269",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-270": {
+  "case": "case_270",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-271": {
+  "case": "case_271",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-272": {
+  "case": "case_272",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv",
+   "input_13.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-273": {
+  "case": "case_273",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-274": {
+  "case": "case_274",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-275": {
+  "case": "case_275",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-276": {
+  "case": "case_276",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-277": {
+  "case": "case_277",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-278": {
+  "case": "case_278",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-279": {
+  "case": "case_279",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-280": {
+  "case": "case_280",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-281": {
+  "case": "case_281",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-282": {
+  "case": "case_282",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-283": {
+  "case": "case_283",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-284": {
+  "case": "case_284",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-285": {
+  "case": "case_285",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-286": {
+  "case": "case_286",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-287": {
+  "case": "case_287",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-288": {
+  "case": "case_288",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-289": {
+  "case": "case_289",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-290": {
+  "case": "case_290",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-291": {
+  "case": "case_291",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-292": {
+  "case": "case_292",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-293": {
+  "case": "case_293",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-294": {
+  "case": "case_294",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-295": {
+  "case": "case_295",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-296": {
+  "case": "case_296",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv",
+   "input_05.csv",
+   "input_06.csv",
+   "input_07.csv",
+   "input_08.csv",
+   "input_09.csv",
+   "input_10.csv",
+   "input_11.csv",
+   "input_12.csv",
+   "input_13.csv",
+   "input_14.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-297": {
+  "case": "case_297",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-298": {
+  "case": "case_298",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-299": {
+  "case": "case_299",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-300": {
+  "case": "case_300",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-301": {
+  "case": "case_301",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv",
+   "output_03.csv"
+  ]
+ },
+ "prepbench-hard-302": {
+  "case": "case_302",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-303": {
+  "case": "case_303",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv",
+   "input_03.csv",
+   "input_04.csv"
+  ],
+  "outputs": [
+   "output_01.csv",
+   "output_02.csv"
+  ]
+ },
+ "prepbench-hard-304": {
+  "case": "case_304",
+  "inputs": [
+   "input_01.csv",
+   "input_02.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-305": {
+  "case": "case_305",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ },
+ "prepbench-hard-306": {
+  "case": "case_306",
+  "inputs": [
+   "input_01.csv"
+  ],
+  "outputs": [
+   "output_01.csv"
+  ]
+ }
+}
