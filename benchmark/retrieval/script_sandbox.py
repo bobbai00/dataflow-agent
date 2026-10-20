@@ -29,7 +29,6 @@ import socket
 import socketserver
 import ssl
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -100,7 +99,7 @@ def gateway_socket(endpoint):
 class SandboxedScriptAgent:
     """Stands in for the SUT's CodeAgentWrapper and runs it in the sandbox."""
 
-    def __init__(self, wrapper, *, harness, data_root, data_relative, artifacts, workspace):
+    def __init__(self, wrapper, *, python, harness, data_root, data_relative, artifacts, workspace):
         from code_agent import CodeAgentResult
         from systems.cost_utils import compute_cost
         from systems.dsgym_runner import usage_totals
@@ -108,6 +107,8 @@ class SandboxedScriptAgent:
         self._result, self._cost, self._usage = CodeAgentResult, compute_cost, usage_totals
         self.model_type, self.api_base, self.api_key = wrapper.model_type, wrapper.api_base, wrapper.api_key
         self.settings = {name: getattr(wrapper, name) for name in WRAPPER_SETTINGS}
+        # The run's locked interpreter (run_baselines.script_python), not the harness's own.
+        self.python = Path(python).absolute()
         self.harness, self.data_root, self.data_relative = Path(harness), Path(data_root), data_relative
         self.artifacts, self.workspace = Path(artifacts), Path(workspace)
 
@@ -119,7 +120,7 @@ class SandboxedScriptAgent:
 
     def run(self, prompt):
         self.workspace.mkdir(parents=True, exist_ok=True)
-        python, error, started = Path(sys.executable).absolute(), None, time.time()
+        python, error, started = self.python, None, time.time()
         with gateway_socket(self.api_base) as sockets:
             command = isolated_command(
                 [python, "/harness/" + CHILD.name],

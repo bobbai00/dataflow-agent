@@ -126,10 +126,23 @@ agent. They need Linux with bubblewrap (`bwrap`) and the LiteLLM gateway.
 
 | | smolagents | DSGym |
 |---|---|---|
-| Agent | `CodeAgent` (smolagents 1.23, in the KramaBench venv) with its default prompts | upstream `ReActDSAgent` ([fannie1208/DSGym](https://github.com/fannie1208/DSGym), pinned at `461a464`) with its `SYSTEM_PROMPT` and custom-task template |
+| Agent | `CodeAgent` (smolagents 1.23, on `benchmark/retrieval/script-agent/.venv`) with its default prompts | upstream `ReActDSAgent` ([fannie1208/DSGym](https://github.com/fannie1208/DSGym), pinned at `461a464`) with its `SYSTEM_PROMPT` and custom-task template |
 | System class | `CodeAgentSystem` (`systems/code_agent_system.py`) | `DSGymSystem` (`systems/dsgym_system.py`) |
 | Code runs in | smolagents' interpreter, inside the agent's process | a persistent Jupyter kernel behind DSGym's executor manager |
 | Answer | `final_answer(value)` | `<answer>value</answer>` |
+
+One-time setup for smolagents: the agent and the model's code run on their own
+interpreter, with Texera's operator-sandbox Python, numpy and pyarrow and the
+KramaBench venv's other packages, pinned in `script-agent/requirements.txt`:
+
+```bash
+benchmark/retrieval/script-agent/setup.sh
+```
+
+`run_baselines.py` refuses to start smolagents on an interpreter whose Python
+or packages differ from that lock, or, when `NATIVE_ISOLATED_PYTHON` is set,
+whose Python, numpy or pyarrow differ from Texera's sandbox; the manifest
+records the interpreter and its packages. Rerun `setup.sh` after changing the lock.
 
 One-time setup for DSGym, which needs Python 3.12 and so its own interpreter:
 

@@ -184,13 +184,78 @@ class BaselineRunnerTests(unittest.TestCase):
                     ),
                 ),
                 patch.object(run_baselines, "prepare_artifacts", side_effect=ManifestSaved),
+                patch.object(run_baselines, "script_python", return_value={"path": "/locked/python"}),
             ):
                 with self.assertRaises(ManifestSaved):
                     run_baselines.main()
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertEqual({job["arm"] for job in manifest["jobs"]}, {"smolagents"})
+            self.assertEqual(manifest["script_python"], {"path": "/locked/python"})
             self.assertNotIn("dsgym_revision", manifest)
             self.assertNotIn("dsgym_packages", manifest)
+
+
+class ScriptPythonTests(unittest.TestCase):
+    """smolagents runs only on script-agent/'s interpreter, on Texera's Python, numpy and pyarrow."""
+
+    LOCKED_VERSION = (run_baselines.SCRIPT_AGENT / ".python-version").read_text().strip()
+    LOCKED = run_baselines.pinned((run_baselines.SCRIPT_AGENT / "requirements.txt").read_text().splitlines())
+
+    def fake(self, directory, name, version=None, **changes):
+        """An executable that answers the interpreter probe like a Python with these packages."""
+        packages = {**self.LOCKED, **changes}
+        path = Path(directory) / name
+        reply = json.dumps(
+            {"python": version or self.LOCKED_VERSION, "packages": [f"{k}=={v}" for k, v in packages.items()]}
+        )
+        path.write_text(f"#!/bin/sh\ncat <<'JSON'\n{reply}\nJSON\n")
+        path.chmod(0o755)
+        return path
+
+    def test_the_locked_interpreter_is_accepted_and_recorded(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NATIVE_ISOLATED_PYTHON", None)
+            found = run_baselines.script_python(self.fake(temp, "python"))
+        self.assertEqual(found["python"], self.LOCKED_VERSION)
+        self.assertEqual(run_baselines.pinned(found["packages"]), self.LOCKED)
+        self.assertIsNone(found["texera_sandbox"])
+
+    def test_missing_or_drifted_interpreters_are_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for python in (
+                Path(temp) / "absent",
+                self.fake(temp, "old-python", version="3.10.9"),
+                self.fake(temp, "other-numpy", numpy="2.2.4"),
+                self.fake(temp, "extra-package", **{"left-pad": "1.0"}),
+            ):
+                with self.subTest(python=python.name), self.assertRaisesRegex(ValueError, "setup.sh"):
+                    run_baselines.script_python(python)
+
+    def test_texera_sandbox_must_share_python_numpy_and_pyarrow(self):
+        with tempfile.TemporaryDirectory() as temp:
+            python = self.fake(temp, "python")
+            same = self.fake(temp, "texera-same", other="1.0")  # unrelated packages may differ
+            for texera in (
+                self.fake(temp, "texera-numpy", numpy="2.2.4"),
+                self.fake(temp, "texera-pyarrow", pyarrow="19.0.1"),
+                self.fake(temp, "texera-python", version="3.10.9"),
+            ):
+                with (
+                    self.subTest(texera=texera.name),
+                    patch.dict(os.environ, {"NATIVE_ISOLATED_PYTHON": str(texera)}),
+                    self.assertRaisesRegex(ValueError, "Texera's operator sandbox"),
+                ):
+                    run_baselines.script_python(python)
+            with patch.dict(os.environ, {"NATIVE_ISOLATED_PYTHON": str(same)}):
+                self.assertEqual(run_baselines.script_python(python)["texera_sandbox"], str(same))
+
+    @unittest.skipUnless(
+        (run_baselines.SCRIPT_AGENT / ".venv/bin/python").is_file() and os.environ.get("NATIVE_ISOLATED_PYTHON"),
+        "needs script-agent/setup.sh and Texera's NATIVE_ISOLATED_PYTHON",
+    )
+    def test_built_interpreter_matches_the_lock_and_texera(self):
+        found = run_baselines.script_python(run_baselines.SCRIPT_AGENT / ".venv/bin/python")
+        self.assertEqual(found["texera_sandbox"], os.environ["NATIVE_ISOLATED_PYTHON"])
 
 
 class BaselineReportTests(unittest.TestCase):
