@@ -196,3 +196,29 @@ model_list:
         provider:
           order: ["deepinfra", "morph", "wafer"]
           allow_fallbacks: false
+  - model_name: claude-opus-5.5
+    litellm_params:
+      model: anthropic/claude-opus-5-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      thinking: {"type": "adaptive", "display": "summarized"}
+      output_config: {"effort": "medium"}
+      additional_drop_params: ["temperature", "top_p", "top_k"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  # Gemini 3.8 Flash for the runtime-stats BIRD/PrepBench reps (2026-10-14), the texera-gemini stack's route verbatim:
+  # Google Vertex standard tier only (honours `stop`); temperature/top_p dropped (keep Gemini 3 at its default).
+  - model_name: gemini-3.8-flash
+    litellm_params:
+      model: openrouter/google/gemini-3.8-flash
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      additional_drop_params: ["temperature", "top_p"]
+      extra_body:
+        provider:
+          order: ["google-vertex/global"]
+          allow_fallbacks: false
