@@ -32,6 +32,12 @@ def install_provider_prices(cost_module, models):
     """
     frozen = {}
     for model in models:
+        if model == 'claude-opus-5.5':
+            from opus55 import price_schedule
+            price = price_schedule()
+            cost_module._FALLBACK[model] = tuple(price['rates'].values())
+            frozen[model] = price
+            continue
         if model not in {"claude-sonnet-5.5", "claude-sonnet-5-5"}:
             continue
         rates = {"input": 2e-6, "output": 10e-6, "cache_read": 0.2e-6, "cache_creation": 2.5e-6}
