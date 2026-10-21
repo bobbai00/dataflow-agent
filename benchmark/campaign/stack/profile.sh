@@ -61,7 +61,8 @@ export NATIVE_WORKSPACE=@STACK_DIR@/native-workspaces
 # Agent and engine settings carried over from the single-task-final stack (via texera-gemini).
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export JAVA_OPTS='-Xms256m -Xmx3g -XX:ActiveProcessorCount=3'
-export MODEL_MAX_OUTPUT_TOKENS=8192
+# 16,000 since 2026-10-21: thinking counts toward the cap, and Haiku 5.5 cut tool calls at 8,192 (PrepBench).
+export MODEL_MAX_OUTPUT_TOKENS=16000
 export MODEL_SDK_RETRIES=0
 export MODEL_RETRIES_PER_TURN=0
 export OMP_NUM_THREADS=2

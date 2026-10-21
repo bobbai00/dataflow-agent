@@ -81,11 +81,13 @@ class MetricsTests(unittest.TestCase):
         # Above 272K input tokens every input class doubles and output costs 1.5x.
         self.assertAlmostEqual(response_cost(long, sol61), 2 * (100_000 * 2.5e-6 + 200_000 * .1e-6) + 1.5 * 100 * 10e-6)
 
-    def test_haiku55_lowthink_is_priced_as_haiku55(self):
-        base, low = current_price_schedule("claude-haiku-5.5"), current_price_schedule("claude-haiku-5.5-lowthink")
-        for key in ("rates", "long_context_threshold", "long_context_multiplier"):
-            self.assertEqual(base[key], low[key])
-        self.assertEqual(low["long_context_multiplier"], 5)
+    def test_haiku55_lowthink_and_nothink_are_priced_as_haiku55(self):
+        base = current_price_schedule("claude-haiku-5.5")
+        for route in ("claude-haiku-5.5-lowthink", "claude-haiku-5.5-nothink"):
+            low = current_price_schedule(route)
+            for key in ("rates", "long_context_threshold", "long_context_multiplier"):
+                self.assertEqual(base[key], low[key])
+            self.assertEqual(low["long_context_multiplier"], 5)
 
     def test_gemini4_argon_takes_openrouters_charge_and_has_no_cache_write_rule(self):
         for model in ("gemini-4-argon", "gemini-4-argon-medium"):

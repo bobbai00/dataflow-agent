@@ -38,6 +38,8 @@ def current_price_schedule(model):
         "claude-haiku-5.5": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-08"),
         # The same model with adaptive thinking at effort low (claude-haiku-5.5-lowthink route).
         "claude-haiku-5.5-lowthink": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-17"),
+        # The same model with thinking switched off (claude-haiku-5.5-nothink route).
+        "claude-haiku-5.5-nothink": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-21"),
         # Gemini 4 Argon through OpenRouter on Google AI Studio (standard tier); OpenRouter reports each response's
         # charge, so these rates only price a response without one. Implicit caching only; the rates double on
         # 2026-12-01. The -medium route is the same model with reasoning effort medium.
@@ -52,7 +54,7 @@ def current_price_schedule(model):
     rates, source, verified = providers[model]
     # GPT-6.1 Sol follows GPT-5.6's billing rules: the 272K long-prompt rates, and every prompt written to its cache.
     gpt_cache_rules = model.startswith(("gpt-5.6-", "gpt-6.1-"))
-    haiku55 = model in ("claude-haiku-5.5", "claude-haiku-5.5-lowthink")
+    haiku55 = model in ("claude-haiku-5.5", "claude-haiku-5.5-lowthink", "claude-haiku-5.5-nothink")
     return {"model": model, "kind": "token_estimate", "currency": "USD", "unit": "per_token",
             "verified_on": verified, "source": source,
             "rates": {k: v / 1e6 if v is not None else None for k, v in

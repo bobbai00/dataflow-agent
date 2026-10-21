@@ -115,6 +115,22 @@ model_list:
           index: -2
         - location: message
           index: -1
+  # The same route with thinking switched off (effort stays low), for the 2026-10-21 test of whether Haiku's
+  # dataflow calls need their thinking. Named -nothink for the same reason as -lowthink.
+  - model_name: claude-haiku-5.5-nothink
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      thinking: {"type": "disabled"}
+      output_config: {"effort": "low"}
+      additional_drop_params: ["temperature", "top_p", "top_k"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
   - model_name: claude-opus-5
     litellm_params:
       model: claude-opus-5

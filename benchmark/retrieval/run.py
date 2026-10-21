@@ -43,7 +43,7 @@ MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Sol": "gpt-5.6
                "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5", "Haiku55": "claude-haiku-5.5",
                "Opus55": "claude-opus-5.5", "Sol61": "gpt-6.1-sol",
                "Gemini4Argon": "gemini-4-argon", "Gemini4ArgonMedium": "gemini-4-argon-medium",
-               "Haiku55LowThink": "claude-haiku-5.5-lowthink"}
+               "Haiku55LowThink": "claude-haiku-5.5-lowthink", "Haiku55NoThink": "claude-haiku-5.5-nothink"}
 
 
 JUDGE_FAILURE_PAUSE = 2
