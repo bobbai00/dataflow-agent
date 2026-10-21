@@ -94,7 +94,7 @@ test("optional python and first-rows full views are described only when they are
   expect(calls.every(call => !("python" in call) || call.python !== "")).toBe(true);
   for (const call of calls) expect(prepareDataflowCall(call, settings.retrievalViews).status).toBe("pending");
   expect(lean).toContain(
-    "A larger table shows its first 5 rows; to read further rows, show a `limit(<id>, n=..., offset=...)` of it."
+    "A larger table shows its first 5 rows; to read further rows, `set <new id>: limit(<id>, n=..., offset=...)` and show that."
   );
   expect(
     buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {

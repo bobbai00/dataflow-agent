@@ -201,7 +201,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const previewRows = observationFormat(options).fullPreviewRows;
   const larger =
     previewRows > 0
-      ? ` A larger table shows its first ${previewRows} rows; to read further rows, show a \`limit(<id>, n=..., offset=...)\` of it.`
+      ? ` A larger table shows its first ${previewRows} rows; to read further rows, \`set <new id>: limit(<id>, n=..., offset=...)\` and show that.`
       : "";
   return [
     `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
