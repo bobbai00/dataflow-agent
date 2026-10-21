@@ -163,6 +163,15 @@ export class MissingAnswerActionError extends Error {
   }
 }
 
+/** The provider refused the request: an empty reply ended by its content
+ * filter. Retried with the turn like a dropped connection. */
+export class ProviderRefusalError extends Error {
+  constructor() {
+    super("The provider refused the request (content filter): the model returned no reply and no tool call.");
+    this.name = "ProviderRefusalError";
+  }
+}
+
 /**
  * Strategy interface that hides the LLM call style from `TexeraAgent`.
  * Both implementations preserve the agent's bookkeeping invariants — they

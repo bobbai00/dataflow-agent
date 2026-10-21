@@ -20,7 +20,13 @@
 import { expect, test } from "bun:test";
 import { asSchema } from "ai";
 import { renderDataflowActionsResult, type DataflowActionsResult } from "./dataflow-actions";
-import { createDataflowTool, DATAFLOW_TOOL_DESCRIPTION, DATAFLOW_TOOL_SCHEMA, prepareDataflowCall } from "./turn-tool";
+import {
+  createDataflowTool,
+  CUT_OFF_CALL,
+  DATAFLOW_TOOL_DESCRIPTION,
+  DATAFLOW_TOOL_SCHEMA,
+  prepareDataflowCall,
+} from "./turn-tool";
 
 const views = ["sample_stats", "full"] as const;
 
@@ -93,6 +99,20 @@ test("a rejected call runs nothing and its receipt says why; arguments sent as t
   expect(duplicate.status).toBe("error");
   expect(duplicate.error).toMatch(/unique/);
   expect(duplicate.actions).toEqual([]);
+});
+
+test("a call with neither field was cut off at the output limit, and its receipt says so", () => {
+  // A provider delivers a tool call cut at the output limit as an empty object.
+  for (const input of [{}, "{}", { python: "" }]) {
+    const cut = prepareDataflowCall(input, views);
+    expect(cut.status).toBe("error");
+    expect(cut.actions).toEqual([]);
+    expect(renderDataflowActionsResult(cut)).toBe(`## call rejected\n${CUT_OFF_CALL}`);
+  }
+  expect(CUT_OFF_CALL).toContain("cut off at the output limit, which counts thinking");
+  // Definitions alone, from a provider that skips the schema, still register.
+  const definitions = prepareDataflowCall({ python: "def f(*, x=1):\n    return x\n" }, views);
+  expect(renderDataflowActionsResult(definitions)).not.toContain(CUT_OFF_CALL);
 });
 
 test("the receipt of a call is rendered by statement, with a note for ignored prose", () => {

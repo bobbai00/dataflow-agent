@@ -59,6 +59,10 @@ export const DATAFLOW_TOOL_SCHEMA = {
   required: ["python", "statements"],
 } as const;
 
+/** The receipt for a call that arrived without `statements`. */
+export const CUT_OFF_CALL =
+  "This call arrived without `statements`, so nothing ran: it was most likely cut off at the output limit, which counts thinking, before its arguments were complete. Make the next call shorter: register long functions in one call, then set and show them in the next.";
+
 /** A provider that sends the arguments as text still yields the fields. */
 function toolFields(input: unknown): Record<string, unknown> | undefined {
   let value = input;
@@ -84,6 +88,10 @@ export function prepareDataflowCall(
 ): DataflowActionsResult {
   const fields = toolFields(input);
   if (!fields) return rejectedActions("dataflow takes an object with the strings python and statements.");
+  // The schema requires `statements`, so a call with neither field was cut off
+  // before its arguments were complete; it did not forget its statements. (A
+  // provider that skips the schema may still send definitions alone.)
+  if (fields.statements === undefined && !fields.python) return rejectedActions(CUT_OFF_CALL);
   const parsed = parseTurn(fields, { views, answer });
   if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;

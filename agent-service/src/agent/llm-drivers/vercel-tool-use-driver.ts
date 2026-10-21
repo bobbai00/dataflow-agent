@@ -33,7 +33,7 @@
 
 import { generateText, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
-import { MissingAnswerActionError } from "./types";
+import { MissingAnswerActionError, ProviderRefusalError } from "./types";
 import type { TokenUsage } from "../../types/agent";
 
 export interface VercelToolUseDriverOptions {
@@ -172,6 +172,11 @@ export class VercelToolUseDriver implements LLMDriver {
       usage,
     };
     if (input.answered?.()) return completed;
+    // A provider refusal (LiteLLM's content_filter finish) returns no reply and
+    // no tool call. It is a provider failure, retried like a dropped request,
+    // not the model deciding to stop.
+    if (result.finishReason === "content-filter" && !result.text.trim() && !result.toolCalls.length)
+      throw new ProviderRefusalError();
     if (input.requireShownResult) {
       const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
       // The answer is a reply without a tool call once a result was shown;
