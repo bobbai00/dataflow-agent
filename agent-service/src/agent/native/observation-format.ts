@@ -32,8 +32,8 @@ export interface ObservationFormatSettings {
   catalogRecords: number;
   answerEcho: boolean;
   /** Rows a `full` view shows of a whole table that exceeds its character
-   * budget; 0 shows as many rows as fit. Complete tables, source previews and
-   * column selections are not capped. */
+   * budget; 0 shows as many rows as fit. Complete tables, tables read from
+   * files, source previews and column selections are not capped. */
   fullPreviewRows: number;
   /** A dataflow call may leave out `python` when it defines nothing; the tool
    * schema and the prompt's examples then omit an empty one. */
@@ -413,6 +413,8 @@ export function renderRecords(
     columns?: readonly string[];
     detail?: "shape" | "sample";
     preview?: boolean;
+    /** The table was read from files (a scan or a loader): its first look shows as many rows as fit. */
+    source?: boolean;
     relevant?: ReadonlySet<string>;
   }
 ): RenderedRecords {
@@ -478,7 +480,7 @@ export function renderRecords(
     maxChars: Math.max(0, options.maxChars - (options.view === "sample" ? "sample_stats".length - "sample".length : 0)),
     maxRows: options.view === "full" ? 0 : options.maxRows,
     detail: options.detail === "shape" ? ("shape" as const) : undefined,
-    previewRows: options.view === "full" ? config.fullPreviewRows : 0,
+    previewRows: options.view === "full" && !options.source ? config.fullPreviewRows : 0,
   };
   let frozen = build(allowed);
   let rendered = restrictRecords(frozen, limits);

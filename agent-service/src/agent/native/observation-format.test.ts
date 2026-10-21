@@ -243,6 +243,10 @@ test("a full view of a whole table larger than its budget shows only its first r
   expect(selected.returnedRows).toBeGreaterThan(5);
   const preview = renderRecords(info(rows), { view: "full", maxChars: 2000, fullPreviewRows: 5, preview: true });
   expect(preview.returnedRows).toBeGreaterThan(5);
+  // A table read from files keeps its first look: as many rows as fit.
+  const source = renderRecords(info(rows), { view: "full", maxChars: 2000, fullPreviewRows: 5, source: true });
+  expect(source.returnedRows).toBe(filled.returnedRows);
+  expect(source.text).toContain("cut at 2,000 characters");
   // Samples keep their own row limit.
   expect(
     renderRecords(info(rows), { view: "sample", maxChars: 2000, maxRows: 3, fullPreviewRows: 1 }).returnedRows

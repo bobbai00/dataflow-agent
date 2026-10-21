@@ -1013,6 +1013,10 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     columns: context.columns,
     detail: context.detail,
     preview: op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0,
+    // A table read from files keeps its first look whole up to the budget: a
+    // value written differently from the first rows (a "Sept" among "Aug"
+    // dates) is what that look is for.
+    source: op.nativeOp?.type === "Scan" || info.resultVersion?.inputs?.length === 0,
     relevant: relevance(context),
   });
   const evidence = collectNativeEvidence(context);
