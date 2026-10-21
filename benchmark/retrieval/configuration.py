@@ -62,6 +62,8 @@ def campaign_arms():
     # rule, pandas rounding in user code, and no `columns:` line beside complete statistics.
     arms["evidence_data1_flow0_hygiene"] = {**arms["evidence_data1_flow0_lean"], "dataHygiene": True,
                                             "pandasRound": True, "compactRecords": True}
+    # The same for models whose strict tool mode requires every field (OpenAI): python stays required.
+    arms["evidence_data1_flow0_hygiene_strict"] = {**arms["evidence_data1_flow0_hygiene"], "optionalPython": False}
     return arms
 
 

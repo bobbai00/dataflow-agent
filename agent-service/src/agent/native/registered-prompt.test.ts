@@ -110,12 +110,16 @@ test("optional python and first-rows full views are described only when they are
     "unexpected parsing failures should not silently become nulls. Normalize text keys before grouping or joining:"
   );
   // A live agent takes both settings: its prompt and its tool follow them.
-  const agent = new TexeraAgent({
-    agentId: "registered-lean",
-    modelType: "test",
-    driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
-    contextAssembler: () => [],
-  });
+  const live = (modelType: string) =>
+    new TexeraAgent({
+      agentId: `registered-lean-${modelType}`,
+      modelType,
+      driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
+      contextAssembler: () => [],
+    });
+  // OpenAI's strict tool mode needs every field required, so only Claude models take optionalPython.
+  expect(() => live("gpt-6.1-sol").updateSettings(settings)).toThrow(/optionalPython needs a Claude model/);
+  const agent = live("claude-opus-5.5");
   agent.updateSettings(settings);
   const info = agent.getSystemInfo();
   expect(info.systemPrompt).toBe(lean);

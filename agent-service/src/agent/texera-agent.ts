@@ -1062,6 +1062,12 @@ export class TexeraAgent {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
     validateNativeSettings(updates);
+    // Anthropic's strict tool mode accepts a field that is not required; OpenAI's
+    // rejects every request whose schema leaves one out.
+    if (updates.optionalPython === true && !this.modelType.startsWith("claude"))
+      throw new NativeCatalogSettingsError(
+        `optionalPython needs a Claude model: strict tool schemas for ${this.modelType} must require every field.`
+      );
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
     if (
