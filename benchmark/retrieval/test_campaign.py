@@ -84,6 +84,24 @@ class CampaignTests(unittest.TestCase):
                 "context_prefix_changed", "unexpected_retrieval_view", "flow_evidence_leak", "data_evidence_leak"
             })
 
+    def test_hygiene_null_counts_in_a_full_view_are_not_a_leak(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            settings = {"retrievalViews": ["sample_stats", "full"], "flowEvidence": False, "dataHygiene": True}
+            (path / "settings.json").write_text(json.dumps(settings))
+
+            def findings(facts):
+                (path / "react_steps.json").write_text(json.dumps([{"toolResults": [{"output": {"actions": [{
+                    "action": {"type": "retrieve", "view": "full"}, "status": "ok", "output": {"evidence": facts}
+                }]}}]}]))
+                return audit_attempt(path, settings)["violations"]
+
+            self.assertEqual(findings(["table.records", "data.nulls"]), [])
+            self.assertEqual(findings(["table.records", "data.nulls", "data.statistics.5"]), ["data_evidence_leak"])
+            settings["dataHygiene"] = False
+            (path / "settings.json").write_text(json.dumps(settings))
+            self.assertEqual(findings(["table.records", "data.nulls"]), ["data_evidence_leak"])
+
     def test_rejected_model_action_is_not_an_engine_violation(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)

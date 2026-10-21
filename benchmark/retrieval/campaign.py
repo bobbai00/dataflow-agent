@@ -151,7 +151,11 @@ def audit_attempt(path, settings):
                     facts = target.get("evidence", [])
                     if not settings["flowEvidence"] and any(f.startswith("flow.") for f in facts):
                         violations.append("flow_evidence_leak")
-                    if action.get("view") != "sample_stats" and any(f.startswith("data.") for f in facts):
+                    # dataHygiene deliberately names the columns holding nulls in a view without
+                    # statistics; every other data fact there is a leak.
+                    allowed = {"data.nulls"} if settings.get("dataHygiene") else set()
+                    if action.get("view") != "sample_stats" and any(
+                            f.startswith("data.") and f not in allowed for f in facts):
                         violations.append("data_evidence_leak")
     if settings.get("agentMode") == "native" and raw is not None:
         if text_replies:

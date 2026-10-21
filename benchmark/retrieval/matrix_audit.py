@@ -240,7 +240,9 @@ def audit_attempt(path, settings):
                     text, facts, table = target.get("text", ""), target.get("evidence", []), target.get("table", {})
                     counts["characters"] += len(text)
                     counts["max_characters"] = max(counts["max_characters"], len(text))
-                    any_data = any(f.startswith("data.") for f in facts)
+                    # dataHygiene's null-count line in a view without statistics is not a leak.
+                    any_data = any(f.startswith("data.") and not (f == "data.nulls" and settings.get("dataHygiene"))
+                                   for f in facts)
                     # Exposure markers describe why data was not shown; they
                     # are not measurements and must not inflate treatment use.
                     data_facts = any(f.startswith("data.") and f not in ("data.complete", "data.status") for f in facts)
