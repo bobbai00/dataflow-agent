@@ -50,6 +50,13 @@ def campaign_arms():
         }
         for flow in [0, 1]
     })
+    # Leaner tool results on the default views (2026-10-21 cache-write study):
+    # tab-separated records and column names once per table up to 40 columns;
+    # then also only the first 5 rows of a full view of a table larger than its
+    # budget, and no empty python field in calls.
+    arms["evidence_data1_flow0_tsv"] = {**arms["evidence_data1_flow0"], "tableFormat": "tsv", "keyValueColumns": 40}
+    arms["evidence_data1_flow0_lean"] = {**arms["evidence_data1_flow0_tsv"], "fullPreviewRows": 5,
+                                         "optionalPython": True}
     return arms
 
 

@@ -81,6 +81,40 @@ test("instructions describe receipts by statement, without cache bookkeeping", (
   expect(JSON.stringify(schema)).not.toMatch(/\bcach(?:e|ed|ing)\b/i);
 });
 
+test("optional python and first-rows full views are described only when they are on", () => {
+  const base = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"] });
+  expect(base).toContain('`python` (definitions, or `""`)');
+  expect(exampleCalls(base).every(call => "python" in call)).toBe(true);
+  expect(base).not.toContain("A larger table shows its first");
+  const settings = { retrievalViews: ["full"] as RetrievalView[], optionalPython: true, fullPreviewRows: 5 };
+  const lean = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, settings);
+  expect(lean).toContain("`python` (definitions, left out when there are none)");
+  const calls = exampleCalls(lean);
+  expect(calls.some(call => !("python" in call))).toBe(true);
+  expect(calls.every(call => !("python" in call) || call.python !== "")).toBe(true);
+  for (const call of calls) expect(prepareDataflowCall(call, settings.retrievalViews).status).toBe("pending");
+  expect(lean).toContain(
+    "A larger table shows its first 5 rows; to read further rows, show a `limit(<id>, n=..., offset=...)` of it."
+  );
+  expect(
+    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: ["sample_stats", "full"],
+      fullPreviewRows: 5,
+    })
+  ).toContain("only for a small table whose every row you need. A larger table shows its first 5 rows");
+  // A live agent takes both settings: its prompt and its tool follow them.
+  const agent = new TexeraAgent({
+    agentId: "registered-lean",
+    modelType: "test",
+    driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
+    contextAssembler: () => [],
+  });
+  agent.updateSettings(settings);
+  const info = agent.getSystemInfo();
+  expect(info.systemPrompt).toBe(lean);
+  expect((info.tools[0].inputSchema as any).required).toEqual(["statements"]);
+});
+
 for (const data of [false, true])
   for (const flow of [false, true])
     test(`prompt and live agent settings agree: data=${data}, flow=${flow}`, () => {

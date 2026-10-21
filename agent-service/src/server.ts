@@ -418,12 +418,18 @@ async function createAgentInstance(
 const OBSERVATION_SETTINGS_SCHEMA = {
   tableFormat: t.Optional(t.Union([t.Literal("markdown"), t.Literal("tsv")])),
   ...Object.fromEntries(
-    ["keyValueColumns", "columnsShown", "definitionChars", "cellChars", "topValues", "catalogRecords"].map(key => [
-      key,
-      t.Optional(t.Integer({ minimum: 0, maximum: 100000 })),
-    ])
+    [
+      "keyValueColumns",
+      "columnsShown",
+      "definitionChars",
+      "cellChars",
+      "topValues",
+      "catalogRecords",
+      "fullPreviewRows",
+    ].map(key => [key, t.Optional(t.Integer({ minimum: 0, maximum: 100000 }))])
   ),
   answerEcho: t.Optional(t.Boolean()),
+  optionalPython: t.Optional(t.Boolean()),
 };
 
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {

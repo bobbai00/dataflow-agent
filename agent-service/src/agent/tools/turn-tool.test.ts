@@ -52,6 +52,23 @@ test("the tool takes two strings and prepares the call's actions with its statem
   expect(result.turn?.ignoredProse).toEqual([]);
 });
 
+test("with optional python only statements are required, and a call without python runs", async () => {
+  const tool = createDataflowTool(views, false, true);
+  const schema = asSchema(tool.inputSchema).jsonSchema as any;
+  expect(tool.strict).toBe(true);
+  expect(Object.keys(schema.properties)).toEqual(["python", "statements"]);
+  expect(schema.required).toEqual(["statements"]);
+  expect(schema.properties.python.description).toContain("leave the field out");
+  // The default tool is unchanged.
+  expect(asSchema(createDataflowTool(views).inputSchema).jsonSchema).toEqual(DATAFLOW_TOOL_SCHEMA);
+  const result = (await tool.execute!({ statements: "execute a" } as any, {
+    toolCallId: "t1",
+    messages: [],
+  })) as DataflowActionsResult;
+  expect(result.status).toBe("pending");
+  expect(result.actions.map(item => item.action.type)).toEqual(["execute"]);
+});
+
 test("a rejected call runs nothing and its receipt says why; arguments sent as text still parse", () => {
   const unavailable = prepareDataflowCall({ python: "", statements: "show result a sample" }, views);
   expect(unavailable.status).toBe("error");

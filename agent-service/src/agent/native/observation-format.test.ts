@@ -219,6 +219,40 @@ describe("record views", () => {
   });
 });
 
+test("a full view of a whole table larger than its budget shows only its first rows", () => {
+  const rows = Array.from({ length: 300 }, (_, i) => ({
+    day: `2024-01-${String((i % 28) + 1).padStart(2, "0")}`,
+    n: `${i}`,
+  }));
+  const capped = renderRecords(info(rows), { view: "full", maxChars: 2000, fullPreviewRows: 5 });
+  expect(capped.returnedRows).toBe(5);
+  expect(capped.text).toContain(
+    "records: full; 5 of 300 rows, 2 of 2 columns (retained records, not a random sample; first 5 rows; the whole table exceeds 2,000 characters)"
+  );
+  expect(capped.text).not.toContain("cut at");
+  expect(capped.complete).toBe(false);
+  // Without the setting the view fills its budget, as before.
+  const filled = renderRecords(info(rows), { view: "full", maxChars: 2000 });
+  expect(filled.returnedRows).toBeGreaterThan(5);
+  expect(filled.text).toContain("cut at 2,000 characters");
+  // A table that fits stays complete; column selections and source previews keep the rows they narrowed to.
+  const small = renderRecords(info(rows.slice(0, 8)), { view: "full", maxChars: 2000, fullPreviewRows: 5 });
+  expect(small.returnedRows).toBe(8);
+  expect(small.complete).toBe(true);
+  const selected = renderRecords(info(rows), { view: "full", maxChars: 2000, fullPreviewRows: 5, columns: ["n"] });
+  expect(selected.returnedRows).toBeGreaterThan(5);
+  const preview = renderRecords(info(rows), { view: "full", maxChars: 2000, fullPreviewRows: 5, preview: true });
+  expect(preview.returnedRows).toBeGreaterThan(5);
+  // Samples keep their own row limit.
+  expect(
+    renderRecords(info(rows), { view: "sample", maxChars: 2000, maxRows: 3, fullPreviewRows: 1 }).returnedRows
+  ).toBe(3);
+  // A historical restriction keeps the reason the rows stop.
+  const restricted = restrictRecords(capped.frozen, { maxChars: 2000, maxRows: 2 });
+  expect(restricted.text).toContain("2 of 300 rows");
+  expect(restricted.text).toContain("first 2 rows; the whole table exceeds 2,000 characters");
+});
+
 test("table headers cannot introduce rows or columns", () => {
   expect(renderTable(["a|b", "c\nd"], [["1", "2"]], "markdown")).toContain('"a\\|b"');
   expect(renderTable(["a\tb"], [["1"]], "tsv")).toContain('"a\\tb"');

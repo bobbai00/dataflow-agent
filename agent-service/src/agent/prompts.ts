@@ -198,15 +198,20 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
   const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
   const fullLimit = options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT;
+  const previewRows = observationFormat(options).fullPreviewRows;
+  const larger =
+    previewRows > 0
+      ? ` A larger table shows its first ${previewRows} rows; to read further rows, show a \`limit(<id>, n=..., offset=...)\` of it.`
+      : "";
   return [
     `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
     first === "sample_stats" && views.includes("full")
-      ? `\`show result <id>\` gives the schema, ${rows} and column statistics; ask for \`show result <id> full\`, every record within ${fullLimit} characters, only for a small table whose every row you need.`
+      ? `\`show result <id>\` gives the schema, ${rows} and column statistics; ask for \`show result <id> full\`, every record within ${fullLimit} characters, only for a small table whose every row you need.${larger}`
       : first && views.includes("full")
-        ? `\`show result <id>\` gives ${lower(sampleText)}. \`show result <id> full\` gives ${lower(full)} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
+        ? `\`show result <id>\` gives ${lower(sampleText)}. \`show result <id> full\` gives ${lower(full)}${larger} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
         : first
           ? `\`show result <id>\` gives ${lower(sampleText)}.`
-          : `\`show result <id> full\` gives ${lower(full)} Check the completeness of every result.`,
+          : `\`show result <id> full\` gives ${lower(full)}${larger} Check the completeness of every result.`,
     "Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.",
   ].join(" ");
 }
@@ -220,6 +225,9 @@ export function buildRegisteredNativeSystemPrompt(
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
   const multiRequest = options.multiRequest ?? "off";
   const fields: Record<string, string> = {
+    PYTHON_FIELD: format.optionalPython
+      ? "`python` (definitions, left out when there are none)"
+      : '`python` (definitions, or `""`)',
     FINAL_ANSWER: finalAnswerText(options.answerStatement),
     CONTEXT_LAYOUT:
       contextMode === ContextMode.LATEST

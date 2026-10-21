@@ -31,6 +31,13 @@ export interface ObservationFormatSettings {
   topValues: number;
   catalogRecords: number;
   answerEcho: boolean;
+  /** Rows a `full` view shows of a whole table that exceeds its character
+   * budget; 0 shows as many rows as fit. Complete tables, source previews and
+   * column selections are not capped. */
+  fullPreviewRows: number;
+  /** A dataflow call may leave out `python` when it defines nothing; the tool
+   * schema and the prompt's examples then omit an empty one. */
+  optionalPython: boolean;
 }
 export type ObservationFormatOptions = Partial<ObservationFormatSettings>;
 export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
@@ -42,6 +49,8 @@ export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
   topValues: 4,
   catalogRecords: 0,
   answerEcho: false,
+  fullPreviewRows: 0,
+  optionalPython: false,
 };
 export function observationFormat(options: ObservationFormatOptions = {}): ObservationFormatSettings {
   return Object.fromEntries(
@@ -193,6 +202,8 @@ export interface FrozenRecords {
   columnsRequested?: boolean;
   /** Characters the records were cut at, when the budget removed rows. */
   cutAt?: number;
+  /** Characters a whole table exceeded when its full view kept only its first rows. */
+  capped?: number;
   /** Sample rows were chosen one per cell pattern before head and tail rows. */
   shapes?: boolean;
 }
@@ -229,6 +240,9 @@ function recordCaption(view: FrozenRecords, rows: FrozenRecords["rows"], shapeOn
               : "retained records, not a random sample",
           ]),
     ...(view.columnsRequested ? ["columns requested"] : []),
+    ...(view.capped !== undefined
+      ? [`first ${countOf(rows.length, "row")}; the whole table exceeds ${formatCount(view.capped)} characters`]
+      : []),
     ...(cutAt !== undefined ? [`cut at ${formatCount(cutAt)} characters`] : []),
     ...(view.preview ? ["source preview only"] : []),
     ...(clipped ? [`${countOf(clipped, "clipped cell")}`] : []),
@@ -295,7 +309,7 @@ function displayLines(rows: FrozenRecords["rows"], layout: Layout, width: number
 /** Restrict only frozen display lines. No fresh rows, profiles or graph are read. */
 export function restrictRecords(
   frozen: FrozenRecords,
-  limits: { maxChars: number; maxRows?: number; detail?: "shape" }
+  limits: { maxChars: number; maxRows?: number; detail?: "shape"; previewRows?: number }
 ): RenderedRecords {
   const budget = Math.max(0, Math.floor(limits.maxChars));
   const rowLimit = limits.maxRows && limits.maxRows > 0 ? Math.floor(limits.maxRows) : frozen.rows.length;
@@ -309,15 +323,30 @@ export function restrictRecords(
           frozen.layout
         );
   let cutAt: number | undefined;
+  let shown = frozen;
   const render = () =>
     [
       frozen.schema,
-      recordCaption(frozen, rows, limits.detail === "shape", cutAt),
+      recordCaption(shown, rows, limits.detail === "shape", cutAt),
       header,
       ...displayLines(rows, frozen.layout, frozen.fields.length),
     ]
       .filter(Boolean)
       .join("\n");
+  // A whole table that exceeds the budget shows its first rows only: the rows
+  // that would fill the budget are a preview of the table either way. Source
+  // previews and column selections keep the rows they were narrowed to show.
+  const previewRows = limits.previewRows && limits.previewRows > 0 ? Math.floor(limits.previewRows) : 0;
+  if (
+    previewRows &&
+    rows.length > previewRows &&
+    !frozen.preview &&
+    !frozen.columnsRequested &&
+    render().length > budget
+  ) {
+    rows = rows.slice(0, previewRows);
+    shown = { ...frozen, capped: budget };
+  }
   if (render().length > budget && rows.length) {
     cutAt = budget;
     const available = rows;
@@ -348,7 +377,7 @@ export function restrictRecords(
     text.includes("(complete");
   return {
     text,
-    frozen: { ...frozen, fields, rows, sourceComplete: complete },
+    frozen: { ...shown, fields, rows, sourceComplete: complete },
     totalRows: frozen.totalRows,
     returnedRows: rows.length,
     totalColumns: frozen.totalColumns,
@@ -432,6 +461,7 @@ export function renderRecords(
     maxChars: Math.max(0, options.maxChars - (options.view === "sample" ? "sample_stats".length - "sample".length : 0)),
     maxRows: options.view === "full" ? 0 : options.maxRows,
     detail: options.detail === "shape" ? ("shape" as const) : undefined,
+    previewRows: options.view === "full" ? config.fullPreviewRows : 0,
   };
   let frozen = build(allowed);
   let rendered = restrictRecords(frozen, limits);

@@ -143,7 +143,7 @@ export function registeredExamples(options: Options): string {
   // The answer is a reply without the tool, never a statement.
   const reply = (text: string) => `Reply, without the tool: \`${text}\``;
   const call = (python: string, statements: string, receipt = false): string => {
-    const fields = { python, statements };
+    const fields = !python && options.optionalPython ? { statements } : { python, statements };
     const parsed = parseTurn(fields, { views, answer: options.answerStatement === true });
     if (!parsed.ok) throw new Error(`Invalid teaching example: ${parsed.error}`);
     const { actions } = parsed.turn;

@@ -690,7 +690,8 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
         availableRetrievalViews(this.settings),
-        this.settings.answerStatement === true
+        this.settings.answerStatement === true,
+        this.settings.optionalPython === true
       );
     }
 

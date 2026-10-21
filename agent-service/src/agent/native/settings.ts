@@ -100,6 +100,7 @@ export function validateEvidenceSettings(settings: object): void {
     "cellChars",
     "topValues",
     "catalogRecords",
+    "fullPreviewRows",
   ]) {
     const value = supplied[key];
     if (value !== undefined && (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 100000))
@@ -123,6 +124,7 @@ export function validateEvidenceSettings(settings: object): void {
   }
   for (const key of [
     "answerEcho",
+    "optionalPython",
     "dataEvidence",
     "flowEvidence",
     "answerStatement",

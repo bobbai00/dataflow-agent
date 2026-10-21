@@ -18,12 +18,13 @@
 # time, independent shuffled reps, no outcome-selected retries. Runner, agent and engine all come from the stack's
 # checkout (TEXERA_HOME in its profile).
 # Usage: [STACK_DIR=/var/tmp/texera-stable] [ARMS="evidence_full_flow0 evidence_data1_flow0"] [TIMEOUT=900] [SAMPLE=2000]
-#        launch.sh <run name> <model tag> <reps> <workers> [task ids...]   (no task ids = all 104 tasks)
+#        [CHECKOUT=<checkout>] launch.sh <run name> <model tag> <reps> <workers> [task ids...]   (no task ids = all
+#        104 tasks; CHECKOUT runs the runner from another checkout, matching an agent started with the same CHECKOUT)
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
-W="$TEXERA_HOME"
+W="${CHECKOUT:-$TEXERA_HOME}"
 OUT=$1 MODEL=$2 REPS=$3 WORKERS=$4; shift 4
 ARMS=${ARMS:-"evidence_full_flow0 evidence_data1_flow0"}
 TIMEOUT=${TIMEOUT:-900}

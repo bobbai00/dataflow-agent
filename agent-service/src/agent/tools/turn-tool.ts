@@ -107,11 +107,21 @@ export function mergeDataflowCalls(
 export const DATAFLOW_TOOL_DESCRIPTION_ANSWER =
   "Edit, compute and read the Dataflow, and give the final answer with an answer statement.";
 
-export function createDataflowTool(views: readonly RetrievalView[] = availableRetrievalViews(), answer = false) {
+export function createDataflowTool(
+  views: readonly RetrievalView[] = availableRetrievalViews(),
+  answer = false,
+  optionalPython = false
+) {
   const schema = structuredClone(DATAFLOW_TOOL_SCHEMA) as any;
   if (answer)
     schema.properties.statements.description =
       'Statements, one per line: set <id>: <op>(...), delete <id>, execute <id>, show result|schema|operator|function|builtin ..., answer <id> | answer <key>=<id>, ...; "" when the call only defines functions.';
+  // An empty `python` costs output tokens on every call that defines nothing.
+  if (optionalPython) {
+    schema.properties.python.description =
+      "Python definitions to register or replace; leave the field out when the call defines none.";
+    schema.required = ["statements"];
+  }
   return tool({
     description: answer ? DATAFLOW_TOOL_DESCRIPTION_ANSWER : DATAFLOW_TOOL_DESCRIPTION,
     strict: true,
