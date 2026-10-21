@@ -39,9 +39,9 @@ of the 2026-10-14 runs and the 2026-10-17 GPT-6.1 Sol / Gemini 4 Argon / Haiku 5
 The KramaBench pin carries `workload/prepbench.json` and both format hints; the input tables are generated (166 MB):
 
 ```bash
-git clone https://github.com/TsinghuaDatabaseGroup/prepbench /var/tmp/texera-registered-python/prepbench/repo
-git -C /var/tmp/texera-registered-python/prepbench/repo checkout 993a313
-python3 benchmark/prepbench/build_workload.py /var/tmp/texera-registered-python/prepbench/repo
+git clone https://github.com/TsinghuaDatabaseGroup/prepbench ~/datasets/prepbench
+git -C ~/datasets/prepbench checkout 993a313
+python3 benchmark/prepbench/build_workload.py ~/datasets/prepbench
 ```
 
 The build is deterministic: from 993a313 it reproduces the committed JSON files byte for byte.
@@ -52,7 +52,7 @@ Runs go through a benchmark stack (see `benchmark/campaign/README.md`): `launch-
 (default arm `evidence_full_flow0`, the basic setting) and `launch-prep-smol.sh` for smolagents. Then:
 
 ```bash
-PREPBENCH_REPO=/var/tmp/texera-registered-python/prepbench/repo \
+PREPBENCH_REPO=~/datasets/prepbench \
   benchmark/Kramabench/.venv/bin/python benchmark/prepbench/score.py scores.json /var/tmp/texera-stable/runs/<run> ...
 ```
 

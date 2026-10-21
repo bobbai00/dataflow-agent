@@ -21,7 +21,7 @@ in model-request-trace.jsonl, priced with benchmark/retrieval/metrics.py (OpenRo
 usage.cost). Model tags are the runner's (benchmark/retrieval/run.py MODEL_TYPES).
 
 PREPBENCH_REPO points at a checkout of TsinghuaDatabaseGroup/prepbench (the runs used 993a313); the default is
-/var/tmp/texera-registered-python/prepbench/repo. Run from the checkout root with the KramaBench venv:
+~/datasets/prepbench. Run from the checkout root with the KramaBench venv:
   benchmark/Kramabench/.venv/bin/python benchmark/prepbench/score.py <out.json> <run dir> [<run dir> ...]"""
 import collections
 import json
@@ -31,7 +31,7 @@ import statistics as st
 import sys
 
 HERE = Path(__file__).resolve().parent
-REPO = Path(os.environ.get("PREPBENCH_REPO", "/var/tmp/texera-registered-python/prepbench/repo"))
+REPO = Path(os.environ.get("PREPBENCH_REPO", "~/datasets/prepbench")).expanduser()
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(HERE.parent / "retrieval"))
 from evaluate.core import evaluate  # noqa: E402
