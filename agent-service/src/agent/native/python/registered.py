@@ -300,6 +300,24 @@ def registered_request(request):
         return {"ok": False, "error": f"{type(error).__name__}: {error}"}
 
 
+def _pandas_round(number, ndigits=None):
+    """round() as pandas rounds a float column.
+
+    With ndigits, a float is scaled and rounded half to even as NumPy and
+    Series.round do, so round(0.015, 2) is 0.02; Python's correctly rounded
+    result is 0.01 because 0.015 is stored as 0.01499.... Anything else rounds
+    as Python does.
+    """
+    import builtins
+    import math
+
+    if ndigits is not None and isinstance(number, float) and math.isfinite(number):
+        import numpy as np
+
+        return float(np.round(number, ndigits))
+    return builtins.round(number) if ndigits is None else builtins.round(number, ndigits)
+
+
 def registered_callable(spec):
     """Bind a fresh namespace once per operator invocation, never per row."""
     import copy
@@ -307,6 +325,10 @@ def registered_callable(spec):
 
     registration = spec["properties"]["registered"]
     scope, _, _ = registered_namespace(registration["cells"])
+    # Definitions and lambdas look `round` up when they run, so binding it here
+    # reaches both; a definition of its own `round` is left alone.
+    if spec.get("pandasRound") and "round" not in scope:
+        scope["round"] = _pandas_round
     if "lambda" in registration:
         return _condition(registration, scope, spec.get("id", "filter"))
     return functools.partial(scope[registration["entry"]], **copy.deepcopy(registration["settings"]))

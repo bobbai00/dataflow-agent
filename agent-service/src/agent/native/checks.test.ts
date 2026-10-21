@@ -20,7 +20,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
-import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines, scanNoteLines } from "./checks";
+import { constantColumnLines, hygieneLines, nativeAdjustmentLines, nativeCheckLines, scanNoteLines } from "./checks";
 
 const op = (type: string, properties: Record<string, unknown> = {}): OperatorPredicate =>
   ({ operatorID: "x", operatorType: "DataProcessing", nativeOp: { type, properties, inputs: [] } }) as any;
@@ -246,5 +246,31 @@ describe("constantColumnLines", () => {
     expect(constantColumnLines(step(), result(columns, 40), [teams])).toEqual([
       'note: column "a" is null in all 40 rows; column "b" is null in all 40 rows; column "c" is null in all 40 rows; and 2 more such columns.',
     ]);
+  });
+});
+
+describe("hygieneLines", () => {
+  test("keys written in several ways and null keys on both sides of a join are named", () => {
+    const variants = {
+      keyVariants: [
+        {
+          column: "Category",
+          values: 1,
+          examples: [{ forms: ["Beauty", "Beauty "], rows: [4, 1] }],
+        },
+      ],
+    };
+    expect(hygieneLines(op("Aggregate"), info(variants))).toEqual([
+      'note: "Category" has 1 value written in several ways (case, spacing or punctuation), each form its own group: "Beauty" (4 rows) and "Beauty " (1 rows).',
+    ]);
+    expect(hygieneLines(op("Window"), info(variants))[0]).toContain("each form its own partition");
+    const join = (left: number, right: number, nullsEqual = false) =>
+      info({ join: { nullsEqual, left: { nullKeyRows: left }, right: { nullKeyRows: right } } });
+    expect(hygieneLines(op("Join"), join(2, 3))).toEqual([
+      "note: 2 left and 3 right rows have a null key; null keys match nothing unless nulls_equal=True (pandas merge pairs them).",
+    ]);
+    // One side's null keys match nothing in pandas either; nulls_equal=True pairs them.
+    expect(hygieneLines(op("Join"), join(2, 0))).toEqual([]);
+    expect(hygieneLines(op("Join"), join(2, 3, true))).toEqual([]);
   });
 });

@@ -28,7 +28,7 @@ import { resultScope } from "../native/result-scope";
 import { nativeAssignmentText } from "../native/catalog";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import { observationFormat, describeOperator, topologicalOperators, columnEntries } from "../native/observation-format";
-import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
+import { constantColumnLines, hygieneLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { edgeEnds, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { inspectRegisteredNamespace, inspectRegisteredSchema, registeredInspectionName } from "./registered-inspection";
 import { EMPTY_DATAFLOW_ERROR, runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
@@ -244,6 +244,7 @@ export async function executeDataflowActionBatch(
           // An empty result is always worth a block, whatever else is enabled.
           ...(rows === 0 ? ["note: empty table."] : []),
           ...(settings.nativeChecks ? nativeCheckLines(op, info) : []),
+          ...(settings.dataHygiene ? hygieneLines(op, info) : []),
           ...nativeAdjustmentLines(op, info),
           ...(multiRequest
             ? constantColumnLines(

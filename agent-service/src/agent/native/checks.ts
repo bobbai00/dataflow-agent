@@ -167,6 +167,50 @@ export function nativeCheckLines(op: OperatorPredicate, info: OperatorInfo): str
 }
 
 /**
+ * Keys and missing values a pandas user checks by hand, worded with
+ * `dataHygiene`: group or partition key values written in several ways, which
+ * stay separate groups ("Beauty" and "Beauty "), and null keys on both sides of
+ * a join, which match nothing unless nulls_equal=True although pandas merge
+ * pairs them. A null key on one side matches nothing in either, so it has no line.
+ */
+export function hygieneLines(op: OperatorPredicate, info: OperatorInfo): string[] {
+  const view = op.nativeOp;
+  const operations = record(info.tableProfile?.native?.operations);
+  if (!view || !Object.keys(operations).length) return [];
+  const lines: string[] = [];
+  const unit = view.type === "Window" ? "partition" : "group";
+  for (const raw of Array.isArray(operations.keyVariants) ? operations.keyVariants : []) {
+    const found = record(raw);
+    const examples = (Array.isArray(found.examples) ? found.examples : [])
+      .map(record)
+      .filter(e => Array.isArray(e.forms) && e.forms.length > 1);
+    if (typeof found.column !== "string" || !num(found.values) || !examples.length) continue;
+    const shown = examples
+      .slice(0, 2)
+      .map(e =>
+        e.forms
+          .map(
+            (form: unknown, i: number) =>
+              `${json(String(form))} (${Array.isArray(e.rows) && num(e.rows[i]) ? e.rows[i] : "?"} rows)`
+          )
+          .join(" and ")
+      )
+      .join("; ");
+    lines.push(
+      `note: ${json(found.column)} has ${found.values} value${found.values === 1 ? "" : "s"} written in several ways (case, spacing or punctuation), each form its own ${unit}: ${shown}.`
+    );
+  }
+  const join = record(operations.join);
+  const left = num(record(join.left).nullKeyRows) ? record(join.left).nullKeyRows : 0;
+  const right = num(record(join.right).nullKeyRows) ? record(join.right).nullKeyRows : 0;
+  if (view.type === "Join" && join.nullsEqual === false && left > 0 && right > 0)
+    lines.push(
+      `note: ${left} left and ${right} right rows have a null key; null keys match nothing unless nulls_equal=True (pandas merge pairs them).`
+    );
+  return lines;
+}
+
+/**
  * Adjustments the runtime made instead of failing, worded for every executed
  * operator regardless of settings: an output that replaced an existing column,
  * a right-side join column renamed past its suffix, a boolean column reduced

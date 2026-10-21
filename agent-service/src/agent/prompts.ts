@@ -225,6 +225,10 @@ export function buildRegisteredNativeSystemPrompt(
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
   const multiRequest = options.multiRequest ?? "off";
   const fields: Record<string, string> = {
+    // Field-led: off, the sentence before it ends the paragraph unchanged.
+    KEY_NORMALIZATION: format.dataHygiene
+      ? " Normalize text keys before grouping or joining: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Check a key's values before you group or join on it, normalize where needed, and check that matched counts are plausible after a join."
+      : "",
     PYTHON_FIELD: format.optionalPython
       ? "`python` (definitions, left out when there are none)"
       : '`python` (definitions, or `""`)',

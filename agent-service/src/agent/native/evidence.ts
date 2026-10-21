@@ -1071,6 +1071,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       result.omitted.push({ id: fact.id, reason: "redundant_complete_table" });
   }
   const dataBudget = Math.max(0, context.dataMaxChars ?? maxChars);
+  let statisticsListAllColumns = false;
   if (data && records.complete)
     append("data.complete", "statistics: not shown; the complete records above show every value", dataBudget, "data");
   if (data && !records.complete) {
@@ -1140,15 +1141,21 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
           if (ranged) members.push(`data.column.${c.column}.range`);
           if (frequencies?.values.length && values) members.push(`data.column.${c.column}.values`);
         }
-        if (rows.length)
-          append(
-            `data.statistics.${rowCount}`,
-            `${caption(rows.length)}\n${renderTable(fields, rows, format.tableFormat)}`,
-            dataBudget,
-            "data",
-            members
-          );
-        else
+        if (rows.length) {
+          if (
+            append(
+              `data.statistics.${rowCount}`,
+              `${caption(rows.length)}\n${renderTable(fields, rows, format.tableFormat)}`,
+              dataBudget,
+              "data",
+              members
+            ) &&
+            full &&
+            rows.length === records.totalColumns &&
+            records.columnsShown === records.totalColumns
+          )
+            statisticsListAllColumns = true;
+        } else
           append(
             "data.status",
             `statistics: omitted (budget); ${formatCount(rowCount)} rows profiled`,
@@ -1161,6 +1168,38 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       ))
         append(fact.id, `- note: ${fact.text.replace(/^Data \w+: /, "")}`, dataBudget, "data");
     }
+  }
+  // A view without the statistics table hides missing values whenever the rows
+  // shown stop before the first null; with dataHygiene it names the columns
+  // that hold them.
+  if (format.dataHygiene && !data && !records.complete && validProfile(info) && !isRawLineTable(op, info)) {
+    const withNulls = Object.entries(info.tableProfile!.columns)
+      .filter(
+        ([name, c]) =>
+          count(c.nullCount) && c.nullCount > 0 && (!context.columns?.length || context.columns.includes(name))
+      )
+      .sort((a, b) => b[1].nullCount - a[1].nullCount);
+    if (withNulls.length) {
+      const processed = withNulls[0][1].rowsProcessed;
+      const scope =
+        processed === records.totalRows
+          ? `of ${formatCount(processed)} rows`
+          : `in ${formatCount(processed)} profiled rows`;
+      const shown = withNulls.slice(0, 8).map(([name, c]) => `${json(name)} ${formatCount(c.nullCount)}`);
+      const more = withNulls.length - shown.length;
+      append(
+        "data.nulls",
+        `nulls (${scope}): ${shown.join(", ")}${more > 0 ? `, +${more} more columns` : ""}`,
+        dataBudget,
+        "data"
+      );
+    }
+  }
+  // The statistics rows name every column with its type; the `columns:` line
+  // above the records then says nothing new.
+  if (format.compactRecords && statisticsListAllColumns && result.chunks[0]?.text.startsWith("columns: ")) {
+    result.chunks[0] = { ...result.chunks[0], text: result.chunks[0].text.split("\n").slice(1).join("\n") };
+    result.records = { ...result.records!, schema: "" };
   }
   if (flow) {
     const budget = Math.max(0, context.flowMaxChars ?? maxChars);

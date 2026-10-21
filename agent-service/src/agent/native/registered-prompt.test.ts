@@ -102,6 +102,13 @@ test("optional python and first-rows full views are described only when they are
       fullPreviewRows: 5,
     })
   ).toContain("only for a small table whose every row you need. A larger table shows its first 5 rows");
+  // dataHygiene adds the rule to normalize keys; the default prompt does not carry it.
+  expect(base).not.toContain("Normalize text keys");
+  expect(
+    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], dataHygiene: true })
+  ).toContain(
+    "unexpected parsing failures should not silently become nulls. Normalize text keys before grouping or joining:"
+  );
   // A live agent takes both settings: its prompt and its tool follow them.
   const agent = new TexeraAgent({
     agentId: "registered-lean",

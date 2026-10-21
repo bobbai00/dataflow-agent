@@ -1595,3 +1595,29 @@ test("filter near misses and no-match lines are validated against the filter's c
   };
   expect(factText(f)).not.toContain("not causes");
 });
+
+test("with dataHygiene a view without statistics names the columns that hold nulls", () => {
+  const f = fixture();
+  const plain = observe(f, { view: "full", data: false, flow: false });
+  const hygiene = observe(f, { view: "full", data: false, flow: false, dataHygiene: true });
+  expect(plain.text).not.toContain("nulls (");
+  expect(hygiene.text).toContain('nulls (of 3 rows): "x" 1');
+  // The statistics table already counts nulls, and a complete table shows them.
+  expect(observe(f, { view: "sample_stats", data: true, flow: false, dataHygiene: true }).text).not.toContain(
+    "nulls ("
+  );
+});
+
+test("with compactRecords the columns line goes when the statistics list every column", () => {
+  const f = fixture();
+  const full = observe(f, { view: "sample_stats", data: true, flow: false });
+  const compact = observe(f, { view: "sample_stats", data: true, flow: false, compactRecords: true });
+  expect(full.text).toContain("columns: x int64");
+  expect(compact.text).not.toContain("columns: ");
+  expect(compact.text).toContain("statistics: full table");
+  expect(compact.records?.schema).toBe("");
+  // Without statistics the columns line is the only place the types appear.
+  expect(observe(f, { view: "full", data: false, flow: false, compactRecords: true }).text).toContain(
+    "columns: x int64"
+  );
+});

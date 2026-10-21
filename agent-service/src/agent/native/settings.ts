@@ -125,6 +125,9 @@ export function validateEvidenceSettings(settings: object): void {
   for (const key of [
     "answerEcho",
     "optionalPython",
+    "dataHygiene",
+    "pandasRound",
+    "compactRecords",
     "dataEvidence",
     "flowEvidence",
     "answerStatement",

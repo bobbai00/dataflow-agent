@@ -2948,6 +2948,52 @@ def _key_dependencies(frame, keys, reduced):
     return found[:1] or None
 
 
+_VARIANT_LIMIT = 50_000
+_VARIANT_EXAMPLES = 3
+
+
+def _key_variants(frame, columns):
+    """Text key values that differ only in how they are written.
+
+    Grouping or partitioning keeps "Beauty" and "Beauty " (or "NEW YORK" and
+    "New York") apart, where a reader means one value. For each text key column,
+    the distinct values whose words agree apart from case, accents, spacing and
+    punctuation (`_written`) yet occur in more than one written form. One entry per
+    such column: how many values are written in several ways, and examples with
+    each form's row count, most rows first.
+    """
+    if not columns or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
+        return None
+    found = []
+    for name in columns:
+        series = frame[name]
+        if _logical_dtype(series) != "str":
+            continue
+        counts = series.dropna().value_counts(sort=False)
+        if len(counts) < 2 or len(counts) > _VARIANT_LIMIT:
+            continue
+        forms = {}
+        for value, rows in counts.items():
+            written = _written(value) if isinstance(value, str) else ()
+            if written:
+                forms.setdefault(written, []).append((value, int(rows)))
+        variants = [sorted(group, key=lambda item: -item[1]) for group in forms.values() if len(group) > 1]
+        if not variants:
+            continue
+        variants.sort(key=lambda group: -sum(rows for _, rows in group))
+        found.append(
+            {
+                "column": str(name),
+                "values": len(variants),
+                "examples": [
+                    {"forms": [value for value, _ in group[:3]], "rows": [rows for _, rows in group[:3]]}
+                    for group in variants[:_VARIANT_EXAMPLES]
+                ],
+            }
+        )
+    return found or None
+
+
 def _finish_trace(trace):
     """Run a finished trace's whole-step checks; a check that fails leaves the step's result alone."""
     try:
@@ -3444,6 +3490,9 @@ def execute_native(spec, inputs):
         )
         if dependencies:
             operations["keyDependencies"] = dependencies
+        variants = _key_variants(source, props.get("groupBy", []))
+        if variants:
+            operations["keyVariants"] = variants
         # Rows a sum, count or mean reads twice change its result; min, max and first do not.
         if spec.get("profileCollection") is True and any(
                 item.get("fn") in ("count", "sum", "mean", "median", "stddev") for item in props["aggregations"]):
@@ -3464,6 +3513,9 @@ def execute_native(spec, inputs):
         output = _union(spec, inputs, operations)
     elif kind == "Window":
         output = _window(spec, source, operations)
+        variants = _key_variants(source, props.get("partitionBy", []))
+        if variants:
+            operations["keyVariants"] = variants
     elif kind == "Unpivot":
         output = _unpivot(spec, source, operations)
     elif kind == "Pivot":

@@ -247,6 +247,11 @@ test("a full view of a whole table larger than its budget shows only its first r
   expect(
     renderRecords(info(rows), { view: "sample", maxChars: 2000, maxRows: 3, fullPreviewRows: 1 }).returnedRows
   ).toBe(3);
+  // A one-column table is text read line by line (a docstring, a file's lines), not records.
+  const lines = rows.map(row => ({ line: `${row.day} ${row.n}` }));
+  expect(renderRecords(info(lines), { view: "full", maxChars: 2000, fullPreviewRows: 5 }).returnedRows).toBeGreaterThan(
+    5
+  );
   // A historical restriction keeps the reason the rows stop.
   const restricted = restrictRecords(capped.frozen, { maxChars: 2000, maxRows: 2 });
   expect(restricted.text).toContain("2 of 300 rows");

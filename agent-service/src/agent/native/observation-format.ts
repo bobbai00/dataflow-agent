@@ -38,6 +38,17 @@ export interface ObservationFormatSettings {
   /** A dataflow call may leave out `python` when it defines nothing; the tool
    * schema and the prompt's examples then omit an empty one. */
   optionalPython: boolean;
+  /** Text keys and missing values: notes for group and partition keys whose
+   * values differ only in how they are written, for null keys a join leaves
+   * unmatched on both sides, null counts with full views, and the prompt rule
+   * to normalize keys before grouping or joining. */
+  dataHygiene: boolean;
+  /** `round(x, n)` in lambdas and registered functions rounds floats as
+   * pandas and NumPy do (0.015 → 0.02), not as Python does (0.01). */
+  pandasRound: boolean;
+  /** Leave out the `columns:` line where the statistics rows already list
+   * every column with its type. */
+  compactRecords: boolean;
 }
 export type ObservationFormatOptions = Partial<ObservationFormatSettings>;
 export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
@@ -51,6 +62,9 @@ export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
   answerEcho: false,
   fullPreviewRows: 0,
   optionalPython: false,
+  dataHygiene: false,
+  pandasRound: false,
+  compactRecords: false,
 };
 export function observationFormat(options: ObservationFormatOptions = {}): ObservationFormatSettings {
   return Object.fromEntries(
@@ -335,11 +349,14 @@ export function restrictRecords(
       .join("\n");
   // A whole table that exceeds the budget shows its first rows only: the rows
   // that would fill the budget are a preview of the table either way. Source
-  // previews and column selections keep the rows they were narrowed to show.
+  // previews and column selections keep the rows they were narrowed to show,
+  // and so does a one-column table, which is text read line by line (a
+  // docstring, a file's lines) rather than records.
   const previewRows = limits.previewRows && limits.previewRows > 0 ? Math.floor(limits.previewRows) : 0;
   if (
     previewRows &&
     rows.length > previewRows &&
+    frozen.fields.length > 1 &&
     !frozen.preview &&
     !frozen.columnsRequested &&
     render().length > budget

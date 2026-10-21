@@ -41,6 +41,10 @@ export interface ToolContext {
     nativeChecks?: boolean;
     /** Flow evidence reads the same lineage (records listed by several source files). */
     flowEvidence?: boolean;
+    /** Key and null notes on executed operators (`dataHygiene`). */
+    dataHygiene?: boolean;
+    /** Native operators round floats in user code as pandas does (`pandasRound`). */
+    pandasRound?: boolean;
   };
 }
 

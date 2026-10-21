@@ -66,6 +66,9 @@ export interface NativeOpView {
    * about its ancestry (whether its rows come from several sources, and which
    * columns are a scan's file-name provenance). Not part of the revision. */
   lineage?: { multiSource: boolean; provenanceColumns: string[] };
+  /** Internal, set with `pandasRound`: `round` in the operator's lambdas and
+   * registered functions rounds floats as pandas does. Not part of the revision. */
+  pandasRound?: boolean;
   /** Runtime type (`Filter`, `Map`, `Process`, …). */
   type: string;
   properties: Record<string, unknown>;

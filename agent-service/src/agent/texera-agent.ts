@@ -672,6 +672,8 @@ export class TexeraAgent {
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
         flowEvidence: this.settings.flowEvidence === true,
+        dataHygiene: this.settings.dataHygiene === true,
+        pandasRound: this.settings.pandasRound === true,
       },
     };
 
@@ -735,6 +737,8 @@ export class TexeraAgent {
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
         flowEvidence: this.settings.flowEvidence === true,
+        dataHygiene: this.settings.dataHygiene === true,
+        pandasRound: this.settings.pandasRound === true,
       },
     };
 

@@ -181,6 +181,7 @@ export async function planRegisteredGraphEdit(
   for (const id of ordered) {
     const view = nodes.get(id)!;
     if (context.settings?.nativeChecks || context.settings?.flowEvidence) view.lineage = nativeLineage(draft, view);
+    if (context.settings?.pandasRound) view.pandasRound = true;
     const compiled = compileNativeOp(view, id);
     const old = draft.getOperator(id);
     const template =
@@ -459,6 +460,7 @@ export async function planGraphEdit(
         view.lineage = nativeLineage(draft, view);
         validationViews.get(id)!.lineage = view.lineage;
       }
+      if (context.settings?.pandasRound) view.pandasRound = validationViews.get(id)!.pandasRound = true;
       const compiled = compileNativeOp(validationViews.get(id)!, id);
       const old = draft.getOperator(id);
       const template =

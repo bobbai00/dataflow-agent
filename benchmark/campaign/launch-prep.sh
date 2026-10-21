@@ -17,13 +17,14 @@
 # ARMS defaults to the basic setting (evidence_full_flow0: statistics off, runtime stats off). Each attempt exports the
 # output files the agent names from the engine's stored results (benchmark/prepbench/evaluate_task.py); score afterwards
 # with benchmark/prepbench/score.py (PrepBench's own evaluator).
-# Usage: [STACK_DIR=/var/tmp/texera-stable] [ARMS=evidence_full_flow0] launch-prep.sh <run name> <model tag> <workers> [task ids...]
-#        (default: all 306 cases)
+# Usage: [STACK_DIR=/var/tmp/texera-stable] [ARMS=evidence_full_flow0] [CHECKOUT=<checkout>] launch-prep.sh <run name> <model tag>
+#        <workers> [task ids...]   (default: all 306 cases; CHECKOUT runs the runner from another checkout, matching an agent
+#        started with the same CHECKOUT)
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
-W="$TEXERA_HOME"
+W="${CHECKOUT:-$TEXERA_HOME}"
 OUT=$1 MODEL=$2 WORKERS=$3; shift 3
 ARMS=${ARMS:-evidence_full_flow0}
 TASKS=${*:-$(python3 -I -c "import json, sys; print(' '.join(t['id'] for t in json.load(open(sys.argv[1]))))" "$W/benchmark/Kramabench/workload/prepbench.json")}

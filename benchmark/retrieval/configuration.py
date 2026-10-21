@@ -57,6 +57,11 @@ def campaign_arms():
     arms["evidence_data1_flow0_tsv"] = {**arms["evidence_data1_flow0"], "tableFormat": "tsv", "keyValueColumns": 40}
     arms["evidence_data1_flow0_lean"] = {**arms["evidence_data1_flow0_tsv"], "fullPreviewRows": 5,
                                          "optionalPython": True}
+    # The lean arm with the 2026-10-21 trace-study fixes: notes for keys written in several
+    # ways and for null join keys, null counts with full views, the normalize-keys prompt
+    # rule, pandas rounding in user code, and no `columns:` line beside complete statistics.
+    arms["evidence_data1_flow0_hygiene"] = {**arms["evidence_data1_flow0_lean"], "dataHygiene": True,
+                                            "pandasRound": True, "compactRecords": True}
     return arms
 
 
