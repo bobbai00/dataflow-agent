@@ -4,20 +4,22 @@
  *
  * Drives the actual Angular UI with Playwright (chromium from
  * frontend/node_modules) — no API shortcuts for the things under test:
- *   1. agent features: create agent, chat, streamed steps, snapshot tree,
- *      settings modal (agent mode / context mode / column stats), hover→canvas
- *      highlight, stop/clear
- *   2. general mode: native operators + Python UDF (DataLoading /
- *      DataProcessing / PythonUDFV2) instead of code-mode-only Python
- *   3. versioning: checkout an earlier snapshot, branch from it with a new
+ *   1. agent features in native mode (the default): create agent, chat,
+ *      streamed steps, hover→canvas highlight, snapshot tree, settings modal
+ *      (agent mode / context mode / data and flow evidence), clear
+ *   2. versioning: checkout an earlier snapshot, branch from it with a new
  *      message, verify the tree forks and the canvas follows HEAD
+ *   3. code mode: a second agent switched to Code from the settings modal
+ *      gets the code-mode tools and answers through a Python operator; tab
+ *      switching and deleting an agent by closing its tab
  *
  * Cross-checks via the agent-service REST API are used only as oracles
- * (e.g. operator types actually in the DAG), never to drive the UI.
+ * (e.g. operator types actually in the DAG), never to drive the UI. The test
+ * provisions its own local computing unit and workflow and removes both.
  *
  * Usage (from frontend/, with the local stack up — see bin/local-dev.sh):
- *   PROBE_MODEL=gpt-5-mini node e2e/agent-panel.e2e.mjs
- *   (PROBE_MODEL defaults to gpt-5-mini; any model on the LLM gateway works)
+ *   PROBE_MODEL=claude-haiku-4.5 node e2e/agent-panel.e2e.mjs
+ *   (PROBE_MODEL defaults to claude-haiku-4.5; any model on the LLM gateway works)
  */
 import { chromium } from "../node_modules/playwright/index.mjs";
 import fs from "node:fs";
@@ -25,7 +27,9 @@ import fs from "node:fs";
 const FE = process.env.FE_BASE ?? "http://localhost:4200";
 const WEB = process.env.WEB_BASE ?? "http://localhost:8080";
 const AGENT = process.env.AGENT_BASE ?? "http://localhost:3001";
-const MODEL = process.env.PROBE_MODEL ?? "gpt-5-mini";
+const CU = process.env.CU_BASE ?? "http://localhost:8888";
+const CU_URI = process.env.TEXERA_LOCAL_CU_URI ?? "http://localhost:8085";
+const MODEL = process.env.PROBE_MODEL ?? "claude-haiku-4.5";
 const OUT_DIR = process.env.OUT_DIR ?? "./fe-e2e-out";
 const TURN_TIMEOUT = Number(process.env.TURN_TIMEOUT_MS ?? "420000");
 const HEADLESS = process.env.HEADFUL ? false : true;
@@ -58,6 +62,24 @@ async function login() {
   const r = await api(WEB, "POST", "/api/auth/login", { username: "texera", password: "texera" });
   token = r.json.accessToken;
 }
+// Bring our own computing unit; the workspace is pointed at it by name (selectComputingUnit).
+async function createComputingUnit(name) {
+  const r = await api(CU, "POST", "/api/computing-unit/create", {
+    name,
+    unitType: "local",
+    cpuLimit: "NaN",
+    memoryLimit: "NaN",
+    gpuLimit: "NaN",
+    jvmMemorySize: "NaN",
+    shmSize: "NaN",
+    uri: CU_URI,
+  });
+  if (r.status !== 200) throw new Error(`createComputingUnit ${r.status} ${r.text.slice(0, 200)}`);
+  return r.json.computingUnit?.cuid ?? r.json.cuid;
+}
+async function terminateComputingUnit(cuid) {
+  await api(CU, "DELETE", `/api/computing-unit/${cuid}/terminate`);
+}
 async function createWorkflow(name) {
   const r = await api(WEB, "POST", "/api/workflow/create", {
     name,
@@ -80,18 +102,38 @@ async function agentsForWorkflow(wid) {
   const r = await api(AGENT, "GET", "/api/agents");
   return (r.json?.agents ?? []).filter(a => a.delegate?.workflowId === wid);
 }
+async function operatorsOf(agentId) {
+  return (await api(AGENT, "GET", `/api/agents/${agentId}/workflow`)).json?.workflow?.operators ?? [];
+}
 
 // ---------- UI helpers ----------
 function chat(page) {
   return page.locator("texera-agent-chat").last();
+}
+// Any agent of another workflow shows as a tab, and under headless Chromium a
+// tab pane can linger in its `ant-tabs-switch-leave` state over the panel and
+// swallow real clicks; dispatch clicks inside the panel on the element itself.
+async function domClick(locator) {
+  await locator.waitFor({ state: "visible", timeout: 30000 });
+  await locator.evaluate(el => el.click());
 }
 async function openAgentPanel(page) {
   const docked = page.locator("#agent-docked-button");
   if (await docked.isVisible().catch(() => false)) await docked.click();
   await page.locator("#agent-container #content").waitFor({ state: "visible", timeout: 20000 });
 }
+// A new workflow attaches to the first unit the service lists as running,
+// which can be a stale one; attach this run's own unit.
+async function selectComputingUnit(page, name) {
+  await page.locator(".computing-units-dropdown-button").click();
+  const option = page.locator(".computing-unit-option", { hasText: name }).first();
+  await option.waitFor({ timeout: 15000 });
+  await option.click();
+  await sleep(1500);
+}
 async function createAgentViaUI(page, modelId, name) {
-  await page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }).click();
+  // With several agent tabs the strip overflows and "+ Agent" scrolls out under the canvas.
+  await domClick(page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }));
   const reg = page.locator("texera-agent-registration");
   await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
   const label = modelId
@@ -101,13 +143,13 @@ async function createAgentViaUI(page, modelId, name) {
   const card = reg.locator(".model-card", { has: page.locator("h5", { hasText: new RegExp(`^${label}$`) }) });
   if ((await card.count()) === 0)
     throw new Error(`model card "${label}" not found; cards=${await reg.locator(".model-card h5").allTextContents()}`);
-  await card.first().click();
+  await domClick(card.first());
   await reg.locator("input[nz-input]").fill(name);
   const btn = reg.locator("button", { hasText: /Create Agent/ });
   // Enabled only once the workspace connected to a computing unit.
   await btn.waitFor({ state: "visible" });
   await page.waitForFunction(el => !el.disabled, await btn.elementHandle(), { timeout: 60000 });
-  await btn.click();
+  await domClick(btn);
   await page.locator(".agent-tab-name", { hasText: name }).waitFor({ timeout: 30000 });
   await chat(page).locator("textarea").waitFor({ timeout: 30000 });
 }
@@ -117,7 +159,7 @@ async function sendAndWait(page, text, { timeout = TURN_TIMEOUT } = {}) {
   const ta = c.locator("textarea");
   await page.waitForFunction(el => !el.disabled, await ta.elementHandle(), { timeout: 60000 });
   await ta.fill(text);
-  await c.locator(".input-area button.ant-btn-primary").click();
+  await domClick(c.locator(".input-area button.ant-btn-primary"));
   // Turn is running while the loading indicator / stop button shows.
   await c
     .locator(".loading-message, .input-area button.ant-btn-dangerous")
@@ -135,13 +177,24 @@ async function sendAndWait(page, text, { timeout = TURN_TIMEOUT } = {}) {
   const after = await c.locator("[data-step-id]").count();
   return { before, after };
 }
+async function lastStepText(page) {
+  return (await chat(page).locator("[data-step-id]").last().innerText()).replace(/\s+/g, " ");
+}
+// The mini-map draws a second JointJS paper over the same graph, so every
+// operator label exists twice in the DOM; count the main editor's only.
 async function canvasOperatorNames(page) {
-  return (await page.locator("text.texera-operator-name, .texera-operator-name").allTextContents())
+  return (
+    await page.evaluate(() =>
+      Array.from(document.querySelectorAll("text.texera-operator-name, .texera-operator-name"))
+        .filter(el => !el.closest("texera-mini-map"))
+        .map(el => el.textContent ?? "")
+    )
+  )
     .map(s => s.trim())
     .filter(Boolean);
 }
 async function openSettingsModal(page) {
-  await chat(page).locator('button[nztooltiptitle="View system prompt"]').click();
+  await domClick(chat(page).locator('button[nztooltiptitle="View system prompt"]'));
   const modal = page.locator(".ant-modal", { hasText: "Agent System Information" });
   await modal.waitFor({ timeout: 10000 });
   await modal.locator(".ant-tabs-tab", { hasText: "Parameters" }).click();
@@ -155,10 +208,13 @@ async function closeModal(page) {
     .waitFor({ state: "hidden", timeout: 10000 })
     .catch(() => {});
 }
-async function setSelectParam(page, modal, labelText, optionText) {
-  const item = modal.locator(".settings-param-item", {
+function paramItem(page, modal, labelText) {
+  return modal.locator(".settings-param-item", {
     has: page.locator(".settings-param-label", { hasText: new RegExp(`^\\s*${labelText}\\s*$`) }),
   });
+}
+async function setSelectParam(page, modal, labelText, optionText) {
+  const item = paramItem(page, modal, labelText);
   await item.locator("nz-select").click();
   const opt = page.locator(
     `.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option[title="${optionText}"]`
@@ -168,9 +224,7 @@ async function setSelectParam(page, modal, labelText, optionText) {
   await item.locator("button", { hasText: "Save" }).click();
 }
 async function selectOptions(page, modal, labelText) {
-  const item = modal.locator(".settings-param-item", {
-    has: page.locator(".settings-param-label", { hasText: new RegExp(`^\\s*${labelText}\\s*$`) }),
-  });
+  const item = paramItem(page, modal, labelText);
   await item.locator("nz-select").click();
   const dd = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
   await dd.first().waitFor({ timeout: 10000 });
@@ -190,8 +244,10 @@ async function selectOptions(page, modal, labelText) {
 // ---------- main ----------
 async function main() {
   await login();
+  const unitName = `fe-e2e ${Date.now()}`;
+  const cuid = await createComputingUnit(unitName);
   const wid = await createWorkflow(`fe-e2e ${Date.now()}`);
-  console.log("workflow", wid, "model", MODEL);
+  console.log("workflow", wid, "computing unit", cuid, "model", MODEL);
   const browser = await chromium.launch({ headless: HEADLESS });
   const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
   await context.addInitScript(t => {
@@ -205,6 +261,12 @@ async function main() {
   const consoleErrors = [];
   page.on("console", m => {
     if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
+  });
+  // Every settings save the UI sends, with the agent-service's answer.
+  const settingsSaves = [];
+  page.on("response", r => {
+    if (r.request().method() === "PATCH" && /\/api\/agents\/[^/]+\/settings$/.test(r.url()))
+      settingsSaves.push(`${r.request().postData()}→${r.status()}`);
   });
   const shot = async name => page.screenshot({ path: `${OUT_DIR}/${name}.png`, fullPage: false }).catch(() => {});
 
@@ -223,43 +285,47 @@ async function main() {
       await trigger.click();
       await sleep(600);
     }
+    await selectComputingUnit(page, unitName);
     await openAgentPanel(page);
     await shot("01-panel-open");
 
-    // ===== 1. Agent features (code mode) =====
-    await createAgentViaUI(page, MODEL, "e2e-code");
+    // ===== 1. Agent features (native mode, the default) =====
+    await createAgentViaUI(page, MODEL, "e2e-native");
     let agents = await agentsForWorkflow(wid);
     check(
       "UI created agent bound to this workflow",
-      agents.length === 1 && agents[0].name === "e2e-code",
+      agents.length === 1 && agents[0].name === "e2e-native",
       JSON.stringify(agents.map(a => ({ id: a.id, mode: a.settings?.agentMode, ctx: a.settings?.contextMode })))
     );
-    const codeAgent = agents[0];
+    const nativeAgent = agents[0];
     check(
-      "new agent defaults: code mode + delta context",
-      codeAgent.settings?.agentMode === "code" && codeAgent.settings?.contextMode === "delta"
+      "new agent defaults: native mode + delta context",
+      nativeAgent.settings?.agentMode === "native" && nativeAgent.settings?.contextMode === "delta"
     );
     await shot("02-agent-created");
 
     const t1 = await sendAndWait(
       page,
-      "Create ONE operator that outputs a table with columns id (1,2,3) and value (10,20,30). Execute it and answer with the sum of value. Be minimal: one operator, then answer."
+      "Build a table with columns id (1, 2, 3) and value (10, 20, 30), run it, and answer with the sum of value."
     );
     check("turn 1: steps streamed into chat", t1.after > t1.before + 1, `steps ${t1.before}→${t1.after}`);
     await shot("03-turn1-done");
-    let wf = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/workflow`)).json;
-    const codeOps = wf.workflow?.operators ?? [];
+    const opsT1 = await operatorsOf(nativeAgent.id);
     check(
       "turn 1: agent DAG has ≥1 operator",
-      codeOps.length >= 1,
-      codeOps.map(o => `${o.operatorID}:${o.operatorType}`).join(",")
+      opsT1.length >= 1,
+      opsT1.map(o => `${o.operatorID}:${o.operatorType}`).join(",")
     );
     let names = await canvasOperatorNames(page);
-    check("turn 1: canvas renders the agent's operator(s)", names.length >= 1, names.join(","));
-    const lastStepText = await chat(page).locator("[data-step-id]").last().innerText();
-    check("turn 1: final answer contains 60", /60/.test(lastStepText), lastStepText.slice(0, 120).replace(/\n/g, " "));
-    const steps1 = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/react-steps`)).json.steps;
-    const withAccess = steps1.filter(s => s.operatorAccess);
+    check(
+      "turn 1: canvas renders the agent's operators",
+      names.length === opsT1.length,
+      `canvas=${names.length} dag=${opsT1.length}`
+    );
+    let answer = await lastStepText(page);
+    check("turn 1: final answer contains 60", /\b60\b/.test(answer), answer.slice(0, 120));
+    const steps1 = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/react-steps`)).json.steps;
+    const withAccess = steps1.filter(s => s.operatorAccess && Object.keys(s.operatorAccess).length > 0);
     check(
       "steps carry operatorAccess (server-derived)",
       withAccess.length >= 1,
@@ -294,8 +360,9 @@ async function main() {
               e => e.textContent ?? ""
             )
           )
+        )
           // JointJS renders spaces inside SVG text as NBSP — match any whitespace.
-        ).filter(t => /e2e-code:\s(added|modified|viewed)/.test(t));
+          .filter(t => /e2e-native:\s(added|modified|viewed)/.test(t));
       }
       check(
         "hover step → canvas shows agent action label",
@@ -314,6 +381,8 @@ async function main() {
 
     // ===== settings modal =====
     let modal = await openSettingsModal(page);
+    const modeOpts = await selectOptions(page, modal, "Agent Mode");
+    check("Agent Mode select offers exactly Native/Code", modeOpts.join(",") === "Native,Code", modeOpts.join(","));
     const ctxOpts = await selectOptions(page, modal, "Context Mode");
     check(
       "Context Mode select offers exactly Latest/Delta (no Full)",
@@ -322,38 +391,52 @@ async function main() {
     );
     await setSelectParam(page, modal, "Context Mode", "Latest");
     await sleep(500);
-    await setSelectParam(page, modal, "Column Stats Block", "Disabled");
+    await setSelectParam(page, modal, "Data Evidence", "Disabled");
+    await sleep(500);
+    await setSelectParam(page, modal, "Flow Evidence", "Enabled");
     await sleep(500);
     await closeModal(page);
-    let s = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/settings`)).json;
+    let s = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/settings`)).json;
     check("settings saved from UI: contextMode=latest", s.contextMode === "latest", `contextMode=${s.contextMode}`);
     check(
-      "settings saved from UI: columnStats=false (Column Stats Block toggle works)",
-      s.columnStats === false,
-      `columnStats=${s.columnStats}`
+      "settings saved from UI: dataEvidence=false, flowEvidence=true",
+      s.dataEvidence === false && s.flowEvidence === true,
+      `dataEvidence=${s.dataEvidence} flowEvidence=${s.flowEvidence}`
     );
-    // re-open: UI must read the value back (not always 'Enabled')
+    // re-open: the UI must read the values back (not always the defaults)
     modal = await openSettingsModal(page);
-    const statsItem = modal.locator(".settings-param-item", {
-      has: page.locator(".settings-param-label", { hasText: "Column Stats Block" }),
-    });
-    const shown = (await statsItem.locator("nz-select").innerText()).trim();
-    check("settings modal reads columnStats back as Disabled", /Disabled/.test(shown), shown);
-    await setSelectParam(page, modal, "Column Stats Block", "Enabled");
+    const shownData = (await paramItem(page, modal, "Data Evidence").locator("nz-select").innerText()).trim();
+    const shownFlow = (await paramItem(page, modal, "Flow Evidence").locator("nz-select").innerText()).trim();
+    check(
+      "settings modal reads evidence back (Data Disabled, Flow Enabled)",
+      /Disabled/.test(shownData) && /Enabled/.test(shownFlow),
+      `data=${shownData} flow=${shownFlow}`
+    );
+    await setSelectParam(page, modal, "Data Evidence", "Enabled");
+    await sleep(500);
+    await setSelectParam(page, modal, "Flow Evidence", "Disabled");
+    await sleep(500);
     await setSelectParam(page, modal, "Context Mode", "Delta");
+    await sleep(500);
     await closeModal(page);
+    check(
+      "every settings save from the UI succeeded",
+      settingsSaves.length >= 6 && settingsSaves.every(save => /→2\d\d$/.test(save)),
+      settingsSaves.join(" ")
+    );
     await shot("05-settings");
 
-    // ===== 3. Versioning: checkout + branch =====
+    // ===== 2. Versioning: checkout + branch =====
     const t2 = await sendAndWait(
       page,
-      "Add ONE more operator downstream of the existing one that filters to rows with value > 15, execute it, and answer with the row count. Minimal steps."
+      "Now keep only the rows of that table whose value is greater than 15, run it, and answer with how many rows remain."
     );
     check("turn 2: more steps", t2.after > t2.before, `steps ${t2.before}→${t2.after}`);
-    wf = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/workflow`)).json;
-    const opsAfterT2 = (wf.workflow?.operators ?? []).length;
-    check("turn 2: DAG grew", opsAfterT2 > codeOps.length, `${codeOps.length}→${opsAfterT2}`);
-    let tree = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/snapshot-tree`)).json;
+    const opsT2 = await operatorsOf(nativeAgent.id);
+    check("turn 2: DAG grew", opsT2.length > opsT1.length, `${opsT1.length}→${opsT2.length}`);
+    answer = await lastStepText(page);
+    check("turn 2: answer contains 2", /\b2\b|\btwo\b/i.test(answer), answer.slice(0, 120));
+    let tree = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/snapshot-tree`)).json;
     const nodesBefore = tree.nodes.length;
     check("tree has ≥2 snapshots after two turns", nodesBefore >= 2, `nodes=${nodesBefore}`);
     await shot("06-turn2");
@@ -366,16 +449,15 @@ async function main() {
       const node = uiNodes.nth(i);
       const cls = (await node.getAttribute("class")) ?? "";
       if (cls.includes("is-active") || cls.includes("is-root")) continue;
-      await node.click();
+      await domClick(node);
       checkedOut = true;
     }
     await sleep(2500);
-    const headAfterCheckout = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/workflow`)).json;
-    const opsAfterCheckout = (headAfterCheckout.workflow?.operators ?? []).length;
+    const opsAfterCheckout = (await operatorsOf(nativeAgent.id)).length;
     check(
       "checkout earlier snapshot via tree click → HEAD moved back (fewer operators)",
-      checkedOut && opsAfterCheckout < opsAfterT2,
-      `ops now=${opsAfterCheckout} (was ${opsAfterT2})`
+      checkedOut && opsAfterCheckout < opsT2.length,
+      `ops now=${opsAfterCheckout} (was ${opsT2.length})`
     );
     names = await canvasOperatorNames(page);
     check(
@@ -394,10 +476,12 @@ async function main() {
     // branch: new message from the earlier HEAD
     const t3 = await sendAndWait(
       page,
-      "Add ONE operator downstream of the first operator that doubles the value column, execute it, and answer with the new maximum. Minimal steps."
+      "Add a column total equal to value times 3, run it, and answer with the largest total."
     );
     check("turn 3 (branch): steps streamed", t3.after > t3.before, `steps ${t3.before}→${t3.after}`);
-    tree = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/snapshot-tree`)).json;
+    answer = await lastStepText(page);
+    check("turn 3 (branch): answer contains 90", /\b90\b/.test(answer), answer.slice(0, 120));
+    tree = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/snapshot-tree`)).json;
     const parents = new Map();
     for (const nd of tree.nodes) parents.set(nd.parentId, (parents.get(nd.parentId) ?? 0) + 1);
     const forked = [...parents.values()].some(c => c >= 2);
@@ -420,120 +504,61 @@ async function main() {
       clearErr = String(e).split("\n")[0];
     }
     await sleep(1500);
-    const stepsAfterClear = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/react-steps`)).json.steps.length;
+    const stepsAfterClear = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/react-steps`)).json.steps.length;
     check("clear from UI empties history", stepsAfterClear === 0, `steps=${stepsAfterClear} ${clearErr}`);
     check("chat empty after clear", (await chat(page).locator("[data-step-id]").count()) === 0);
 
-    // ===== 2. General mode =====
-    await createAgentViaUI(page, MODEL, "e2e-general");
-    agents = await agentsForWorkflow(wid);
-    const genAgent = agents.find(a => a.name === "e2e-general");
-    check("second agent created", !!genAgent);
+    // ===== 3. Code mode, switched from the settings modal =====
+    await createAgentViaUI(page, MODEL, "e2e-code");
+    const codeAgent = (await agentsForWorkflow(wid)).find(a => a.name === "e2e-code");
+    check("second agent created from the UI", !!codeAgent);
     modal = await openSettingsModal(page);
-    await setSelectParam(page, modal, "Agent Mode", "General");
-    await sleep(800);
+    await setSelectParam(page, modal, "Agent Mode", "Code");
+    await sleep(1000);
     await closeModal(page);
-    s = (await api(AGENT, "GET", `/api/agents/${genAgent.id}/settings`)).json;
-    check("agent mode switched to general from UI", s.agentMode === "general", `agentMode=${s.agentMode}`);
-    const sys = (await api(AGENT, "GET", `/api/agents/${genAgent.id}/system-info`)).json;
-    const toolNames = sys.tools.map(t => t.name);
+    s = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/settings`)).json;
+    check("agent mode switched to code from UI", s.agentMode === "code", `agentMode=${s.agentMode}`);
+    const tools = ((await api(AGENT, "GET", `/api/agents/${codeAgent.id}/system-info`)).json?.tools ?? []).map(
+      t => t.name
+    );
     check(
-      "general mode tools: addOperator/modifyOperator (not createOrModifyOperator)",
-      toolNames.includes("addOperator") &&
-        toolNames.includes("modifyOperator") &&
-        !toolNames.includes("createOrModifyOperator"),
-      toolNames.join(",")
+      "code mode tools: createOrModifyOperator (not the native dataflow tool)",
+      tools.includes("createOrModifyOperator") && !tools.includes("dataflow"),
+      tools.join(",")
     );
-    const p = sys.systemPrompt;
-    check(
-      "general prompt lists Python operators (PythonUDFV2, PythonUDFSourceV2, DataLoading, DataProcessing)",
-      /## PythonUDFV2/.test(p) &&
-        /## PythonUDFSourceV2/.test(p) &&
-        /## DataLoading/.test(p) &&
-        /## DataProcessing/.test(p)
-    );
-    check("general prompt has no code-mode tool names", !/createOrModifyOperator/.test(p));
-    check(
-      "general prompt lists native operators (Filter/Aggregate/Sort…)",
-      /"Filter"|Filter/.test(p) && /Aggregate/.test(p) && /Sort/.test(p)
-    );
-    const opTypes = (await api(AGENT, "GET", `/api/agents/${genAgent.id}/operator-types`)).json.map(o => o.type);
-    check(
-      "operator-types catalogue includes DataLoading + DataProcessing + PythonUDFV2 + natives",
-      ["DataLoading", "DataProcessing", "PythonUDFV2", "Filter", "Aggregate"].every(t => opTypes.includes(t)),
-      `n=${opTypes.length}`
-    );
-
-    // The DAG is shared per workflow: the second agent starts from the persisted
-    // workflow (whatever the first agent left). Assert only on what it adds.
-    const preOps = new Set(
-      ((await api(AGENT, "GET", `/api/agents/${genAgent.id}/workflow`)).json.workflow?.operators ?? []).map(o => o.operatorID)
-    );
-    const g1 = await sendAndWait(
+    const c1 = await sendAndWait(
       page,
-      "Build a 4-operator pipeline with NATIVE typed operators where one exists: (1) a PythonUDFSourceV2 source that yields rows with columns category (a,a,b,b,c) and amount (1,2,3,4,5) — declare its columns; (2) a native Filter keeping amount > 1; (3) a native Aggregate summing amount grouped by category into sum_amount; (4) a final DataProcessing operator that adds a column doubled = sum_amount * 2. Execute the final operator and answer with the per-category sum_amount values. Exactly these four operators, no others."
+      "Create ONE operator that outputs a table with columns id (1,2,3) and value (10,20,30). Execute it and answer with the sum of value. Be minimal: one operator, then answer."
     );
-    check("general turn: steps streamed", g1.after > g1.before + 1, `steps ${g1.before}→${g1.after}`);
-    wf = (await api(AGENT, "GET", `/api/agents/${genAgent.id}/workflow`)).json;
-    const gOps = (wf.workflow?.operators ?? []).filter(o => !preOps.has(o.operatorID));
-    const gTypes = gOps.map(o => o.operatorType);
+    check("code turn: steps streamed", c1.after > c1.before + 1, `steps ${c1.before}→${c1.after}`);
+    const codeOps = await operatorsOf(codeAgent.id);
     check(
-      "general DAG uses native operator types (Filter + Aggregate)",
-      gTypes.includes("Filter") && gTypes.includes("Aggregate"),
-      gTypes.join(",")
+      "code turn: DAG holds a Python operator",
+      codeOps.some(o => o.operatorType === "DataLoading" || o.operatorType === "DataProcessing"),
+      codeOps.map(o => `${o.operatorID}:${o.operatorType}`).join(",")
     );
-    check(
-      "general DAG uses a Python source with declared schema (PythonUDFSourceV2)",
-      gTypes.includes("PythonUDFSourceV2"),
-      gTypes.join(",")
-    );
-    check(
-      "general DAG includes the DataProcessing (function-style Python) operator",
-      gTypes.includes("DataProcessing"),
-      gTypes.join(",")
-    );
-    check("general turn added exactly 4 operators", gOps.length === 4, `n=${gOps.length}`);
-    const gSteps = (await api(AGENT, "GET", `/api/agents/${genAgent.id}/react-steps`)).json.steps;
-    const gTools = new Set(gSteps.flatMap(st => (st.toolCalls ?? []).map(tc => tc.toolName)));
-    check("general turn used addOperator tool", gTools.has("addOperator"), [...gTools].join(","));
-    const gResAll = (await api(AGENT, "GET", `/api/agents/${genAgent.id}/operator-results`)).json.results;
-    const gRes = Object.fromEntries(Object.entries(gResAll).filter(([k]) => !preOps.has(k)));
-    const completed = Object.values(gRes).filter(r => r.state === "Completed").length;
-    check(
-      "general turn executed operators (all results Completed)",
-      completed >= 1 && completed === Object.keys(gRes).length,
-      `completed=${completed}/${Object.keys(gRes).length} ${Object.entries(gRes)
-        .map(([k, v]) => `${k}:${v.state}`)
-        .join(",")}`
-    );
-    names = await canvasOperatorNames(page);
-    check("canvas renders general-mode operators", names.length >= 4, names.slice(0, 8).join(","));
-    const gAnswer = await chat(page).locator("[data-step-id]").last().innerText();
-    check(
-      "general answer mentions per-category sums (a=2,b=7,c=5)",
-      /2/.test(gAnswer) && /7/.test(gAnswer) && /5/.test(gAnswer),
-      gAnswer.slice(0, 160).replace(/\n/g, " ")
-    );
-    await shot("09-general-mode");
+    answer = await lastStepText(page);
+    check("code turn: final answer contains 60", /\b60\b/.test(answer), answer.slice(0, 120));
+    await shot("09-code-mode");
 
     // switching tabs back to first agent keeps it usable
-    await page.locator(".agent-tab-name", { hasText: "e2e-code" }).click();
+    await domClick(page.locator(".agent-tab-name", { hasText: "e2e-native" }));
     await chat(page).locator("textarea").waitFor({ timeout: 10000 });
     check("tab switch back to first agent", true);
 
     // delete agent from tab close
-    const closeBtn = page.locator(".agent-tab-title", { hasText: "e2e-general" }).locator(".agent-tab-close");
+    const closeBtn = page.locator(".agent-tab-title", { hasText: "e2e-code" }).locator(".agent-tab-close");
     await closeBtn.click({ timeout: 5000 }).catch(() => closeBtn.evaluate(el => el.click()));
     await sleep(2000);
     agents = await agentsForWorkflow(wid);
     check(
       "closing tab deletes agent on server",
-      !agents.some(a => a.name === "e2e-general"),
+      !agents.some(a => a.name === "e2e-code"),
       agents.map(a => a.name).join(",")
     );
     await shot("10-final");
   } catch (e) {
-    check("script completed without exception", false, String(e).slice(0, 400));
+    check("script completed without exception", false, String(e).slice(0, 1200));
     await shot("99-error");
   } finally {
     // NG0100 (ExpressionChangedAfterItHasBeenChecked) in WorkspaceComponent and
@@ -548,6 +573,7 @@ async function main() {
     );
     for (const a of await agentsForWorkflow(wid)) await api(AGENT, "DELETE", `/api/agents/${a.id}`);
     await deleteWorkflow(wid);
+    await terminateComputingUnit(cuid);
     await browser.close();
     fs.writeFileSync(`${OUT_DIR}/results.json`, JSON.stringify(results, null, 2));
     const failed = results.filter(r => !r.ok);

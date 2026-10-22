@@ -525,6 +525,9 @@ describe("AgentChatComponent", () => {
       expect(component.settingsExecutionTimeoutMinutes).toBe(10);
       expect(component.settingsMaxSteps).toBe(10);
       expect(component.settingsAgentMode).toBe("native");
+      // agent-service defaults: dataEvidence on, flowEvidence off
+      expect(component.settingsDataEvidence).toBe("enabled");
+      expect(component.settingsFlowEvidence).toBe("disabled");
     });
 
     it("applies explicit settings values from the server", () => {
@@ -537,6 +540,8 @@ describe("AgentChatComponent", () => {
           executionTimeoutMinutes: 4,
           maxSteps: 5,
           agentMode: "code",
+          dataEvidence: false,
+          flowEvidence: true,
         })
       );
 
@@ -548,6 +553,8 @@ describe("AgentChatComponent", () => {
       expect(component.settingsExecutionTimeoutMinutes).toBe(4);
       expect(component.settingsMaxSteps).toBe(5);
       expect(component.settingsAgentMode).toBe("code");
+      expect(component.settingsDataEvidence).toBe("disabled");
+      expect(component.settingsFlowEvidence).toBe("enabled");
     });
 
     it("closeSystemInfoModal hides the modal", () => {
@@ -605,6 +612,28 @@ describe("AgentChatComponent", () => {
         expect(agentService.updateAgentSettings).toHaveBeenCalledTimes(1);
         expect(agentService.updateAgentSettings).toHaveBeenCalledWith(AGENT_ID, { [key]: value });
         expect(notification.success).toHaveBeenCalledWith(toast);
+      });
+    });
+
+    // The evidence selects replace the retired Column Stats control, whose
+    // `columnStats` PATCH the agent-service rejects with a 400.
+    const evidenceCases = [
+      { method: "saveDataEvidence", prop: "settingsDataEvidence", key: "dataEvidence", toast: "Data evidence" },
+      { method: "saveFlowEvidence", prop: "settingsFlowEvidence", key: "flowEvidence", toast: "Flow evidence" },
+    ] as const;
+
+    evidenceCases.forEach(({ method, prop, key, toast }) => {
+      it(`${method} sends only { ${key} } as a boolean and toasts the new state`, () => {
+        createComponent();
+        (component as any)[prop] = "disabled";
+        (component as any)[method]();
+        expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { [key]: false });
+        expect(notification.success).toHaveBeenLastCalledWith(`${toast} disabled`);
+
+        (component as any)[prop] = "enabled";
+        (component as any)[method]();
+        expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { [key]: true });
+        expect(notification.success).toHaveBeenLastCalledWith(`${toast} enabled`);
       });
     });
 

@@ -309,7 +309,9 @@ def registered_callable(spec):
     scope, _, _ = registered_namespace(registration["cells"])
     if "lambda" in registration:
         return _condition(registration, scope, spec.get("id", "filter"))
-    return functools.partial(scope[registration["entry"]], **copy.deepcopy(registration["settings"]))
+    # A setting naming a Texera dataset file reaches the function as its local copy.
+    settings = localize_settings(spec.get("datasetFiles"), copy.deepcopy(registration["settings"]))
+    return functools.partial(scope[registration["entry"]], **settings)
 
 
 def _condition(registration, scope, operator_id=None):

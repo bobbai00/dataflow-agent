@@ -43,10 +43,13 @@ export interface CompiledNativeOp {
 }
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
+const datasetFilesSource = readFileSync(fileURLToPath(new URL("./python/dataset_files.py", import.meta.url)), "utf8");
 const runtimeSource =
   readFileSync(runtimePath, "utf8") +
   "\n" +
-  readFileSync(fileURLToPath(new URL("./python/registered.py", import.meta.url)), "utf8");
+  readFileSync(fileURLToPath(new URL("./python/registered.py", import.meta.url)), "utf8") +
+  "\n" +
+  datasetFilesSource;
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 /** The interpreter used for parsing and validation (the engine's UDF Python). */
@@ -155,4 +158,37 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
     `exec(${JSON.stringify(runtimeSource)}, ${prefix}_scope)`,
   ].join("\n");
   return { operatorType: source ? "DataLoading" : "DataProcessing", code };
+}
+
+/** The `<prefix>_spec = <prefix>_json.loads("…")` line of compiled native code. */
+const NATIVE_SPEC_LINE = /^(_native_*)_spec = \1_json\.loads\((".*")\)$/m;
+
+/** The runtime spec a compiled native operator executes, or undefined for any other code. */
+export function nativeSpecOf(code: string): Record<string, unknown> | undefined {
+  const line = NATIVE_SPEC_LINE.exec(code);
+  return line ? (JSON.parse(JSON.parse(line[2]!)) as Record<string, unknown>) : undefined;
+}
+
+/** Compiled native code whose spec also carries `datasetFiles`: download links,
+ * for one execution, of the Texera dataset files the operator names. The spec
+ * line is rewritten in place — outside `properties`, so the revision is
+ * untouched, and with the runtime's `exec` still the last line. */
+export function withNativeDatasetFiles(code: string, datasetFiles: Record<string, string>): string {
+  return code.replace(NATIVE_SPEC_LINE, (_line, prefix: string, literal: string) => {
+    const spec = { ...(JSON.parse(JSON.parse(literal)) as object), datasetFiles };
+    return `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`;
+  });
+}
+
+/** Lines appended to a code-mode operator for one execution: they copy the
+ * Texera dataset files its code names to local files and point the code's
+ * string constants at those copies (`localize_module` in dataset_files.py).
+ * Appended, never prepended, so error line numbers still match the model's code. */
+export function datasetFilesStagingCode(datasetFiles: Record<string, string>): string {
+  return [
+    "",
+    `_texera_dataset_scope = {"__name__": "__texera_dataset_files__"}`,
+    `exec(${JSON.stringify(datasetFilesSource)}, _texera_dataset_scope)`,
+    `_texera_dataset_scope["localize_module"](globals(), __import__("json").loads(${JSON.stringify(JSON.stringify(datasetFiles))}))`,
+  ].join("\n");
 }

@@ -70,11 +70,14 @@ export interface AgentSettingsApi {
   /** When true, the model may emit multiple tool calls in one assistant turn.
    *  The agent serializes them in topological order via `ToolCallScheduler`. */
   parallelToolCalls?: boolean;
-  /** When true, every non-error operator result that the backend annotated
-   *  with `columnStats` is followed by a `Column stats:` block (one line per
-   *  column) in the assembled context. Wire name matches the agent-service
-   *  knob (`AgentSettings.columnStats`). */
-  columnStats?: boolean;
+  /** When true, results the agent observes carry bounded, version-bound
+   *  column/table facts (null and distinct counts, ranges, top values).
+   *  Wire name matches the agent-service knob (`AgentSettings.dataEvidence`). */
+  dataEvidence?: boolean;
+  /** When true, results the agent observes carry version-matched input/output
+   *  facts (rows kept, keys matched). Wire name matches the agent-service knob
+   *  (`AgentSettings.flowEvidence`). */
+  flowEvidence?: boolean;
 }
 
 /** LLM driver picked at agent construction. `vercel-tool-use` is the

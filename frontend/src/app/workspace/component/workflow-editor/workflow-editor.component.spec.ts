@@ -50,7 +50,7 @@ import { HttpClientTestingModule } from "@angular/common/http/testing";
 import { OperatorLink, OperatorPredicate } from "../../types/workflow-common.interface";
 import { tap } from "rxjs/operators";
 import { WorkflowVersionService } from "../../../dashboard/service/user/workflow-version/workflow-version.service";
-import { of } from "rxjs";
+import { config, of } from "rxjs";
 import { NzContextMenuService, NzDropDownModule } from "ng-zorro-antd/dropdown";
 import { ActivatedRoute, Router } from "@angular/router";
 import { RouterTestingModule } from "@angular/router/testing";
@@ -158,6 +158,67 @@ describe("WorkflowEditorComponent", () => {
       emitRegionUpdate(2);
 
       expect(jointGraph.getCell("region-2").attr("body/visibility")).toBe("visible");
+    });
+
+    // An agent's run reports its region plan before the agent's new operators reach the canvas.
+    describe("when a region plan names operators that are not on the canvas yet", () => {
+      function emitRegions(regions: [number, string[]][]): void {
+        const executeWorkflowService = TestBed.inject(ExecuteWorkflowService);
+        (executeWorkflowService as any).regionUpdateStream.next({ regions });
+      }
+
+      function addOperator(operatorID: string): void {
+        const operator = new joint.shapes.basic.Rect({ position: { x: 40, y: 60 }, size: { width: 80, height: 40 } });
+        operator.set("id", operatorID);
+        jointGraph.addCell(operator);
+      }
+
+      // An error thrown in a stream subscriber does not reach the caller of next(): rxjs
+      // reports it on a later tick through its unhandled-error hook, so collect it there.
+      async function unhandledErrors(run: () => void): Promise<unknown[]> {
+        const errors: unknown[] = [];
+        const previous = config.onUnhandledError;
+        config.onUnhandledError = error => errors.push(error);
+        try {
+          run();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        } finally {
+          config.onUnhandledError = previous;
+        }
+        return errors;
+      }
+
+      it("should create every region and draw nothing for one whose operators are all missing", async () => {
+        addOperator("present_op");
+        expect(await unhandledErrors(() => emitRegions([[1, ["agent_new_op"]], [2, ["present_op"]]]))).toEqual([]);
+
+        expect(jointGraph.getCell("region-1").attr("body/d")).toBe("");
+        expect(jointGraph.getCell("region-2").attr("body/d")).toMatch(/^M/);
+      });
+
+      it("should draw the region once its operator reaches the canvas", () => {
+        emitRegions([[1, ["agent_new_op"]]]);
+        addOperator("agent_new_op");
+
+        expect(jointGraph.getCell("region-1").attr("body/d")).toMatch(/^M/);
+      });
+
+      it("should draw nothing again once its operators leave the canvas", () => {
+        addOperator("agent_new_op");
+        emitRegions([[1, ["agent_new_op"]]]);
+        jointGraph.getCell("agent_new_op").remove();
+
+        expect(jointGraph.getCell("region-1").attr("body/d")).toBe("");
+      });
+
+      it("should color regions by state and ignore states of regions a newer plan replaced", async () => {
+        const regionStateStream = (TestBed.inject(ExecuteWorkflowService) as any).regionStateStream;
+        emitRegions([[1, ["agent_new_op"]]]);
+
+        regionStateStream.next({ id: 1, state: "Completed" });
+        expect(jointGraph.getCell("region-1").attr("body/fill")).toBe("rgba(76,175,80,0.2)");
+        expect(await unhandledErrors(() => regionStateStream.next({ id: 7, state: "Completed" }))).toEqual([]);
+      });
     });
 
     it("should toggle visibility of existing regions when the displayed flag changes", () => {

@@ -120,6 +120,16 @@ hold a provider key; the proxy injects `LITELLM_MASTER_KEY` server-side.
 Models available through the DKNet gateway: `claude-haiku-4.5` (cheap,
 default for e2e), `claude-sonnet-4-6`, `gpt-5.4`, `local-llm`.
 
+Files in Texera datasets — addressed `/ownerEmail/datasetName/vN/file`, which is
+also what the agent panel's drag & drop inserts — are readable in both modes:
+native `scan` and registered-function settings, and the path literals of
+code-mode loaders. A computing unit holds no user credential, so before each
+execution the agent-service has the file service resolve the dataset paths an
+operator names (with the user's token, which also checks access) to
+short-lived download links that travel with that request only; the worker
+copies each file into a local cache once. See
+`agent-service/src/agent/tools/dataset-files.ts`.
+
 ### Verifying end-to-end
 
 ```bash
@@ -168,7 +178,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | Knob | Values | What it does |
 |---|---|---|
 | `agentMode` | `native` (default) \| `code` | native: the model edits, runs and reads the dataflow through the `dataflow(python, statements)` tool; code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
-| `dataEvidence` | bool (default `false`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
+| `dataEvidence` | bool (default `true`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |

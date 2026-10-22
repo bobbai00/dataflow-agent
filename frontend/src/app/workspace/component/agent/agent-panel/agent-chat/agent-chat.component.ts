@@ -47,12 +47,7 @@ import { NzButtonComponent } from "ng-zorro-antd/button";
 import { NgIf, NgFor, NgSwitch, NgSwitchCase } from "@angular/common";
 import { MarkdownComponent } from "ngx-markdown";
 import { NzSpinComponent } from "ng-zorro-antd/spin";
-import {
-  NzInputDirective,
-  NzAutosizeDirective,
-  NzInputGroupComponent,
-  NzInputGroupWhitSuffixOrPrefixDirective,
-} from "ng-zorro-antd/input";
+import { NzInputDirective, NzAutosizeDirective } from "ng-zorro-antd/input";
 import { FormsModule } from "@angular/forms";
 import { NzWaveDirective } from "ng-zorro-antd/core/wave";
 import { ReActStepDetailModalComponent } from "../react-step-detail-modal/react-step-detail-modal.component";
@@ -60,7 +55,6 @@ import { NzModalComponent, NzModalContentDirective } from "ng-zorro-antd/modal";
 import { NzTabsComponent, NzTabComponent } from "ng-zorro-antd/tabs";
 import { NzSelectComponent, NzOptionComponent } from "ng-zorro-antd/select";
 import { NzInputNumberComponent } from "ng-zorro-antd/input-number";
-import { NzTagComponent } from "ng-zorro-antd/tag";
 import { NzSwitchComponent } from "ng-zorro-antd/switch";
 
 /**
@@ -149,9 +143,6 @@ export type ChatItem = { kind: "message"; step: ReActStep; index: number } | { k
     NzTabsComponent,
     NzTabComponent,
     NzInputNumberComponent,
-    NzTagComponent,
-    NzInputGroupComponent,
-    NzInputGroupWhitSuffixOrPrefixDirective,
     NzSwitchComponent,
     NzSelectComponent,
     NzOptionComponent,
@@ -292,7 +283,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsAgentMode: "code" | "native" = "native"; // Agent operating mode
   public settingsContextMode: "delta" | "latest" = "delta"; // ReAct context selection policy
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
-  public settingsStatsEnabled: "enabled" | "disabled" = "enabled"; // Append Column stats block to operator results
+  public settingsDataEvidence: "enabled" | "disabled" = "enabled"; // Column/table facts on observed results
+  public settingsFlowEvidence: "enabled" | "disabled" = "disabled"; // Input/output facts on observed results
 
   // Track if we disabled auto-persist so we can re-enable it on destroy
   private disabledAutoPersist = false;
@@ -684,8 +676,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
         this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
-        // Backend default for `columnStats` is true — missing means "enabled".
-        this.settingsStatsEnabled = settings.columnStats === false ? "disabled" : "enabled";
+        // Backend defaults (DEFAULT_AGENT_SETTINGS): dataEvidence true, flowEvidence false.
+        this.settingsDataEvidence = settings.dataEvidence === false ? "disabled" : "enabled";
+        this.settingsFlowEvidence = settings.flowEvidence === true ? "enabled" : "disabled";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -693,7 +686,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.agentInfo.settings.agentMode = settings.agentMode;
           this.agentInfo.settings.contextMode = settings.contextMode;
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
-          this.agentInfo.settings.columnStats = settings.columnStats;
+          this.agentInfo.settings.dataEvidence = settings.dataEvidence;
+          this.agentInfo.settings.flowEvidence = settings.flowEvidence;
         }
       });
   }
@@ -1718,21 +1712,42 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the stats-enabled setting. When enabled, every non-error operator
-   * result whose `OperatorInfo` carries `columnStats` is followed by a
-   * `Column stats:` block listing per-column type + summary stats. Pure
-   * render-time toggle; no system prompt rebuild.
+   * Save the data-evidence setting. When enabled, results the agent observes
+   * carry bounded column/table facts — null and distinct counts, ranges, top
+   * values. The native prompt documents the evidence kinds that are on, so the
+   * system info is refreshed.
    */
-  public saveStatsEnabled(): void {
-    const enabled = this.settingsStatsEnabled === "enabled";
+  public saveDataEvidence(): void {
+    const enabled = this.settingsDataEvidence === "enabled";
     this.agentService
       .updateAgentSettings(this.agentInfo.id, {
-        columnStats: enabled,
+        dataEvidence: enabled,
       })
       .pipe(untilDestroyed(this))
       .subscribe({
         next: () => {
-          this.notificationService.success(`Column stats ${enabled ? "enabled" : "disabled"}`);
+          this.notificationService.success(`Data evidence ${enabled ? "enabled" : "disabled"}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the flow-evidence setting. When enabled, results the agent observes
+   * carry version-matched input/output facts — rows kept, keys matched — tying
+   * each output to its inputs.
+   */
+  public saveFlowEvidence(): void {
+    const enabled = this.settingsFlowEvidence === "enabled";
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        flowEvidence: enabled,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Flow evidence ${enabled ? "enabled" : "disabled"}`);
           this.refreshSystemInfo();
         },
         error: () => {}, // Error already handled by service

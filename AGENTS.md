@@ -158,7 +158,7 @@ live in [native-mode/](native-mode/), generated from the code by
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
 created with no `settings` runs: **`agentMode: native`** (explicit graph
 commands; `code` is the other mode), **`contextMode: delta`**,
-**`nativeProfileCollection: true`**, **`dataEvidence: false`** and
+**`nativeProfileCollection: true`**, **`dataEvidence: true`** and
 **`flowEvidence: false`**. Native retrieval choices control data-statistics
 exposure; `flowEvidence` independently adds flow metadata. Collection is
 compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,

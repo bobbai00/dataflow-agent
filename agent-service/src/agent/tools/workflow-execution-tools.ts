@@ -26,6 +26,7 @@ import { env } from "../../config/env";
 import type { LogicalPlan, LogicalLink } from "../../api/execution-api";
 import type { ExecutionRunMetrics, OperatorInfo, SyncExecutionResult } from "../../types/execution";
 import { annotateMissingPath } from "../util/missing-path-hint";
+import { withDatasetFiles } from "./dataset-files";
 import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { partitionOpsByIndependence, type PartitionGroup } from "../util/subdag-partition";
@@ -363,7 +364,8 @@ async function executeWorkflowHttp(
     executionName: "agent-execution",
     ...(config.structuredResults ? { structuredResults: true } : {}),
     logicalPlan: {
-      operators: logicalPlan.operators,
+      // Texera dataset files the operators name travel with this request only.
+      operators: await withDatasetFiles(logicalPlan.operators, config.userToken),
       links: logicalPlan.links,
       opsToViewResult: logicalPlan.opsToViewResult || [],
       opsToReuseResult: [],

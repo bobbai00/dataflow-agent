@@ -155,7 +155,7 @@ An agent created with no `settings` uses
 |---|---|---|
 | `agentMode` | `native` | the `dataflow` tool above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `false` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
+| `dataEvidence` | `true` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |

@@ -148,6 +148,24 @@ export async function createDatasetVersion(
   return (await response.json()) as DashboardDatasetVersion;
 }
 
+/**
+ * A short-lived download link for one dataset file, addressed as
+ * `/ownerEmail/datasetName/versionName/fileRelativePath`, or `undefined` when
+ * the path is not a dataset file this user may read. The file service checks
+ * access with the user's token; the link itself carries no credential beyond
+ * that one object (15 minutes by default).
+ */
+export async function presignDatasetFile(token: string, filePath: string): Promise<string | undefined> {
+  const { fileEndpoint: apiEndpoint } = getBackendConfig();
+  const response = await fetch(`${apiEndpoint}/api/dataset/presign-download?filePath=${encodeURIComponent(filePath)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) return undefined;
+  const body = (await response.json()) as { presignedUrl?: string };
+  return body.presignedUrl || undefined;
+}
+
 export async function deleteDataset(token: string, did: number): Promise<void> {
   const { fileEndpoint: apiEndpoint } = getBackendConfig();
   const response = await fetch(`${apiEndpoint}/api/dataset/${did}`, {

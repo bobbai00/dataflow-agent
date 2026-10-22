@@ -544,7 +544,17 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       }
     );
 
-    let regionMap: { regionElement: joint.dia.Element; operators: joint.dia.Cell[] }[] = [];
+    // A region plan names operators by id, and they need not be on the canvas when it arrives:
+    // an agent's run reports its plan before the agent's new operators are synced to the canvas,
+    // and an agent checkout can replace the DAG. Each region keeps its ids and is redrawn from
+    // whichever of them are on the canvas, as operators come and go.
+    let regionMap: { regionElement: joint.dia.Element; operatorIds: string[]; operators: joint.dia.Cell[] }[] = [];
+    const drawRegion = (region: (typeof regionMap)[number]) => {
+      region.operators = region.operatorIds
+        .map(id => this.paper.getModelById(id))
+        .filter((cell): cell is joint.dia.Cell => !!cell);
+      this.updateRegionElement(region.regionElement, region.operators);
+    };
     // update region elements on execution
     this.executeWorkflowService
       .getRegionUpdateStream()
@@ -555,15 +565,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           .filter(element => element instanceof Region)
           .forEach(element => element.remove());
 
-        regionMap = event.regions.map(([id, region]) => {
-          const element = new Region({ id: "region-" + id });
-          // An operator id from the region plan may no longer be on the canvas
-          // (e.g. an agent checkout replaced the DAG) — skip it instead of
-          // crashing on `undefined.getBBox()` in updateRegionElement.
-          const ops = region.map(id => this.paper.getModelById(id)).filter((cell): cell is joint.dia.Cell => !!cell);
-          this.paper.model.addCell(element);
-          this.updateRegionElement(element, ops);
-          return { regionElement: element, operators: ops };
+        regionMap = event.regions.map(([id, operatorIds]) => {
+          const region = { regionElement: new Region({ id: "region-" + id }), operatorIds, operators: [] };
+          this.paper.model.addCell(region.regionElement);
+          drawRegion(region);
+          return region;
         });
         // regions are recreated on every update, so reapply the current toggle state to the new elements
         this.setRegionsVisibility(this.wrapper.getRegionsDisplayed());
@@ -574,6 +580,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .getRegionsDisplayedStream()
       .pipe(untilDestroyed(this))
       .subscribe(displayed => this.setRegionsVisibility(displayed));
+
+    this.paper.model.on("add remove", (cell: joint.dia.Cell) => {
+      if (cell instanceof Region) return;
+      regionMap.filter(region => region.operatorIds.includes(String(cell.id))).forEach(drawRegion);
+    });
 
     this.paper.model.on("change:position", operator => {
       regionMap
@@ -591,7 +602,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           ExecutingNonDependeePortsPhase: "rgba(255,213,79,0.2)",
           Completed: "rgba(76,175,80,0.2)",
         };
-        this.paper.getModelById("region-" + region.id).attr("body/fill", colorMap[region.state]);
+        // a state can trail its region, which a newer plan may already have replaced
+        this.paper.getModelById("region-" + region.id)?.attr("body/fill", colorMap[region.state]);
       });
   }
 
@@ -603,6 +615,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   private updateRegionElement(regionElement: joint.dia.Element, operators: joint.dia.Cell[]) {
+    // None of the region's operators is on the canvas (yet): draw nothing. concaveman throws
+    // on an empty point set.
+    if (operators.length === 0) {
+      regionElement.attr("body/d", "");
+      return;
+    }
     const points = operators.flatMap(op => {
       const { x, y, width, height } = op.getBBox(),
         padding = 15;

@@ -30,12 +30,17 @@ import { chromium } from "../node_modules/playwright/index.mjs";
 //   node e2e/agent-drop-upload.e2e.mjs
 //   SKIP_AGENT_TURN=1 node e2e/agent-drop-upload.e2e.mjs   # skip the LLM turn
 //   HEADFUL=1 PROBE_MODEL=gpt-5-mini node e2e/agent-drop-upload.e2e.mjs
+//   TEXERA_USERNAME=agent-demo TEXERA_PASSWORD=... node e2e/agent-drop-upload.e2e.mjs   # another account
 const FE = process.env.FE_BASE ?? "http://localhost:4200";
 const WEB = process.env.WEB_BASE ?? "http://localhost:8080";
 const AGENT = process.env.AGENT_BASE ?? "http://localhost:3001";
 // Dataset endpoints live on file-service, not texera-web.
 const FILE = process.env.FILE_BASE ?? "http://localhost:9092";
+const CU = process.env.CU_BASE ?? "http://localhost:8888";
+const CU_URI = process.env.TEXERA_LOCAL_CU_URI ?? "http://localhost:8085";
 const MODEL = process.env.PROBE_MODEL ?? "claude-haiku-4.5";
+const USERNAME = process.env.TEXERA_USERNAME ?? "texera";
+const PASSWORD = process.env.TEXERA_PASSWORD ?? "texera";
 const RUN_AGENT_TURN = process.env.SKIP_AGENT_TURN ? false : true;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -66,8 +71,7 @@ const CSV_NAME = `drop test ${Date.now()}.csv`;
 const CSV_BODY = "city,homes,median_value\nDorchester,4210,712500\nBackBay,980,2450000\nRoslindale,2110,689000\n";
 
 async function main() {
-  token = (await api(WEB, "POST", "/api/auth/login", { username: "agent-demo", password: "agent-demo-2026" })).json
-    .accessToken;
+  token = (await api(WEB, "POST", "/api/auth/login", { username: USERNAME, password: PASSWORD })).json.accessToken;
   const wid = (
     await api(WEB, "POST", "/api/workflow/create", {
       name: `drop-upload-e2e ${Date.now()}`,
@@ -82,11 +86,27 @@ async function main() {
     })
   ).json.workflow.wid;
   // Stale agents from earlier runs leave tab panes that never finish their
-  // leave animation and swallow clicks.
+  // leave animation and swallow clicks. Remove only those — agents bound to an
+  // earlier drop-upload-e2e workflow — never other sessions' agents.
   for (const a of (await api(AGENT, "GET", "/api/agents")).json.agents ?? []) {
-    await api(AGENT, "DELETE", `/api/agents/${a.id}`);
+    const workflow = (await api(WEB, "GET", `/api/workflow/${a.delegate?.workflowId}`)).json;
+    if (workflow?.name?.startsWith("drop-upload-e2e ")) await api(AGENT, "DELETE", `/api/agents/${a.id}`);
   }
-  console.log("workflow", wid);
+  // The agent cannot be created until the workspace reaches a running
+  // computing unit; bring a local one rather than rely on the account's.
+  const cuid = (
+    await api(CU, "POST", "/api/computing-unit/create", {
+      name: `drop-upload-e2e ${Date.now()}`,
+      unitType: "local",
+      cpuLimit: "NaN",
+      memoryLimit: "NaN",
+      gpuLimit: "NaN",
+      jvmMemorySize: "NaN",
+      shmSize: "NaN",
+      uri: CU_URI,
+    })
+  ).json.computingUnit.cuid;
+  console.log("workflow", wid, "| computing unit", cuid);
 
   const browser = await chromium.launch({ headless: !process.env.HEADFUL });
   const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
@@ -241,14 +261,21 @@ async function main() {
         .flatMap(s => s.toolResults ?? [])
         .map(tr => (typeof tr.output === "string" ? tr.output : JSON.stringify(tr.output)))
         .join("\n");
-      const contexts = list
-        .flatMap(s => s.inputMessages ?? [])
-        .map(m => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
-        .join("\n");
-      check("agent added an operator for the dropped file", /Added operator/.test(outputs));
-      check("no execution error on the dropped file", !/EXECUTION_FAILURE|schema is not available/.test(contexts));
-      check("row count reached the agent's context", /\b3\b/.test(contexts), "expect 3 data rows");
+      const operators =
+        (await api(AGENT, "GET", `/api/agents/${agents[0].id}/workflow`)).json?.workflow?.operators ?? [];
+      const fileName = path.split("/").pop();
       const answer = list.filter(s => s.role === "agent" && s.content).at(-1)?.content ?? "";
+      // Mode-agnostic: a native scan carries the path in its spec, a code-mode loader in its code.
+      check(
+        "agent built an operator that reads the dropped file",
+        operators.some(o => JSON.stringify(o.operatorProperties ?? {}).includes(fileName)),
+        operators.map(o => `${o.operatorID}:${o.operatorType}`).join(",")
+      );
+      check(
+        "the dropped file was found and read",
+        !/SCAN_NOT_FOUND|No such file or directory|EXECUTION_FAILURE|schema is not available/.test(outputs)
+      );
+      check("the answer reports the file's 3 data rows", /\b3\b|\bthree\b/i.test(answer), answer.slice(0, 160));
       console.log("\nfinal answer:", answer.slice(0, 300).replace(/\n/g, " "));
     }
 
@@ -259,6 +286,7 @@ async function main() {
     process.exitCode = failed.length ? 1 : 0;
   } finally {
     await browser.close();
+    await api(CU, "DELETE", `/api/computing-unit/${cuid}/terminate`);
   }
 }
 main().catch(e => {
