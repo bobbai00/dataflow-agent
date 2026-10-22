@@ -1823,7 +1823,9 @@ def _scan(spec, operations):
 
     props = spec["properties"]
     patterns = [props["files"]] if isinstance(props["files"], str) else props["files"]
-    # Texera dataset files this execution may download (see dataset_files.py).
+    # Texera dataset files this execution may download (see dataset_files.py,
+    # which generated code appends to this module; without dataset files a
+    # scan never needs it).
     dataset_files = spec.get("datasetFiles") or {}
     resolved = set()
     # Local copy of a dataset file -> the dataset path the program named, which
@@ -1831,7 +1833,7 @@ def _scan(spec, operations):
     named = {}
     for pattern in patterns:
         matches = glob.glob(pattern, recursive=True)
-        url = None if matches else dataset_file_url(dataset_files, pattern)
+        url = dataset_file_url(dataset_files, pattern) if dataset_files and not matches else None
         if url:
             try:
                 path = Path(dataset_local_file(pattern, url)).resolve()
