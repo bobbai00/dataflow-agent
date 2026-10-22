@@ -17,38 +17,48 @@
  * under the License.
  */
 
-import { SimpleChange, SimpleChanges } from "@angular/core";
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 import { HttpClientTestingModule } from "@angular/common/http/testing";
 import { NoopAnimationsModule } from "@angular/platform-browser/animations";
-import { DomSanitizer } from "@angular/platform-browser";
-import { EMPTY, Subject, of, throwError } from "rxjs";
+import { BehaviorSubject, EMPTY, Subject, of, throwError } from "rxjs";
 import { HttpErrorResponse } from "@angular/common/http";
 import { AgentInteractionComponent } from "./agent-interaction.component";
-import { AgentInfo, AgentService } from "../../../service/agent/agent.service";
+import { AgentInfo, AgentService, OperatorResultSummary } from "../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
+import { WorkflowResultService } from "../../../service/workflow-result/workflow-result.service";
 import { NotificationService } from "../../../../common/service/notification/notification.service";
 import { commonTestProviders } from "../../../../common/testing/test-utils";
 import { AgentState } from "../../../service/agent/agent-types";
 import { NativeOperatorEditorComponent } from "../native-operator-editor/native-operator-editor.component";
+import { NativeStatementForm } from "../../../service/agent/native-operator";
 
 function makeAgent(id: string, name: string = id): AgentInfo {
   return { id, name, modelType: "gpt-test", isBaselineMode: false, createdAt: new Date("2026-01-01T00:00:00Z") };
 }
 
-/** The texera graph the component reads: one operator, and no change events. */
-function graphWith(operator?: object) {
+/** The texera graph the component reads: these operators and links, and no change events. */
+function graphWith(operators: object[] = [], links: object[] = []) {
+  const byId = new Map(operators.map((op: any) => [op.operatorID, op]));
   return {
-    getOperator: vi.fn().mockReturnValue(operator),
+    hasOperator: (id: string) => byId.has(id),
+    getOperator: (id: string) => byId.get(id),
+    getAllLinks: () => links,
     getOperatorAddStream: () => EMPTY,
     getOperatorPropertyChangeStream: () => EMPTY,
+    getLinkAddStream: () => EMPTY,
+    getLinkDeleteStream: () => EMPTY,
   };
 }
 
-// A filter the dataflow agent defined natively.
+// A source and a filter the dataflow agent defined natively.
+const records = {
+  operatorID: "records",
+  operatorType: "PythonUDFV2",
+  nativeOp: { type: "Process", inputs: [], properties: {}, source: "set records: make_table()" },
+};
 const kept = {
   operatorID: "kept",
-  operatorType: "DataProcessing",
+  operatorType: "PythonUDFV2",
   nativeOp: {
     type: "Filter",
     inputs: ["records"],
@@ -57,13 +67,38 @@ const kept = {
     doc: "Keep the records over 15.",
   },
 };
+const keptForm: NativeStatementForm = {
+  id: "kept",
+  op: "filter",
+  inputs: ["records"],
+  positional: [{ source: "lambda row: row['value'] > 15", kind: "lambda" }],
+  keywords: [],
+  doc: "Keep the records over 15.",
+  statement: kept.nativeOp.source,
+};
+const table = (rows: number, extra: Partial<OperatorResultSummary> = {}): OperatorResultSummary => ({
+  state: "Completed",
+  inputTuples: 0,
+  outputTuples: rows,
+  totalRowCount: rows,
+  resultSchema: [
+    { name: "id", type: "int64" },
+    { name: "value", type: "int64" },
+  ],
+  sampleRecords: Array.from({ length: rows }, (_, i) => ({ id: i + 1, value: (i + 1) * 10 })),
+  ...extra,
+});
 
 describe("AgentInteractionComponent", () => {
   let fixture: ComponentFixture<AgentInteractionComponent>;
   let component: AgentInteractionComponent;
   let agentChangeSubject: Subject<void>;
+  let summaries: BehaviorSubject<Map<string, OperatorResultSummary>>;
+  let running: BehaviorSubject<ReadonlySet<string>>;
   let agentService: {
     agentChange$: ReturnType<Subject<void>["asObservable"]>;
+    operatorResultSummaries$: ReturnType<BehaviorSubject<Map<string, OperatorResultSummary>>["asObservable"]>;
+    runningOperators$: ReturnType<BehaviorSubject<ReadonlySet<string>>["asObservable"]>;
     getAllAgents: ReturnType<typeof vi.fn>;
     getActivelyConnectedAgentIds: ReturnType<typeof vi.fn>;
     isAgentActivelyConnected: ReturnType<typeof vi.fn>;
@@ -73,15 +108,23 @@ describe("AgentInteractionComponent", () => {
     editNativeOperator: ReturnType<typeof vi.fn>;
     getNativeStatementForm: ReturnType<typeof vi.fn>;
     getNativeCatalog: ReturnType<typeof vi.fn>;
-    getOperatorResultSummaries: ReturnType<typeof vi.fn>;
   };
   let workflowActionService: { getTexeraGraph: ReturnType<typeof vi.fn> };
+  let workflowResultService: {
+    getResultUpdateStream: () => typeof EMPTY;
+    getPaginatedResultService: ReturnType<typeof vi.fn>;
+    getResultService: ReturnType<typeof vi.fn>;
+  };
   let notification: Record<"success" | "error" | "info" | "warning", ReturnType<typeof vi.fn>>;
 
   beforeEach(async () => {
     agentChangeSubject = new Subject<void>();
+    summaries = new BehaviorSubject(new Map());
+    running = new BehaviorSubject<ReadonlySet<string>>(new Set());
     agentService = {
       agentChange$: agentChangeSubject.asObservable(),
+      operatorResultSummaries$: summaries.asObservable(),
+      runningOperators$: running.asObservable(),
       getAllAgents: vi.fn().mockReturnValue(of([])),
       getActivelyConnectedAgentIds: vi.fn().mockReturnValue([]),
       isAgentActivelyConnected: vi.fn().mockReturnValue(false),
@@ -91,10 +134,14 @@ describe("AgentInteractionComponent", () => {
       editNativeOperator: vi.fn(),
       getNativeStatementForm: vi.fn().mockReturnValue(EMPTY),
       getNativeCatalog: vi.fn().mockReturnValue(of([])),
-      getOperatorResultSummaries: vi.fn().mockReturnValue(new Map()),
     };
     workflowActionService = {
-      getTexeraGraph: vi.fn().mockReturnValue(graphWith(undefined)),
+      getTexeraGraph: vi.fn().mockReturnValue(graphWith()),
+    };
+    workflowResultService = {
+      getResultUpdateStream: () => EMPTY,
+      getPaginatedResultService: vi.fn().mockReturnValue(undefined),
+      getResultService: vi.fn().mockReturnValue(undefined),
     };
     notification = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() };
 
@@ -103,6 +150,7 @@ describe("AgentInteractionComponent", () => {
       providers: [
         { provide: AgentService, useValue: agentService },
         { provide: WorkflowActionService, useValue: workflowActionService },
+        { provide: WorkflowResultService, useValue: workflowResultService },
         { provide: NotificationService, useValue: notification },
         ...commonTestProviders,
       ],
@@ -110,37 +158,19 @@ describe("AgentInteractionComponent", () => {
   });
 
   function createComponent(
-    inputs: Partial<
-      Pick<AgentInteractionComponent, "operatorId" | "operatorDisplayName" | "sampleRecords" | "resultStatistics">
-    > = {}
-  ): void {
+    inputs: Partial<Pick<AgentInteractionComponent, "operatorId" | "operatorDisplayName">> = {}
+  ) {
     fixture = TestBed.createComponent(AgentInteractionComponent);
     component = fixture.componentInstance;
-    component.operatorId = inputs.operatorId ?? "op-1";
-    if (inputs.operatorDisplayName !== undefined) component.operatorDisplayName = inputs.operatorDisplayName;
-    if (inputs.sampleRecords !== undefined) component.sampleRecords = inputs.sampleRecords;
-    if (inputs.resultStatistics !== undefined) component.resultStatistics = inputs.resultStatistics;
+    fixture.componentRef.setInput("operatorId", inputs.operatorId ?? "op-1");
+    if (inputs.operatorDisplayName !== undefined)
+      fixture.componentRef.setInput("operatorDisplayName", inputs.operatorDisplayName);
     fixture.detectChanges();
   }
 
   it("should create", () => {
     createComponent();
     expect(component).toBeTruthy();
-  });
-
-  it("binds the @Input properties", () => {
-    const records = [{ a: 1 }];
-    const stats = { a: "{}" };
-    createComponent({
-      operatorId: "op-7",
-      operatorDisplayName: "Filter",
-      sampleRecords: records,
-      resultStatistics: stats,
-    });
-    expect(component.operatorId).toBe("op-7");
-    expect(component.operatorDisplayName).toBe("Filter");
-    expect(component.sampleRecords).toBe(records);
-    expect(component.resultStatistics).toBe(stats);
   });
 
   describe("loadAvailableAgents (ngOnInit)", () => {
@@ -268,24 +298,8 @@ describe("AgentInteractionComponent", () => {
       expect(component.feedbackMessage).toBe("");
     });
 
-    it("falls back to the graph's custom display name when no display name is provided", () => {
-      component.operatorDisplayName = undefined;
-      workflowActionService.getTexeraGraph.mockReturnValue({
-        getOperator: vi.fn().mockReturnValue({ customDisplayName: "GraphOp" }),
-      });
-      component.sendFeedbackToAgent();
-      expect(agentService.sendMessage).toHaveBeenCalledWith(
-        "a1",
-        'Regarding operator "GraphOp" (ID: op-1): hello',
-        "feedback"
-      );
-    });
-
     it("falls back to 'this operator' when no name can be resolved", () => {
       component.operatorDisplayName = undefined;
-      workflowActionService.getTexeraGraph.mockImplementation(() => {
-        throw new Error("no graph");
-      });
       component.sendFeedbackToAgent();
       expect(agentService.sendMessage).toHaveBeenCalledWith(
         "a1",
@@ -295,103 +309,10 @@ describe("AgentInteractionComponent", () => {
     });
   });
 
-  describe("sample-record helpers", () => {
-    it("detects a visualization record", () => {
-      createComponent({ sampleRecords: [{ __is_visualization__: true, "html-content": "<p>x</p>" }] });
-      expect(component.isVisualization()).toBe(true);
-    });
-
-    it("reports non-visualization and empty records as not a visualization", () => {
-      createComponent({ sampleRecords: [{ a: 1 }] });
-      expect(component.isVisualization()).toBe(false);
-      component.sampleRecords = [];
-      expect(component.isVisualization()).toBe(false);
-    });
-
-    it("lists columns with the row-index column first and maps its display name to 'Row'", () => {
-      createComponent({ sampleRecords: [{ __row_index__: 0, a: 1, b: 2 }] });
-      expect(component.getSampleColumns()).toEqual(["__row_index__", "a", "b"]);
-      expect(component.getColumnDisplayName("__row_index__")).toBe("Row");
-      expect(component.getColumnDisplayName("a")).toBe("a");
-    });
-
-    it("inserts an ellipsis row where the row index skips ahead", () => {
-      createComponent({
-        sampleRecords: [
-          { __row_index__: 0, a: 1 },
-          { __row_index__: 5, a: 2 },
-        ],
-      });
-      const rows = component.getDisplayRows();
-      expect(rows.map(r => r.isEllipsis)).toEqual([false, true, false]);
-      expect(rows[0].record).toEqual({ __row_index__: 0, a: 1 });
-      expect(rows[2].record).toEqual({ __row_index__: 5, a: 2 });
-    });
-  });
-
-  describe("column statistics", () => {
-    const stats = {
-      score: JSON.stringify({
-        data_type: "integer",
-        statistics: { min: 1, max: 10, mean: 5.5, count: 100 },
-      }),
-    };
-
-    it("parses resultStatistics and excludes noisy keys", () => {
-      createComponent({ resultStatistics: stats });
-      const parsed = component.getParsedColumnStats();
-      expect(parsed).toHaveLength(1);
-      expect(parsed[0].column).toBe("score");
-      expect(parsed[0].dataType).toBe("integer");
-      const keys = parsed[0].stats.map(s => s.key);
-      expect(keys).toContain("min");
-      expect(keys).toContain("max");
-      expect(keys).not.toContain("count");
-    });
-
-    it("reports whether any column stats are present", () => {
-      createComponent({ resultStatistics: stats });
-      expect(component.hasColumnStats()).toBe(true);
-
-      createComponent();
-      expect(component.hasColumnStats()).toBe(false);
-    });
-  });
-
-  describe("ngOnChanges visualization caching", () => {
-    function sampleRecordsChange(currentValue: Record<string, any>[] | undefined): SimpleChanges {
-      return { sampleRecords: new SimpleChange(undefined, currentValue, true) };
-    }
-
-    it("sanitizes and caches the html-content when sampleRecords change", () => {
-      createComponent();
-      const sanitizer = TestBed.inject(DomSanitizer);
-      const spy = vi.spyOn(sanitizer, "bypassSecurityTrustHtml");
-
-      component.ngOnChanges(sampleRecordsChange([{ "html-content": "<p>hi</p>" }]));
-
-      expect(spy).toHaveBeenCalledWith("<p>hi</p>");
-      expect(component.getVisualizationHtml()).toBeTruthy();
-    });
-
-    it("clears the cached html when the new records carry no html-content", () => {
-      createComponent();
-      component.ngOnChanges(sampleRecordsChange([{ "html-content": "<p>hi</p>" }]));
-      component.ngOnChanges(sampleRecordsChange([{ a: 1 }]));
-
-      // A cleared cache makes getVisualizationHtml fall through to the empty sanitized
-      // fallback; if the cache had survived it would return the cached value instead.
-      const sanitizer = TestBed.inject(DomSanitizer);
-      const spy = vi.spyOn(sanitizer, "bypassSecurityTrustHtml");
-      component.getVisualizationHtml();
-      expect(spy).toHaveBeenCalledWith("");
-    });
-  });
-
   describe("a native operator's panel", () => {
     /** The panel for `kept`, with one connected agent, as the canvas opens it. */
     function createNative(state = AgentState.AVAILABLE, initialMode: "actions" | "feedback" = "actions"): HTMLElement {
-      workflowActionService.getTexeraGraph.mockReturnValue(graphWith(kept));
+      workflowActionService.getTexeraGraph.mockReturnValue(graphWith([records, kept]));
       agentService.getAllAgents.mockReturnValue(of([makeAgent("a1", "Bob")]));
       agentService.getActivelyConnectedAgentIds.mockReturnValue(["a1"]);
       agentService.isAgentActivelyConnected.mockReturnValue(true);
@@ -405,46 +326,108 @@ describe("AgentInteractionComponent", () => {
     }
     const button = (element: HTMLElement, name: string) =>
       Array.from(element.querySelectorAll<HTMLButtonElement>(".op-action")).find(b => b.textContent?.trim() === name)!;
+    const text = (element: Element | null) => element?.textContent?.replace(/\s+/g, " ").trim();
 
-    it("names the operator and offers Run, Edit and Feedback in place of the classic panel", () => {
+    it("names the operator, its doc, and offers Run, Edit and Feedback", () => {
       const element = createNative();
-      expect(element.querySelector(".op-id")?.textContent?.trim()).toBe("kept");
-      expect(element.querySelector(".op-type")?.textContent?.trim()).toBe("Filter");
-      expect(element.querySelector(".op-summary")?.textContent?.trim()).toBe("Keep the records over 15.");
+      expect(text(element.querySelector(".op-id"))).toBe("kept");
+      expect(text(element.querySelector(".op-type"))).toBe("Filter");
+      expect(text(element.querySelector(".op-summary"))).toBe("Keep the records over 15.");
       expect(element.querySelector(".op-icon")?.getAttribute("src")).toBe("assets/operator_images/Filter.png");
-      expect(Array.from(element.querySelectorAll(".op-action")).map(b => b.textContent?.trim())).toEqual([
-        "Run",
-        "Edit",
-        "Feedback",
-      ]);
-      // Nothing opens until an action is chosen; one agent needs no picker.
-      expect(element.querySelector(".op-body")).toBeNull();
+      expect(Array.from(element.querySelectorAll(".op-action")).map(text)).toEqual(["Run", "Edit", "Feedback"]);
+      // One agent needs no picker, and the feedback box waits for Feedback.
       expect(element.querySelector(".header-row")).toBeNull();
+      expect(element.querySelector(".op-feedback")).toBeNull();
     });
 
-    it("runs the operator through its agent and shows the result the agent now sees", () => {
+    it("lists its properties read-only: its statement at once, then the fields its edit form names", () => {
+      const form = new Subject<NativeStatementForm>();
+      agentService.getNativeStatementForm.mockReturnValue(form);
+      const element = createNative();
+      const properties = () =>
+        Array.from(element.querySelectorAll(".property-list dt")).map(dt => [text(dt), text(dt.nextElementSibling)]);
+      expect(properties()).toEqual([
+        ["Inputs", "records"],
+        ["Statement", "set kept: filter(records, lambda row: row['value'] > 15)"],
+      ]);
+      form.next(keptForm);
+      fixture.detectChanges();
+      expect(agentService.getNativeStatementForm).toHaveBeenCalledWith("a1", "kept");
+      expect(properties()).toEqual([
+        ["Input", "records"],
+        ["Condition", "lambda row: row['value'] > 15"],
+      ]);
+    });
+
+    it("shows the table it reads and the table it produces, a few records each, until the data is hidden", () => {
+      summaries.next(
+        new Map([
+          ["records", table(6)],
+          ["kept", table(4, { cached: true })],
+        ])
+      );
+      const element = createNative();
+      fixture.detectChanges();
+      const blocks = Array.from(element.querySelectorAll(".data-block"));
+      const head = (block: Element) =>
+        [".data-role", ".data-source", ".data-badge", ".data-shape"].map(part => text(block.querySelector(part)) ?? "");
+      expect(blocks.map(head)).toEqual([
+        ["Input", "records", "", "6 rows · 2 columns"],
+        ["Output", "", "cached", "4 rows · 2 columns"],
+      ]);
+      expect(blocks.map(block => block.querySelectorAll(".data-table tbody tr").length)).toEqual([3, 4]);
+      expect(
+        Array.from(blocks[0].querySelectorAll("th")).map(th => [
+          text(th.querySelector(".column-name")),
+          text(th.querySelector(".column-type")),
+        ])
+      ).toEqual([
+        ["id", "int64"],
+        ["value", "int64"],
+      ]);
+      expect(text(blocks[0].querySelector(".data-note"))).toBe("3 more rows");
+
+      (element.querySelector(".section-toggle") as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(element.querySelectorAll(".data-block").length).toBe(0);
+      expect(text(element.querySelector(".section-toggle .section-meta"))).toBe("4 rows · 2 columns");
+    });
+
+    it("says an operator is computing while the agent's run computes it, and why it failed", () => {
+      const element = createNative();
+      running.next(new Set(["kept"]));
+      fixture.detectChanges();
+      expect(text(element.querySelector(".data-output .data-note"))).toBe("Computing…");
+      expect(text(element.querySelector(".data-input .data-note"))).toBe("Not computed yet. Run computes it.");
+
+      const diagnostic = { operatorId: "records", message: "name 'pd' is not defined" };
+      running.next(new Set());
+      summaries.next(
+        new Map([
+          [
+            "kept",
+            {
+              state: "Failed",
+              inputTuples: 0,
+              outputTuples: 0,
+              error: `NATIVE_ERROR_V2:${JSON.stringify(diagnostic)}`,
+            },
+          ],
+        ])
+      );
+      fixture.detectChanges();
+      expect(text(element.querySelector(".data-output .data-error"))).toBe("records failed: name 'pd' is not defined");
+    });
+
+    it("runs the operator through its agent and says the agent sees the run", () => {
       agentService.runNativeOperator.mockReturnValue(
         of({ status: "ok", userAction: { kind: "run", operatorId: "kept", status: "ok", rows: 2 } })
       );
       const element = createNative();
-      fixture.componentRef.setInput("sampleRecords", [
-        { id: 2, value: 20 },
-        { id: 3, value: 30 },
-      ]);
-      fixture.componentRef.setInput("resultSummary", {
-        state: "Completed",
-        inputTuples: 3,
-        outputTuples: 2,
-        totalRowCount: 2,
-        outputColumns: 2,
-      });
       button(element, "Run").click();
       fixture.detectChanges();
-
       expect(agentService.runNativeOperator).toHaveBeenCalledWith("a1", "kept");
-      expect(element.querySelector(".result-shape")?.textContent?.trim()).toBe("2 rows · 2 columns");
-      expect(element.querySelector(".result-shared")?.textContent?.trim()).toBe("Bob sees this");
-      expect(element.querySelectorAll(".sample-records-table tbody tr").length).toBe(2);
+      expect(text(element.querySelector(".op-status"))).toBe("Bob sees your run.");
     });
 
     it("says why a run failed", () => {
@@ -454,7 +437,7 @@ describe("AgentInteractionComponent", () => {
       const element = createNative();
       button(element, "Run").click();
       fixture.detectChanges();
-      expect(element.querySelector(".op-error")?.textContent?.trim()).toBe("The agent is working.");
+      expect(text(element.querySelector(".op-error"))).toBe("The agent is working.");
     });
 
     it("waits while the agent works", () => {
@@ -465,7 +448,7 @@ describe("AgentInteractionComponent", () => {
       expect(element.querySelector(".op-status")?.textContent).toContain("Bob is working");
     });
 
-    it("opens the editor for Edit, and after a save says the agent reads the change", () => {
+    it("opens the editor for Edit, and after a save is back on the operator, saying the agent reads the change", () => {
       const element = createNative();
       button(element, "Edit").click();
       fixture.detectChanges();
@@ -474,41 +457,22 @@ describe("AgentInteractionComponent", () => {
       );
       expect(editor.componentInstance.agentId).toBe("a1");
       expect(editor.componentInstance.operatorId).toBe("kept");
+      expect(element.querySelector(".op-data")).toBeNull();
 
-      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", status: "ok" } });
+      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", status: "ok", version: 6 } });
       fixture.detectChanges();
-      expect(element.querySelector(".op-body")).toBeNull();
-      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe(
-        "Saved. Bob reads your change at its next turn."
-      );
-
-      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", run: true, status: "ok" } });
-      expect(component.mode).toBe("result");
+      expect(element.querySelector(".op-data")).not.toBeNull();
+      expect(text(element.querySelector(".op-status"))).toBe("Saved as v6. Bob reads your change at its next turn.");
     });
 
     it("sends feedback that names the operator by its id; the chat button opens the feedback box", () => {
       const element = createNative(AgentState.AVAILABLE, "feedback");
-      expect(component.mode).toBe("feedback");
+      expect(element.querySelector(".op-feedback .feedback-input")).not.toBeNull();
       component.feedbackMessage = "Use 20 instead.";
       component.sendFeedbackToAgent();
       expect(agentService.sendMessage).toHaveBeenCalledWith("a1", "Feedback on `kept`: Use 20 instead.", "feedback");
       fixture.detectChanges();
-      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe("Sent to Bob; the reply is in the chat.");
-    });
-
-    it("names the version a save made, and says when the agent answers a run", () => {
-      agentService.runNativeOperator.mockReturnValue(
-        of({ status: "ok", responding: true, userAction: { kind: "run", operatorId: "kept", status: "ok", rows: 2 } })
-      );
-      const element = createNative();
-      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", status: "ok", version: 6 } });
-      fixture.detectChanges();
-      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe(
-        "Saved as v6. Bob reads your change at its next turn."
-      );
-      button(element, "Run").click();
-      fixture.detectChanges();
-      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe("Bob is answering in the chat.");
+      expect(text(element.querySelector(".op-status"))).toBe("Sent to Bob; the reply is in the chat.");
     });
 
     it("closes from its close button", () => {
@@ -517,6 +481,39 @@ describe("AgentInteractionComponent", () => {
       component.closed.subscribe(closed);
       (element.querySelector(".op-close") as HTMLButtonElement).click();
       expect(closed).toHaveBeenCalled();
+    });
+  });
+
+  describe("a Texera operator's panel", () => {
+    it("lists its properties and shows a Texera run's first records when no agent ran it", () => {
+      const scan = {
+        operatorID: "scan",
+        operatorType: "CSVFileScan",
+        operatorProperties: { fileName: "a.csv", limit: 10 },
+      };
+      workflowActionService.getTexeraGraph.mockReturnValue(graphWith([scan]));
+      workflowResultService.getPaginatedResultService.mockReturnValue({
+        selectPage: () =>
+          of({
+            table: [{ a: 1 }, { a: 2 }],
+            schema: [{ attributeName: "a", attributeType: "integer" }],
+          }),
+        getCurrentTotalNumTuples: () => 9,
+      });
+      createComponent({ operatorId: "scan" });
+      const element = fixture.nativeElement as HTMLElement;
+      expect(
+        Array.from(element.querySelectorAll(".property-list dt")).map(dt => [
+          dt.textContent?.trim(),
+          dt.nextElementSibling?.textContent?.trim(),
+        ])
+      ).toEqual([
+        ["File Name", "a.csv"],
+        ["Limit", "10"],
+      ]);
+      expect(element.querySelector(".op-actions")).toBeNull();
+      expect(element.querySelector(".data-output .data-shape")?.textContent?.trim()).toBe("9 rows · 1 column");
+      expect(element.querySelectorAll(".data-output .data-table tbody tr").length).toBe(2);
     });
   });
 });

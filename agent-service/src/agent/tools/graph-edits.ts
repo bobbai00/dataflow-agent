@@ -33,7 +33,7 @@ import {
 } from "../native/catalog";
 import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
-import { computeStaleResultOps, type SnapshotEdit } from "../workflow-snapshot-storage";
+import { computeStaleResultOps, type VersionAction } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
 import { stageRegisteredEdit } from "../native/registered";
 
@@ -312,17 +312,17 @@ export async function planRegisteredGraphEdit(
 export function editVersions(
   original: WorkflowContent,
   plan: Pick<GraphEditPlan, "workflow" | "edits" | "registrations">,
-  author: SnapshotEdit["author"] = "agent"
-): Array<{ edit: SnapshotEdit; workflow: WorkflowContent }> {
+  author: VersionAction["author"] = "agent"
+): Array<{ action: VersionAction; workflow: WorkflowContent }> {
   const final = plan.workflow;
   const functions = (plan.registrations ?? []).map(registration => registration.name);
-  const withFunctions = (edit: PlannedEdit, first: boolean): SnapshotEdit => ({
+  const withFunctions = (edit: PlannedEdit, first: boolean): VersionAction => ({
     ...edit,
     ...(first && functions.length ? { functions } : {}),
     author,
   });
   if (!plan.edits.length)
-    return functions.length ? [{ edit: { kind: "define", functions, author }, workflow: final }] : [];
+    return functions.length ? [{ action: { kind: "define", functions, author }, workflow: final }] : [];
   const finalOps = new Map(final.operators.map(op => [op.operatorID, op]));
   const pending = new Map(plan.edits.filter(edit => edit.kind !== "delete").map(edit => [edit.operatorId, edit]));
   const ordered: PlannedEdit[] = [];
@@ -344,7 +344,7 @@ export function editVersions(
     operatorPositions: { ...original.operatorPositions, ...final.operatorPositions },
   };
   return ordered.map((edit, index) => {
-    if (index === ordered.length - 1) return { edit: withFunctions(edit, index === 0), workflow: final };
+    if (index === ordered.length - 1) return { action: withFunctions(edit, index === 0), workflow: final };
     const id = edit.operatorId;
     if (edit.kind === "delete") {
       const { [id]: _position, ...positions } = current.operatorPositions;
@@ -369,7 +369,7 @@ export function editVersions(
         ],
       };
     }
-    return { edit: withFunctions(edit, index === 0), workflow: current };
+    return { action: withFunctions(edit, index === 0), workflow: current };
   });
 }
 

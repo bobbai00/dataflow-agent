@@ -30,29 +30,30 @@ import {
 import { DomSanitizer, SafeHtml } from "@angular/platform-browser";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { merge, Subscription } from "rxjs";
+import { isEqual } from "lodash-es";
 import { AgentService, OperatorResultSummary, UserActionResponse } from "../../../service/agent/agent.service";
 import { AgentState } from "../../../service/agent/agent-types";
+import { isNativeOperator, nativeOperatorIcon, nativeOperatorTypeName } from "../../../service/agent/native-operator";
 import {
-  isNativeOperator,
-  nativeOperatorIcon,
-  nativeOperatorSummary,
-  nativeOperatorTypeName,
-} from "../../../service/agent/native-operator";
+  cellText,
+  formProperties,
+  inputOperatorIds,
+  OperatorOutcome,
+  OperatorProperty,
+  operatorProperties,
+  summaryOutcome,
+  tableShape,
+  OperatorTable,
+} from "../../../service/agent/operator-data";
 import { NativeOperatorDefinition, OperatorPredicate } from "../../../types/workflow-common.interface";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
+import { WorkflowResultService } from "../../../service/workflow-result/workflow-result.service";
 import { NotificationService } from "../../../../common/service/notification/notification.service";
-import { NgIf, NgFor, NgSwitch, NgSwitchCase, NgTemplateOutlet } from "@angular/common";
+import { NgIf, NgFor, NgTemplateOutlet } from "@angular/common";
 import {
   agentErrorText,
   NativeOperatorEditorComponent,
 } from "../native-operator-editor/native-operator-editor.component";
-import {
-  NzTheadComponent,
-  NzTrDirective,
-  NzTableCellDirective,
-  NzThMeasureDirective,
-  NzTbodyComponent,
-} from "ng-zorro-antd/table";
 import { ɵNzTransitionPatchDirective } from "ng-zorro-antd/core/transition-patch";
 import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzSpaceCompactItemDirective } from "ng-zorro-antd/space";
@@ -63,14 +64,25 @@ import { NzInputDirective, NzAutosizeDirective } from "ng-zorro-antd/input";
 import { NzButtonComponent } from "ng-zorro-antd/button";
 import { NzWaveDirective } from "ng-zorro-antd/core/wave";
 
+/** Records shown for each input, and for the output. */
+const INPUT_RECORDS = 3;
+const OUTPUT_RECORDS = 5;
+
+/** One table an operator reads, from the operator that produces it. */
+export interface OperatorInput {
+  operatorId: string;
+  outcome: OperatorOutcome;
+  running: boolean;
+}
+
 /**
- * AgentInteractionComponent provides a compact interface for users to send feedback
- * or messages to agents regarding a specific operator.
- * It consists of an agent dropdown and a text input area.
- *
- * For an operator the dataflow agent defined natively it is the operator's panel:
- * what the operator is, and Run, Edit and Feedback. A run or an edit goes to the
- * agent, which records it as the user's action and reads it at its next turn.
+ * An operator's panel on the canvas, opened by selecting a native operator or
+ * by an operator's chat button. It shows what the operator is — its doc and
+ * its settings — and its data: each table it reads and the table it produces,
+ * a few records each, in a section that can be hidden. A native operator the
+ * dataflow agent defined also has Run, Edit and Feedback: a run or an edit
+ * goes to the agent, which records it as the user's action and reads it at its
+ * next turn; feedback is a message to the agent about the operator.
  */
 @UntilDestroy()
 @Component({
@@ -79,12 +91,8 @@ import { NzWaveDirective } from "ng-zorro-antd/core/wave";
   styleUrls: ["./agent-interaction.component.scss"],
   imports: [
     NgIf,
-    NzTheadComponent,
-    NzTrDirective,
     NgFor,
-    NzTableCellDirective,
-    NzThMeasureDirective,
-    NzTbodyComponent,
+    NgTemplateOutlet,
     ɵNzTransitionPatchDirective,
     NzIconDirective,
     NzSpaceCompactItemDirective,
@@ -96,32 +104,24 @@ import { NzWaveDirective } from "ng-zorro-antd/core/wave";
     NzAutosizeDirective,
     NzButtonComponent,
     NzWaveDirective,
-    NgSwitch,
-    NgSwitchCase,
-    NgTemplateOutlet,
     NativeOperatorEditorComponent,
   ],
 })
 export class AgentInteractionComponent implements OnInit, OnChanges {
   @Input() operatorId!: string;
   @Input() operatorDisplayName?: string;
-  @Input() sampleRecords?: Record<string, any>[];
-  @Input() resultStatistics?: Record<string, string>;
-  /** The operator's current result: state, shape and error. */
-  @Input() resultSummary?: OperatorResultSummary;
-  /** "feedback" opens a native operator's panel on its feedback box (the box's chat button). */
+  /** "feedback" opens the panel on its feedback box (the operator's chat button). */
   @Input() initialMode: "actions" | "feedback" = "actions";
   @Output() closed = new EventEmitter<void>();
 
+  public operator?: OperatorPredicate;
   /** Set when the operator is one the dataflow agent defined natively. */
   public nativeOperator?: OperatorPredicate & { nativeOp: NativeOperatorDefinition };
-  public mode: "result" | "edit" | "feedback" | null = null;
+  public mode: "edit" | "feedback" | null = null;
   public running = false;
   public actionError?: string;
   /** A one-line confirmation under the actions, e.g. after a save. */
   public notice?: string;
-  /** The agent the last run or edit went to. */
-  public sharedWith?: string;
   private agentState?: AgentState;
   private agentStateSubscription?: Subscription;
   /** The agent list has arrived; until then no agent is "missing". */
@@ -131,13 +131,27 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   public selectedAgentId: string | null = null;
   public feedbackMessage: string = "";
 
-  // Cached visualization HTML to avoid iframe re-render on every WS update
-  private cachedVisualizationHtml: SafeHtml | null = null;
-  private cachedVisualizationRawHtml: string | null = null;
+  /** The operator's settings, as its edit form names them when the agent can split its statement. */
+  public properties: OperatorProperty[] = [];
+  /** The tables the operator reads, one per input. */
+  public inputs: OperatorInput[] = [];
+  /** The table the operator produces, or why there is none. */
+  public output: OperatorOutcome = {};
+  /** The agent's run is computing the operator now. */
+  public outputRunning = false;
+  /** The data section is open; it opens with the panel. */
+  public dataExpanded = true;
+
+  private summaries: Map<string, OperatorResultSummary> = new Map();
+  private runningOperators: ReadonlySet<string> = new Set();
+  /** Results of a Texera run (not the agent's), for operators the agent has none for. */
+  private engineOutcomes = new Map<string, OperatorOutcome>();
+  private chartHtml: { raw: string; safe: SafeHtml } | null = null;
 
   constructor(
     private agentService: AgentService,
     private workflowActionService: WorkflowActionService,
+    private workflowResultService: WorkflowResultService,
     private notificationService: NotificationService,
     private changeDetectorRef: ChangeDetectorRef,
     private sanitizer: DomSanitizer
@@ -151,29 +165,37 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => {
       this.loadAvailableAgents();
     });
-    // A canvas reload (after an edit) re-adds the operator with its new definition.
+    this.agentService.operatorResultSummaries$.pipe(untilDestroyed(this)).subscribe(summaries => {
+      this.summaries = summaries;
+      this.refreshData();
+    });
+    this.agentService.runningOperators$.pipe(untilDestroyed(this)).subscribe(running => {
+      this.runningOperators = running;
+      this.refreshData();
+    });
+    this.workflowResultService
+      .getResultUpdateStream()
+      .pipe(untilDestroyed(this))
+      .subscribe(() => this.loadEngineResults());
+    // A canvas update (after an edit) re-adds the operator with its new definition.
     const graph = this.workflowActionService.getTexeraGraph();
-    merge(graph.getOperatorAddStream(), graph.getOperatorPropertyChangeStream())
+    merge(
+      graph.getOperatorAddStream(),
+      graph.getOperatorPropertyChangeStream(),
+      graph.getLinkAddStream(),
+      graph.getLinkDeleteStream()
+    )
       .pipe(untilDestroyed(this))
       .subscribe(() => this.refreshOperator());
   }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes["operatorId"] || changes["initialMode"]) {
-      this.refreshOperator();
       this.mode = this.initialMode === "feedback" ? "feedback" : null;
       this.actionError = undefined;
       this.notice = undefined;
-      if (changes["operatorId"]) this.sharedWith = undefined;
-    }
-    if (changes["sampleRecords"]) {
-      // Only update cached visualization HTML when the actual content changes
-      const newRecords = changes["sampleRecords"].currentValue as Record<string, any>[] | undefined;
-      const newHtml = newRecords?.[0]?.["html-content"] || null;
-      if (newHtml !== this.cachedVisualizationRawHtml) {
-        this.cachedVisualizationRawHtml = newHtml;
-        this.cachedVisualizationHtml = newHtml ? this.sanitizer.bypassSecurityTrustHtml(newHtml) : null;
-      }
+      if (changes["operatorId"]) this.dataExpanded = true;
+      this.refreshOperator();
     }
   }
 
@@ -200,19 +222,111 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
 
         this.agentsLoaded = true;
         this.watchAgentState();
+        this.loadProperties();
         this.changeDetectorRef.detectChanges();
       });
   }
 
+  /** The operator as the canvas holds it now, and everything shown of it. */
   private refreshOperator(): void {
     const graph = this.workflowActionService.getTexeraGraph();
-    let operator: OperatorPredicate | undefined;
-    try {
-      operator = this.operatorId ? graph.getOperator(this.operatorId) : undefined;
-    } catch {
-      operator = undefined;
+    const definition = (op?: OperatorPredicate) => op && [op.operatorID, op.nativeOp?.source ?? op.operatorProperties];
+    const previous = definition(this.operator);
+    this.operator =
+      this.operatorId && graph.hasOperator(this.operatorId) ? graph.getOperator(this.operatorId) : undefined;
+    this.nativeOperator = isNativeOperator(this.operator) ? this.operator : undefined;
+    // Another operator, or this one defined anew: its settings and results again.
+    if (!isEqual(previous, definition(this.operator))) {
+      this.loadProperties();
+      this.loadEngineResults();
     }
-    this.nativeOperator = isNativeOperator(operator) ? operator : undefined;
+    this.refreshData();
+  }
+
+  /** The operator's settings: a native operator's as its edit form names them, once the agent splits its statement. */
+  private loadProperties(): void {
+    const operator = this.operator;
+    if (!operator) {
+      this.properties = [];
+      return;
+    }
+    this.properties = operatorProperties(operator);
+    const agentId = this.actionAgentId;
+    if (!isNativeOperator(operator) || !agentId) return;
+    this.agentService
+      .getNativeStatementForm(agentId, operator.operatorID)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: form => {
+          if (this.operator?.operatorID !== form.id) return;
+          this.properties = formProperties(form);
+          this.changeDetectorRef.detectChanges();
+        },
+        // The statement stays shown as it is.
+        error: () => {},
+      });
+  }
+
+  /** The tables the operator reads and produces, from the agent's results, else a Texera run's. */
+  private refreshData(): void {
+    const operator = this.operator;
+    const outcome = (operatorId: string, limit: number): OperatorOutcome => {
+      const summary = this.summaries.get(operatorId);
+      return summary ? summaryOutcome(operatorId, summary, limit) : this.engineOutcomes.get(operatorId) ?? {};
+    };
+    this.inputs = operator
+      ? inputOperatorIds(operator, this.workflowActionService.getTexeraGraph().getAllLinks()).map(operatorId => ({
+          operatorId,
+          outcome: outcome(operatorId, INPUT_RECORDS),
+          running: this.runningOperators.has(operatorId),
+        }))
+      : [];
+    this.output = operator ? outcome(operator.operatorID, OUTPUT_RECORDS) : {};
+    this.outputRunning = !!operator && this.runningOperators.has(operator.operatorID);
+    const html = this.output.table?.html;
+    if (html !== this.chartHtml?.raw)
+      this.chartHtml = html === undefined ? null : { raw: html, safe: this.sanitizer.bypassSecurityTrustHtml(html) };
+    this.changeDetectorRef.detectChanges();
+  }
+
+  /** A Texera run's first page for the operator and its inputs, where the agent recorded none. */
+  private loadEngineResults(): void {
+    const operator = this.operator;
+    if (!operator) return;
+    const ids = [
+      operator.operatorID,
+      ...inputOperatorIds(operator, this.workflowActionService.getTexeraGraph().getAllLinks()),
+    ];
+    for (const operatorId of ids) {
+      if (this.summaries.has(operatorId)) continue;
+      const limit = operatorId === operator.operatorID ? OUTPUT_RECORDS : INPUT_RECORDS;
+      const paginated = this.workflowResultService.getPaginatedResultService(operatorId);
+      if (paginated) {
+        paginated
+          .selectPage(1, limit)
+          .pipe(untilDestroyed(this))
+          .subscribe(page => {
+            this.engineOutcomes.set(operatorId, {
+              table: {
+                rows: paginated.getCurrentTotalNumTuples(),
+                columns: page.schema.map(attribute => ({
+                  name: attribute.attributeName,
+                  type: attribute.attributeType,
+                })),
+                records: page.table.slice(0, limit) as Array<Record<string, unknown>>,
+                cached: false,
+              },
+            });
+            this.refreshData();
+          });
+        continue;
+      }
+      const snapshot = this.workflowResultService.getResultService(operatorId)?.getCurrentResultSnapshot();
+      const html = (snapshot?.[0] as Record<string, unknown> | undefined)?.["html-content"];
+      if (typeof html === "string")
+        this.engineOutcomes.set(operatorId, { table: { columns: [], records: [], html, cached: false } });
+    }
+    this.refreshData();
   }
 
   /** Follow the agent's state: Run and Edit wait while it works. */
@@ -229,15 +343,18 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   }
 
   public get icon(): string {
-    return this.nativeOperator ? nativeOperatorIcon(this.nativeOperator.nativeOp) : "";
+    if (this.nativeOperator) return nativeOperatorIcon(this.nativeOperator.nativeOp);
+    return this.operator ? `assets/operator_images/${this.operator.operatorType}.png` : "";
   }
 
   public get typeName(): string {
-    return this.nativeOperator ? nativeOperatorTypeName(this.nativeOperator.nativeOp) : "";
+    if (this.nativeOperator) return nativeOperatorTypeName(this.nativeOperator.nativeOp);
+    return this.operator?.operatorType ?? "";
   }
 
-  public get summary(): string {
-    return this.nativeOperator ? nativeOperatorSummary(this.nativeOperator) : "";
+  /** The operator's one-line doc, or the name the user gave it. */
+  public get doc(): string | undefined {
+    return this.nativeOperator?.nativeOp.doc?.trim() || this.operator?.customDisplayName || undefined;
   }
 
   /** The connected agent that runs and edits this operator. */
@@ -259,24 +376,28 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
 
   /** Why Run and Edit are unavailable, or what the last action did. */
   public get statusText(): string | undefined {
+    if (!this.nativeOperator) return undefined;
     if (!this.actionAgentId)
       return this.agentsLoaded ? "Open the agent's chat to run or edit this operator." : undefined;
     if (this.busy && !this.running) return `${this.agentName} is working; Run and Edit wait until it finishes.`;
     return this.notice;
   }
 
-  /** "2 rows · 3 columns" for a computed result. */
-  public get resultShape(): string | undefined {
-    const summary = this.resultSummary;
-    if (!summary || summary.error || !["Completed", "CompletedFromCache"].includes(summary.state)) return undefined;
-    const rows = summary.totalRowCount ?? summary.outputTuples;
-    const plural = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
-    return [plural(rows, "row"), ...(summary.outputColumns ? [plural(summary.outputColumns, "column")] : [])].join(
-      " · "
-    );
+  /** The chart the operator drew, when it draws one. */
+  public get chart(): SafeHtml | null {
+    return this.chartHtml?.safe ?? null;
   }
 
-  public toggleMode(mode: "result" | "edit" | "feedback"): void {
+  /** "2 rows · 3 columns" for the output and each input; what the data section's title says when hidden. */
+  public shape(table: OperatorTable | undefined): string {
+    return table ? tableShape(table) : "";
+  }
+
+  public cell(value: unknown): string {
+    return cellText(value);
+  }
+
+  public toggleMode(mode: "edit" | "feedback"): void {
     this.mode = this.mode === mode ? null : mode;
     this.notice = undefined;
   }
@@ -285,7 +406,8 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   public run(): void {
     const agentId = this.actionAgentId;
     if (!agentId || !this.canAct) return;
-    this.mode = "result";
+    this.mode = null;
+    this.dataExpanded = true;
     this.running = true;
     this.actionError = undefined;
     this.notice = undefined;
@@ -295,9 +417,10 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
       .subscribe({
         next: response => {
           this.running = false;
-          this.sharedWith = this.agentName;
           if (response.status === "error") this.actionError = response.userAction?.error ?? "The run failed.";
-          if (response.responding) this.notice = `${this.agentName} is answering in the chat.`;
+          this.notice = response.responding
+            ? `${this.agentName} sees your run and is answering in the chat.`
+            : `${this.agentName} sees your run.`;
           this.changeDetectorRef.detectChanges();
         },
         error: (error: unknown) => {
@@ -308,20 +431,20 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
       });
   }
 
-  /** After an edit: show the result when it ran, otherwise confirm the save. */
+  /** After an edit: back to the operator, its result shown when it ran. */
   public onSaved(response: UserActionResponse): void {
     this.actionError = undefined;
+    this.mode = null;
     if (response.status === "unchanged") {
-      this.mode = null;
       this.notice = "Nothing changed.";
     } else if (response.userAction?.run || response.status === "error") {
-      this.mode = "result";
-      this.sharedWith = this.agentName;
+      this.dataExpanded = true;
       if (response.status === "error")
         this.actionError = response.userAction?.error ?? "The change was saved, but the run failed.";
-      if (response.responding) this.notice = `${this.saved(response)} ${this.agentName} is answering in the chat.`;
+      this.notice = response.responding
+        ? `${this.saved(response)} ${this.agentName} is answering in the chat.`
+        : this.saved(response);
     } else {
-      this.mode = null;
       this.notice = `${this.saved(response)} ${this.agentName} reads your change at its next turn.`;
     }
     this.changeDetectorRef.detectChanges();
@@ -329,6 +452,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
 
   public onAgentSelected(): void {
     this.watchAgentState();
+    this.loadProperties();
   }
 
   /** "Saved as v6." — the version a saved edit made. */
@@ -353,7 +477,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     }
 
     const agentId = this.selectedAgentId;
-    const operatorName = this.operatorDisplayName || this.getOperatorName() || "this operator";
+    const operatorName = this.operatorDisplayName || this.operator?.customDisplayName || "this operator";
     // A native operator's id is the name the agent itself uses for it.
     const contextMessage = this.nativeOperator
       ? `Feedback on \`${this.operatorId}\`: ${this.feedbackMessage.trim()}`
@@ -369,125 +493,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     this.changeDetectorRef.detectChanges();
   }
 
-  private getOperatorName(): string | undefined {
-    try {
-      const operator = this.workflowActionService.getTexeraGraph().getOperator(this.operatorId);
-      return operator?.customDisplayName || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   public canSend(): boolean {
     return !!this.selectedAgentId && !!this.feedbackMessage.trim();
-  }
-
-  /**
-   * Check if sample records represent a visualization (has __is_visualization__ flag).
-   */
-  public isVisualization(): boolean {
-    if (!this.sampleRecords || this.sampleRecords.length === 0) return false;
-    return this.sampleRecords[0]["__is_visualization__"] === true;
-  }
-
-  /**
-   * Get the cached sanitized HTML content from a visualization record for iframe srcdoc.
-   */
-  public getVisualizationHtml(): SafeHtml {
-    return this.cachedVisualizationHtml || this.sanitizer.bypassSecurityTrustHtml("");
-  }
-
-  /**
-   * Get column names from sample records, placing __row_index__ first (displayed as "Row").
-   */
-  public getSampleColumns(): string[] {
-    if (!this.sampleRecords || this.sampleRecords.length === 0) return [];
-    const allKeys = Object.keys(this.sampleRecords[0]);
-    const rowIndexKey = allKeys.find(k => k.startsWith("_") && k.includes("row_index"));
-    const otherKeys = allKeys.filter(k => k !== rowIndexKey);
-    return rowIndexKey ? [rowIndexKey, ...otherKeys] : otherKeys;
-  }
-
-  /**
-   * Get display name for a column header.
-   */
-  public getColumnDisplayName(col: string): string {
-    if (col.startsWith("_") && col.includes("row_index")) return "Row";
-    return col;
-  }
-
-  /**
-   * Parse resultStatistics into displayable column stats.
-   * Each entry in resultStatistics is a JSON string with { data_type, statistics: { ... } }.
-   */
-  public getParsedColumnStats(): Array<{
-    column: string;
-    dataType: string;
-    stats: Array<{ key: string; value: string }>;
-  }> {
-    if (!this.resultStatistics) return [];
-    const sampleCols = this.getSampleColumns().filter(c => !c.startsWith("_") || !c.includes("row_index"));
-    const columns = sampleCols.length > 0 ? sampleCols : Object.keys(this.resultStatistics);
-    const result: Array<{ column: string; dataType: string; stats: Array<{ key: string; value: string }> }> = [];
-    const excludedKeys = new Set(["count", "std", "p25", "median", "p75"]);
-
-    for (const colName of columns) {
-      const statsJson = this.resultStatistics[colName];
-      if (!statsJson) continue;
-      try {
-        const parsed = JSON.parse(statsJson);
-        const dataType: string = parsed.data_type ?? "unknown";
-        const statistics: Record<string, any> = parsed.statistics ?? {};
-        const statEntries: Array<{ key: string; value: string }> = [];
-
-        for (const [key, value] of Object.entries(statistics)) {
-          if (value === undefined || excludedKeys.has(key)) continue;
-          if (key === "top_10" && typeof value === "object") {
-            const topEntries = Object.entries(value as Record<string, any>)
-              .slice(0, 5)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join(", ");
-            statEntries.push({ key: "top values", value: topEntries });
-          } else if (value === null || String(value) === "null") {
-            statEntries.push({ key, value: "NaN" });
-          } else if (typeof value !== "object") {
-            const formatted =
-              typeof value === "number" && !Number.isInteger(value)
-                ? Number(value.toPrecision(4)).toString()
-                : String(value);
-            statEntries.push({ key, value: formatted });
-          }
-        }
-        result.push({ column: colName, dataType, stats: statEntries });
-      } catch {
-        // skip unparseable
-      }
-    }
-    return result;
-  }
-
-  public hasColumnStats(): boolean {
-    return this.getParsedColumnStats().length > 0;
-  }
-
-  public getDisplayRows(): Array<{ record?: Record<string, any>; isEllipsis: boolean }> {
-    if (!this.sampleRecords || this.sampleRecords.length === 0) return [];
-    const rowIndexKey = Object.keys(this.sampleRecords[0]).find(k => k.startsWith("_") && k.includes("row_index"));
-    if (!rowIndexKey) {
-      return this.sampleRecords.map(r => ({ record: r, isEllipsis: false }));
-    }
-
-    const rows: Array<{ record?: Record<string, any>; isEllipsis: boolean }> = [];
-    for (let i = 0; i < this.sampleRecords.length; i++) {
-      if (i > 0) {
-        const prevIdx = this.sampleRecords[i - 1][rowIndexKey];
-        const currIdx = this.sampleRecords[i][rowIndexKey];
-        if (typeof prevIdx === "number" && typeof currIdx === "number" && currIdx - prevIdx > 1) {
-          rows.push({ isEllipsis: true });
-        }
-      }
-      rows.push({ record: this.sampleRecords[i], isEllipsis: false });
-    }
-    return rows;
   }
 }

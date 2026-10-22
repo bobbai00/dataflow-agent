@@ -64,10 +64,14 @@ export function userActionRows(result: DataflowActionsResult, operatorId: string
   return undefined;
 }
 
-/** The version the call's edit made, when it changed the dataflow. */
+/** The last version the call made: its edit's, run's or show's, whichever came last. */
 export function userActionVersion(result: DataflowActionsResult): number | undefined {
-  const edit = result.actions.find(item => item.action.type === "edit" && item.status === "ok");
-  return (edit?.output as { versions?: Array<{ version: number }> } | undefined)?.versions?.at(-1)?.version;
+  let last: number | undefined;
+  for (const item of result.actions) {
+    const output = item.output as { versions?: Array<{ version: number }>; version?: { version: number } } | undefined;
+    last = output?.versions?.at(-1)?.version ?? output?.version?.version ?? last;
+  }
+  return last;
 }
 
 /** What the model reads: what the user did, then the receipt the call produced

@@ -26,6 +26,7 @@ import {
   operatorNameClass,
   operatorStateClass,
   operatorPortMetricsClass,
+  operatorStatusClass,
 } from "./joint-ui.service";
 import { CommentBox, OperatorPredicate } from "../../types/workflow-common.interface";
 import { OperatorState } from "../../types/execute-workflow.interface";
@@ -438,6 +439,46 @@ describe("JointUIService", () => {
         expect(payload[`.${operatorStateClass}`]).toEqual({ text: state.toString(), fill: color });
         expect(payload["rect.body"]).toEqual({ stroke: color });
       });
+    });
+  });
+
+  describe("the status pill", () => {
+    /** The payload of the last attr call that set the pill, by selector. */
+    const pill = (attrSpy: ReturnType<typeof vi.fn>) =>
+      [...attrSpy.mock.calls]
+        .reverse()
+        .find(([payload]) => typeof payload === "object" && payload[`.${operatorStatusClass}`])?.[0];
+
+    it("follows the state: Running with a spinner, a check once completed, none otherwise", () => {
+      const { paper, attrSpy } = makePaperWithModel();
+      const service = new JointUIService(emptyMetadataStub as never);
+      service.changeOperatorState(paper, "op-1", OperatorState.Running);
+      expect(pill(attrSpy)[`.${operatorStatusClass}-text`].text).toBe("Running");
+      expect(pill(attrSpy)[`.${operatorStatusClass}-spinner`].display).toBe("inline");
+      service.changeOperatorState(paper, "op-1", OperatorState.Completed);
+      expect(pill(attrSpy)[`.${operatorStatusClass}-text`].text).toBe("✓");
+      expect(pill(attrSpy)[`.${operatorStatusClass}-spinner`].display).toBe("none");
+      service.changeOperatorState(paper, "op-1", OperatorState.Uninitialized);
+      expect(attrSpy).toHaveBeenLastCalledWith(`.${operatorStatusClass}/display`, "none");
+    });
+
+    it("says a snapshot result was reused from cache, or failed, and shows the counts it knows", () => {
+      const { paper, attrSpy, portPropSpy, getPortsSpy } = makePaperWithModel();
+      getPortsSpy.mockReturnValue([
+        { id: "input-0", group: "in" },
+        { id: "output-0", group: "out" },
+      ]);
+      const service = new JointUIService(emptyMetadataStub as never);
+      service.setOperatorSnapshotResult(paper, "op-1", OperatorState.Completed, { "0": -1 }, { "0": 6 }, "cached");
+      expect(attrSpy).toHaveBeenCalledWith("rect.body/stroke", "#1677ff");
+      expect(pill(attrSpy)[`.${operatorStatusClass}-text`].text).toBe("cached");
+      // An unknown count (the engine's -1) shows nothing rather than 0.
+      expect(portPropSpy).toHaveBeenCalledWith("input-0", "attrs/.port-label/visibility", "hidden");
+      expect(portPropSpy).toHaveBeenCalledWith("output-0", "attrs/.port-label/text", "6");
+
+      service.setOperatorSnapshotResult(paper, "op-1", OperatorState.Uninitialized, {}, {}, "failed");
+      expect(attrSpy).toHaveBeenCalledWith("rect.body/stroke", "#ff4d4f");
+      expect(pill(attrSpy)[`.${operatorStatusClass}-text`].text).toBe("failed");
     });
   });
 

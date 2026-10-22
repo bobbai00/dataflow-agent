@@ -18,216 +18,255 @@
 -->
 
 <div
-  class="agent-interaction"
-  [class.native]="nativeOperator"
-  [class.expanded]="nativeOperator && mode">
-  <!-- A native operator: what it is, and Run / Edit / Feedback. -->
-  <ng-container *ngIf="nativeOperator; else classicLayout">
-    <div class="op-header">
-      <img
-        class="op-icon"
-        alt=""
-        [src]="icon" />
-      <div class="op-title">
-        <div class="op-name-row">
-          <span class="op-id">{{ operatorId }}</span>
-          <span class="op-type">{{ typeName }}</span>
-        </div>
-        <div
-          class="op-summary"
-          [title]="summary">
-          {{ summary }}
-        </div>
+  class="operator-panel"
+  [class.with-chart]="chart">
+  <div class="op-header">
+    <img
+      *ngIf="icon"
+      class="op-icon"
+      alt=""
+      [src]="icon" />
+    <div class="op-title">
+      <div class="op-name-row">
+        <span class="op-id">{{ operatorId }}</span>
+        <span class="op-type">{{ typeName }}</span>
       </div>
-      <button
-        nz-button
-        nzType="text"
-        nzSize="small"
-        class="op-close"
-        nz-tooltip
-        nzTooltipTitle="Close"
-        (click)="closed.emit()">
-        <i
-          nz-icon
-          nzType="close"></i>
-      </button>
-    </div>
-
-    <div class="op-actions">
-      <button
-        type="button"
-        class="op-action run-action"
-        [class.active]="mode === 'result'"
-        [disabled]="!canAct"
-        (click)="run()">
-        <i
-          nz-icon
-          [nzType]="running ? 'loading' : 'caret-right'"></i>
-        <span>{{ running ? "Running…" : "Run" }}</span>
-      </button>
-      <button
-        type="button"
-        class="op-action edit-action"
-        [class.active]="mode === 'edit'"
-        [disabled]="!actionAgentId || (busy && mode !== 'edit')"
-        (click)="toggleMode('edit')">
-        <i
-          nz-icon
-          nzType="edit"></i>
-        <span>Edit</span>
-      </button>
-      <button
-        type="button"
-        class="op-action feedback-action"
-        [class.active]="mode === 'feedback'"
-        (click)="toggleMode('feedback')">
-        <i
-          nz-icon
-          nzType="message"></i>
-        <span>Feedback</span>
-      </button>
-    </div>
-
-    <div
-      *ngIf="statusText"
-      class="op-status">
-      {{ statusText }}
-    </div>
-
-    <div
-      *ngIf="mode"
-      class="op-body"
-      [ngSwitch]="mode">
       <div
-        *ngSwitchCase="'result'"
-        class="op-result"
-        [class.result-stale]="running">
-        <div class="op-result-head">
-          <span class="result-title">Result</span>
-          <span
-            *ngIf="running"
-            class="result-running">
-            Computing…
-          </span>
-          <span
-            *ngIf="resultShape && !running"
-            class="result-shape">
-            {{ resultShape }}
-          </span>
-          <span class="spacer"></span>
-          <span
-            *ngIf="sharedWith && !running"
-            class="result-shared">
-            <i
-              nz-icon
-              nzType="check-circle"></i>
-            {{ sharedWith }} sees this
-          </span>
-        </div>
-        <div
-          *ngIf="actionError || resultSummary?.error"
-          class="op-error">
-          {{ actionError || resultSummary?.error }}
-        </div>
-        <ng-container *ngTemplateOutlet="resultView"></ng-container>
-        <div
-          *ngIf="!running && !sampleRecords?.length && !actionError && !resultSummary?.error"
-          class="result-empty">
-          No result yet. Run computes it.
-        </div>
-      </div>
-      <texera-native-operator-editor
-        *ngSwitchCase="'edit'"
-        [agentId]="actionAgentId ?? ''"
-        [operatorId]="operatorId"
-        [disabled]="busy"
-        (saved)="onSaved($event)"
-        (cancelled)="mode = null"></texera-native-operator-editor>
-      <div
-        *ngSwitchCase="'feedback'"
-        class="op-feedback">
-        <ng-container *ngTemplateOutlet="feedbackView"></ng-container>
+        *ngIf="doc"
+        class="op-summary"
+        [title]="doc">
+        {{ doc }}
       </div>
     </div>
-  </ng-container>
+    <button
+      nz-button
+      nzType="text"
+      nzSize="small"
+      class="op-close"
+      nz-tooltip
+      nzTooltipTitle="Close"
+      (click)="closed.emit()">
+      <i
+        nz-icon
+        nzType="close"></i>
+    </button>
+  </div>
 
-  <ng-template #classicLayout>
-    <ng-container *ngTemplateOutlet="resultView"></ng-container>
-    <ng-container *ngTemplateOutlet="feedbackView"></ng-container>
+  <!-- A native operator: Run, Edit and Feedback go to the agent that defined it. -->
+  <div
+    *ngIf="nativeOperator"
+    class="op-actions">
+    <button
+      type="button"
+      class="op-action run-action"
+      [disabled]="!canAct"
+      (click)="run()">
+      <i
+        nz-icon
+        [nzType]="running ? 'loading' : 'caret-right'"></i>
+      <span>{{ running ? "Running…" : "Run" }}</span>
+    </button>
+    <button
+      type="button"
+      class="op-action edit-action"
+      [class.active]="mode === 'edit'"
+      [disabled]="!actionAgentId || (busy && mode !== 'edit')"
+      (click)="toggleMode('edit')">
+      <i
+        nz-icon
+        nzType="edit"></i>
+      <span>Edit</span>
+    </button>
+    <button
+      type="button"
+      class="op-action feedback-action"
+      [class.active]="mode === 'feedback'"
+      (click)="toggleMode('feedback')">
+      <i
+        nz-icon
+        nzType="message"></i>
+      <span>Feedback</span>
+    </button>
+  </div>
+
+  <div
+    *ngIf="statusText"
+    class="op-status">
+    {{ statusText }}
+  </div>
+  <div
+    *ngIf="actionError"
+    class="op-error">
+    {{ actionError }}
+  </div>
+
+  <texera-native-operator-editor
+    *ngIf="mode === 'edit'; else operatorView"
+    [agentId]="actionAgentId ?? ''"
+    [operatorId]="operatorId"
+    [disabled]="busy"
+    (saved)="onSaved($event)"
+    (cancelled)="mode = null"></texera-native-operator-editor>
+
+  <ng-template #operatorView>
+    <div
+      *ngIf="mode === 'feedback' || !nativeOperator"
+      class="op-feedback">
+      <ng-container *ngTemplateOutlet="feedbackView"></ng-container>
+    </div>
+
+    <section
+      *ngIf="properties.length"
+      class="op-section op-properties">
+      <div class="section-title">Properties</div>
+      <dl class="property-list">
+        <ng-container *ngFor="let property of properties">
+          <dt>{{ property.label }}</dt>
+          <dd [title]="property.value">{{ property.value }}</dd>
+        </ng-container>
+      </dl>
+    </section>
+
+    <section class="op-section op-data">
+      <button
+        type="button"
+        class="section-title section-toggle"
+        [attr.aria-expanded]="dataExpanded"
+        (click)="dataExpanded = !dataExpanded">
+        <i
+          nz-icon
+          [nzType]="dataExpanded ? 'down' : 'right'"></i>
+        <span>Data</span>
+        <span
+          *ngIf="!dataExpanded && output.table"
+          class="section-meta">
+          {{ shape(output.table) }}
+        </span>
+      </button>
+
+      <ng-container *ngIf="dataExpanded">
+        <div
+          *ngFor="let input of inputs; let i = index"
+          class="data-block data-input">
+          <div class="data-head">
+            <span class="data-role">{{ inputs.length > 1 ? "Input " + (i + 1) : "Input" }}</span>
+            <span class="data-source">{{ input.operatorId }}</span>
+            <span class="spacer"></span>
+            <span
+              *ngIf="input.outcome.table?.cached"
+              class="data-badge cached"
+              nz-tooltip
+              nzTooltipTitle="Reused from cache: the engine did not compute it again">
+              cached
+            </span>
+            <span class="data-shape">{{ shape(input.outcome.table) }}</span>
+          </div>
+          <ng-container
+            *ngTemplateOutlet="tableView; context: { $implicit: input.outcome, running: input.running }"></ng-container>
+        </div>
+
+        <div class="data-block data-output">
+          <div class="data-head">
+            <span class="data-role">Output</span>
+            <span class="spacer"></span>
+            <span
+              *ngIf="output.table?.cached"
+              class="data-badge cached"
+              nz-tooltip
+              nzTooltipTitle="Reused from cache: the engine did not compute it again">
+              cached
+            </span>
+            <span class="data-shape">{{ shape(output.table) }}</span>
+          </div>
+          <ng-container
+            *ngTemplateOutlet="
+              tableView;
+              context: { $implicit: output, running: outputRunning || running, isOutput: true }
+            "></ng-container>
+        </div>
+      </ng-container>
+    </section>
   </ng-template>
 
-  <ng-template #resultView>
-    <!-- Visualization HTML rendering -->
+  <ng-template
+    #tableView
+    let-outcome
+    let-running="running"
+    let-isOutput="isOutput">
     <div
-      *ngIf="sampleRecords && sampleRecords.length > 0 && isVisualization()"
-      class="visualization-section">
-      <!-- `allow-same-origin` is required: with `allow-scripts` alone the frame gets
-           an opaque origin, so Plotly's `localStorage` probe throws and the chart
-           never renders (the panel showed an empty white box). The same
-           engine-produced HTML is rendered by the result panel in an iframe with
-           no sandbox at all, so this is still the tighter of the two — popups,
-           forms and top-level navigation stay blocked. -->
+      *ngIf="running"
+      class="data-note running">
+      <i
+        nz-icon
+        nzType="loading"></i>
+      Computing…
+    </div>
+    <div
+      *ngIf="!running && outcome.error"
+      class="data-error"
+      [title]="outcome.error">
+      {{ outcome.error }}
+    </div>
+    <ng-container *ngIf="!running && outcome.table as table">
+      <!-- `allow-same-origin`: with `allow-scripts` alone the frame gets an
+           opaque origin, Plotly's localStorage probe throws and the chart
+           never renders. Popups, forms and navigation stay blocked. -->
       <iframe
-        [srcdoc]="getVisualizationHtml()"
-        class="visualization-iframe"
+        *ngIf="table.html !== undefined && isOutput"
+        class="data-chart"
+        [srcdoc]="chart"
         sandbox="allow-scripts allow-same-origin"></iframe>
-    </div>
-
-    <!-- Sample Records Table -->
-    <div
-      *ngIf="sampleRecords && sampleRecords.length > 0 && !isVisualization()"
-      class="sample-records-section">
-      <div class="sample-records-table-wrapper">
-        <table class="sample-records-table">
-          <thead>
-            <tr>
-              <th *ngFor="let col of getSampleColumns()">{{ getColumnDisplayName(col) }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <ng-container *ngFor="let row of getDisplayRows()">
-              <tr
-                *ngIf="row.isEllipsis"
-                class="ellipsis-row">
-                <td [attr.colspan]="getSampleColumns().length">...</td>
-              </tr>
-              <tr *ngIf="!row.isEllipsis">
-                <td *ngFor="let col of getSampleColumns()">{{ row.record?.[col] }}</td>
-              </tr>
-            </ng-container>
-          </tbody>
-        </table>
+      <div
+        *ngIf="table.html !== undefined && !isOutput"
+        class="data-note">
+        A chart.
       </div>
-    </div>
-
-    <!-- Column Statistics -->
-    <div
-      *ngIf="hasColumnStats()"
-      class="column-stats-section">
-      <div class="column-stats-header">
-        <i
-          nz-icon
-          nzType="bar-chart"
-          nzTheme="outline"></i>
-        <span>Column Statistics</span>
-      </div>
-      <div class="column-stats-list">
-        <div
-          *ngFor="let col of getParsedColumnStats()"
-          class="column-stat-item">
-          <div class="column-stat-name">
-            <span class="col-name">{{ col.column }}</span>
-            <span class="col-type">{{ col.dataType }}</span>
-          </div>
-          <div class="column-stat-details">
-            <span
-              *ngFor="let s of col.stats"
-              class="stat-entry">
-              <span class="stat-key">{{ s.key }}:</span> {{ s.value }}
-            </span>
-          </div>
+      <ng-container *ngIf="table.html === undefined">
+        <div class="data-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th
+                  *ngFor="let column of table.columns"
+                  [title]="column.type ? column.name + ': ' + column.type : column.name">
+                  <span class="column-name">{{ column.name }}</span>
+                  <span
+                    *ngIf="column.type"
+                    class="column-type"
+                    >{{ column.type }}</span
+                  >
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let record of table.records">
+                <td
+                  *ngFor="let column of table.columns"
+                  [class.null]="record[column.name] === null || record[column.name] === undefined"
+                  [title]="cell(record[column.name])">
+                  {{ cell(record[column.name]) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+        <div
+          *ngIf="table.rows !== undefined && table.rows > table.records.length"
+          class="data-note">
+          {{ (table.rows - table.records.length).toLocaleString() }} more {{ table.rows - table.records.length === 1 ?
+          "row" : "rows" }}
+        </div>
+        <div
+          *ngIf="table.rows === 0"
+          class="data-note">
+          No rows.
+        </div>
+      </ng-container>
+    </ng-container>
+    <div
+      *ngIf="!running && !outcome.error && !outcome.table"
+      class="data-note">
+      {{ nativeOperator ? "Not computed yet. Run computes it." : "No result yet." }}
     </div>
   </ng-template>
 

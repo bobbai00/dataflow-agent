@@ -98,7 +98,7 @@ describe("registered Python action contract", () => {
       VIEWS
     );
     expect(result.actions.map(item => item.action.type)).toEqual(["edit", "execute", "retrieve"]);
-    await runDataflowActions(result, async action =>
+    await runDataflowActions(result, undefined, async action =>
       action.type === "edit"
         ? { status: "ok", output: { registrations: [{ name: "f", kind: "registered" }], changes: [] } }
         : action.type === "execute"
@@ -139,7 +139,7 @@ describe("registered Python action contract", () => {
       { type: "execute", operator_ids: ["a"] },
       { type: "retrieve", operator_ids: ["a"], view: "full" },
     ]);
-    await runDataflowActions(afterExecution, async action =>
+    await runDataflowActions(afterExecution, undefined, async action =>
       action.type === "execute" ? { status: "error", output: "engine failed" } : { status: "ok", output: {} }
     );
     expect(afterExecution.actions.map(item => item.status)).toEqual(["error", "ok"]);
@@ -148,7 +148,7 @@ describe("registered Python action contract", () => {
       { type: "edit", python: "", changes: "set a: scan(files='a.csv')" },
       { type: "execute", operator_ids: ["a"] },
     ]);
-    await runDataflowActions(afterEdit, async () => {
+    await runDataflowActions(afterEdit, undefined, async () => {
       throw new Error("rejected");
     });
     expect(afterEdit.actions.map(item => item.status)).toEqual(["error", "skipped"]);

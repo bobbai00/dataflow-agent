@@ -25,7 +25,7 @@ import { TexeraAgent } from "./texera-agent";
 import { assembleContext } from "./util/context-utils";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { UserActionError } from "./user-actions";
-import type { EditVersionInfo } from "./workflow-snapshot-storage";
+import type { VersionInfo } from "./workflow-snapshot-storage";
 
 type Reply = { text?: string; call?: { python: string; statements: string } };
 
@@ -122,20 +122,20 @@ test("an edit applies through the dataflow and is recorded as a user step the mo
   expect(step).toBe(outcome.step!);
   expect(step.role).toBe("user");
   expect(step.messageSource).toBe("action");
-  // The agent's call made v0 (records) and v1 (kept); the user's edit is v2.
+  // The agent's call made v0 (records), v1 (kept), v2 (its run) and v3 (its show); the user's edit is v4.
   expect(step.userAction).toEqual({
     kind: "edit",
     operatorId: "kept",
     statement,
     previous: "set kept: filter(records, lambda row: row['value'] > 15)",
     status: "ok",
-    version: 2,
+    version: 4,
   });
   const version = agent
     .getSnapshotStorage()
     .getSnapshotTreeNodes()
-    .find(node => node.version === 2);
-  expect(version?.edit).toEqual({ kind: "update", operatorId: "kept", op: "filter", author: "user" });
+    .find(node => node.version === 4);
+  expect(version?.action).toEqual({ kind: "update", operatorId: "kept", op: "filter", author: "user" });
   expect(source(agent, "kept")).toBe(statement);
   // The step owns the snapshot of the edited workflow, as an agent call would.
   expect(agent.getSnapshotStorage().hasSnapshotFor(step.id)).toBe(true);
@@ -158,8 +158,17 @@ test("a run shows the result to the model and reports the rows", async () => {
   const outcome = await agent.applyUserAction({ kind: "run", operatorId: "kept" });
 
   expect(outcome.status).toBe("ok");
-  // A run changes nothing, so it makes no version.
-  expect(outcome.step!.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 1 });
+  // A run is a version, and so is showing its result: v5 and v6 after the edit's v4.
+  expect(outcome.step!.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 1, version: 6 });
+  expect(
+    agent
+      .getSnapshotStorage()
+      .getStepVersions(outcome.step!.id)
+      .map(snapshot => snapshot.action)
+  ).toEqual([
+    { kind: "run", operatorIds: ["kept"], author: "user" },
+    { kind: "show", operatorIds: ["kept"], author: "user" },
+  ]);
   // The agent responds to a run, so the user's step asks it to.
   expect(outcome.respond).toBe(true);
   expect(outcome.step!.content).toStartWith(
@@ -182,7 +191,7 @@ test("an edit can run in the same action", async () => {
     run: true,
   });
   expect(outcome.status).toBe("ok");
-  expect(outcome.step!.userAction).toMatchObject({ kind: "edit", run: true, status: "ok", rows: 3, version: 2 });
+  expect(outcome.step!.userAction).toMatchObject({ kind: "edit", run: true, status: "ok", rows: 3, version: 6 });
   expect(outcome.respond).toBe(true);
   expect(outcome.step!.content).toStartWith("I edited and ran `kept` on the canvas.");
   expect(agent.getWorkflowState().getOperator("kept")?.nativeOp?.doc).toBe("Every record");
@@ -253,13 +262,13 @@ test("an action needs an available native agent and a native operator", async ()
   await expect(agent.applyUserAction({ kind: "run", operatorId: "kept" })).rejects.toMatchObject({ status: 400 });
 });
 
-test("each edit of a call is a version of its own, and the step keeps the last", async () => {
+test("each action of a call is a version of its own: its edits, its run and its show", async () => {
   const { agent } = await built();
   const storage = agent.getSnapshotStorage();
   const build = agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
-  const versions = (build.toolResults![0].output as any).actions.find((item: any) => item.action.type === "edit").output
-    .versions as EditVersionInfo[];
-  expect(versions.map(({ snapshotId: _id, ...version }) => version)).toEqual([
+  const actions = (build.toolResults![0].output as any).actions;
+  const versions = actions.find((item: any) => item.action.type === "edit").output.versions as VersionInfo[];
+  expect(versions.map(({ snapshotId: _id, timestamp: _at, ...version }) => version)).toEqual([
     { version: 0, kind: "add", operatorId: "records", op: "make_table", functions: ["make_table"], author: "agent" },
     { version: 1, kind: "add", operatorId: "kept", op: "filter", author: "agent" },
   ]);
@@ -267,10 +276,96 @@ test("each edit of a call is a version of its own, and the step keeps the last",
   expect(first.workflow.operators.map(op => op.operatorID)).toEqual(["records"]);
   expect(first.workflow.links).toEqual([]);
   expect(last.parentId).toBe(first.id);
-  expect(storage.getOwnedSnapshot(build.id)).toBe(last);
   expect(last.workflow.operators.map(op => op.operatorID).sort()).toEqual(["kept", "records"]);
-  // The answer after the edits changed nothing: two versions in all.
-  expect(storage.getSnapshotTreeNodes().filter(node => node.version !== undefined).length).toBe(2);
+  // `show result kept` runs kept, then shows it: two more versions, of the same dataflow.
+  const run = actions.find((item: any) => item.action.type === "execute").output.version as VersionInfo;
+  const show = actions.find((item: any) => item.action.type === "retrieve").output.version as VersionInfo;
+  expect([run, show].map(({ version, kind, operatorIds }) => ({ version, kind, operatorIds }))).toEqual([
+    { version: 2, kind: "run", operatorIds: ["kept"] },
+    { version: 3, kind: "show", operatorIds: ["kept"] },
+  ]);
+  expect(storage.getSnapshotById(run.snapshotId)!.parentId).toBe(last.id);
+  expect(storage.getSnapshotById(run.snapshotId)!.results.get("kept")?.info.totalRowCount).toBe(2);
+  expect(last.results.has("kept")).toBe(false);
+  // Each version is timed by its action; the step resolves to the last.
+  expect(versions[0].timestamp).toBeLessThanOrEqual(run.timestamp);
+  expect(run.timestamp).toBeLessThanOrEqual(show.timestamp);
+  expect(storage.getOwnedSnapshot(build.id)?.id).toBe(show.snapshotId);
+  // The answer after them changed nothing: four versions in all.
+  expect(storage.getSnapshotTreeNodes().filter(node => node.version !== undefined).length).toBe(4);
+});
+
+test("a call streams each version as its action records it, and its step after each action", async () => {
+  const { agent } = session([{ call: BUILD }, { text: "2 rows remain." }]);
+  const events: string[] = [];
+  agent.setProgressCallback((_stepId, { version, running }) =>
+    events.push(`${version.kind} v${version.version}${running ? ` running [${running.join(", ")}]` : ""}`)
+  );
+  agent.setStepCallback(step => {
+    const actions = (step.toolResults?.[0]?.output as any)?.actions;
+    if (actions) events.push(`step ${actions.map((item: any) => item.status).join(", ")}`);
+  });
+  await agent.sendMessage("Keep the records whose value is over 15. How many remain?");
+  expect(events).toEqual([
+    "step pending, pending, pending",
+    "add v0",
+    "add v1",
+    "step ok, pending, pending",
+    "run v2 running [records, kept]",
+    "run v2 running []",
+    "step ok, ok, pending",
+    "show v3",
+    "step ok, ok, ok",
+    "step ok, ok, ok",
+  ]);
+});
+
+test("a run says it computes what it was asked for, and above that only what has no current result", async () => {
+  const { agent } = await built();
+  const running: string[][] = [];
+  agent.setProgressCallback((_stepId, progress) => {
+    if (progress.running?.length) running.push(progress.running);
+  });
+  await agent.applyUserAction({ kind: "run", operatorId: "kept" });
+  // records was computed by the agent's call and is unchanged; kept is the one asked for.
+  expect(running).toEqual([["kept"]]);
+  await agent.applyUserAction({
+    kind: "edit",
+    operatorId: "records",
+    statement: "set records: make_table(doc='The records')",
+    run: true,
+  });
+  expect(running.at(-1)).toEqual(["records"]);
+});
+
+test("importing a session rebuilds its versions, runs and shows included, at the times they happened", async () => {
+  const { agent } = await built();
+  const recorded = agent
+    .getSnapshotStorage()
+    .getSnapshotTreeNodes()
+    .filter(node => node.version !== undefined)
+    .map(node => [node.action?.kind, node.action?.operatorId ?? node.action?.operatorIds?.join(","), node.timestamp]);
+  const { agent: copy } = session([]);
+  await copy.importReActSteps(structuredClone(agent.getAllSteps()));
+  const imported = copy
+    .getSnapshotStorage()
+    .getSnapshotTreeNodes()
+    .filter(node => node.version !== undefined)
+    .map(node => [node.action?.kind, node.action?.operatorId ?? node.action?.operatorIds?.join(","), node.timestamp]);
+  expect(imported).toEqual(recorded);
+  expect(imported.map(([kind]) => kind)).toEqual(["add", "add", "run", "show"]);
+});
+
+test("checking out a version a run or a show made, or an edit only runs and shows follow, checks out its step", async () => {
+  const { agent } = session([{ call: BUILD }, { text: "2 rows remain." }]);
+  await agent.sendMessage("Keep the records whose value is over 15. How many remain?");
+  const answer = latest(agent);
+  const build = agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
+  const [records, kept, run, show] = agent.getSnapshotStorage().getStepVersions(build.id);
+  expect([records, kept, run, show].map(version => version.action?.kind)).toEqual(["add", "add", "run", "show"]);
+  for (const version of [kept, run, show]) expect(agent.checkoutVersion(version.id)).toBe(answer.id);
+  // An edit that a later edit of its call changed is restored instead.
+  expect(agent.getStepsById().get(agent.checkoutVersion(records.id)!)?.userAction?.kind).toBe("restore");
 });
 
 test("checking out a step's last version moves HEAD there; an earlier version is restored as a user step", async () => {

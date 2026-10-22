@@ -18,7 +18,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { operatorInfoToSummary } from "./operator-result-summary";
+import { operatorInfoToSummary, operatorResultSummaries } from "./operator-result-summary";
 import type { OperatorInfo } from "../types/execution";
 import { mergeTableProfiles } from "../agent/native/profiles";
 
@@ -66,4 +66,50 @@ test("legacy summary fields keep their previous wire shape", () => {
     outputTuples: 0,
     sampleRecords: [],
   });
+});
+
+test("a result reused from cache shows the table it reused and its inputs' rows, not zeros", () => {
+  const port = (portID: string) => ({ portID, displayName: portID, allowMultiInputs: false, isDynamicPort: false });
+  const operator = (operatorID: string, inputs: string[]) =>
+    ({ operatorID, inputPorts: inputs.map(port), outputPorts: [port("output-0")] }) as any;
+  const link = (source: string, target: string, portID: string) => ({
+    linkID: `${source}-${target}`,
+    source: { operatorID: source, portID: "output-0" },
+    target: { operatorID: target, portID },
+  });
+  const workflow = {
+    operators: [operator("orders", []), operator("people", []), operator("joined", ["input-0", "input-1"])],
+    links: [link("orders", "joined", "input-0"), link("people", "joined", "input-1")],
+  };
+  // The engine reports a cached region's counts as -1, or none for an output it kept no count for.
+  const cached = (rows: number | undefined, outputTuples: number): OperatorInfo => ({
+    ...info,
+    state: "CompletedFromCache",
+    inputTuples: -1,
+    outputTuples,
+    inputPortShapes: [{ portIndex: 0, rows: -1, columns: 0 }],
+    totalRowCount: rows,
+    resultSchema: [{ name: "id", type: "int64", encoding: "" }],
+  });
+  const summaries = operatorResultSummaries(
+    new Map([
+      ["orders", cached(120, 0)],
+      ["people", { ...info, outputTuples: 40, totalRowCount: 40 }],
+      ["joined", cached(118, -1)],
+    ]),
+    workflow
+  );
+  expect(summaries.orders).toMatchObject({ cached: true, outputTuples: 120 });
+  expect(summaries.joined).toMatchObject({
+    cached: true,
+    outputTuples: 118,
+    inputTuples: 160,
+    inputPortShapes: [
+      { portIndex: 0, rows: 120, columns: 1 },
+      { portIndex: 1, rows: 40, columns: 0 },
+    ],
+  });
+  expect(summaries.people.cached).toBeUndefined();
+  // A count nothing records stays unknown rather than zero.
+  expect(operatorResultSummaries(new Map([["orders", cached(undefined, 0)]]), workflow).orders.outputTuples).toBe(-1);
 });

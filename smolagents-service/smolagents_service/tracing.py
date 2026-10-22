@@ -13,8 +13,9 @@
 
 """What a chat session records while its agent works.
 
-A run is one user message and everything the agent does to answer it, or one
-piece of the user's own code run in the session's interpreter (a 'script' run).
+A run is one user message and everything the agent does to answer it, one piece
+of the user's own code run in the session's interpreter (a 'script' run), or a
+notebook imported into the session (a 'notebook' run, one step per cell).
 Inside an agent run, `TracedModel` records each model call (request start, first
 streamed token, last token, token counts and the exact messages sent), the
 executor reports each code execution (round trip, the time measured inside the
@@ -67,12 +68,15 @@ class Trace:
         self.run_id: str | None = None
         self.kind = "agent"
         self.turns = 0
+        self.cell_number: int | None = None  # the cell a notebook import is running
         self._figures: list = []
         self.steps: dict[int | None, dict] = {}  # this run's model and code time, and tokens, per step
 
     @property
     def step_number(self) -> int | None:
-        return getattr(self.agent, "step_number", None) if self.kind == "agent" else None
+        if self.kind == "agent":
+            return getattr(self.agent, "step_number", None)
+        return self.cell_number if self.kind == "notebook" else None
 
     def start_run(self, task: str, kind: str = "agent") -> str:
         self.turns += 1
@@ -107,8 +111,9 @@ class Trace:
             error=None if error is None else f"{type(error).__name__}: {error}")
 
     def record_python(self, *, started, ended, code, reply, figures, pid=None) -> None:
-        """The executor's report of one execution. An agent step's figures wait for the step
-        callback, which shows them to the model; a script run's are saved at once."""
+        """The executor's report of one execution. A step's figures (an agent step's, or an
+        imported cell's) wait for the step callback, which shows them to the model; a script
+        run's are saved at once."""
         if self.run_id is None:
             return
         self._add(python=ended - started)
@@ -118,10 +123,10 @@ class Trace:
             logs=reply.get("logs") if self.kind == "agent" else reply.get("output"),
             output=_text(reply.get("output") if self.kind == "agent" else reply.get("value")),
             is_final_answer=int(bool(reply.get("is_final_answer"))), figures=len(figures), error=reply.get("error"))
-        if self.kind == "agent":
-            self._figures = figures
-        else:
+        if self.kind == "script":
             self._save_figures(figures, None)
+        else:
+            self._figures = figures
 
     def _save_figures(self, figures, step_number) -> None:
         for index, image in enumerate(figures, start=1):

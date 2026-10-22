@@ -149,6 +149,42 @@ describe("TexeraAgent — handleDebugInput plain-text path", () => {
   });
 });
 
+describe("TexeraAgent — handleDebugInput agent inputs", () => {
+  test("a Reply(...) ends the ongoing task as the agent's reply, after a call whose lines carry its thought", async () => {
+    const agent = makeAgent();
+    await agent.handleDebugInput("How many rows?");
+    const call = await agent.handleDebugInput(
+      "Nothing to compute.\nFunction(name='unknownTool', arguments='{}')"
+    );
+    expect(call.kind).toBe("function_call");
+    const callStep = agent.getAllSteps().at(-1)!;
+    expect(callStep.role).toBe("agent");
+    expect(callStep.content).toBe("Nothing to compute.");
+    expect(callStep.toolCalls?.[0]?.toolName).toBe("unknownTool");
+
+    const reply = await agent.handleDebugInput("Reply(text='There are 3 rows.')");
+    expect(reply).toEqual({ kind: "reply", stopped: false });
+    const steps = agent.getAllSteps();
+    const replyStep = steps.at(-1)!;
+    expect(replyStep).toMatchObject({ role: "agent", content: "There are 3 rows.", isEnd: true, isBegin: false });
+    expect(replyStep.messageId).toBe(steps[0].messageId);
+    expect(replyStep.stepId).toBe(callStep.stepId + 1);
+    expect(replyStep.parentId).toBe(callStep.id);
+    expect(agent.getHead()).toBe(replyStep.id);
+    // The task is over: the next agent input starts a task of its own.
+    await agent.handleDebugInput("Reply(text='Again.')");
+    expect(agent.getAllSteps().at(-1)!.messageId).not.toBe(steps[0].messageId);
+  });
+
+  test("a malformed agent input is recorded as an error step", async () => {
+    const agent = makeAgent();
+    const result = await agent.handleDebugInput("Reply(text='unterminated)");
+    expect(result.kind).toBe("function_call");
+    expect(result.error).toContain("Failed to parse the agent input");
+    expect(agent.getAllSteps().at(-1)!.content).toStartWith("[ERROR]");
+  });
+});
+
 describe("TexeraAgent — clearHistory", () => {
   test("resets HEAD to undefined, drops steps, drops snapshot storage", async () => {
     const agent = makeAgent();

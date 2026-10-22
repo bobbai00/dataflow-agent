@@ -112,6 +112,16 @@ def answer_messages(answer, steps: int, seconds: float, totals: dict) -> list[gr
             gr.ChatMessage(role="assistant", content=FOOTNOTE.format(summary))]
 
 
+def import_footnote(name: str, cells: int, seconds: float, python_seconds: float, failed: int) -> gr.ChatMessage:
+    """What importing a notebook took, after its cells."""
+    facts = [f"✓ imported {cells} cell{'s' if cells != 1 else ''} from `{name}`", f"{seconds:.1f} s",
+             f"Python {python_seconds:.1f} s"]
+    if failed:
+        facts.append(f"{failed} failed")
+    facts.append("the agent remembers them as its own steps")
+    return gr.ChatMessage(role="assistant", content=FOOTNOTE.format(escape_tags(" · ".join(facts))))
+
+
 def script_messages(name: str, code: str, reply: dict, figures: list) -> list[gr.ChatMessage]:
     """The user's own code run: the code folded, then what it printed or raised, its charts, and what it left."""
     lines = code.count("\n") + 1

@@ -24,6 +24,8 @@ class Config:
     gateway_url: str = "http://localhost:4000"
     api_key: str = ""
     model_id: str = "claude-sonnet-5.5"
+    instructions: str = ""  # appended to every agent's instructions: a study's rules for the agent, say
+    notebook_instructions: str = ""  # told to the agent after a notebook is imported, for what follows
     max_steps: int = 20
     concurrency: int = 16  # agent runs in progress at once, across all users
     max_sessions: int = 32  # open chat sessions, each with its own worker process (~0.1-0.3 GB)

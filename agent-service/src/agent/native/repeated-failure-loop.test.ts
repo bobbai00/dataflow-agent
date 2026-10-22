@@ -35,7 +35,9 @@ const answer: Reply = { text: "The value is 42." };
 
 /** The loop corrections only; budget reminders are feedback steps too. */
 const corrections = (agent: TexeraAgent) =>
-  agent.getVisibleReActSteps().filter(s => s.messageSource === "feedback" && s.content.includes("failed the same way"));
+  agent
+    .getVisibleReActSteps()
+    .filter(s => s.messageSource === "correction" && s.content.includes("failed the same way"));
 
 function fixture(replyAt: (call: number) => Reply) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();

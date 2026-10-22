@@ -102,8 +102,16 @@ export interface ReActStep {
   usage?: TokenUsage;
   inputMessages?: any[];
   /** "action": the user edited or ran an operator on the canvas
-   *  (`TexeraAgent.applyUserAction`); the step's `content` tells the model. */
-  messageSource?: "chat" | "feedback" | "action";
+   *  (`TexeraAgent.applyUserAction`); the step's `content` tells the model.
+   *  "correction": the service's own note in a turn (a step budget, a
+   *  repeated failure, a reply that computed nothing); the model reads it as
+   *  feedback, and it is not the user's words. */
+  messageSource?: "chat" | "feedback" | "action" | "correction";
+  /** On a "correction" step: what the service noted. A step budget running
+   *  out; the same failure repeating; a reply that computed nothing, was cut
+   *  off at the output limit, or gave its answer as text instead of an answer
+   *  statement. */
+  correction?: "step-budget" | "repeated-failure" | "missing-action" | "cut-off" | "answer-statement";
   /** Per-tool-call operator access, derived from tool inputs/outputs at
    *  step-record time (see `computeOperatorAccess`). Absent on steps with
    *  no tool calls. */
@@ -318,6 +326,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /** When the user runs an operator from the canvas (Run, Save & run), the
    *  agent responds to the result in a turn of its own. On by default. */
   respondToCanvasRuns: boolean;
+  /** Instructions for this session, appended to the system prompt: rules of
+   *  engagement beyond the mode's prompt. Empty by default. */
+  instructions: string;
   /** Native mode: the final answer is an `answer` statement, which renders
    *  named tables as the reply verbatim and ends the request. */
   answerStatement: boolean;
@@ -474,6 +485,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   flowEvidence: false,
   operatorDoc: false,
   respondToCanvasRuns: true,
+  instructions: "",
   answerStatement: false,
   nativeChecks: false,
   resultSelection: "all",
@@ -577,6 +589,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   flowEvidence?: boolean;
   operatorDoc?: boolean;
   respondToCanvasRuns?: boolean;
+  instructions?: string;
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
@@ -671,6 +684,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   flowEvidence?: boolean;
   operatorDoc?: boolean;
   respondToCanvasRuns?: boolean;
+  instructions?: string;
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;

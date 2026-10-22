@@ -136,6 +136,8 @@ export const operatorStateClass = "texera-operator-state";
 export const operatorCoeditorEditingClass = "texera-operator-coeditor-editing";
 export const operatorCoeditorChangedPropertyClass = "texera-operator-coeditor-changed-property";
 export const operatorAgentActionProgressClass = "texera-operator-agent-action-progress";
+/** The status pill just below an operator's box (see `OperatorStatusBadge`). */
+export const operatorStatusClass = "texera-operator-status";
 
 export const operatorIconClass = "texera-operator-icon";
 export const operatorNameClass = "texera-operator-name";
@@ -175,6 +177,15 @@ class TexeraCustomJointElement extends joint.shapes.devs.Model {
       <rect class="boundary"></rect>
       <path class="left-boundary"></path>
       <path class="right-boundary"></path>
+      <g class="${operatorStatusClass}">
+        <rect class="${operatorStatusClass}-pill"></rect>
+        <g class="${operatorStatusClass}-spinner">
+          <path d="M 0 -4.5 A 4.5 4.5 0 1 1 -4.5 0" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+            <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="0.9s" repeatCount="indefinite"/>
+          </path>
+        </g>
+        <text class="${operatorStatusClass}-text"></text>
+      </g>
       ${deleteButtonSVG}
       ${chatButtonSVG}
       ${dynamicInputPorts ? addInputPortButtonSVG : ""}
@@ -193,6 +204,20 @@ class TexeraCustomCommentElement extends joint.shapes.devs.Model {
   <image></image>
   </g>`;
 }
+/**
+ * What an operator's status pill says, just below its box: it is computing
+ * (with a spinner), it finished, its result was reused from cache, or it
+ * failed. Its border says the same in colour.
+ */
+export type OperatorStatusBadge = "running" | "done" | "cached" | "failed";
+
+const STATUS_BADGES: Readonly<Record<OperatorStatusBadge, { text: string; fill: string; width: number }>> = {
+  running: { text: "Running", fill: "#fa8c16", width: 76 },
+  done: { text: "✓", fill: "#52c41a", width: 20 },
+  cached: { text: "cached", fill: "#1677ff", width: 56 },
+  failed: { text: "failed", fill: "#ff4d4f", width: 52 },
+};
+
 /**
  * JointUIService controls the shape of an operator and a link
  *  when they are displayed by JointJS.
@@ -227,6 +252,8 @@ export class JointUIService {
 
   public static readonly DEFAULT_OPERATOR_WIDTH = 210;
   public static readonly DEFAULT_OPERATOR_HEIGHT = 80;
+  /** How far below the box the centre of its status pill sits; the pill is 18px tall. */
+  public static readonly STATUS_PILL_OFFSET = 13;
   // Width of the left icon section; the divider is drawn at this x offset.
   public static readonly ICON_SECTION_WIDTH = 48;
   // Padding between the divider and the description text on the right section.
@@ -494,15 +521,14 @@ export class JointUIService {
 
   /**
    * Apply a stored snapshot result to an operator: colour it by its state
-   * (e.g. green border when Completed) and show input/output tuple counts on
-   * its ports. Used when the agent panel checks out a snapshot — there is no
-   * live execution stream, so the state + counts come from the snapshot's
-   * recorded operator results. Port names stay hidden; only the counts show.
-   * No-op if the operator isn't on the paper yet.
+   * (e.g. green border when Completed), show its status pill and the
+   * input/output tuple counts on its ports. Used for the agent's results,
+   * which arrive with its snapshots rather than a live execution stream. Port
+   * names stay hidden; only the counts show, and a count nothing recorded
+   * (negative) shows none. No-op if the operator isn't on the paper yet.
    *
-   * When `fromCache` is true the result was reused from cache: the border is
-   * coloured blue (overriding the state colour) to signal "loaded from cache",
-   * and the cache sentinel (`-1`) tuple counts are shown as 0.
+   * A `cached` result was reused from cache: blue border and a "cached" pill.
+   * A `failed` operator gets a red border and a "failed" pill.
    */
   public setOperatorSnapshotResult(
     jointPaper: joint.dia.Paper,
@@ -510,27 +536,75 @@ export class JointUIService {
     operatorState: OperatorState,
     inputPortCounts: Record<string, number>,
     outputPortCounts: Record<string, number>,
-    fromCache: boolean = false
+    outcome?: "cached" | "failed"
   ): void {
     const element = jointPaper.getModelById(operatorID) as joint.shapes.devs.Model;
     if (!element) {
       return;
     }
     this.changeOperatorState(jointPaper, operatorID, operatorState);
-    if (fromCache) {
-      // Result was reused from cache — mark with a blue border instead of the
-      // state colour to signal "result is loaded from cache".
-      element.attr("rect.body/stroke", "#1890ff");
+    if (outcome) {
+      element.attr("rect.body/stroke", STATUS_BADGES[outcome].fill);
+      this.setOperatorStatusBadge(jointPaper, operatorID, outcome);
     }
     this.setSnapshotPortCounts(element, "in", inputPortCounts);
     this.setSnapshotPortCounts(element, "out", outputPortCounts);
   }
 
   /**
+   * Show an operator's status pill just below its box, or hide it: clear of
+   * the box's border and of the selection outline drawn over it. No-op if the
+   * operator isn't on the paper.
+   */
+  public setOperatorStatusBadge(jointPaper: joint.dia.Paper, operatorID: string, badge?: OperatorStatusBadge): void {
+    const element = jointPaper.getModelById(operatorID);
+    if (!element) {
+      return;
+    }
+    if (!badge) {
+      element.attr(`.${operatorStatusClass}/display`, "none");
+      return;
+    }
+    const { text, fill, width } = STATUS_BADGES[badge];
+    const center = JointUIService.DEFAULT_OPERATOR_WIDTH / 2;
+    const below = JointUIService.DEFAULT_OPERATOR_HEIGHT + JointUIService.STATUS_PILL_OFFSET;
+    const spinning = badge === "running";
+    const centered = { ref: "rect.body", "ref-y": below, "x-alignment": "middle", "y-alignment": "middle" };
+    element.attr({
+      [`.${operatorStatusClass}`]: { display: "inline" },
+      [`.${operatorStatusClass}-pill`]: {
+        ...centered,
+        "ref-x": center,
+        width,
+        height: 18,
+        rx: 9,
+        ry: 9,
+        fill,
+        stroke: "#ffffff",
+        "stroke-width": 1.5,
+      },
+      [`.${operatorStatusClass}-spinner`]: {
+        ...centered,
+        "ref-x": center - width / 2 + 11,
+        display: spinning ? "inline" : "none",
+      },
+      [`.${operatorStatusClass}-text`]: {
+        ...centered,
+        "ref-x": spinning ? center + 6 : center,
+        text,
+        fill: "#ffffff",
+        "font-size": "11px",
+        "font-weight": 600,
+      },
+    });
+  }
+
+  /**
    * Reset an operator that previously showed a snapshot result back to the
    * uninitialized look (grey, like a not-yet-executed operator during a live
-   * run) and hide its port counts. Used when checking out a snapshot in which
-   * the operator has no recorded result. No-op if the operator is gone.
+   * run) and hide its status pill and port counts. Used when checking out a
+   * snapshot in which the operator has no recorded result. No-op if the
+   * operator is gone.
    */
   public clearOperatorSnapshotResult(jointPaper: joint.dia.Paper, operatorID: string): void {
     const element = jointPaper.getModelById(operatorID) as joint.shapes.devs.Model;
@@ -545,7 +619,7 @@ export class JointUIService {
     });
   }
 
-  /** Write tuple counts onto the given port group, keyed by numeric port suffix. */
+  /** Write tuple counts onto the given port group, keyed by numeric port suffix; a negative (unknown) count shows none. */
   private setSnapshotPortCounts(
     element: joint.shapes.devs.Model,
     group: "in" | "out",
@@ -564,10 +638,8 @@ export class JointUIService {
         if (count === undefined) {
           return;
         }
-        // A cache-reused result reports a `-1` sentinel; show 0 rather than -1.
-        const displayCount = Math.max(0, count);
-        element.portProp(portId, "attrs/.port-label/text", displayCount.toLocaleString());
-        element.portProp(portId, "attrs/.port-label/visibility", "visible");
+        element.portProp(portId, "attrs/.port-label/text", count < 0 ? "" : count.toLocaleString());
+        element.portProp(portId, "attrs/.port-label/visibility", count < 0 ? "hidden" : "visible");
       });
   }
 
@@ -623,6 +695,15 @@ export class JointUIService {
       [`.${operatorPortMetricsClass}`]: { fill: fillColor },
       [`.${operatorWorkerCountClass}`]: { fill: fillColor },
     });
+    this.setOperatorStatusBadge(
+      jointPaper,
+      operatorID,
+      operatorState === OperatorState.Running
+        ? "running"
+        : operatorState === OperatorState.Completed
+          ? "done"
+          : undefined
+    );
     const element = jointPaper.getModelById(operatorID) as joint.shapes.devs.Model;
     const allPorts = element.getPorts();
     const inPorts = allPorts.filter(p => p.group === "in");
@@ -1203,6 +1284,8 @@ export class JointUIService {
         "x-alignment": "middle",
         "y-alignment": "middle",
       },
+      // Hidden until the operator has a status (setOperatorStatusBadge).
+      [`.${operatorStatusClass}`]: { display: "none" },
       ".texera-operator-view-result-icon": {
         "xlink:href": JointUIService.getOperatorViewResultIcon(operator),
         width: 20,

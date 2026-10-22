@@ -18,6 +18,7 @@
  */
 
 import type { OperatorInfo } from "../types/execution";
+import type { WorkflowContent } from "../types/workflow";
 import { getVisibleResultHeaders } from "../agent/tools/tools-utility";
 
 export interface OperatorResultSummary extends Pick<
@@ -41,6 +42,8 @@ export interface OperatorResultSummary extends Pick<
   outputColumns?: number;
   consoleLogCount?: number;
   sampleRecords?: Record<string, any>[];
+  /** The engine reused this result from cache instead of computing it. */
+  cached?: true;
 }
 
 /** Dashboard/snapshot transport, not the model-facing observation renderer.
@@ -51,9 +54,7 @@ export function operatorInfoToSummary(info: OperatorInfo): OperatorResultSummary
     inputTuples: info.inputTuples,
     outputTuples: info.outputTuples,
     inputPortShapes: info.inputPortShapes,
-    outputColumns:
-      info.resultSchema?.length ??
-      (info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined),
+    outputColumns: columnCount(info),
     error: info.error,
     ...(info.nativeError ? { nativeError: info.nativeError } : {}),
     warnings: info.warnings,
@@ -62,9 +63,9 @@ export function operatorInfoToSummary(info: OperatorInfo): OperatorResultSummary
     truncated: info.truncated,
     sampleRecords: info.result,
     columnStats: info.columnStats,
+    resultSchema: info.resultSchema,
     ...(info.executionContext || info.resultVersion
       ? {
-          resultSchema: info.resultSchema,
           executionContext: info.executionContext,
           materialization: info.materialization,
           resultVersion: info.resultVersion,
@@ -72,4 +73,60 @@ export function operatorInfoToSummary(info: OperatorInfo): OperatorResultSummary
         }
       : {}),
   };
+}
+
+function columnCount(info: OperatorInfo): number | undefined {
+  return (
+    info.resultSchema?.length ??
+    (info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined)
+  );
+}
+
+type PortShape = NonNullable<OperatorInfo["inputPortShapes"]>[number];
+
+const fromCache = (info: OperatorInfo): boolean =>
+  info.state === "CompletedFromCache" || !!info.materialization?.cached;
+
+/**
+ * Every operator's summary at one state of the dataflow. The engine reports
+ * no tuple counts for a result it reused from cache (-1 on its inputs, and on
+ * an output it kept no count for); such a summary is marked `cached` and shows
+ * the rows of the table it reused, and on each input the rows of the operator
+ * feeding it, so a cached operator reads as the table it is, not as empty.
+ */
+export function operatorResultSummaries(
+  results: ReadonlyMap<string, OperatorInfo>,
+  workflow: Pick<WorkflowContent, "operators" | "links">
+): Record<string, OperatorResultSummary> {
+  /** The rows an operator's result holds, when known. */
+  const rows = (operatorId: string): number | undefined => {
+    const info = results.get(operatorId);
+    if (!info || info.error) return undefined;
+    if (info.totalRowCount !== undefined) return info.totalRowCount;
+    return info.outputTuples > 0 || (info.outputTuples === 0 && !fromCache(info)) ? info.outputTuples : undefined;
+  };
+  const summaries: Record<string, OperatorResultSummary> = {};
+  for (const [operatorId, info] of results) {
+    const summary = operatorInfoToSummary(info);
+    summaries[operatorId] = summary;
+    if (!fromCache(info) || info.error) continue;
+    summary.cached = true;
+    summary.outputTuples = rows(operatorId) ?? -1;
+    const operator = workflow.operators.find(op => op.operatorID === operatorId);
+    const inputs: PortShape[] = [];
+    for (const link of workflow.links) {
+      if (link.target.operatorID !== operatorId) continue;
+      const portIndex = operator?.inputPorts.findIndex(port => port.portID === link.target.portID) ?? -1;
+      const input = results.get(link.source.operatorID);
+      const count = rows(link.source.operatorID);
+      if (portIndex >= 0 && input && count !== undefined)
+        inputs.push({ portIndex, rows: count, columns: columnCount(input) ?? 0 });
+    }
+    inputs.sort((a, b) => a.portIndex - b.portIndex);
+    if (inputs.length) {
+      summary.inputPortShapes = inputs;
+      summary.inputTuples = inputs.reduce((total, shape) => total + shape.rows, 0);
+    }
+  }
+  return summaries;
 }

@@ -21,6 +21,7 @@ import { Injectable } from "@angular/core";
 
 import * as joint from "jointjs";
 import { BehaviorSubject, merge, Observable, Subject } from "rxjs";
+import { isEqual } from "lodash-es";
 import { ExecutionMode, Workflow, WorkflowContent, WorkflowSettings } from "../../../../common/type/workflow";
 import { WorkflowMetadata } from "../../../../dashboard/type/workflow-metadata.interface";
 import {
@@ -675,6 +676,64 @@ export class WorkflowActionService {
     // After reloading a workflow, need to clear undo/redo stacks because some of the actions involved in reloading
     // may remain in the undo manager.
 
+    this.undoRedoService.clearUndoStack();
+    this.undoRedoService.clearRedoStack();
+  }
+
+  /**
+   * Bring the canvas to `content` in place, where a reload would end, but
+   * touching only what differs: operators it no longer has or defines
+   * differently go, new and changed ones are added, links follow, and every
+   * operator moves where it places them. Operators that stay keep their box,
+   * state and selection, so changes that arrive one at a time show one at a
+   * time. The changes are not the user's to undo.
+   */
+  public updateWorkflowContent(content: WorkflowContent): void {
+    const graph = this.texeraGraph;
+    const endsOf = (link: OperatorLink) =>
+      `${link.source.operatorID}.${link.source.portID}>${link.target.operatorID}.${link.target.portID}`;
+    // What an operator is: a native operator's definition, else its type, settings and ports.
+    const definition = (op: OperatorPredicate) =>
+      op.nativeOp ?? [op.operatorType, op.operatorProperties, op.inputPorts, op.outputPorts, !!op.isDisabled];
+    const next = new Map(content.operators.map(op => [op.operatorID, op]));
+    const replaced = new Set(
+      graph
+        .getAllOperators()
+        .filter(op => !next.has(op.operatorID) || !isEqual(definition(op), definition(next.get(op.operatorID)!)))
+        .map(op => op.operatorID)
+    );
+    const wanted = new Set(content.links.map(endsOf));
+    this.jointGraphWrapper.setReloadingWorkflow(true);
+    try {
+      graph.bundleActions(() => {
+        graph
+          .getAllLinks()
+          .filter(
+            link =>
+              !wanted.has(endsOf(link)) &&
+              !replaced.has(link.source.operatorID) &&
+              !replaced.has(link.target.operatorID)
+          )
+          .forEach(link => this.deleteLinkWithID(link.linkID));
+        this.deleteOperatorsAndLinks([...replaced]);
+        content.operators
+          .filter(op => !graph.hasOperator(op.operatorID))
+          .forEach(op => this.addOperator(op, content.operatorPositions[op.operatorID] ?? { x: 0, y: 0 }));
+        const present = new Set(graph.getAllLinks().map(endsOf));
+        content.links
+          .filter(link => !present.has(endsOf(link)))
+          .filter(link => graph.hasOperator(link.source.operatorID) && graph.hasOperator(link.target.operatorID))
+          .forEach(link => this.addLink(link));
+      });
+      for (const [operatorID, position] of Object.entries(content.operatorPositions)) {
+        if (!graph.hasOperator(operatorID)) continue;
+        const now = this.jointGraphWrapper.getElementPosition(operatorID);
+        if (now.x !== position.x || now.y !== position.y)
+          this.jointGraphWrapper.setAbsolutePosition(operatorID, position.x, position.y);
+      }
+    } finally {
+      this.jointGraphWrapper.setReloadingWorkflow(false);
+    }
     this.undoRedoService.clearUndoStack();
     this.undoRedoService.clearRedoStack();
   }

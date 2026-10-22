@@ -860,4 +860,51 @@ describe("WorkflowActionService", () => {
       y: sentimentBefore.y + offset.y,
     });
   });
+
+  describe("updateWorkflowContent", () => {
+    const native = (operatorID: string, source: string) =>
+      ({
+        ...mockScanPredicate,
+        operatorID,
+        nativeOp: { type: "Filter", inputs: [], properties: {}, source },
+      }) as OperatorPredicate;
+    const content = (operators: OperatorPredicate[], links = [] as (typeof mockScanResultLink)[]) => ({
+      operators,
+      operatorPositions: Object.fromEntries(operators.map((op, i) => [op.operatorID, { x: i * 100, y: 0 }])),
+      links,
+      commentBoxes: [],
+      settings: service.getWorkflowSettings(),
+    });
+
+    it("changes only what differs: operators that stay keep their cell, new ones are added, gone ones removed", () => {
+      service.addOperator(native("a", "set a: x()"), mockPoint);
+      service.addOperator(native("b", "set b: x()"), mockPoint);
+      const kept = jointGraph.getCell("a");
+      service.updateWorkflowContent(content([native("a", "set a: x()"), native("c", "set c: x()")]));
+      expect(texeraGraph.getAllOperators().map(op => op.operatorID)).toEqual(["a", "c"]);
+      expect(jointGraph.getCell("a")).toBe(kept);
+      // It moves operators where the content places them.
+      expect(service.getJointGraphWrapper().getElementPosition("c")).toEqual({ x: 100, y: 0 });
+      // The changes are not the user's to undo.
+      expect(undoRedo.canUndo()).toBe(false);
+    });
+
+    it("replaces an operator defined anew, and keeps its links", () => {
+      service.addOperator(mockScanPredicate, mockPoint);
+      service.addOperator(mockResultPredicate, mockPoint);
+      service.addLink(mockScanResultLink);
+      const changed = { ...mockResultPredicate, operatorProperties: { changed: true } };
+      service.updateWorkflowContent(content([mockScanPredicate, changed], [mockScanResultLink]));
+      expect(texeraGraph.getOperator(mockResultPredicate.operatorID).operatorProperties).toEqual({ changed: true });
+      expect(texeraGraph.hasLink(mockScanResultLink.source, mockScanResultLink.target)).toBe(true);
+      // A link the content no longer has goes.
+      service.updateWorkflowContent(content([mockScanPredicate, changed]));
+      expect(texeraGraph.getAllLinks()).toEqual([]);
+    });
+
+    it("selects nothing it adds", () => {
+      service.updateWorkflowContent(content([native("a", "set a: x()")]));
+      expect(service.getJointGraphWrapper().getCurrentHighlightedOperatorIDs()).toEqual([]);
+    });
+  });
 });

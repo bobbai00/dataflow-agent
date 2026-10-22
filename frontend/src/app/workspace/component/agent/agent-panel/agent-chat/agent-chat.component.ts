@@ -39,6 +39,7 @@ import { AgentInfo, AgentService, SnapshotTreeResponse } from "../../../../servi
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
 import { WorkflowPersistService } from "../../../../../common/service/workflow-persist/workflow-persist.service";
+import { Workflow } from "../../../../../common/type/workflow";
 import { ɵNzTransitionPatchDirective } from "ng-zorro-antd/core/transition-patch";
 import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
@@ -56,7 +57,14 @@ import { NzTabsComponent, NzTabComponent } from "ng-zorro-antd/tabs";
 import { NzSelectComponent, NzOptionComponent } from "ng-zorro-antd/select";
 import { NzInputNumberComponent } from "ng-zorro-antd/input-number";
 import { NzSwitchComponent } from "ng-zorro-antd/switch";
-import { ActionChip, dataflowChips, shownVersion, versionLabel, versionNodes } from "./dataflow-versions";
+import {
+  ActionChip,
+  dataflowChips,
+  dataflowFailure,
+  shownVersion,
+  versionLabel,
+  versionNodes,
+} from "./dataflow-versions";
 
 /**
  * One snapshot rendered as a clickable box in the snapshot tree (left rail).
@@ -68,14 +76,18 @@ export interface SnapshotNode {
   id: string;
   /** The dataflow version this node is (absent from a service without versions). */
   version?: number;
-  /** Pill text ("v3 · kept") and tooltip ("v3: add kept (filter)"). */
+  /** Pill text ("v3 add kept") and tooltip ("v3: add kept (filter)"). */
   label: string;
   title: string;
   /** A version the user made on the canvas. */
   byUser: boolean;
+  /** A run or a show, which leave the dataflow as it was. */
+  request: boolean;
+  /** A run in which an operator failed. */
+  failed: boolean;
   /** ReAct step whose actions produced this snapshot (undefined for root). */
   reactStepId?: string;
-  /** Owning step's time as HH:MM:SS, shown next to the node ("" if unknown). */
+  /** When its action happened, as HH:MM:SS ("" if unknown). */
   timeLabel: string;
   isRoot: boolean;
   /** True for the snapshot currently rendered on the canvas (HEAD's snapshot). */
@@ -113,20 +125,24 @@ export interface ChatCardRow {
   index: number;
   /** Agent thinking text (truncated with ellipsis in the template). */
   thinking: string;
-  /** The step's actions: each edit with the version it made, then what it ran and read. */
+  /** What the step changed: each edit with the version it made. */
   actions: ActionChip[];
+  /** Why an action of the step failed, when one did. */
+  failure?: string;
 }
 
 /**
  * A rendered item in the chat stream. Consecutive action-bearing agent steps
  * collapse into a single `card`; a user's edit or run of an operator on the
- * canvas is a compact `action` row; everything else (user messages,
- * action-less agent replies) renders as a regular `message`.
+ * canvas is a compact `action` row; a correction the agent service gave the
+ * model is a muted `note`, not a message of the user's; everything else (user
+ * messages, action-less agent replies) renders as a regular `message`.
  */
 export type ChatItem =
   | { kind: "message"; step: ReActStep; index: number }
   | { kind: "card"; rows: ChatCardRow[] }
-  | { kind: "action"; step: ReActStep; index: number };
+  | { kind: "action"; step: ReActStep; index: number }
+  | { kind: "note"; step: ReActStep; index: number };
 
 @UntilDestroy()
 @Component({
@@ -256,6 +272,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
   // Chat stream: action steps grouped into cards, everything else as messages.
   public chatItems: ChatItem[] = [];
+  /** The version the canvas shows while the agent's progress plays; the chat
+   *  and the tree hold back later versions until it shows them. */
+  private liveVersion: number | null = null;
+  /** Corrections whose text is open. */
+  public expandedNotes = new Set<string>();
   /** Id of the latest action-bearing step — its card row spins while generating. */
   public latestActionStepId: string | null = null;
 
@@ -302,6 +323,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsFlowEvidence: "enabled" | "disabled" = "disabled"; // Input/output facts on observed results
   public settingsOperatorDoc: "enabled" | "disabled" = "disabled"; // A one-line doc on every operator
   public settingsRespondToRuns: "respond" | "wait" = "respond"; // The agent answers canvas runs
+  public settingsInstructions = ""; // Instructions for this session, appended to the system prompt
 
   // Track if we disabled auto-persist so we can re-enable it on destroy
   private disabledAutoPersist = false;
@@ -397,6 +419,18 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.refreshSnapshotTree();
       });
 
+    // While the agent's progress plays on the canvas, the chat and the tree
+    // show each version as the canvas reaches it.
+    this.agentService
+      .getLiveVersionObservable(this.agentInfo.id)
+      .pipe(untilDestroyed(this))
+      .subscribe(version => {
+        this.liveVersion = version;
+        this.buildChatItems();
+        this.refreshSnapshotTree();
+        this.cdr.detectChanges();
+      });
+
     // Subscribe to the next-step context preview (markdown). Backend pushes
     // this on init and after every step / complete / clear / checkout /
     // settings change, so the panel always reflects what the LLM would see.
@@ -481,10 +515,19 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         untilDestroyed(this)
       )
       .subscribe(workflow => {
-        if (workflow) {
-          this.workflowActionService.reloadWorkflow(workflow, false, false);
-        }
+        if (workflow) this.showOnCanvas(workflow);
       });
+  }
+
+  /**
+   * Show the agent's workflow on the canvas. When the canvas already shows
+   * this workflow, only what differs changes, so the agent's edits show one by
+   * one; another workflow is loaded whole.
+   */
+  private showOnCanvas(workflow: Workflow): void {
+    if (workflow.wid !== undefined && workflow.wid === this.workflowActionService.getWorkflowMetadata()?.wid)
+      this.workflowActionService.updateWorkflowContent(workflow.content);
+    else this.workflowActionService.reloadWorkflow(workflow, false, false);
   }
 
   /**
@@ -699,6 +742,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsFlowEvidence = settings.flowEvidence === true ? "enabled" : "disabled";
         this.settingsOperatorDoc = settings.operatorDoc === true ? "enabled" : "disabled";
         this.settingsRespondToRuns = settings.respondToCanvasRuns === false ? "wait" : "respond";
+        this.settingsInstructions = settings.instructions ?? "";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -1055,6 +1099,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       if (step.messageSource === "action" && step.userAction) {
         currentCard = null;
         items.push({ kind: "action", step, index });
+      } else if (step.messageSource === "correction") {
+        // The service's note to the model sits inside the agent's work.
+        items.push({ kind: "note", step, index });
       } else if (this.isActionStep(step)) {
         const row: ChatCardRow = {
           step,
@@ -1062,7 +1109,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           // `content` is the model's visible preamble; reasoning models often
           // emit tool calls with none, and only expose a reasoning summary.
           thinking: (step.content || step.reasoningText || "").trim(),
-          actions: this.getActionChips(step),
+          // A version shows once the canvas has played it.
+          actions: this.getActionChips(step).filter(
+            chip => this.liveVersion === null || chip.version === undefined || chip.version <= this.liveVersion
+          ),
+          failure: dataflowFailure(step),
         };
         if (currentCard) {
           currentCard.push(row);
@@ -1113,6 +1164,34 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   /** Template type-guard — returns the canvas-action variant of a ChatItem, else null. */
   public asAction(item: ChatItem): { step: ReActStep; index: number } | null {
     return item.kind === "action" ? item : null;
+  }
+
+  /** Template type-guard — returns the correction-note variant of a ChatItem, else null. */
+  public asNote(item: ChatItem): { step: ReActStep; index: number } | null {
+    return item.kind === "note" ? item : null;
+  }
+
+  /** What a correction told the model, in a few words. */
+  public noteSummary(step: ReActStep): string {
+    const name = this.agentInfo.name;
+    switch (step.correction) {
+      case "missing-action":
+        return `${name} answered before computing anything and was asked to compute first.`;
+      case "cut-off":
+        return `${name}'s reply was cut off and was asked to finish it.`;
+      case "answer-statement":
+        return `${name} was asked to give its answer as an answer statement.`;
+      case "step-budget":
+        return `${name} was told how many steps remain in this turn.`;
+      case "repeated-failure":
+        return `${name} failed the same way again and was asked to change course.`;
+      default:
+        return `${name} was given a correction.`;
+    }
+  }
+
+  public toggleNote(stepId: string): void {
+    if (!this.expandedNotes.delete(stepId)) this.expandedNotes.add(stepId);
   }
 
   /** Canvas actions whose details (what the agent reads) are open. */
@@ -1209,10 +1288,13 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public buildSnapshotTree(): void {
     const tree = this.snapshotTree;
-    // Versions only: a step that ran or read the dataflow made none, and its
-    // snapshot folds into the version it shows. During playback only the
-    // versions revealed so far are shown, so they appear progressively.
-    const allNodes = tree ? versionNodes(tree.nodes) : [];
+    // Versions only: a snapshot that is no version (a restore's) folds into
+    // the version it shows. During playback only the versions revealed so far
+    // are shown, so they appear progressively; while the agent's progress
+    // plays, the versions the canvas has not shown yet wait.
+    const allNodes = (tree ? versionNodes(tree.nodes) : []).filter(
+      n => this.liveVersion === null || n.version === undefined || n.version <= this.liveVersion
+    );
     const nodes = this.playbackRevealedIds ? allNodes.filter(n => this.playbackRevealedIds!.has(n.id)) : allNodes;
     if (!tree || nodes.length === 0) {
       this.snapshotNodes = [];
@@ -1225,6 +1307,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
     const activeId =
       this.playbackActiveId ??
+      (this.liveVersion !== null ? nodes.find(n => n.version === this.liveVersion)?.id : undefined) ??
       shownVersion(tree.nodes, tree.headSnapshotId ?? this.computeActiveSnapshotId(tree.nodes)) ??
       "";
 
@@ -1269,7 +1352,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       version: n.version,
       label: labels.get(n.id)!.label,
       title: labels.get(n.id)!.title,
-      byUser: n.edit?.author === "user",
+      byUser: n.action?.author === "user",
+      request: n.action?.kind === "run" || n.action?.kind === "show",
+      failed: n.failed === true,
       reactStepId: n.reactStepId,
       timeLabel: AgentChatComponent.formatClockTime(n.timestamp),
       isRoot: !n.parentId,
@@ -1607,7 +1692,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     advance();
   }
 
-  /** Show a version's dataflow on the canvas without moving HEAD. */
+  /** Show a version's dataflow and results on the canvas without moving HEAD. */
   private previewVersion(snapshotId: string): void {
     const base = this.agentService.getCurrentWorkflow(this.agentInfo.id);
     if (!base) return;
@@ -1615,9 +1700,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .getVersion(this.agentInfo.id, snapshotId)
       .pipe(untilDestroyed(this))
       .subscribe({
-        next: ({ workflow }) => {
-          if (this.isPlayingSnapshots)
-            this.workflowActionService.reloadWorkflow({ ...base, content: workflow }, false, false);
+        next: ({ workflow, operatorResults }) => {
+          if (!this.isPlayingSnapshots) return;
+          this.showOnCanvas({ ...base, content: workflow });
+          this.agentService.showOperatorResults(operatorResults ?? {});
         },
         error: () => {},
       });
@@ -1632,9 +1718,12 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const wasPlaying = this.isPlayingSnapshots;
     this.isPlayingSnapshots = false;
     this.playbackActiveId = null;
-    // Back to HEAD's dataflow after previewing versions.
+    // Back to HEAD's dataflow and results after previewing versions.
     const head = wasPlaying ? this.agentService.getCurrentWorkflow(this.agentInfo.id) : null;
-    if (head) this.workflowActionService.reloadWorkflow(head, false, false);
+    if (head) {
+      this.showOnCanvas(head);
+      this.agentService.fetchOperatorResults(this.agentInfo.id);
+    }
     if (this.snapshotPlaybackTimer !== null) {
       clearTimeout(this.snapshotPlaybackTimer);
       this.snapshotPlaybackTimer = null;
@@ -1901,6 +1990,18 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .pipe(untilDestroyed(this))
       .subscribe({
         next: () => this.notificationService.success(respond ? "The agent responds to runs" : "The agent waits"),
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /** Save the session's instructions; the agent's system prompt carries them from its next request. */
+  public saveInstructions(): void {
+    const instructions = this.settingsInstructions.trim();
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, { instructions })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => this.notificationService.success(instructions ? "Instructions saved" : "Instructions cleared"),
         error: () => {}, // Error already handled by service
       });
   }

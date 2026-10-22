@@ -523,6 +523,30 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect((await patchJson(`${API}/agents/${created.id}/settings`, { operatorDoc: "yes" })).status).toBe(400);
   });
 
+  test("the session's instructions survive create, GET and PATCH, and end the system prompt", async () => {
+    const rules = "Answer questions about the analysis; change it only when told what to change.";
+    const created = await readJson<any>(await createAgent({ settings: { agentMode: "native", instructions: rules } }));
+    expect(created.settings.instructions).toBe(rules);
+    const prompt = async () =>
+      (await readJson<any>(await getJson(`${API}/agents/${created.id}/system-info`))).systemPrompt as string;
+    expect(await prompt()).toEndWith(`## Instructions for this session\n\n${rules}\n`);
+
+    const changed = await patchJson(`${API}/agents/${created.id}/settings`, { instructions: "Be brief." });
+    expect(changed.status).toBe(200);
+    expect(await readJson(changed)).toMatchObject({ instructions: "Be brief." });
+    expect(await prompt()).toEndWith("## Instructions for this session\n\nBe brief.\n");
+    // Code mode carries them too.
+    await patchJson(`${API}/agents/${created.id}/settings`, { agentMode: "code" });
+    expect(await prompt()).toContain("## Instructions for this session\n\nBe brief.");
+
+    // An empty string clears them, and an agent without any has no such section.
+    await patchJson(`${API}/agents/${created.id}/settings`, { instructions: "" });
+    expect(await prompt()).not.toContain("Instructions for this session");
+    const plain = await readJson<any>(await createAgent());
+    expect(plain.settings.instructions).toBe("");
+    expect((await patchJson(`${API}/agents/${created.id}/settings`, { instructions: 7 })).status).toBe(400);
+  });
+
   for (const key of ["flowLevel", "dataLevel", "columnStats", "valueFormat", "dataHints", "statScopes"]) {
     test(`removed ${key} is rejected by create and PATCH`, async () => {
       expect((await createAgent({ settings: { [key]: true } })).status).toBe(400);

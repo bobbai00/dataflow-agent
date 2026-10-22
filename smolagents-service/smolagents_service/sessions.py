@@ -21,7 +21,8 @@ configured limit. Agents share nothing: each has its own memory, its own
 interpreter state and its own trace. The user can also run their own code in the
 session's interpreter (`ChatSession.run_python`); the run then joins the agent's
 memory as a `UserCodeStep`, so follow-up questions can build on its output and its
-variables.
+variables. A notebook can be imported (`ChatSession.import_notebook`): its cells
+run in the interpreter and join the memory as the agent's own steps.
 """
 
 import logging
@@ -32,13 +33,14 @@ from dataclasses import dataclass, field
 
 import smolagents.agents
 from smolagents import CodeAgent
-from smolagents.memory import MemoryStep
+from smolagents.memory import ActionStep, MemoryStep, TaskStep, ToolCall
 from smolagents.models import ChatMessage, MessageRole
-from smolagents.monitoring import AgentLogger, LogLevel
-from smolagents.utils import truncate_content
+from smolagents.monitoring import AgentLogger, LogLevel, Timing
+from smolagents.utils import AgentExecutionError, truncate_content
 
 from .config import Config
 from .executor import WorkerExecutor
+from .notebook import Notebook, observation_of
 from .store import Store
 from .tracing import TracedModel, Trace
 
@@ -76,13 +78,17 @@ class SessionLimit(RuntimeError):
 CONTEXT_CHARACTERS = 10_000  # of a user run's code, and of its output, that the agent is shown
 
 
-def instructions(files: list[str]) -> str:
+def instructions(files: list[str], extra: str = "") -> str:
+    """The agent's instructions: how this server runs it, the user's files, and `extra` (the
+    server's `--instructions`, such as a study's rules for the agent)."""
     text = ("Your working directory is the user's files folder, private to this user: their uploads are "
             "there, and files you write there persist. "
             "To show a chart, draw it with matplotlib and leave the figure open: after your step the "
             "user sees every open figure, and so do you, as an image. Do not call plt.close().")
     if files:
         text += "\n\nThe user's files, by absolute path:\n" + "\n".join(f"- {path}" for path in files)
+    if extra.strip():
+        text += "\n\n" + extra.strip()
     return text
 
 
@@ -151,9 +157,28 @@ class UserCodeStep(MemoryStep):
         return [ChatMessage(role=MessageRole.USER, content=content)]
 
 
+@dataclass
+class NoteStep(MemoryStep):
+    """A note to the agent in its memory, read as a message from the user's side."""
+
+    text: str
+
+    def to_messages(self, summary_mode: bool = False) -> list[ChatMessage]:
+        return [ChatMessage(role=MessageRole.USER, content=[{"type": "text", "text": self.text}])]
+
+
+def import_note(name: str, instructions: str) -> str:
+    """What the agent is told once a notebook's steps are in its memory."""
+    text = (f"The steps above are your earlier work on this task, brought into this chat from the notebook "
+            f"{name}; their variables are in your interpreter. The user may now ask about the work or ask "
+            "for changes.")
+    return text + ("\n\n" + instructions.strip() if instructions.strip() else "")
+
+
 class ChatSession:
     def __init__(self, store: Store, config: Config, user: dict):
         self.user = user
+        self.config = config
         self.id = store.start_chat_session(user["id"], config.model_id)
         user_dir = config.user_dir(user["id"])
         self.trace = Trace(store, user["id"], self.id, user_dir / "figures")
@@ -166,7 +191,7 @@ class ChatSession:
             model=TracedModel(config.make_model(), self.trace),
             executor=self.executor,
             additional_authorized_imports=AUTHORIZED_IMPORTS,
-            instructions=instructions(user_files(config, user["id"])),
+            instructions=instructions(user_files(config, user["id"]), config.instructions),
             max_steps=config.max_steps,
             stream_outputs=True,
             step_callbacks=[self.trace.on_step],
@@ -189,6 +214,46 @@ class ChatSession:
             name=name, code=code, output=reply.get("output", ""), value=reply.get("value"), error=reply.get("error"),
             variables=reply.get("variables", {}), images=figures))
         return reply, figures
+
+    def import_notebook(self, notebook: Notebook, name: str):
+        """Run a notebook's cells in this session's interpreter, in order, and add them to the
+        agent's memory as its own steps: the task, one step per cell (its reasoning the markdown
+        above the cell, its observation what the cell printed and returned), the answer as the
+        final step, and a note on what follows (with the server's notebook instructions). Traced
+        as a 'notebook' run. The caller holds `busy`. Yields each step once it has run."""
+        self.trace.start_run(f"Imported {name}", kind="notebook")
+        steps = self.agent.memory.steps
+        steps.append(TaskStep(task=notebook.task or f"Continue the analysis in {name}."))
+        status = "ok"
+        for cell in notebook.cells:
+            self.trace.cell_number = cell.number
+            started = time.time()
+            reply, _ = self.executor.run_python(cell.code, f"cell {cell.number}")
+            error = reply.get("error")
+            step = ActionStep(
+                step_number=cell.number, timing=Timing(started, time.time()),
+                model_output=(f"{cell.thought}\n" if cell.thought else "") + f"<code>\n{cell.code}\n</code>",
+                tool_calls=[ToolCall(name="python_interpreter", arguments=cell.code, id=f"call_{len(steps)}")],
+                code_action=cell.code, observations=observation_of(reply),
+                error=AgentExecutionError(error, self.agent.logger) if error else None)
+            steps.append(step)
+            self.trace.on_step(step)  # attaches the cell's figures, then records the step
+            status = "error" if error else status
+            yield step
+        if notebook.answer:
+            now, code = time.time(), f"final_answer({notebook.answer!r})"
+            final = ActionStep(
+                step_number=len(notebook.cells) + 1, timing=Timing(now, now),
+                model_output=f"<code>\n{code}\n</code>", code_action=code,
+                tool_calls=[ToolCall(name="python_interpreter", arguments=code, id=f"call_{len(steps)}")],
+                observations=f"Last output from code snippet:\n{notebook.answer}",
+                action_output=notebook.answer, is_final_answer=True)
+            steps.append(final)
+            self.trace.on_step(final)
+            yield final
+        steps.append(NoteStep(import_note(name, self.config.notebook_instructions)))
+        self.trace.cell_number = None
+        self.trace.finish_run(status, notebook.answer or None)
 
     def close(self) -> None:
         self.agent.cleanup()

@@ -160,7 +160,8 @@ test("edit and run record user steps; a rejected edit is a 400 and records nothi
   expect(body.content).toStartWith("I edited `kept` on the canvas.");
 
   const run = (await (await call("POST", `/${id}/operators/kept/run`)).json()) as Record<string, any>;
-  expect(run.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 3 });
+  // v3 is the edit; the run and showing its result are v4 and v5.
+  expect(run.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 3, version: 5 });
   expect(run.responding).toBe(false);
   expect(run.operatorResults.kept.outputTuples).toBe(3);
 
@@ -218,6 +219,53 @@ test("the socket refuses a message while a canvas action or a turn runs", async 
   }
 });
 
+test("the socket streams a canvas action version by version: an edit's change, the run, then the shown result", async () => {
+  const id = await created();
+  const server = buildApp().listen(0);
+  try {
+    const frames: Array<Record<string, any>> = [];
+    const ws = new WebSocket(`ws://localhost:${server.server!.port}${env.API_PREFIX}/agents/${id}/react`);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("no complete frame")), 5000);
+      ws.onmessage = event => {
+        const frame = JSON.parse(String(event.data));
+        frames.push(frame);
+        if (frame.type === "init")
+          void call("POST", `/${id}/operators/kept/edit`, {
+            statement: "set kept: filter(records, lambda row: row['value'] > 1)",
+            run: true,
+          });
+        if (frame.type === "complete") {
+          clearTimeout(timer);
+          resolve();
+        }
+      };
+    });
+    ws.close();
+    const progress = frames.filter(frame => frame.type === "progress");
+    expect(progress.map(frame => [frame.version.kind, frame.version.version, frame.running])).toEqual([
+      ["update", 3, undefined],
+      ["run", 4, ["records", "kept"]],
+      ["run", 4, []],
+      ["show", 5, undefined],
+    ]);
+    // An edit sends what it changed, in full, and the links and positions after it.
+    const [edit, started, finished, shown] = progress;
+    expect(edit.dataflow.operators.map((op: any) => op.operatorID)).toEqual(["kept"]);
+    expect(edit.dataflow.operators[0].nativeOp.source).toBe("set kept: filter(records, lambda row: row['value'] > 1)");
+    expect(edit.dataflow.removed).toEqual([]);
+    expect(edit.dataflow.links).toHaveLength(1);
+    expect(Object.keys(edit.dataflow.operatorPositions).sort()).toEqual(["kept", "records"]);
+    // A run's start carries no results yet; its end and the show carry every operator's.
+    expect(started.operatorResults).toBeUndefined();
+    expect(finished.operatorResults.kept.outputTuples).toBe(3);
+    expect(shown.operatorResults.kept.totalRowCount).toBe(3);
+    expect(progress.every(frame => frame.version.author === "user")).toBe(true);
+  } finally {
+    server.stop(true);
+  }
+});
+
 /** Wait until the agent's turn, started in the background, has finished. */
 async function settled(): Promise<void> {
   for (let i = 0; i < 200 && agent.getState() !== AgentState.AVAILABLE; i++) await Bun.sleep(10);
@@ -241,15 +289,15 @@ test("a canvas run is answered by the agent in a turn of its own", async () => {
   expect(JSON.stringify(prompts.at(-1))).toContain("What does this result mean for my request?");
 });
 
-test("the version tree lists each edit; a version can be previewed and checked out", async () => {
+test("the version tree lists each action; a version can be previewed and checked out", async () => {
   const id = await created();
   const tree = (await (await call("GET", `/${id}/snapshot-tree`)).json()) as Record<string, any>;
   const versions = tree.nodes
     .filter((node: any) => node.version !== undefined)
     .sort((a: any, b: any) => a.version - b.version);
   // v0 is where the agent started; the call's two edits are v1 and v2, the
-  // step's own snapshot being the last, with v1 between it and v0.
-  expect(versions.map((node: any) => [node.version, node.edit.kind, node.edit.operatorId, node.owned])).toEqual([
+  // step resolving to the last, with v1 between it and v0.
+  expect(versions.map((node: any) => [node.version, node.action.kind, node.action.operatorId, node.owned])).toEqual([
     [0, "start", undefined, true],
     [1, "add", "records", false],
     [2, "add", "kept", true],
@@ -257,10 +305,15 @@ test("the version tree lists each edit; a version can be previewed and checked o
   expect(versions[2].parentId).toBe(versions[1].id);
   expect(versions[1].parentId).toBe(versions[0].id);
   expect(tree.headSnapshotId).toBe(versions[2].id);
+  // Each version is timed by when its action happened.
+  expect(versions.every((node: any) => typeof node.timestamp === "number")).toBe(true);
+  expect(versions[1].timestamp).toBeGreaterThanOrEqual(versions[0].timestamp);
 
   const preview = (await (await call("GET", `/${id}/versions/${versions[1].id}`)).json()) as Record<string, any>;
   expect(preview.version).toBe(1);
+  expect(preview.action).toMatchObject({ kind: "add", operatorId: "records" });
   expect(preview.workflow.operators.map((op: any) => op.operatorID)).toEqual(["records"]);
+  expect(preview.operatorResults).toEqual({});
   expect((await call("GET", `/${id}/versions/S999`)).status).toBe(404);
 
   const restored = await call("POST", `/${id}/checkout-version`, { snapshotId: versions[1].id });

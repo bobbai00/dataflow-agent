@@ -643,6 +643,102 @@ describe("AgentService", () => {
         expect((service as any).agentStateTracking.get("agent-1").wsWorkflowActive).toBe(true);
       });
 
+      it("plays `progress` frames one at a time: each edit's change, a run's operators, then its results", () => {
+        vi.useFakeTimers();
+        seedAgent("agent-1");
+        service.activateAgent("agent-1");
+        const ws = FakeWebSocket.latest();
+        let workflow: Workflow | null = null;
+        service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
+        let running: ReadonlySet<string> = new Set();
+        service.runningOperators$.subscribe(r => (running = r));
+        const live: Array<number | null> = [];
+        service.getLiveVersionObservable("agent-1").subscribe(v => live.push(v));
+        const ids = () => workflow!.content.operators.map(op => op.operatorID);
+        const version = (n: number, kind: string) => ({ version: n, kind, snapshotId: `S${n}`, author: "agent" });
+        const link = {
+          linkID: "a-b",
+          source: { operatorID: "a", portID: "o" },
+          target: { operatorID: "b", portID: "i" },
+        };
+        const done = { state: "Completed", inputTuples: 0, outputTuples: 2 };
+
+        emit(ws, {
+          type: "snapshot",
+          stepId: "s1",
+          workflow: { operators: [], operatorPositions: {}, links: [], commentBoxes: [] },
+        });
+        emit(ws, {
+          type: "progress",
+          stepId: "s1",
+          version: version(1, "add"),
+          dataflow: {
+            operators: [{ operatorID: "a" }],
+            removed: [],
+            links: [],
+            operatorPositions: { a: { x: 1, y: 1 } },
+          },
+        });
+        emit(ws, {
+          type: "progress",
+          stepId: "s1",
+          version: version(2, "add"),
+          dataflow: {
+            operators: [{ operatorID: "b" }],
+            removed: [],
+            links: [link],
+            operatorPositions: { a: { x: 1, y: 1 }, b: { x: 2, y: 2 } },
+          },
+        });
+        emit(ws, { type: "progress", stepId: "s1", version: version(3, "run"), running: ["a", "b"] });
+        emit(ws, {
+          type: "progress",
+          stepId: "s1",
+          version: version(3, "run"),
+          running: [],
+          operatorResults: { a: done, b: done },
+        });
+        emit(ws, { type: "complete", state: "AVAILABLE", operatorResults: { a: done, b: { ...done, cached: true } } });
+
+        // The first version shows at once; the others wait their turn.
+        expect(ids()).toEqual(["a"]);
+        expect(live.at(-1)).toBe(1);
+        vi.advanceTimersByTime(AgentService.PROGRESS_FRAME_MS);
+        expect(ids()).toEqual(["a", "b"]);
+        expect(workflow!.content.links).toEqual([link]);
+        expect(live.at(-1)).toBe(2);
+        vi.advanceTimersByTime(AgentService.PROGRESS_FRAME_MS);
+        expect([...running]).toEqual(["a", "b"]);
+        expect(service.getOperatorResultSummaries().size).toBe(0);
+        vi.advanceTimersByTime(AgentService.PROGRESS_FRAME_MS);
+        expect(running.size).toBe(0);
+        expect(service.getOperatorResultSummaries().get("b")?.cached).toBeUndefined();
+        // The turn's completion follows the last version; then the canvas has caught up.
+        vi.advanceTimersByTime(AgentService.PROGRESS_FRAME_MS);
+        expect(service.getOperatorResultSummaries().get("b")?.cached).toBe(true);
+        expect(live.at(-1)).toBeNull();
+      });
+
+      it("shows a checkout at once, playing whatever progress still waits first", () => {
+        vi.useFakeTimers();
+        seedAgent("agent-1");
+        service.activateAgent("agent-1");
+        const ws = FakeWebSocket.latest();
+        let workflow: Workflow | null = null;
+        service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
+        const add = (n: number, id: string) => ({
+          type: "progress",
+          stepId: "s1",
+          version: { version: n, kind: "add", snapshotId: `S${n}`, author: "agent" },
+          dataflow: { operators: [{ operatorID: id }], removed: [], links: [], operatorPositions: {} },
+        });
+        emit(ws, { type: "snapshot", stepId: "s1", workflow: { operators: [], operatorPositions: {}, links: [] } });
+        emit(ws, add(1, "a"));
+        emit(ws, add(2, "b"));
+        emit(ws, { type: "headChange", headId: "s0", workflowContent: { operators: [{ operatorID: "x" }] } });
+        expect(workflow!.content.operators.map(op => op.operatorID)).toEqual(["x"]);
+      });
+
       it("cleans up the agent when the backend reports 'Agent not found'", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");

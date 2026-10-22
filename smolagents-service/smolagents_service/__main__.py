@@ -28,6 +28,11 @@ from .config import Config
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def text_or_file(value: str) -> str:
+    """A flag's text, or the text of the file it names with a leading @."""
+    return Path(value[1:]).read_text(encoding="utf-8") if value.startswith("@") else value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Multi-user smolagents data-analysis server with traces in SQLite.")
     parser.add_argument("--host", default="127.0.0.1")
@@ -35,6 +40,11 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "logs" / "smolagents-service",
                         help="accounts, traces (traces.db) and every user's files")
     parser.add_argument("--model", default="claude-sonnet-5.5", help="a model id the gateway serves")
+    parser.add_argument("--instructions", default="",
+                        help="text appended to every agent's instructions, or @PATH for a file holding it")
+    parser.add_argument("--notebook-instructions", default="",
+                        help="text the agent is told after a notebook is imported, for the work that follows "
+                             "(a study's rules, say), or @PATH for a file holding it")
     parser.add_argument("--max-steps", type=int, default=20)
     parser.add_argument("--concurrency", type=int, default=16, help="agent runs in progress at once")
     parser.add_argument("--max-sessions", type=int, default=32, help="open chat sessions (worker processes)")
@@ -51,7 +61,9 @@ def main() -> None:
     load_dotenv(env_file)
     config = Config(
         data_dir=args.data_dir, gateway_url=os.environ.get("LITELLM_BASE_URL", "http://localhost:4000"),
-        api_key=os.environ.get("LITELLM_MASTER_KEY", ""), model_id=args.model, max_steps=args.max_steps,
+        api_key=os.environ.get("LITELLM_MASTER_KEY", ""), model_id=args.model,
+        instructions=text_or_file(args.instructions), notebook_instructions=text_or_file(args.notebook_instructions),
+        max_steps=args.max_steps,
         concurrency=args.concurrency, max_sessions=args.max_sessions, exec_timeout=args.exec_timeout,
         idle_minutes=args.idle_minutes, disconnect_grace_seconds=args.disconnect_grace, sandbox=args.sandbox,
         secret_files=(env_file,), secure_cookies=args.secure_cookies)

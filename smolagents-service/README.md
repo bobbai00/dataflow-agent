@@ -49,11 +49,23 @@ defined". So a follow-up like "using the by_city table from my script, …" work
 on the variable itself. Uploads, scripts and anything code writes share one
 `files` folder per user, so an existing script's relative paths to its data work.
 
+**A notebook.** Upload an `.ipynb` file and the chat imports it as the agent's
+own earlier work: the markdown before the first code cell is shown as the task,
+each code cell runs in the chat's Python session and appears as a **🐍 Ran Python**
+step (the markdown above it as the step's reasoning), and the markdown after the
+last cell is shown as the answer. The agent's memory gets the same: a task, one
+step per cell with what it printed and returned, the answer as the final step,
+and a note that the work is its own (`--notebook-instructions` appends to that
+note, for a study's rules, say). Upload the notebook's data files first; cells
+read them by relative path from the `files` folder.
+
 | Flag | Default | |
 |---|---|---|
 | `--port`, `--host` | 7860, 127.0.0.1 | |
 | `--data-dir` | `logs/smolagents-service` | accounts and traces (`traces.db`), every user's files |
 | `--model` | `claude-sonnet-5.5` | any model id the gateway serves |
+| `--instructions` | | text appended to every agent's instructions, or `@PATH` to a file holding it |
+| `--notebook-instructions` | | text the agent is told after a notebook is imported, or `@PATH` |
 | `--concurrency` | 16 | agent runs in progress at once, across all users |
 | `--max-sessions` | 32 | open chat sessions; each holds a worker process of ~0.1–0.3 GB |
 | `--exec-timeout` | 300 | seconds one code execution may run before its worker is restarted |
@@ -134,15 +146,21 @@ The same records, for the signed-in user only: `GET /api/runs`,
 
 ```bash
 cd smolagents-service
-../.venv/bin/python -m unittest discover -s tests -t .      # 23 tests, ~1 min, no LLM needed
+../.venv/bin/python -m unittest discover -s tests -t .      # 24 tests, ~1 min, no LLM needed
 ```
 
 They cover:
 - accounts, logins and owner-scoped reads
 - the worker: state, figures, errors, timeouts, the user's own code (plain or restricted), and the sandbox actually blocking reads (it fails when run without one)
 - step-by-step trace timing against a scripted model, each part of a run shown once, and a user's code joining the agent's context in the same process
-- over HTTP: the login wall, running code, a closed tab ending its session, and 12 users chatting at once (about 4 s, against about 4 s for one run)
+- over HTTP: the login wall, running code, importing a notebook (its cells run, join the agent's memory as its steps and are traced as one `notebook` run, and the agent carries on from them), a closed tab ending its session, and 12 users chatting at once (about 4 s, against about 4 s for one run)
 - moving files from the old `uploads/` and `workspace/` folders into `files/`
+
+The user study's two scenarios run end to end against a live server from
+`study/` (`scenario1_smolagents.mjs`: the four restaurant files and the task;
+`scenario2_smolagents.mjs`: the inspection files, the notebook import, a question
+and the fixing feedback), each printing what the agent answered and whether it
+matches the study's answer key.
 
 End to end against a running server and the real model:
 

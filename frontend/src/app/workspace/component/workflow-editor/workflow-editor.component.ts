@@ -103,8 +103,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private removeButton!: new () => joint.linkTools.Button;
   private breakpointButton!: new () => joint.linkTools.Button;
 
-  /** Screen-space gap between an operator's bottom edge and its chat popover (room for the caret). */
-  private static readonly CHAT_POPOVER_GAP_PX = 8;
+  /** Screen-space gap between an operator's bottom edge and its panel: room for the caret, and for the
+   *  status pill below the operator. */
+  private static readonly CHAT_POPOVER_GAP_PX = 32;
 
   /** Agent action labels currently drawn on the canvas (see
    *  `applyAgentActionHighlight`); kept so the paint can be redone when the
@@ -152,6 +153,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   private operatorSummaries: Map<string, OperatorResultSummary> = new Map();
+  /** Operators an agent's run is computing right now. */
+  private runningOperators: ReadonlySet<string> = new Set();
 
   ngOnInit(): void {
     // Cache the tool constructors
@@ -167,6 +170,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         this.changeDetectorRef.detectChanges();
       }
     });
+    // An agent's run: its operators show they are computing until their results arrive.
+    this.agentService.runningOperators$.pipe(untilDestroyed(this)).subscribe(running => {
+      this.runningOperators = running;
+      this.applyAgentOperatorSummaries();
+    });
   }
 
   /** Operators currently showing an agent snapshot result (state + port counts). */
@@ -174,14 +182,15 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   /**
    * Paint every operator with the result recorded in the current snapshot:
-   * executed operators get their state colour (green border when Completed)
-   * and input/output tuple counts on their ports; operators that previously
-   * showed a result but no longer have one are reset to the uninitialized look.
+   * executed operators get their state colour and status pill (green "done",
+   * blue "cached", red "failed") and input/output tuple counts on their ports;
+   * operators an agent's run is computing show "Running"; operators that
+   * previously showed a result but no longer have one are reset to the
+   * uninitialized look.
    *
-   * Driven by `operatorResultSummaries$`, which the agent service refreshes on
-   * init / checkout / completion. On checkout the workflow has already been
-   * reloaded synchronously by the time the summaries arrive, so the operators
-   * exist on the paper.
+   * Driven by `operatorResultSummaries$` and `runningOperators$`, which the
+   * agent service refreshes as the agent's progress plays, and on init /
+   * checkout / completion.
    */
   private applyAgentOperatorSummaries(): void {
     if (!this.paper) {
@@ -192,52 +201,51 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     // operator is reset to the uninitialized look. The reset clears any stale
     // state a prior live run may have left (e.g. an operator stuck "Running")
     // so nothing lingers yellow on a snapshot where it wasn't executed.
-    const haveResults = this.operatorSummaries.size > 0;
+    const resetOthers = this.operatorSummaries.size > 0 || this.runningOperators.size > 0;
     const applied = new Set<string>();
     this.workflowActionService
       .getTexeraGraph()
       .getAllOperators()
       .forEach(op => {
-        const summary = this.operatorSummaries.get(op.operatorID);
-        if (!summary) {
-          if (haveResults || this.appliedSnapshotOps.has(op.operatorID)) {
-            this.jointUIService.clearOperatorSnapshotResult(this.paper, op.operatorID);
-          }
-          return;
-        }
-        const inputPortCounts: Record<string, number> = {};
-        if (summary.inputPortShapes && summary.inputPortShapes.length > 0) {
-          for (const shape of summary.inputPortShapes) {
-            inputPortCounts[String(shape.portIndex)] = shape.rows;
-          }
-        } else if (summary.inputTuples) {
-          inputPortCounts["0"] = summary.inputTuples;
-        }
-        // Most operators have a single output port; the summary carries the
-        // total output tuple count rather than a per-port breakdown.
-        const outputPortCounts: Record<string, number> = { "0": summary.outputTuples ?? summary.totalRowCount ?? 0 };
-
-        // A result reused from cache reports a `-1` tuple sentinel; treat that
-        // as "loaded from cache" (blue border, counts shown as 0).
-        const fromCache =
-          (summary.inputTuples ?? 0) < 0 ||
-          (summary.outputTuples ?? 0) < 0 ||
-          (summary.inputPortShapes ?? []).some(shape => shape.rows < 0);
-
-        this.jointUIService.setOperatorSnapshotResult(
-          this.paper,
-          op.operatorID,
-          WorkflowEditorComponent.mapSummaryStateToOperatorState(summary.state, summary.error),
-          inputPortCounts,
-          outputPortCounts,
-          fromCache
-        );
-        applied.add(op.operatorID);
+        if (this.paintAgentResult(op.operatorID)) applied.add(op.operatorID);
+        else if (resetOthers || this.appliedSnapshotOps.has(op.operatorID))
+          this.jointUIService.clearOperatorSnapshotResult(this.paper, op.operatorID);
       });
 
     // Operators removed from the graph since the last apply need no reset (they
     // are gone); current operators were handled in the loop above.
     this.appliedSnapshotOps = applied;
+  }
+
+  /** Paint one operator as the agent's run shows it: computing, or its
+   * recorded result. False when the agent has neither for it. */
+  private paintAgentResult(operatorId: string): boolean {
+    if (this.runningOperators.has(operatorId)) {
+      this.jointUIService.changeOperatorState(this.paper, operatorId, OperatorState.Running);
+      return true;
+    }
+    const summary = this.operatorSummaries.get(operatorId);
+    if (!summary) return false;
+    const inputPortCounts: Record<string, number> = {};
+    if (summary.inputPortShapes && summary.inputPortShapes.length > 0) {
+      for (const shape of summary.inputPortShapes) {
+        inputPortCounts[String(shape.portIndex)] = shape.rows;
+      }
+    } else if (summary.inputTuples) {
+      inputPortCounts["0"] = summary.inputTuples;
+    }
+    // Most operators have a single output port; the summary carries the
+    // total output tuple count rather than a per-port breakdown.
+    const outputPortCounts: Record<string, number> = { "0": summary.outputTuples ?? summary.totalRowCount ?? 0 };
+    this.jointUIService.setOperatorSnapshotResult(
+      this.paper,
+      operatorId,
+      WorkflowEditorComponent.mapSummaryStateToOperatorState(summary.state, summary.error),
+      inputPortCounts,
+      outputPortCounts,
+      summary.error ? "failed" : summary.cached ? "cached" : undefined
+    );
+    return true;
   }
 
   /**
@@ -426,6 +434,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         this.workflowActionService
           .getTexeraGraph()
           .getAllOperators()
+          // An agent's native operators show the agent's runs, as its progress plays.
+          .filter(op => !isNativeOperator(op))
           .forEach(op => {
             if (
               isDefined(status[op.operatorID]) &&
@@ -483,7 +493,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .getOperatorAddStream()
       .pipe(untilDestroyed(this))
       .subscribe(operator => {
-        const statistics = this.workflowStatusService.getCurrentStatus()[operator.operatorID];
+        const statistics = isNativeOperator(operator)
+          ? undefined
+          : this.workflowStatusService.getCurrentStatus()[operator.operatorID];
         if (statistics) {
           this.jointUIService.changeOperatorStatistics(
             this.paper,
@@ -505,8 +517,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
    * validation stream and the operator-add stream route through here so
    * the priority order is consistent regardless of which event fires last:
    *   1. Invalid operator → red (validation takes priority).
-   *   2. Valid operator with a cached execution status → execution-state color.
-   *   3. Valid operator with no cached status → default valid (gray).
+   *   2. Valid operator an agent computed or is computing → the agent's
+   *      outcome (paintAgentResult). An agent's native operator never takes
+   *      the engine's live status: the agent's progress plays behind it.
+   *   3. Valid operator with a cached execution status → execution-state color.
+   *   4. Valid operator with no cached status → default valid (gray).
    *
    * Centralizing this here avoids the race where the validation pass
    * overwrites a state-derived stroke (or vice versa) for an operator that
@@ -523,7 +538,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.jointUIService.changeOperatorColor(this.paper, operatorID, false);
       return;
     }
-    const statistics = this.workflowStatusService.getCurrentStatus()[operatorID];
+    // An operator the agent computed, or is computing, shows that.
+    if (this.paintAgentResult(operatorID)) return;
+    const operator = this.workflowActionService.getTexeraGraph().getOperator(operatorID);
+    const statistics = isNativeOperator(operator)
+      ? undefined
+      : this.workflowStatusService.getCurrentStatus()[operatorID];
     if (statistics) {
       this.jointUIService.changeOperatorState(this.paper, operatorID, statistics.operatorState);
     } else {
@@ -766,7 +786,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   private handleHighlightMouseDBClickInput(): void {
     // on user mouse double-clicks a comment box, open that comment box
-    // on user mouse double-clicks an operator, highlight it and open result panel
+    // on user mouse double-clicks an operator, highlight it and open its panel
     fromJointPaperEvent(this.paper, "cell:pointerdblclick")
       .pipe(untilDestroyed(this))
       .subscribe(event => {
@@ -778,7 +798,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           if (this.workflowActionService.getTexeraGraph().hasCommentBox(elementID)) {
             this.openCommentBox(elementID);
           } else if (this.workflowActionService.getTexeraGraph().hasOperator(elementID)) {
-            this.workflowActionService.openResultPanel();
+            this.openOperatorPanel(elementID, "actions");
           }
         }
       });
@@ -1750,28 +1770,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
             this.chatPopoverOperator = null;
           }
         } else {
-          // Open chat popover for this operator
-          const operator = this.workflowActionService.getTexeraGraph().getOperator(operatorId);
-          const operatorSchema = this.dynamicSchemaService.getDynamicSchema(operatorId);
-          const displayName =
-            operator.customDisplayName ?? operatorSchema?.additionalMetadata.userFriendlyName ?? operator.operatorType;
-
-          const position = this.getOperatorChatPopoverPosition(operatorId);
-          if (position) {
-            this.chatPopoverOperator = {
-              operatorId,
-              displayName,
-              position,
-              native: isNativeOperator(operator),
-              mode: "feedback",
-            };
-            // Results are pulled on demand (not pushed over the socket); refresh
-            // the active agent's summaries so the popover shows current data.
-            const activeAgentId = this.agentService.getActivelyConnectedAgentIds()[0];
-            if (activeAgentId) {
-              this.agentService.fetchOperatorResults(activeAgentId);
-            }
-          }
+          this.openOperatorPanel(operatorId, "feedback");
         }
         this.changeDetectorRef.detectChanges();
       });
@@ -1841,11 +1840,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           if (this.chatPopoverOperator?.native) this.closeChatPopover();
           return;
         }
-        const position = this.getOperatorChatPopoverPosition(operatorId);
-        if (!position) return;
-        this.chatPopoverOperator = { operatorId, displayName: operatorId, position, native: true, mode: "actions" };
-        const activeAgentId = this.agentService.getActivelyConnectedAgentIds()[0];
-        if (activeAgentId) this.agentService.fetchOperatorResults(activeAgentId);
+        this.openOperatorPanel(operatorId, "actions");
         this.changeDetectorRef.detectChanges();
       });
 
@@ -1879,8 +1874,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       });
   }
 
-  getOperatorResultSummary(operatorId: string): OperatorResultSummary | undefined {
-    return this.operatorSummaries.get(operatorId);
+  /**
+   * Open an operator's panel below it: what it is, its data, and for a native
+   * operator Run / Edit / Feedback ("feedback" opens it on the feedback box).
+   */
+  private openOperatorPanel(operatorId: string, mode: "actions" | "feedback"): void {
+    const position = this.getOperatorChatPopoverPosition(operatorId);
+    if (!position) return;
+    const operator = this.workflowActionService.getTexeraGraph().getOperator(operatorId);
+    const displayName =
+      operator.customDisplayName ??
+      this.dynamicSchemaService.getDynamicSchema(operatorId)?.additionalMetadata.userFriendlyName ??
+      operator.operatorType;
+    this.chatPopoverOperator = { operatorId, displayName, position, native: isNativeOperator(operator), mode };
+    // Results are pulled on demand (not pushed over the socket); refresh the
+    // active agent's summaries so the panel shows current data.
+    const activeAgentId = this.agentService.getActivelyConnectedAgentIds()[0];
+    if (activeAgentId) this.agentService.fetchOperatorResults(activeAgentId);
   }
 
   /**
@@ -1911,18 +1921,6 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   closeChatPopover(): void {
     this.chatPopoverOperator = null;
     this.changeDetectorRef.detectChanges();
-  }
-
-  getOperatorSampleRecords(operatorId: string): Record<string, any>[] | undefined {
-    return this.operatorSummaries.get(operatorId)?.sampleRecords;
-  }
-
-  getOperatorResultStatistics(operatorId: string): Record<string, string> | undefined {
-    return this.operatorSummaries.get(operatorId)?.columnStats;
-  }
-
-  isOperatorVisualization(operatorId: string): boolean {
-    return this.operatorSummaries.get(operatorId)?.sampleRecords?.[0]?.["__is_visualization__"] === true;
   }
 
   /**

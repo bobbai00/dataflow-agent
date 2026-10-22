@@ -17,6 +17,7 @@ The chat is driven through gradio's own client, as a browser drives it, with the
 scripted model standing in for the LLM so the test needs no gateway.
 """
 
+import json
 import os
 import tempfile
 import time
@@ -46,6 +47,7 @@ class AppTest(unittest.TestCase):
         os.environ["GRADIO_IS_E2E_TEST"] = "1"  # Gradio's heartbeat every 0.25 s instead of 15 s
         cls.folder = tempfile.TemporaryDirectory()
         cls.config = Config(data_dir=Path(cls.folder.name) / "data", concurrency=16, disconnect_grace_seconds=2,
+                            notebook_instructions="Answer what is asked; change the work only when told to.",
                             model_factory=lambda: ScriptedModel(latency=LATENCY))
         cls.app = create_app(cls.config)
         cls.server = ServerThread(cls.app).__enter__()
@@ -100,6 +102,45 @@ class AppTest(unittest.TestCase):
         self.assertEqual((run["kind"], run["status"], run["steps"], run["llm_calls"]), ("script", "ok", 0, 0))
         client.close()
 
+    def test_importing_a_notebook(self):
+        """A notebook's cells run in the session and become the agent's own steps."""
+        cookie = register(self.base, f"importer{int(time.time())}").cookies[COOKIE]
+        client = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookie}"}, verbose=False)
+        folder = Path(self.folder.name)
+        csv = folder / "rows.csv"
+        csv.write_text("x\n1\n2\n3\n")
+        notebook = folder / "totals.ipynb"
+        notebook.write_text(json.dumps({"cells": [
+            {"cell_type": "markdown", "source": ["# Totals\n", "\n", "How many rows are there?"]},
+            {"cell_type": "code", "source": ["import pandas as pd\n", "df = pd.read_csv('rows.csv')\n",
+                                             "print('rows', len(df))\n", "df.head()"]},
+            {"cell_type": "markdown", "source": ["## Check"]},
+            {"cell_type": "code", "source": ["total = int(df['x'].sum())\n", "total"]},
+            {"cell_type": "markdown", "source": ["## Answer\n", "\n", "There are 3 rows; x sums to 6."]},
+        ]}))
+        client.predict(handle_file(str(csv)), [], api_name="/upload")
+        *_, chat = client.predict(handle_file(str(notebook)), [], api_name="/upload")
+        shown = str(chat)
+        for text in ("📓 `totals.ipynb`", "How many rows are there?", "rows 3", "→ 6", "step 2",
+                     "There are 3 rows; x sums to 6.", "imported 2 cells"):
+            self.assertIn(text, shown)
+        # The cells' variables are in the session, for the user's code and the agent's.
+        self.assertIn("12", str(client.predict("print(total * 2)", [], api_name="/run_code")))
+        session = self.app.state.sessions._sessions[client.session_hash]
+        kinds = [type(step).__name__ for step in session.agent.memory.steps]
+        self.assertEqual(kinds, ["TaskStep", "ActionStep", "ActionStep", "ActionStep", "NoteStep", "UserCodeStep"])
+        self.assertTrue(session.agent.memory.steps[3].is_final_answer)
+        self.assertIn("Answer what is asked", session.agent.memory.steps[4].text)
+        runs = httpx.get(f"{self.base}/api/runs", cookies={COOKIE: cookie}).json()
+        self.assertEqual([(r["status"], r["steps"]) for r in runs if r["kind"] == "notebook"], [("ok", 3)])
+        # The agent goes on from there, reading the imported steps as its own.
+        client.predict("Sum x in my file.", api_name="/lock_inputs")
+        chat = client.predict([], api_name="/chat")
+        texts = [part["text"] for message in chat for part in message["content"]
+                 if isinstance(part, dict) and part.get("type") == "text"]
+        self.assertEqual(texts[-2], "6")
+        client.close()
+
     def test_a_closed_tab_ends_its_session(self):
         cookie = register(self.base, f"closer{int(time.time())}").cookies[COOKIE]
         # Like a browser tab, the client holds a heartbeat stream for its session.
@@ -136,7 +177,7 @@ class AppTest(unittest.TestCase):
             client = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookies[i]}"}, verbose=False)
             csv = folder / f"numbers{i}.csv"
             csv.write_text("x\n" + "\n".join(str(i * 100 + k) for k in range(5)) + "\n")
-            client.predict(handle_file(str(csv)), api_name="/upload")
+            client.predict(handle_file(str(csv)), [], api_name="/upload")
             started = time.monotonic()
             # The browser's chain: the prompt goes into session state, then the chat runs on it.
             client.predict("Sum x in my file.", api_name="/lock_inputs")
