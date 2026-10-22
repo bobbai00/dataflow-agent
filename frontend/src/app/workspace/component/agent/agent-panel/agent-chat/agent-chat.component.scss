@@ -494,6 +494,15 @@
     }
   }
 
+  // A version the user made on the canvas.
+  &.by-user {
+    border-color: #95de64;
+
+    .snapshot-node-label {
+      color: #389e0d;
+    }
+  }
+
   // The active snapshot — solid fill, white label.
   &.is-active {
     background: #1677ff;
@@ -573,46 +582,108 @@
   font-size: 16px;
 }
 
-// Thinking text — single line, ellipsized and kept narrow. It sizes to its
-// content but is capped well short of the row (`flex-grow: 0` + `max-width`),
-// so it never dominates; the cap is a percentage so the ellipsis still tracks
-// the chat-panel width as the rail is resized. `min-width: 0` lets it shrink.
-.react-card-thinking {
+// Thinking on top, then what the step did. Both share the row's width.
+.react-card-body {
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
-  max-width: 70%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #595959;
 }
 
-// Action chips — aggregated "Add N operators" / "Modify N operators" labels,
-// pushed to the right edge of the row. Capped width as a guard for steps that
-// mix several verbs.
-.react-card-actions {
-  flex: 0 0 auto;
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 50%;
+// Thinking text — single line, ellipsized to the panel width.
+.react-card-thinking {
   overflow: hidden;
+  color: #595959;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// What the step did, one chip per action: each edit with the version it made
+// (add records v1, add kept v2), then what it ran and read. Chips wrap.
+.react-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .react-card-action {
-  flex: 0 0 auto;
-  max-width: 140px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: #f6ffed;
-  border: 1px solid #b7eb8f;
-  color: #389e0d;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 4px 1px 8px;
+  overflow: hidden;
   font-size: 11px;
   font-weight: 500;
+  line-height: 18px;
+  color: #595959;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+  // In a narrow column the label gives way; the version tag stays whole.
+  .chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+
+  &:not(:has(.chip-version)) {
+    padding-right: 8px;
+  }
+
+  &.chip-add,
+  &.chip-start {
+    color: #389e0d;
+    background: #f6ffed;
+    border-color: #b7eb8f;
+  }
+
+  &.chip-update,
+  &.chip-edit {
+    color: #0958d9;
+    background: #e6f4ff;
+    border-color: #91caff;
+  }
+
+  &.chip-delete {
+    color: #ad4e00;
+    background: #fff7e6;
+    border-color: #ffd591;
+  }
+
+  &.chip-define {
+    color: #531dab;
+    background: #f9f0ff;
+    border-color: #d3adf7;
+  }
+
+  &.chip-error {
+    color: #cf1322;
+    background: #fff1f0;
+    border-color: #ffa39e;
+  }
+
+  &.chip-pending {
+    color: #8c8c8c;
+    border-style: dashed;
+  }
+}
+
+// The version an edit made, inside its chip and beside a canvas edit: an
+// outlined tag in the colour of what surrounds it.
+.chip-version {
+  flex: none;
+  padding: 0 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  color: inherit;
+  border: 1px solid currentColor;
+  border-radius: 7px;
 }
 
 .react-card-details {
@@ -802,4 +873,60 @@
 .file-upload-status {
   color: #8c8c8c;
   flex-shrink: 0;
+}
+
+// A canvas action on the user's side: a quiet pill rather than a chat bubble,
+// since it reports what the user did instead of asking anything.
+.user-action-message {
+  max-width: 92%;
+}
+
+.user-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  font-size: 12px;
+  color: #1d39c4;
+  background: #f0f5ff;
+  border: 1px solid #adc6ff;
+  border-radius: 14px;
+
+  &.user-action-error {
+    color: #cf1322;
+    background: #fff1f0;
+    border-color: #ffccc7;
+  }
+
+  .user-action-icon {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .user-action-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .user-action-toggle {
+    height: 20px;
+    padding: 0 4px;
+    color: inherit;
+  }
+}
+
+.user-action-details {
+  max-height: 220px;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #434343;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
 }

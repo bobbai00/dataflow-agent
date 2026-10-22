@@ -30,11 +30,47 @@ import { parseTurn } from "../native/turn-syntax";
 
 type Row = Record<string, string | number>;
 /** No flow switch: the examples, like the rest of the prompt, are the same with
- * flow evidence on or off (flow lines explain themselves in tool results). */
+ * flow evidence on or off (flow lines explain themselves in tool results).
+ * With `operatorDoc`, every example operator carries its doc. */
 type Options = ObservationFormatOptions & {
   retrievalViews?: RetrievalView[];
   answerStatement?: boolean;
+  operatorDoc?: boolean;
 };
+
+/** Every example operator in the prompt with the one-line doc it carries under
+ * AgentSettings.operatorDoc. One table, so the inline examples and the worked
+ * example document the same operators the same way. Docs avoid apostrophes:
+ * they are single-quoted settings. */
+export const EXAMPLE_STATEMENTS = {
+  records: { statement: "set records: scan(files='data/example.csv')", doc: "Reads the example source file." },
+  totals: {
+    statement: "set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})",
+    doc: "Sums value per group over the whole source.",
+  },
+  report: {
+    statement: "set report: sort(totals, by=['group'])",
+    doc: "Orders the group totals by group for the report.",
+  },
+  kept: {
+    statement: "set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)",
+    doc: "Keeps the records whose value is at least 10.",
+  },
+  priced: {
+    statement: "set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})",
+    doc: "Adds the unit price of each order: its amount per item.",
+  },
+  loaded: {
+    statement: "set records: load_records(path='data/example.json')",
+    doc: "Loads the records array of the example JSON document.",
+  },
+} as const;
+
+/** An example statement, with its doc as the last setting when operator docs are on. */
+export function exampleStatement(name: keyof typeof EXAMPLE_STATEMENTS, operatorDoc?: boolean): string {
+  const { statement, doc } = EXAMPLE_STATEMENTS[name];
+  return operatorDoc ? `${statement.slice(0, -1)}, doc='${doc}')` : statement;
+}
 
 /** Small complete synthetic materializations. Receipts use the production
  * evidence and observation renderers; prose never invents a second format. */
@@ -276,23 +312,20 @@ export function registeredExamples(options: Options): string {
       ["totals"]
     )
   );
+  const statement = (name: keyof typeof EXAMPLE_STATEMENTS) => exampleStatement(name, options.operatorDoc);
   const parts = [
     "### Read unfamiliar data, then batch a known computation",
     sample === "full"
       ? "Request: report the total value for every group in alphabetical order. These synthetic tool results use 2,000-character budgets; your session budgets are listed above."
       : "Request: report the total value for every group in alphabetical order. These synthetic tool results use two sample rows and 2,000-character budgets to make the difference between records and evidence visible; your session budgets are listed above.",
     "Check the source's columns and values before choosing the grouping:",
-    call("", `set records: scan(files='data/example.csv')\n${show("records")}`, true),
+    call("", `${statement("records")}\n${show("records")}`, true),
     sample === "sample_stats"
       ? "Both displayed rows belong to A, but the full-table statistics also contain B. A sample does not define the population; aggregate the whole source."
       : sample === "sample"
         ? "Both displayed rows belong to A. They do not establish which groups exist; aggregate the whole source."
         : "The complete source contains groups A and B. Aggregate the whole source.",
-    call(
-      "",
-      `set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})\nset report: sort(totals, by=['group'])\n${show("report", true)}`,
-      true
-    ),
+    call("", `${statement("totals")}\n${statement("report")}\n${show("report", true)}`, true),
     ...(options.answerStatement
       ? [
           "Give the answer from the result:",

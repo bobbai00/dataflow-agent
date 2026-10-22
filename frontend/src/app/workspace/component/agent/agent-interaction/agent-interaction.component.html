@@ -17,151 +17,296 @@
  under the License.
 -->
 
-<div class="agent-interaction">
-  <!-- Visualization HTML rendering -->
-  <div
-    *ngIf="sampleRecords && sampleRecords.length > 0 && isVisualization()"
-    class="visualization-section">
-    <!-- `allow-same-origin` is required: with `allow-scripts` alone the frame gets
-         an opaque origin, so Plotly's `localStorage` probe throws and the chart
-         never renders (the panel showed an empty white box). The same
-         engine-produced HTML is rendered by the result panel in an iframe with
-         no sandbox at all, so this is still the tighter of the two — popups,
-         forms and top-level navigation stay blocked. -->
-    <iframe
-      [srcdoc]="getVisualizationHtml()"
-      class="visualization-iframe"
-      sandbox="allow-scripts allow-same-origin"></iframe>
-  </div>
-
-  <!-- Sample Records Table -->
-  <div
-    *ngIf="sampleRecords && sampleRecords.length > 0 && !isVisualization()"
-    class="sample-records-section">
-    <div class="sample-records-table-wrapper">
-      <table class="sample-records-table">
-        <thead>
-          <tr>
-            <th *ngFor="let col of getSampleColumns()">{{ getColumnDisplayName(col) }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <ng-container *ngFor="let row of getDisplayRows()">
-            <tr
-              *ngIf="row.isEllipsis"
-              class="ellipsis-row">
-              <td [attr.colspan]="getSampleColumns().length">...</td>
-            </tr>
-            <tr *ngIf="!row.isEllipsis">
-              <td *ngFor="let col of getSampleColumns()">{{ row.record?.[col] }}</td>
-            </tr>
-          </ng-container>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Column Statistics -->
-  <div
-    *ngIf="hasColumnStats()"
-    class="column-stats-section">
-    <div class="column-stats-header">
-      <i
-        nz-icon
-        nzType="bar-chart"
-        nzTheme="outline"></i>
-      <span>Column Statistics</span>
-    </div>
-    <div class="column-stats-list">
-      <div
-        *ngFor="let col of getParsedColumnStats()"
-        class="column-stat-item">
-        <div class="column-stat-name">
-          <span class="col-name">{{ col.column }}</span>
-          <span class="col-type">{{ col.dataType }}</span>
+<div
+  class="agent-interaction"
+  [class.native]="nativeOperator"
+  [class.expanded]="nativeOperator && mode">
+  <!-- A native operator: what it is, and Run / Edit / Feedback. -->
+  <ng-container *ngIf="nativeOperator; else classicLayout">
+    <div class="op-header">
+      <img
+        class="op-icon"
+        alt=""
+        [src]="icon" />
+      <div class="op-title">
+        <div class="op-name-row">
+          <span class="op-id">{{ operatorId }}</span>
+          <span class="op-type">{{ typeName }}</span>
         </div>
-        <div class="column-stat-details">
+        <div
+          class="op-summary"
+          [title]="summary">
+          {{ summary }}
+        </div>
+      </div>
+      <button
+        nz-button
+        nzType="text"
+        nzSize="small"
+        class="op-close"
+        nz-tooltip
+        nzTooltipTitle="Close"
+        (click)="closed.emit()">
+        <i
+          nz-icon
+          nzType="close"></i>
+      </button>
+    </div>
+
+    <div class="op-actions">
+      <button
+        type="button"
+        class="op-action run-action"
+        [class.active]="mode === 'result'"
+        [disabled]="!canAct"
+        (click)="run()">
+        <i
+          nz-icon
+          [nzType]="running ? 'loading' : 'caret-right'"></i>
+        <span>{{ running ? "Running…" : "Run" }}</span>
+      </button>
+      <button
+        type="button"
+        class="op-action edit-action"
+        [class.active]="mode === 'edit'"
+        [disabled]="!actionAgentId || (busy && mode !== 'edit')"
+        (click)="toggleMode('edit')">
+        <i
+          nz-icon
+          nzType="edit"></i>
+        <span>Edit</span>
+      </button>
+      <button
+        type="button"
+        class="op-action feedback-action"
+        [class.active]="mode === 'feedback'"
+        (click)="toggleMode('feedback')">
+        <i
+          nz-icon
+          nzType="message"></i>
+        <span>Feedback</span>
+      </button>
+    </div>
+
+    <div
+      *ngIf="statusText"
+      class="op-status">
+      {{ statusText }}
+    </div>
+
+    <div
+      *ngIf="mode"
+      class="op-body"
+      [ngSwitch]="mode">
+      <div
+        *ngSwitchCase="'result'"
+        class="op-result"
+        [class.result-stale]="running">
+        <div class="op-result-head">
+          <span class="result-title">Result</span>
           <span
-            *ngFor="let s of col.stats"
-            class="stat-entry">
-            <span class="stat-key">{{ s.key }}:</span> {{ s.value }}
+            *ngIf="running"
+            class="result-running">
+            Computing…
           </span>
+          <span
+            *ngIf="resultShape && !running"
+            class="result-shape">
+            {{ resultShape }}
+          </span>
+          <span class="spacer"></span>
+          <span
+            *ngIf="sharedWith && !running"
+            class="result-shared">
+            <i
+              nz-icon
+              nzType="check-circle"></i>
+            {{ sharedWith }} sees this
+          </span>
+        </div>
+        <div
+          *ngIf="actionError || resultSummary?.error"
+          class="op-error">
+          {{ actionError || resultSummary?.error }}
+        </div>
+        <ng-container *ngTemplateOutlet="resultView"></ng-container>
+        <div
+          *ngIf="!running && !sampleRecords?.length && !actionError && !resultSummary?.error"
+          class="result-empty">
+          No result yet. Run computes it.
+        </div>
+      </div>
+      <texera-native-operator-editor
+        *ngSwitchCase="'edit'"
+        [agentId]="actionAgentId ?? ''"
+        [operatorId]="operatorId"
+        [disabled]="busy"
+        (saved)="onSaved($event)"
+        (cancelled)="mode = null"></texera-native-operator-editor>
+      <div
+        *ngSwitchCase="'feedback'"
+        class="op-feedback">
+        <ng-container *ngTemplateOutlet="feedbackView"></ng-container>
+      </div>
+    </div>
+  </ng-container>
+
+  <ng-template #classicLayout>
+    <ng-container *ngTemplateOutlet="resultView"></ng-container>
+    <ng-container *ngTemplateOutlet="feedbackView"></ng-container>
+  </ng-template>
+
+  <ng-template #resultView>
+    <!-- Visualization HTML rendering -->
+    <div
+      *ngIf="sampleRecords && sampleRecords.length > 0 && isVisualization()"
+      class="visualization-section">
+      <!-- `allow-same-origin` is required: with `allow-scripts` alone the frame gets
+           an opaque origin, so Plotly's `localStorage` probe throws and the chart
+           never renders (the panel showed an empty white box). The same
+           engine-produced HTML is rendered by the result panel in an iframe with
+           no sandbox at all, so this is still the tighter of the two — popups,
+           forms and top-level navigation stay blocked. -->
+      <iframe
+        [srcdoc]="getVisualizationHtml()"
+        class="visualization-iframe"
+        sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+
+    <!-- Sample Records Table -->
+    <div
+      *ngIf="sampleRecords && sampleRecords.length > 0 && !isVisualization()"
+      class="sample-records-section">
+      <div class="sample-records-table-wrapper">
+        <table class="sample-records-table">
+          <thead>
+            <tr>
+              <th *ngFor="let col of getSampleColumns()">{{ getColumnDisplayName(col) }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <ng-container *ngFor="let row of getDisplayRows()">
+              <tr
+                *ngIf="row.isEllipsis"
+                class="ellipsis-row">
+                <td [attr.colspan]="getSampleColumns().length">...</td>
+              </tr>
+              <tr *ngIf="!row.isEllipsis">
+                <td *ngFor="let col of getSampleColumns()">{{ row.record?.[col] }}</td>
+              </tr>
+            </ng-container>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Column Statistics -->
+    <div
+      *ngIf="hasColumnStats()"
+      class="column-stats-section">
+      <div class="column-stats-header">
+        <i
+          nz-icon
+          nzType="bar-chart"
+          nzTheme="outline"></i>
+        <span>Column Statistics</span>
+      </div>
+      <div class="column-stats-list">
+        <div
+          *ngFor="let col of getParsedColumnStats()"
+          class="column-stat-item">
+          <div class="column-stat-name">
+            <span class="col-name">{{ col.column }}</span>
+            <span class="col-type">{{ col.dataType }}</span>
+          </div>
+          <div class="column-stat-details">
+            <span
+              *ngFor="let s of col.stats"
+              class="stat-entry">
+              <span class="stat-key">{{ s.key }}:</span> {{ s.value }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </ng-template>
 
-  <!-- Agent Selection -->
-  <div class="header-row">
-    <nz-select
-      [(ngModel)]="selectedAgentId"
-      nzPlaceHolder="Select agent"
-      class="agent-select"
-      nzSize="small"
-      [nzCustomTemplate]="selectedAgentTemplate">
-      <nz-option
-        *ngFor="let agent of availableAgents"
-        [nzValue]="agent.id"
-        [nzLabel]="agent.name"
-        nzCustomContent>
+  <ng-template #feedbackView>
+    <!-- Agent Selection: a native operator belongs to its agent; choose only among several. -->
+    <div
+      *ngIf="!nativeOperator || availableAgents.length > 1"
+      class="header-row">
+      <nz-select
+        [(ngModel)]="selectedAgentId"
+        (ngModelChange)="onAgentSelected()"
+        nzPlaceHolder="Select agent"
+        class="agent-select"
+        nzSize="small"
+        [nzCustomTemplate]="selectedAgentTemplate">
+        <nz-option
+          *ngFor="let agent of availableAgents"
+          [nzValue]="agent.id"
+          [nzLabel]="agent.name"
+          nzCustomContent>
+          <span
+            class="agent-status-dot"
+            [class.connected]="agent.isConnected"
+            nz-tooltip
+            [nzTooltipTitle]="agent.isConnected ? 'Connected' : 'Not connected'">
+          </span>
+          {{ agent.name }}
+        </nz-option>
+      </nz-select>
+      <ng-template
+        #selectedAgentTemplate
+        let-selected>
         <span
           class="agent-status-dot"
-          [class.connected]="agent.isConnected"
-          nz-tooltip
-          [nzTooltipTitle]="agent.isConnected ? 'Connected' : 'Not connected'">
+          [class.connected]="isSelectedAgentConnected()">
         </span>
-        {{ agent.name }}
-      </nz-option>
-    </nz-select>
-    <ng-template
-      #selectedAgentTemplate
-      let-selected>
-      <span
-        class="agent-status-dot"
-        [class.connected]="isSelectedAgentConnected()">
-      </span>
-      {{ selected.nzLabel }}
-    </ng-template>
-  </div>
-
-  <!-- Input Section -->
-  <div
-    *ngIf="selectedAgentId && isSelectedAgentConnected()"
-    class="input-section">
-    <textarea
-      nz-input
-      [(ngModel)]="feedbackMessage"
-      placeholder="Send feedback to agent about this operator..."
-      [nzAutosize]="{ minRows: 2, maxRows: 4 }"
-      class="feedback-input"
-      (keydown.control.enter)="sendFeedbackToAgent()"></textarea>
-
-    <div class="controls-row">
-      <span class="hint-text">Ctrl+Enter to send</span>
-      <button
-        nz-button
-        nzType="primary"
-        nzSize="small"
-        [disabled]="!canSend()"
-        (click)="sendFeedbackToAgent()"
-        class="send-btn">
-        <i
-          nz-icon
-          nzType="send"
-          nzTheme="outline"></i>
-        Send
-      </button>
+        {{ selected.nzLabel }}
+      </ng-template>
     </div>
-  </div>
 
-  <!-- Not connected message -->
-  <div
-    *ngIf="!selectedAgentId || !isSelectedAgentConnected()"
-    class="not-connected-message">
-    <i
-      nz-icon
-      nzType="disconnect"
-      nzTheme="outline"></i>
-    <span>Select a connected agent to chat</span>
-  </div>
+    <!-- Input Section -->
+    <div
+      *ngIf="selectedAgentId && isSelectedAgentConnected()"
+      class="input-section">
+      <textarea
+        nz-input
+        [(ngModel)]="feedbackMessage"
+        [placeholder]="nativeOperator ? 'Tell ' + agentName + ' about ' + operatorId + '…' : 'Send feedback to agent about this operator...'"
+        [nzAutosize]="{ minRows: 2, maxRows: 4 }"
+        class="feedback-input"
+        (keydown.control.enter)="sendFeedbackToAgent()"></textarea>
+
+      <div class="controls-row">
+        <span class="hint-text">Ctrl+Enter to send</span>
+        <button
+          nz-button
+          nzType="primary"
+          nzSize="small"
+          [disabled]="!canSend()"
+          (click)="sendFeedbackToAgent()"
+          class="send-btn">
+          <i
+            nz-icon
+            nzType="send"
+            nzTheme="outline"></i>
+          Send
+        </button>
+      </div>
+    </div>
+
+    <!-- Not connected message -->
+    <div
+      *ngIf="!selectedAgentId || !isSelectedAgentConnected()"
+      class="not-connected-message">
+      <i
+        nz-icon
+        nzType="disconnect"
+        nzTheme="outline"></i>
+      <span>Select a connected agent to chat</span>
+    </div>
+  </ng-template>
 </div>

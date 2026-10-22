@@ -217,7 +217,7 @@ describe("AgentPanelComponent", () => {
       agentService.agentList = [makeAgent("a"), makeAgent("b")];
       createComponent("b");
 
-      expect(component.width).toBe(400); // panel opened from docked state
+      expect(component.width).toBe(560); // panel opened from docked state
       expect(component.activeAgentId).toBe("b");
       expect(agentService.activateAgent).toHaveBeenCalledWith("b");
       expect(component.selectedTabIndex).toBe(2); // tab 0 is registration
@@ -243,7 +243,7 @@ describe("AgentPanelComponent", () => {
 
       expect(component.activeAgentId).toBe("b");
       expect(component.selectedTabIndex).toBe(2);
-      expect(component.width).toBe(400);
+      expect(component.width).toBe(560);
     });
 
     it("deactivates the previously active agent and keeps an already-open panel width", () => {
@@ -284,7 +284,7 @@ describe("AgentPanelComponent", () => {
       dockedButton.click();
       fixture.detectChanges();
 
-      expect(component.width).toBe(400);
+      expect(component.width).toBe(560);
       expect(content.hidden).toBe(false);
       expect(fixture.nativeElement.querySelector("#agent-docked-button")).toBeNull();
 
@@ -650,13 +650,13 @@ describe("AgentPanelComponent", () => {
       agentService.agentList = [makeAgent("a")];
       createComponent();
       component.onTabSelectChange(1); // "a" active
-      component.openPanel(); // width 0 -> 400
+      component.openPanel(); // width 0 -> 560
       const height = component.height;
 
       fixture.destroy();
 
       expect(agentService.deactivateAgent).toHaveBeenCalledWith("a");
-      expect(localStorage.getItem("agent-panel-width")).toBe("400");
+      expect(localStorage.getItem("agent-panel-width")).toBe("560");
       expect(localStorage.getItem("agent-panel-height")).toBe(String(height));
       expect(localStorage.getItem("agent-panel-docked")).toBe("false");
       // The panel's own #agent-container is still attached during ngOnDestroy.

@@ -120,6 +120,36 @@ hold a provider key; the proxy injects `LITELLM_MASTER_KEY` server-side.
 Models available through the DKNet gateway: `claude-haiku-4.5` (cheap,
 default for e2e), `claude-sonnet-4-6`, `gpt-5.4`, `local-llm`.
 
+Files in Texera datasets — addressed `/ownerEmail/datasetName/vN/file`, which is
+also what the agent panel's drag & drop inserts — are readable in both modes:
+native `scan` and registered-function settings, and the path literals of
+code-mode loaders. A computing unit holds no user credential, so before each
+execution the agent-service has the file service resolve the dataset paths an
+operator names (with the user's token, which also checks access) to
+short-lived download links that travel with that request only; the worker
+copies each file into a local cache once. See
+`agent-service/src/agent/tools/dataset-files.ts`.
+
+### Running and editing operators from the canvas
+
+Selecting an operator a native-mode agent built opens its panel on the canvas,
+with Run, Edit and Feedback; the property editor stays closed for it. Run and
+Edit go through the agent, which applies each as one of its own `dataflow`
+calls. It then records the action as a user step (`messageSource: "action"`):
+the chat shows it as "You edited `kept` and ran it · 1 row". A run is answered
+by the agent in a turn of its own; a plain edit is read at its next turn
+(`respondToCanvasRuns`). Feedback is a message to the agent and starts a turn.
+See `agent-service/src/agent/user-actions.ts` and `TexeraAgent.applyUserAction`.
+
+Every edit is a version (v0 is where the agent started): each `set`/`delete`
+of an agent call and each canvas edit. A step that only runs or reads the
+dataflow makes none (`WorkflowSnapshotStorage.recordEdits`,
+`tools/graph-edits.ts` `editVersions`). Step rows list each edit with its
+version, then what the step ran and read. Clicking a version in the tree
+checks it out, and one from the middle of a call is restored as a user step
+the agent reads (`TexeraAgent.checkoutVersion`). Playback previews versions
+without moving HEAD.
+
 ### Verifying end-to-end
 
 ```bash
@@ -131,6 +161,10 @@ bun run e2e:agent    # REAL agent driving the LLM gateway (haiku by default)
 bun run benchmark/e2e/context-tuning-run.ts
 # multi-turn context FORMAT check (LATEST + DELTA assembled-context markers):
 bun run benchmark/e2e/context-format-check.ts
+
+# real-browser checks, from frontend/ (Playwright; each brings its own computing unit):
+node e2e/agent-panel.e2e.mjs                                         # chat, settings, versioning, code mode
+PROBE_MODEL=claude-haiku-5.5 node e2e/agent-operator-actions.e2e.mjs # Run / Edit / Feedback on an operator
 ```
 
 Verified on this branch (2026-08-08, model `claude-haiku-4.5` via the DKNet
@@ -168,8 +202,10 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | Knob | Values | What it does |
 |---|---|---|
 | `agentMode` | `native` (default) \| `code` | native: the model edits, runs and reads the dataflow through the `dataflow(python, statements)` tool; code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
-| `dataEvidence` | bool (default `false`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
+| `dataEvidence` | bool (default `true`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
+| `operatorDoc` | bool (default `false`; agents made in the UI: `true`) | native mode: the prompt asks for a one-line `doc='...'` on every operator and shows it in its examples; a tool result names operators set without one. The canvas captions each operator with its doc, else its statement; the panel's "Operator Doc" setting |
+| `respondToCanvasRuns` | bool (default `true`) | the agent answers a run the user starts from the canvas (Run, Save & run) in a turn of its own; off, it reads the run at its next turn; the panel's "Canvas Runs" setting |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `maxOperatorResultCellCharLimit` | int (default 2000) | clip long cells |

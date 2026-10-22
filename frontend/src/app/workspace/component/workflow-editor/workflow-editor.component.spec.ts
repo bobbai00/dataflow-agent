@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { WorkflowActionService } from "../../service/workflow-graph/model/workflow-action.service";
+import { DEFAULT_WORKFLOW, WorkflowActionService } from "../../service/workflow-graph/model/workflow-action.service";
 import { UndoRedoService } from "../../service/undo-redo/undo-redo.service";
 import { DragDropService } from "../../service/drag-drop/drag-drop.service";
 import { WorkflowUtilService } from "../../service/workflow-graph/util/workflow-util.service";
@@ -50,7 +50,7 @@ import { HttpClientTestingModule } from "@angular/common/http/testing";
 import { OperatorLink, OperatorPredicate } from "../../types/workflow-common.interface";
 import { tap } from "rxjs/operators";
 import { WorkflowVersionService } from "../../../dashboard/service/user/workflow-version/workflow-version.service";
-import { of } from "rxjs";
+import { config, of } from "rxjs";
 import { NzContextMenuService, NzDropDownModule } from "ng-zorro-antd/dropdown";
 import { ActivatedRoute, Router } from "@angular/router";
 import { RouterTestingModule } from "@angular/router/testing";
@@ -158,6 +158,74 @@ describe("WorkflowEditorComponent", () => {
       emitRegionUpdate(2);
 
       expect(jointGraph.getCell("region-2").attr("body/visibility")).toBe("visible");
+    });
+
+    // An agent's run reports its region plan before the agent's new operators reach the canvas.
+    describe("when a region plan names operators that are not on the canvas yet", () => {
+      function emitRegions(regions: [number, string[]][]): void {
+        const executeWorkflowService = TestBed.inject(ExecuteWorkflowService);
+        (executeWorkflowService as any).regionUpdateStream.next({ regions });
+      }
+
+      function addOperator(operatorID: string): void {
+        const operator = new joint.shapes.basic.Rect({ position: { x: 40, y: 60 }, size: { width: 80, height: 40 } });
+        operator.set("id", operatorID);
+        jointGraph.addCell(operator);
+      }
+
+      // An error thrown in a stream subscriber does not reach the caller of next(): rxjs
+      // reports it on a later tick through its unhandled-error hook, so collect it there.
+      async function unhandledErrors(run: () => void): Promise<unknown[]> {
+        const errors: unknown[] = [];
+        const previous = config.onUnhandledError;
+        config.onUnhandledError = error => errors.push(error);
+        try {
+          run();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        } finally {
+          config.onUnhandledError = previous;
+        }
+        return errors;
+      }
+
+      it("should create every region and draw nothing for one whose operators are all missing", async () => {
+        addOperator("present_op");
+        expect(
+          await unhandledErrors(() =>
+            emitRegions([
+              [1, ["agent_new_op"]],
+              [2, ["present_op"]],
+            ])
+          )
+        ).toEqual([]);
+
+        expect(jointGraph.getCell("region-1").attr("body/d")).toBe("");
+        expect(jointGraph.getCell("region-2").attr("body/d")).toMatch(/^M/);
+      });
+
+      it("should draw the region once its operator reaches the canvas", () => {
+        emitRegions([[1, ["agent_new_op"]]]);
+        addOperator("agent_new_op");
+
+        expect(jointGraph.getCell("region-1").attr("body/d")).toMatch(/^M/);
+      });
+
+      it("should draw nothing again once its operators leave the canvas", () => {
+        addOperator("agent_new_op");
+        emitRegions([[1, ["agent_new_op"]]]);
+        jointGraph.getCell("agent_new_op").remove();
+
+        expect(jointGraph.getCell("region-1").attr("body/d")).toBe("");
+      });
+
+      it("should color regions by state and ignore states of regions a newer plan replaced", async () => {
+        const regionStateStream = (TestBed.inject(ExecuteWorkflowService) as any).regionStateStream;
+        emitRegions([[1, ["agent_new_op"]]]);
+
+        regionStateStream.next({ id: 1, state: "Completed" });
+        expect(jointGraph.getCell("region-1").attr("body/fill")).toBe("rgba(76,175,80,0.2)");
+        expect(await unhandledErrors(() => regionStateStream.next({ id: 7, state: "Completed" }))).toEqual([]);
+      });
     });
 
     it("should toggle visibility of existing regions when the displayed flag changes", () => {
@@ -322,6 +390,78 @@ describe("WorkflowEditorComponent", () => {
       (component.paper as any).trigger("element:chat", jointCellView, new Event("click"), 0, 0);
 
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    describe("a native operator's panel", () => {
+      // An operator the dataflow agent defined natively, riding on a scan for the stub metadata.
+      const native = {
+        ...mockScanPredicate,
+        nativeOp: { type: "Filter", inputs: [], properties: {}, source: "set kept: filter(records, lambda row: True)" },
+      } as OperatorPredicate;
+      const settle = () => new Promise(resolve => setTimeout(resolve));
+
+      it("opens when the operator is selected, with its actions", () => {
+        workflowActionService.addOperator(native, mockPoint);
+        workflowActionService.getJointGraphWrapper().highlightOperators(native.operatorID);
+        expect(component.chatPopoverOperator).toMatchObject({
+          operatorId: native.operatorID,
+          native: true,
+          mode: "actions",
+        });
+      });
+
+      it("does not open for an engine operator, and closes when the selection moves to one", () => {
+        const wrapper = workflowActionService.getJointGraphWrapper();
+        workflowActionService.addOperator(mockResultPredicate, mockPoint);
+        wrapper.highlightOperators(mockResultPredicate.operatorID);
+        expect(component.chatPopoverOperator).toBeNull();
+
+        workflowActionService.addOperator(native, mockPoint);
+        wrapper.unhighlightOperators(mockResultPredicate.operatorID);
+        wrapper.highlightOperators(native.operatorID);
+        expect(component.chatPopoverOperator?.operatorId).toBe(native.operatorID);
+        wrapper.unhighlightOperators(native.operatorID);
+        wrapper.highlightOperators(mockResultPredicate.operatorID);
+        expect(component.chatPopoverOperator).toBeNull();
+      });
+
+      it("turns to feedback from the operator's chat button, and closes on a second press", () => {
+        workflowActionService.addOperator(native, mockPoint);
+        workflowActionService.getJointGraphWrapper().highlightOperators(native.operatorID);
+        const view = component.paper.findViewByModel(native.operatorID);
+        (component.paper as any).trigger("element:chat", view, new Event("click"), 0, 0);
+        expect(component.chatPopoverOperator?.mode).toBe("feedback");
+        (component.paper as any).trigger("element:chat", view, new Event("click"), 0, 0);
+        expect(component.chatPopoverOperator).toBeNull();
+      });
+
+      it("stays open, and the operator selected, across the reload after an edit; closes once it is gone", async () => {
+        const wrapper = workflowActionService.getJointGraphWrapper();
+        workflowActionService.addOperator(native, mockPoint);
+        wrapper.highlightOperators(native.operatorID);
+        const edited = { ...native, nativeOp: { ...native.nativeOp!, doc: "Every record" } };
+        workflowActionService.reloadWorkflow(
+          {
+            ...DEFAULT_WORKFLOW,
+            content: {
+              operators: [edited],
+              operatorPositions: { [native.operatorID]: mockPoint },
+              links: [],
+              commentBoxes: [],
+              settings: undefined as any,
+            },
+          },
+          false,
+          false
+        );
+        await settle();
+        expect(component.chatPopoverOperator?.operatorId).toBe(native.operatorID);
+        expect(wrapper.getCurrentHighlightedOperatorIDs()).toEqual([native.operatorID]);
+
+        workflowActionService.deleteOperator(native.operatorID);
+        await settle();
+        expect(component.chatPopoverOperator).toBeNull();
+      });
     });
 
     it("should react to operator validation and change the color of operator box if the operator is valid ", () => {

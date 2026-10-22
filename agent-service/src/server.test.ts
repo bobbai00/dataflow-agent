@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { buildApp, buildContextAssembler, _resetAgentStoreForTests } from "./server";
 import { env } from "./config/env";
 import { TexeraAgent } from "./agent/texera-agent";
+import { NATIVE_OPERATORS } from "./agent/native/catalog";
 
 const API = env.API_PREFIX;
 const app = buildApp();
@@ -332,6 +333,21 @@ describe(`GET ${API}/agents`, () => {
   });
 });
 
+describe(`GET ${API}/agents/native-catalog`, () => {
+  test("lists every built-in native operator with its contract and properties schema, not as an agent id", async () => {
+    const res = await getJson(`${API}/agents/native-catalog`);
+    expect(res.status).toBe(200);
+    const { operators } = await readJson<{ operators: Array<Record<string, any>> }>(res);
+    expect(operators.map(op => op.type)).toEqual(NATIVE_OPERATORS.map(op => op.type));
+    for (const op of operators) {
+      expect(op.schema.type).toBe("object");
+      expect(op.signature).toBeString();
+      expect(op.doc).toBeString();
+    }
+    expect(operators.find(op => op.type === "Aggregate")?.schema.properties).toHaveProperty("groupBy");
+  });
+});
+
 describe(`GET ${API}/agents/:id`, () => {
   test("returns the agent plus its workflow snapshot", async () => {
     const created = await readJson<{ id: string }>(await createAgent());
@@ -487,6 +503,24 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
         expect(reread).toMatchObject({ dataEvidence, flowEvidence });
         for (const key of ["columnStats", "flowLevel", "dataLevel"]) expect(reread).not.toHaveProperty(key);
       }
+  });
+
+  test("operator docs survive create, GET, and PATCH, and rebuild the native prompt", async () => {
+    expect((await readJson<any>(await createAgent())).settings.operatorDoc).toBe(false);
+    const created = await readJson<any>(await createAgent({ settings: { agentMode: "native", operatorDoc: true } }));
+    expect(created.settings.operatorDoc).toBe(true);
+    const prompt = async () =>
+      (await readJson<any>(await getJson(`${API}/agents/${created.id}/system-info`))).systemPrompt as string;
+    expect(await prompt()).toContain("Give every operator, built-in or Python, a one-line `doc='...'`");
+
+    const off = await patchJson(`${API}/agents/${created.id}/settings`, { operatorDoc: false });
+    expect(off.status).toBe(200);
+    expect(await readJson(off)).toMatchObject({ operatorDoc: false });
+    expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toMatchObject({
+      operatorDoc: false,
+    });
+    expect(await prompt()).toContain("Routine operators need no boilerplate.");
+    expect((await patchJson(`${API}/agents/${created.id}/settings`, { operatorDoc: "yes" })).status).toBe(400);
   });
 
   for (const key of ["flowLevel", "dataLevel", "columnStats", "valueFormat", "dataHints", "statScopes"]) {

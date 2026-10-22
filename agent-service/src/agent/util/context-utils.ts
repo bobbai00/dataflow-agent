@@ -788,7 +788,14 @@ function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
     const n = path[i];
     // Runtime feedback belongs at its chronological position. Hoisting it
     // replaces the task and rewrites the cacheable prefix during a repair.
-    if (n.step.role === "user" && n.step.messageSource !== "feedback" && n.step.content) return n;
+    // A canvas action likewise reports what the user did; it is not a request.
+    if (
+      n.step.role === "user" &&
+      n.step.messageSource !== "feedback" &&
+      n.step.messageSource !== "action" &&
+      n.step.content
+    )
+      return n;
   }
   return undefined;
 }

@@ -1823,9 +1823,30 @@ def _scan(spec, operations):
 
     props = spec["properties"]
     patterns = [props["files"]] if isinstance(props["files"], str) else props["files"]
+    # Texera dataset files this execution may download (see dataset_files.py,
+    # which generated code appends to this module; without dataset files a
+    # scan never needs it).
+    dataset_files = spec.get("datasetFiles") or {}
     resolved = set()
+    # Local copy of a dataset file -> the dataset path the program named, which
+    # is what the reader reports as the source.
+    named = {}
     for pattern in patterns:
         matches = glob.glob(pattern, recursive=True)
+        url = dataset_file_url(dataset_files, pattern) if dataset_files and not matches else None
+        if url:
+            try:
+                path = Path(dataset_local_file(pattern, url)).resolve()
+            except Exception as error:
+                raise _error(
+                    spec,
+                    "SCAN_NOT_FOUND",
+                    f"Cannot download dataset file {pattern!r}: {type(error).__name__}: {error}.",
+                    field="files",
+                ) from error
+            named[path] = pattern
+            resolved.add(path)
+            continue
         if not matches:
             raise _error(
                 spec,
@@ -1839,7 +1860,8 @@ def _scan(spec, operations):
                 raise _error(spec, "SCAN_NOT_FOUND", f"Source {str(path)!r} is not a regular file.", field="files")
             resolved.add(path)
     sources, parts, selected = [], [], Counter()
-    for path in sorted(resolved):
+    # Local files keep their path order; dataset copies follow, ordered by dataset path.
+    for path in sorted(resolved, key=lambda p: (p in named, named.get(p, ""), p)):
         fmt = _scan_format(path, props.get("format", "auto"))
         _validate_scan_options(spec, fmt)
         category = fmt if fmt in ("excel", "html", "binary", "parquet") else "text"
@@ -1851,7 +1873,7 @@ def _scan(spec, operations):
         selected[category] += 1
         stat = path.stat()
         source_meta = {
-            "path": str(path),
+            "path": named.get(path, str(path)),
             "format": fmt,
             "sizeBytes": stat.st_size,
             "mtimeNs": str(stat.st_mtime_ns),

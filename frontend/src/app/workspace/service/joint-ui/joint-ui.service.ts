@@ -26,6 +26,12 @@ import * as joint from "jointjs";
 import { fromEventPattern, Observable } from "rxjs";
 import { Coeditor } from "../../../common/type/user";
 import { OperatorResultCacheStatus } from "../../types/workflow-websocket.interface";
+import {
+  isNativeOperator,
+  nativeOperatorIcon,
+  nativeOperatorSummary,
+  nativeOperatorTypeName,
+} from "../agent/native-operator";
 
 /**
  * Defines the SVG path for the delete button
@@ -332,8 +338,14 @@ export class JointUIService {
     const friendlyName = operatorSchema.additionalMetadata.userFriendlyName;
     const description = operatorSchema.additionalMetadata.operatorDescription;
     const custom = operator.customDisplayName;
-    const rightSectionText =
-      custom && custom !== friendlyName ? custom : description && description.length > 0 ? description : friendlyName;
+    // A native operator says what it computes: its doc, else its statement.
+    const rightSectionText = isNativeOperator(operator)
+      ? nativeOperatorSummary(operator)
+      : custom && custom !== friendlyName
+        ? custom
+        : description && description.length > 0
+          ? description
+          : friendlyName;
 
     // construct a custom Texera JointJS operator element
     //   and customize the styles of the operator box and ports
@@ -676,9 +688,11 @@ export class JointUIService {
     jointPaper: joint.dia.Paper,
     displayName: string
   ): void {
+    // A native operator's box keeps saying what it computes, whatever its display name.
+    const text = isNativeOperator(operator) ? nativeOperatorSummary(operator) : displayName;
     jointPaper
       .getModelById(operator.operatorID)
-      .attr(`.${operatorNameClass}/text`, JointUIService.wrapOperatorDisplayName(displayName));
+      .attr(`.${operatorNameClass}/text`, JointUIService.wrapOperatorDisplayName(text));
   }
 
   /**
@@ -746,11 +760,23 @@ export class JointUIService {
    * IDs (e.g. "Filter-operator-<uuid>") are long, so this keeps the label from
    * spilling far past the box edges while preserving the leading, identifying
    * portion.
+   *
+   * breakText wraps at spaces, so a long last word ("records: create_table")
+   * would drop out whole and leave "records: …". With non-breaking spaces the
+   * label is one word, which breakText cuts letter by letter instead; the
+   * hyphen pattern matches nothing, so no cut lands early at punctuation.
    */
   private static truncateToWidth(text: string, width: number, fontSize: string): string {
     if (!text) return text;
     try {
-      return joint.util.breakText(text, { width }, { "font-size": fontSize }, { maxLineCount: 1, ellipsis: true });
+      return joint.util
+        .breakText(
+          text.replace(/ /g, " "),
+          { width },
+          { "font-size": fontSize },
+          { maxLineCount: 1, ellipsis: true, hyphen: "$^" }
+        )
+        .replace(/ /g, " ");
     } catch {
       // No DOM available (e.g. unit tests) — approximate by character count.
       const approxChars = Math.max(1, Math.floor(width / 6));
@@ -1065,7 +1091,7 @@ export class JointUIService {
       // centred label grew straight under them once it carried the type too.
       ".texera-operator-friendly-name": {
         text: JointUIService.truncateToWidth(
-          `${operator.operatorID}: ${operatorType}`,
+          `${operator.operatorID}: ${isNativeOperator(operator) ? nativeOperatorTypeName(operator.nativeOp) : operatorType}`,
           JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.BUTTON_ROW_WIDTH,
           `${JointUIService.ID_FONT_SIZE}px`
         ),
@@ -1144,7 +1170,9 @@ export class JointUIService {
         visibility: "hidden",
       },
       ".texera-operator-icon": {
-        "xlink:href": "assets/operator_images/" + operatorType + ".png",
+        "xlink:href": isNativeOperator(operator)
+          ? nativeOperatorIcon(operator.nativeOp)
+          : "assets/operator_images/" + operatorType + ".png",
         width: 40,
         height: 40,
         // Centre the icon within the left section (0 .. ICON_SECTION_WIDTH).

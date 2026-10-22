@@ -1,0 +1,198 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+$mono: "JetBrains Mono", Menlo, Consolas, monospace;
+
+.native-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.editor-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8c8c8c;
+  padding: 6px 0;
+}
+
+.editor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #595959;
+}
+
+.field-key {
+  font-family: $mono;
+  font-size: 11px;
+  font-weight: normal;
+  color: #8c8c8c;
+  background: #f5f5f5;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.field-control {
+  width: 100%;
+}
+
+.field-number {
+  width: 140px;
+}
+
+.code {
+  font-family: $mono;
+  font-size: 12px;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: #8c8c8c;
+}
+
+.field-warning {
+  color: #d46b08;
+}
+
+.added-setting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .setting-name {
+    width: 120px;
+  }
+
+  .setting-value {
+    flex: 1;
+  }
+
+  .equals {
+    color: #8c8c8c;
+  }
+}
+
+.add-setting {
+  align-self: flex-start;
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+}
+
+.statement-preview {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  padding: 6px 8px;
+
+  .preview-label {
+    font-size: 11px;
+    color: #8c8c8c;
+  }
+
+  .preview-code {
+    margin: 2px 0 0;
+    font-family: $mono;
+    font-size: 11.5px;
+    color: #262626;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.about {
+  font-size: 12px;
+  color: #595959;
+
+  summary {
+    cursor: pointer;
+    color: #8c8c8c;
+  }
+
+  .about-signature {
+    margin: 4px 0 0;
+    font-family: $mono;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .about-doc {
+    margin: 4px 0 0;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+}
+
+.editor-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #cf1322;
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+
+  i {
+    margin-top: 2px;
+  }
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .spacer {
+    flex: 1;
+  }
+
+  .code-toggle {
+    padding: 0;
+    font-size: 12px;
+  }
+}
+
+.editor-note {
+  margin-top: -4px;
+  font-size: 11px;
+  color: #8c8c8c;
+  text-align: right;
+}

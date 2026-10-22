@@ -57,6 +57,27 @@ interface ResultEntry {
 }
 
 /**
+ * What one edit did to the dataflow. A snapshot that carries one is a
+ * *version* (v0, v1, …): every `set` or `delete` of a call is its own, so a
+ * call that adds three operators makes three versions, while a step that only
+ * runs or reads the dataflow makes none.
+ */
+export interface SnapshotEdit {
+  /** add, update or delete one operator; define: Python definitions only;
+   * start: the dataflow the agent began with; edit: several operators in one
+   * step (code mode, or an import without per-edit records). */
+  kind: "add" | "update" | "delete" | "define" | "start" | "edit";
+  operatorId?: string;
+  /** What the operator calls: a built-in (`filter`) or a registered function. */
+  op?: string;
+  /** The operators an "edit" changed. */
+  operatorIds?: string[];
+  /** Python functions the edit registered or changed. */
+  functions?: string[];
+  author: "agent" | "user";
+}
+
+/**
  * A node in the snapshot tree. Every snapshot carries the full state — the
  * DAG (`workflow`) and a complete map of operator results — so a read is a
  * single map lookup once the right snapshot is located. Snapshots inherit
@@ -82,6 +103,10 @@ export interface SnapshotData {
   /** Private event-owned diagnostics. Never inherited or added to the ordinary
    * unauthenticated snapshot response; expanded reads use inspectError. */
   nativeDiagnostics?: Readonly<Record<string, NativeDiagnosticRecord>>;
+  /** The dataflow version this snapshot is, when an edit made it (see
+   * SnapshotEdit); absent when its step left the dataflow as it was. */
+  version?: number;
+  edit?: SnapshotEdit;
 }
 
 function createEmptyWorkflow(): WorkflowContent {
@@ -135,6 +160,8 @@ export class WorkflowSnapshotStorage {
    *  the empty root is NOT indexed here (it has no owning step). */
   private snapshotByReactStepId = new Map<string, string>();
   private snapshotCounter = 0;
+  /** Next version number; the dataflow the agent starts from is v0. */
+  private versionCounter = 0;
   private rootSnapshotId: string;
 
   /**
@@ -229,35 +256,87 @@ export class WorkflowSnapshotStorage {
    *
    * @throws if a snapshot already exists for `reactStepId`.
    */
-  createSnapshot(reactStepId: string, workflow: WorkflowContent): SnapshotData {
+  createSnapshot(
+    reactStepId: string,
+    workflow: WorkflowContent,
+    options: {
+      /** The parent, when it is not the nearest ancestor step's snapshot (a restored version). */
+      parentSnapshotId?: string;
+      /** The edit that made it, or false when the caller records its edits itself
+       * (recordEdits). Left out, a snapshot whose dataflow differs from its
+       * parent's is a version described by that difference. */
+      edit?: SnapshotEdit | false;
+    } = {}
+  ): SnapshotData {
     if (this.snapshotByReactStepId.has(reactStepId)) {
       throw new Error(`Snapshot already exists for ReAct step ${reactStepId}`);
     }
-    const parentSnapshotId = this.findParentSnapshotId(reactStepId);
-    const parentSnap = this.snapshots.get(parentSnapshotId)!;
-
-    const stale = computeStaleResultOps(parentSnap.workflow, workflow);
-    const inherited = new Map<string, ResultEntry>();
-    for (const [opId, entry] of parentSnap.results) {
-      if (stale.has(opId)) continue;
-      inherited.set(opId, entry);
-    }
-
-    const id = this.generateSnapshotId();
-    const ownedWorkflow = copyWorkflow(workflow, parentSnap.workflow);
-    if (ownedWorkflow.operators.some(op => op.nativeOp)) freezeSnapshotValue(ownedWorkflow);
-    const snapshot: SnapshotData = {
-      id,
-      parentId: parentSnapshotId,
-      reactStepId,
-      workflow: ownedWorkflow,
-      // Entries are carried forward by reference — ResultEntry is
-      // immutable; overrides replace the entry, never mutate in place.
-      results: inherited,
-    };
-    this.snapshots.set(id, snapshot);
-    this.snapshotByReactStepId.set(reactStepId, id);
+    const parentSnapshotId = options.parentSnapshotId ?? this.findParentSnapshotId(reactStepId);
+    const parentSnap = this.snapshots.get(parentSnapshotId);
+    if (!parentSnap) throw new Error(`No snapshot ${parentSnapshotId}`);
+    const snapshot = this.childSnapshot(parentSnap, reactStepId, workflow);
+    const edit = options.edit === undefined ? describeChange(parentSnap.workflow, workflow) : options.edit;
+    if (edit) Object.assign(snapshot, { version: this.versionCounter++, edit });
+    this.snapshots.set(snapshot.id, snapshot);
+    this.snapshotByReactStepId.set(reactStepId, snapshot.id);
     return snapshot;
+  }
+
+  /** A new snapshot under `parent` holding `workflow`. */
+  private childSnapshot(parent: SnapshotData, reactStepId: string, workflow: WorkflowContent): SnapshotData {
+    return { id: this.generateSnapshotId(), parentId: parent.id, reactStepId, ...inheritFrom(parent, workflow) };
+  }
+
+  /**
+   * Record the edits of the unfinished step `reactStepId`, one version each,
+   * in order: every edit but the last becomes a snapshot of its own between
+   * the step's parent and the step's snapshot, which becomes the last edit's
+   * version. Readers keep resolving the step to its own (final) snapshot;
+   * the earlier versions are what the version tree, playback and
+   * `checkoutVersion` show. Returns the versions, earliest first.
+   */
+  recordEdits(
+    reactStepId: string,
+    versions: ReadonlyArray<{ edit: SnapshotEdit; workflow: WorkflowContent }>
+  ): SnapshotData[] {
+    if (!versions.length) return [];
+    const id = this.snapshotByReactStepId.get(reactStepId);
+    if (!id) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
+    const owned = this.snapshots.get(id)!;
+    if (owned.nativeObservations !== undefined || [...this.snapshots.values()].some(s => s.parentId === id))
+      throw new Error("Cannot change a completed snapshot");
+    let parent = this.snapshots.get(owned.parentId!)!;
+    // Edits recorded earlier in this step stay, as their own version.
+    if (owned.version !== undefined) {
+      const earlier: SnapshotData = { ...owned, id: this.generateSnapshotId(), results: new Map(owned.results) };
+      this.snapshots.set(earlier.id, earlier);
+      parent = earlier;
+    }
+    const recorded: SnapshotData[] = [];
+    for (const { edit, workflow } of versions.slice(0, -1)) {
+      const snapshot = Object.assign(this.childSnapshot(parent, reactStepId, workflow), {
+        version: this.versionCounter++,
+        edit,
+      });
+      this.snapshots.set(snapshot.id, snapshot);
+      recorded.push(snapshot);
+      parent = snapshot;
+    }
+    const last = versions[versions.length - 1];
+    const next = inheritFrom(parent, last.workflow);
+    // Results this step already wrote stay unless the last edit made them stale.
+    const stale = computeStaleResultOps(owned.workflow, last.workflow);
+    for (const [operatorId, entry] of owned.results)
+      if (entry.sourceStepId === reactStepId && !stale.has(operatorId)) next.results.set(operatorId, entry);
+    Object.assign(owned, {
+      parentId: parent.id,
+      workflow: next.workflow,
+      results: next.results,
+      version: this.versionCounter++,
+      edit: last.edit,
+    });
+    recorded.push(owned);
+    return recorded;
   }
 
   /** Advance the owning snapshot while an ordered action batch is running.
@@ -512,20 +591,8 @@ export class WorkflowSnapshotStorage {
    * snapshot; callers can fetch the full body of a node lazily through
    * `getResolvedWorkflow` / `getAllVisibleResults`.
    */
-  getSnapshotTreeNodes(): Array<{
-    id: string;
-    parentId: string | undefined;
-    reactStepId: string | undefined;
-    operatorCount: number;
-    resultCount: number;
-  }> {
-    const out: Array<{
-      id: string;
-      parentId: string | undefined;
-      reactStepId: string | undefined;
-      operatorCount: number;
-      resultCount: number;
-    }> = [];
+  getSnapshotTreeNodes(): SnapshotTreeNode[] {
+    const out: SnapshotTreeNode[] = [];
     for (const snap of this.snapshots.values()) {
       out.push({
         id: snap.id,
@@ -533,9 +600,17 @@ export class WorkflowSnapshotStorage {
         reactStepId: snap.reactStepId,
         operatorCount: snap.workflow.operators.length,
         resultCount: snap.results.size,
+        ...(snap.version !== undefined ? { version: snap.version, edit: snap.edit } : {}),
+        owned: snap.reactStepId !== undefined && this.snapshotByReactStepId.get(snap.reactStepId) === snap.id,
       });
     }
     return out;
+  }
+
+  /** The snapshot `reactStepId` owns (its final state), if any. */
+  getOwnedSnapshot(reactStepId: string): SnapshotData | undefined {
+    const id = this.snapshotByReactStepId.get(reactStepId);
+    return id === undefined ? undefined : this.snapshots.get(id);
   }
 
   // ── housekeeping ─────────────────────────────────────────────────────
@@ -545,18 +620,19 @@ export class WorkflowSnapshotStorage {
   clear(): void {
     this.snapshots.clear();
     this.snapshotByReactStepId.clear();
+    this.versionCounter = 0;
     this.rootSnapshotId = this.allocateRoot();
   }
 
   /** Drop snapshots whose owning step is not in `liveStepIds`. The empty
    *  root is always preserved. */
   pruneOrphans(liveStepIds: Set<string>): void {
-    for (const [reactStepId, snapshotId] of [...this.snapshotByReactStepId]) {
-      if (!liveStepIds.has(reactStepId)) {
-        this.snapshotByReactStepId.delete(reactStepId);
+    for (const [reactStepId] of [...this.snapshotByReactStepId])
+      if (!liveStepIds.has(reactStepId)) this.snapshotByReactStepId.delete(reactStepId);
+    // A step's earlier versions go with it.
+    for (const [snapshotId, snapshot] of [...this.snapshots])
+      if (snapshot.reactStepId !== undefined && !liveStepIds.has(snapshot.reactStepId))
         this.snapshots.delete(snapshotId);
-      }
-    }
   }
 
   /**
@@ -626,6 +702,22 @@ export class WorkflowSnapshotStorage {
   }
 }
 
+/** `workflow` as a child of `parent` holds it: the parent's results that stay
+ * current for it (the tight-accuracy rule), and the definitions it shares. */
+function inheritFrom(
+  parent: SnapshotData,
+  workflow: WorkflowContent
+): { workflow: WorkflowContent; results: Map<string, ResultEntry> } {
+  const stale = computeStaleResultOps(parent.workflow, workflow);
+  const results = new Map<string, ResultEntry>();
+  // Entries are carried forward by reference — ResultEntry is immutable;
+  // overrides replace the entry, never mutate in place.
+  for (const [opId, entry] of parent.results) if (!stale.has(opId)) results.set(opId, entry);
+  const owned = copyWorkflow(workflow, parent.workflow);
+  if (owned.operators.some(op => op.nativeOp)) freezeSnapshotValue(owned);
+  return { workflow: owned, results };
+}
+
 /** Native snapshots freeze definitions. Share an unchanged frozen operator
  * instead of duplicating its generated Python runtime at every ReAct step.
  * Each graph still owns its edges, positions and mutable incoming definitions. */
@@ -638,6 +730,54 @@ function copyWorkflow(workflow: WorkflowContent, previous: WorkflowContent): Wor
       return saved && Object.isFrozen(saved) && isDeepStrictEqual(saved, op) ? saved : structuredClone(op);
     }),
   };
+}
+
+/** A version an edit made, as a step's tool result reports it. */
+export interface EditVersionInfo extends SnapshotEdit {
+  version: number;
+  snapshotId: string;
+}
+
+export function editVersionInfo(snapshot: SnapshotData): EditVersionInfo {
+  return { version: snapshot.version!, snapshotId: snapshot.id, ...snapshot.edit! };
+}
+
+/** One node of the snapshot tree, without its workflow and results. */
+export interface SnapshotTreeNode {
+  id: string;
+  parentId: string | undefined;
+  reactStepId: string | undefined;
+  operatorCount: number;
+  resultCount: number;
+  version?: number;
+  edit?: SnapshotEdit;
+  /** The step's own snapshot (its final state), not one of its earlier versions. */
+  owned: boolean;
+}
+
+/** What changed from `prev` to `curr`, as one edit, or undefined when the
+ * dataflow is the same (positions aside). */
+export function describeChange(
+  prev: WorkflowContent,
+  curr: WorkflowContent,
+  author: SnapshotEdit["author"] = "agent"
+): SnapshotEdit | undefined {
+  const before = new Map(prev.operators.map(op => [op.operatorID, op]));
+  const after = new Map(curr.operators.map(op => [op.operatorID, op]));
+  const added = [...after.keys()].filter(id => !before.has(id));
+  const deleted = [...before.keys()].filter(id => !after.has(id));
+  const updated = [...after.keys()].filter(id => before.has(id) && !isDeepStrictEqual(before.get(id), after.get(id)));
+  const ids = [...added, ...updated, ...deleted];
+  const links = (wf: WorkflowContent) =>
+    wf.links.map(l => `${l.source.operatorID}.${l.source.portID}>${l.target.operatorID}.${l.target.portID}`).sort();
+  const namespaceChanged = !isDeepStrictEqual(prev.nativeNamespace ?? null, curr.nativeNamespace ?? null);
+  if (!ids.length && isDeepStrictEqual(links(prev), links(curr)) && !namespaceChanged) return undefined;
+  if (ids.length !== 1)
+    return { kind: ids.length ? "edit" : "define", ...(ids.length ? { operatorIds: ids } : {}), author };
+  const id = ids[0];
+  const op = (after.get(id) ?? before.get(id))!;
+  const name = op.nativeOp?.registeredName ?? op.nativeOp?.type?.toLowerCase() ?? op.operatorType;
+  return { kind: added.length ? "add" : deleted.length ? "delete" : "update", operatorId: id, op: name, author };
 }
 
 // ── tight-accuracy helpers ─────────────────────────────────────────────

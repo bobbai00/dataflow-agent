@@ -130,6 +130,8 @@ export function validateEvidenceSettings(settings: object): void {
     "compactRecords",
     "dataEvidence",
     "flowEvidence",
+    "operatorDoc",
+    "respondToCanvasRuns",
     "answerStatement",
     "nativeProfileCollection",
     "nativeChecks",

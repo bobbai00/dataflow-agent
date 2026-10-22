@@ -17,13 +17,35 @@
  * under the License.
  */
 
-import { ChangeDetectorRef, Component, Input, OnChanges, OnInit, SimpleChanges } from "@angular/core";
+import {
+  ChangeDetectorRef,
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  SimpleChanges,
+} from "@angular/core";
 import { DomSanitizer, SafeHtml } from "@angular/platform-browser";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
-import { AgentService } from "../../../service/agent/agent.service";
+import { merge, Subscription } from "rxjs";
+import { AgentService, OperatorResultSummary, UserActionResponse } from "../../../service/agent/agent.service";
+import { AgentState } from "../../../service/agent/agent-types";
+import {
+  isNativeOperator,
+  nativeOperatorIcon,
+  nativeOperatorSummary,
+  nativeOperatorTypeName,
+} from "../../../service/agent/native-operator";
+import { NativeOperatorDefinition, OperatorPredicate } from "../../../types/workflow-common.interface";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../common/service/notification/notification.service";
-import { NgIf, NgFor } from "@angular/common";
+import { NgIf, NgFor, NgSwitch, NgSwitchCase, NgTemplateOutlet } from "@angular/common";
+import {
+  agentErrorText,
+  NativeOperatorEditorComponent,
+} from "../native-operator-editor/native-operator-editor.component";
 import {
   NzTheadComponent,
   NzTrDirective,
@@ -45,6 +67,10 @@ import { NzWaveDirective } from "ng-zorro-antd/core/wave";
  * AgentInteractionComponent provides a compact interface for users to send feedback
  * or messages to agents regarding a specific operator.
  * It consists of an agent dropdown and a text input area.
+ *
+ * For an operator the dataflow agent defined natively it is the operator's panel:
+ * what the operator is, and Run, Edit and Feedback. A run or an edit goes to the
+ * agent, which records it as the user's action and reads it at its next turn.
  */
 @UntilDestroy()
 @Component({
@@ -70,6 +96,10 @@ import { NzWaveDirective } from "ng-zorro-antd/core/wave";
     NzAutosizeDirective,
     NzButtonComponent,
     NzWaveDirective,
+    NgSwitch,
+    NgSwitchCase,
+    NgTemplateOutlet,
+    NativeOperatorEditorComponent,
   ],
 })
 export class AgentInteractionComponent implements OnInit, OnChanges {
@@ -77,6 +107,25 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   @Input() operatorDisplayName?: string;
   @Input() sampleRecords?: Record<string, any>[];
   @Input() resultStatistics?: Record<string, string>;
+  /** The operator's current result: state, shape and error. */
+  @Input() resultSummary?: OperatorResultSummary;
+  /** "feedback" opens a native operator's panel on its feedback box (the box's chat button). */
+  @Input() initialMode: "actions" | "feedback" = "actions";
+  @Output() closed = new EventEmitter<void>();
+
+  /** Set when the operator is one the dataflow agent defined natively. */
+  public nativeOperator?: OperatorPredicate & { nativeOp: NativeOperatorDefinition };
+  public mode: "result" | "edit" | "feedback" | null = null;
+  public running = false;
+  public actionError?: string;
+  /** A one-line confirmation under the actions, e.g. after a save. */
+  public notice?: string;
+  /** The agent the last run or edit went to. */
+  public sharedWith?: string;
+  private agentState?: AgentState;
+  private agentStateSubscription?: Subscription;
+  /** The agent list has arrived; until then no agent is "missing". */
+  private agentsLoaded = false;
 
   public availableAgents: Array<{ id: string; name: string; isConnected: boolean }> = [];
   public selectedAgentId: string | null = null;
@@ -95,13 +144,28 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   ) {}
 
   ngOnInit(): void {
+    // The connected agent is known at once; the full list arrives over HTTP.
+    this.selectedAgentId = this.agentService.getActivelyConnectedAgentIds()[0] ?? this.selectedAgentId;
+    this.watchAgentState();
     this.loadAvailableAgents();
     this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => {
       this.loadAvailableAgents();
     });
+    // A canvas reload (after an edit) re-adds the operator with its new definition.
+    const graph = this.workflowActionService.getTexeraGraph();
+    merge(graph.getOperatorAddStream(), graph.getOperatorPropertyChangeStream())
+      .pipe(untilDestroyed(this))
+      .subscribe(() => this.refreshOperator());
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes["operatorId"] || changes["initialMode"]) {
+      this.refreshOperator();
+      this.mode = this.initialMode === "feedback" ? "feedback" : null;
+      this.actionError = undefined;
+      this.notice = undefined;
+      if (changes["operatorId"]) this.sharedWith = undefined;
+    }
     if (changes["sampleRecords"]) {
       // Only update cached visualization HTML when the actual content changes
       const newRecords = changes["sampleRecords"].currentValue as Record<string, any>[] | undefined;
@@ -134,8 +198,143 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
           this.selectedAgentId = this.availableAgents[0].id;
         }
 
+        this.agentsLoaded = true;
+        this.watchAgentState();
         this.changeDetectorRef.detectChanges();
       });
+  }
+
+  private refreshOperator(): void {
+    const graph = this.workflowActionService.getTexeraGraph();
+    let operator: OperatorPredicate | undefined;
+    try {
+      operator = this.operatorId ? graph.getOperator(this.operatorId) : undefined;
+    } catch {
+      operator = undefined;
+    }
+    this.nativeOperator = isNativeOperator(operator) ? operator : undefined;
+  }
+
+  /** Follow the agent's state: Run and Edit wait while it works. */
+  private watchAgentState(): void {
+    this.agentStateSubscription?.unsubscribe();
+    if (!this.selectedAgentId) return;
+    this.agentStateSubscription = this.agentService
+      .getAgentStateObservable(this.selectedAgentId)
+      .pipe(untilDestroyed(this))
+      .subscribe(state => {
+        this.agentState = state;
+        this.changeDetectorRef.detectChanges();
+      });
+  }
+
+  public get icon(): string {
+    return this.nativeOperator ? nativeOperatorIcon(this.nativeOperator.nativeOp) : "";
+  }
+
+  public get typeName(): string {
+    return this.nativeOperator ? nativeOperatorTypeName(this.nativeOperator.nativeOp) : "";
+  }
+
+  public get summary(): string {
+    return this.nativeOperator ? nativeOperatorSummary(this.nativeOperator) : "";
+  }
+
+  /** The connected agent that runs and edits this operator. */
+  public get actionAgentId(): string | undefined {
+    return this.selectedAgentId && this.isSelectedAgentConnected() ? this.selectedAgentId : undefined;
+  }
+
+  public get agentName(): string {
+    return this.availableAgents.find(agent => agent.id === this.selectedAgentId)?.name ?? "The agent";
+  }
+
+  public get busy(): boolean {
+    return this.agentState === AgentState.GENERATING || this.agentState === AgentState.STOPPING;
+  }
+
+  public get canAct(): boolean {
+    return !!this.actionAgentId && !this.busy && !this.running;
+  }
+
+  /** Why Run and Edit are unavailable, or what the last action did. */
+  public get statusText(): string | undefined {
+    if (!this.actionAgentId)
+      return this.agentsLoaded ? "Open the agent's chat to run or edit this operator." : undefined;
+    if (this.busy && !this.running) return `${this.agentName} is working; Run and Edit wait until it finishes.`;
+    return this.notice;
+  }
+
+  /** "2 rows · 3 columns" for a computed result. */
+  public get resultShape(): string | undefined {
+    const summary = this.resultSummary;
+    if (!summary || summary.error || !["Completed", "CompletedFromCache"].includes(summary.state)) return undefined;
+    const rows = summary.totalRowCount ?? summary.outputTuples;
+    const plural = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
+    return [plural(rows, "row"), ...(summary.outputColumns ? [plural(summary.outputColumns, "column")] : [])].join(
+      " · "
+    );
+  }
+
+  public toggleMode(mode: "result" | "edit" | "feedback"): void {
+    this.mode = this.mode === mode ? null : mode;
+    this.notice = undefined;
+  }
+
+  /** Compute the operator's result; the agent sees it as the user's run. */
+  public run(): void {
+    const agentId = this.actionAgentId;
+    if (!agentId || !this.canAct) return;
+    this.mode = "result";
+    this.running = true;
+    this.actionError = undefined;
+    this.notice = undefined;
+    this.agentService
+      .runNativeOperator(agentId, this.operatorId)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: response => {
+          this.running = false;
+          this.sharedWith = this.agentName;
+          if (response.status === "error") this.actionError = response.userAction?.error ?? "The run failed.";
+          if (response.responding) this.notice = `${this.agentName} is answering in the chat.`;
+          this.changeDetectorRef.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.running = false;
+          this.actionError = agentErrorText(error);
+          this.changeDetectorRef.detectChanges();
+        },
+      });
+  }
+
+  /** After an edit: show the result when it ran, otherwise confirm the save. */
+  public onSaved(response: UserActionResponse): void {
+    this.actionError = undefined;
+    if (response.status === "unchanged") {
+      this.mode = null;
+      this.notice = "Nothing changed.";
+    } else if (response.userAction?.run || response.status === "error") {
+      this.mode = "result";
+      this.sharedWith = this.agentName;
+      if (response.status === "error")
+        this.actionError = response.userAction?.error ?? "The change was saved, but the run failed.";
+      if (response.responding) this.notice = `${this.saved(response)} ${this.agentName} is answering in the chat.`;
+    } else {
+      this.mode = null;
+      this.notice = `${this.saved(response)} ${this.agentName} reads your change at its next turn.`;
+    }
+    this.changeDetectorRef.detectChanges();
+  }
+
+  public onAgentSelected(): void {
+    this.watchAgentState();
+  }
+
+  /** "Saved as v6." — the version a saved edit made. */
+  private saved(response: UserActionResponse): string {
+    const version = response.userAction?.version;
+    return version === undefined ? "Saved." : `Saved as v${version}.`;
   }
 
   public isSelectedAgentConnected(): boolean {
@@ -155,11 +354,18 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
 
     const agentId = this.selectedAgentId;
     const operatorName = this.operatorDisplayName || this.getOperatorName() || "this operator";
-    const contextMessage = `Regarding operator "${operatorName}" (ID: ${this.operatorId}): ${this.feedbackMessage.trim()}`;
+    // A native operator's id is the name the agent itself uses for it.
+    const contextMessage = this.nativeOperator
+      ? `Feedback on \`${this.operatorId}\`: ${this.feedbackMessage.trim()}`
+      : `Regarding operator "${operatorName}" (ID: ${this.operatorId}): ${this.feedbackMessage.trim()}`;
 
     this.agentService.sendMessage(agentId, contextMessage, "feedback");
     this.notificationService.success("Message sent to agent successfully");
     this.feedbackMessage = "";
+    if (this.nativeOperator) {
+      this.mode = null;
+      this.notice = `Sent to ${this.agentName}; the reply is in the chat.`;
+    }
     this.changeDetectorRef.detectChanges();
   }
 

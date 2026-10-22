@@ -132,6 +132,51 @@ automatically after operator edits.
 Native mode forces provider parallel tool calls off and never forces a tool
 call, so models can think before calling and answer with a plain reply. After
 an execution error, later `show` lines still read the results that completed.
+
+Each native operator runs as a Python UDF, but the canvas draws it as its
+native type: the label reads `id: Aggregate` (or the registered function's
+name), the icon is Texera's equivalent operator, and the box shows the
+operator's doc, else its statement. Selecting it opens its panel on the
+canvas with three actions:
+
+- **Run** computes the operator and shows its result.
+- **Edit** shows one field per argument of its statement (plus its
+  description, and the Python of a registered function it calls); "Edit as
+  code" edits the statement itself. Save, or Save & run.
+- **Feedback** sends the agent a message about the operator, which starts a
+  turn.
+
+A run or an edit goes through the agent (`POST /api/agents/:id/operators/:operatorId/run`
+and `/edit`; `GET …/form` splits the statement into fields). The agent applies
+it as one of its own `dataflow` calls and records it as a user step
+(`messageSource: "action"`). That step's content says what the user did, with
+the call's receipt, at that point in the conversation. A run (Run, or Save &
+run) is answered by the agent in a turn of its own (setting
+`respondToCanvasRuns`, on by default). A plain edit is read at the agent's
+next turn. An edit the planner rejects returns 400 with the reason and records
+nothing. An edit that keeps a doc written for the old definition asks the
+agent to restate the operator with one that fits.
+
+**Versions.** Every edit is a version of the dataflow, numbered from v0, the
+dataflow the agent started with:
+
+- each `set` or `delete` of an agent call, and each canvas edit, is its own
+  version, so a call that adds three operators makes v1, v2 and v3;
+- a step that only runs or reads the dataflow makes none.
+
+A step's own snapshot is its last version, and its results attach to it.
+
+In the chat, a step's row lists its edits with the versions they made
+(`add records v1`, `add kept v2`), then what it ran and read. The version
+tree on the left shows the versions, the user's in green. Clicking one checks
+it out (`POST /:id/checkout-version`):
+
+- a step's last version moves HEAD to the end of that step's turn;
+- a version in the middle of a call is restored as a user step under that
+  step, which tells the agent which edits were undone.
+
+Playback previews each version on the canvas (`GET /:id/versions/:snapshotId`)
+without moving HEAD.
 Decisions based on returned results belong in the next call. See
 [Registered Python Dataflows](docs/native-registered-python-design.md) for
 declarations, namespace isolation, statements, and inspection, and
@@ -155,9 +200,11 @@ An agent created with no `settings` uses
 |---|---|---|
 | `agentMode` | `native` | the `dataflow` tool above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `false` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
+| `dataEvidence` | `true` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
+| `operatorDoc` | `false` (agents made in the UI: `true`) | native mode: asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
+| `respondToCanvasRuns` | `true` | the agent answers a run the user starts from the canvas (Run, Save & run) in a turn of its own; off, it reads the run at its next turn |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
@@ -192,6 +239,10 @@ Key endpoints (all under `/api/agents`):
 | GET | `/:id/snapshots/:stepId` | steps + workflow at any step (`head` for latest) |
 | GET/PATCH | `/:id/settings` | read / tune context parameters live |
 | POST | `/:id/stop`, `/:id/clear`, `/:id/checkout` | stop turn / reset history / move HEAD |
+| GET | `/:id/snapshot-tree` | the snapshots, each edit's a version (`version`, `edit`), and `headSnapshotId` |
+| POST | `/:id/checkout-version` | check out a version; one inside a call is restored as a user step |
+| GET | `/:id/versions/:snapshotId` | one version's workflow, to preview it |
+| GET/POST | `/:id/operators/:opId/form`, `/edit`, `/run` | the canvas editor's fields; a user's edit or run, recorded as a user step |
 | DELETE | `/:id` | delete agent |
 | WS | `/:id/react` | streaming protocol (per-step frames) — what the frontend uses |
 

@@ -33,6 +33,7 @@ import { OperatorPropertyEditFrameComponent } from "./operator-property-edit-fra
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { filter } from "rxjs/operators";
 import { PortPropertyEditFrameComponent } from "./port-property-edit-frame/port-property-edit-frame.component";
+import { isNativeOperator } from "../../service/agent/native-operator";
 import { NzResizeEvent, NzResizableDirective, NzResizeHandlesComponent } from "ng-zorro-antd/resizable";
 import { calculateTotalTranslate3d } from "../../../common/util/panel-dock";
 import { PanelService } from "../../service/panel/panel.service";
@@ -163,7 +164,19 @@ export class PropertyEditorComponent implements OnInit, OnDestroy {
         this.workflowActionService.getJointGraphWrapper().getCurrentHighlightedCommentBoxIDs();
         const highlightedPorts = this.workflowActionService.getJointGraphWrapper().getCurrentHighlightedPortIDs();
 
-        if (highlightedOperators.length === 1 && highlightLinks.length === 0 && highlightedPorts.length === 0) {
+        const graph = this.workflowActionService.getTexeraGraph();
+        // A native operator is run and edited from its panel on the canvas,
+        // not from its generated engine code.
+        const native =
+          highlightedOperators.length === 1 &&
+          graph.hasOperator(highlightedOperators[0]) &&
+          isNativeOperator(graph.getOperator(highlightedOperators[0]));
+        if (
+          highlightedOperators.length === 1 &&
+          highlightLinks.length === 0 &&
+          highlightedPorts.length === 0 &&
+          !native
+        ) {
           this.currentComponent = OperatorPropertyEditFrameComponent;
           this.componentInputs = { currentOperatorId: highlightedOperators[0] };
         } else if (highlightedPorts.length === 1 && highlightLinks.length === 0) {

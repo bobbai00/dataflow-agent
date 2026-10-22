@@ -136,6 +136,8 @@ describe("AgentService", () => {
       expect(req.request.body.userToken).toBeUndefined();
       expect(req.request.body.modelType).toEqual("gpt-5-mini");
       expect(req.request.body.name).toEqual("Bob");
+      // The canvas captions each operator with its doc, so agents made here write one.
+      expect(req.request.body.settings).toEqual({ operatorDoc: true });
       expect(req.request.body.workflowId).toBeUndefined();
       expect(req.request.body.computingUnitId).toBeUndefined();
       req.flush(apiAgent);

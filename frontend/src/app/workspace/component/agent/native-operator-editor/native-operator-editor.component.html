@@ -1,0 +1,293 @@
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one
+ or more contributor license agreements.  See the NOTICE file
+ distributed with this work for additional information
+ regarding copyright ownership.  The ASF licenses this file
+ to you under the Apache License, Version 2.0 (the
+ "License"); you may not use this file except in compliance
+ with the License.  You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing,
+ software distributed under the License is distributed on an
+ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ KIND, either express or implied.  See the License for the
+ specific language governing permissions and limitations
+ under the License.
+-->
+
+<div class="native-editor">
+  <div
+    *ngIf="!form && !loadError"
+    class="editor-loading">
+    <nz-spin
+      nzSimple
+      nzSize="small"></nz-spin>
+    <span>Loading the definition…</span>
+  </div>
+  <div
+    *ngIf="loadError"
+    class="editor-error">
+    {{ loadError }}
+  </div>
+
+  <ng-container *ngIf="form">
+    <!-- Form view: one field per argument of the statement. -->
+    <div
+      *ngIf="!codeMode"
+      class="editor-fields">
+      <div
+        *ngIf="form.inputs.length"
+        class="field">
+        <label class="field-label">{{ form.inputs.length === 1 ? "Input" : "Inputs" }}</label>
+        <nz-select
+          class="field-control field-inputs"
+          nzMode="tags"
+          nzSize="small"
+          nzPlaceHolder="Input operators"
+          [(ngModel)]="inputs">
+          <nz-option
+            *ngFor="let option of inputOptions"
+            [nzValue]="option"
+            [nzLabel]="option"></nz-option>
+        </nz-select>
+      </div>
+
+      <div
+        *ngFor="let item of positional; trackBy: trackByIndex"
+        class="field">
+        <label class="field-label">{{ item.label }}</label>
+        <textarea
+          nz-input
+          class="field-control code"
+          spellcheck="false"
+          [nzAutosize]="{ minRows: 1, maxRows: 8 }"
+          [(ngModel)]="item.source"></textarea>
+      </div>
+
+      <div
+        *ngFor="let keyword of keywords; let i = index; trackBy: trackByIndex"
+        class="field">
+        <ng-container *ngIf="keyword.original; else addedSetting">
+          <label class="field-label">
+            {{ keyword.label }}
+            <code
+              *ngIf="showsKeyword(keyword)"
+              class="field-key"
+              >{{ keyword.name }}</code
+            >
+          </label>
+          <ng-container [ngSwitch]="keyword.kind">
+            <input
+              *ngSwitchCase="'string'"
+              nz-input
+              nzSize="small"
+              class="field-control"
+              [(ngModel)]="keyword.value" />
+            <nz-input-number
+              *ngSwitchCase="'number'"
+              nzSize="small"
+              class="field-number"
+              [(ngModel)]="keyword.value"></nz-input-number>
+            <nz-switch
+              *ngSwitchCase="'boolean'"
+              nzSize="small"
+              [(ngModel)]="keyword.value"></nz-switch>
+            <nz-select
+              *ngSwitchCase="'strings'"
+              class="field-control"
+              nzMode="tags"
+              nzSize="small"
+              nzPlaceHolder="None"
+              [(ngModel)]="keyword.value">
+              <nz-option
+                *ngFor="let column of columnOptions"
+                [nzValue]="column"
+                [nzLabel]="column"></nz-option>
+            </nz-select>
+            <textarea
+              *ngSwitchDefault
+              nz-input
+              class="field-control code"
+              spellcheck="false"
+              [nzAutosize]="{ minRows: 1, maxRows: 8 }"
+              [(ngModel)]="keyword.source"></textarea>
+          </ng-container>
+        </ng-container>
+        <ng-template #addedSetting>
+          <div class="added-setting">
+            <input
+              nz-input
+              nzSize="small"
+              class="setting-name code"
+              placeholder="name"
+              spellcheck="false"
+              [(ngModel)]="keyword.name" />
+            <span class="equals">=</span>
+            <input
+              nz-input
+              nzSize="small"
+              class="setting-value code"
+              placeholder="Python value"
+              spellcheck="false"
+              [(ngModel)]="keyword.source" />
+            <button
+              nz-button
+              nzType="text"
+              nzSize="small"
+              nz-tooltip
+              nzTooltipTitle="Remove this setting"
+              (click)="removeSetting(i)">
+              <i
+                nz-icon
+                nzType="close"></i>
+            </button>
+          </div>
+        </ng-template>
+      </div>
+
+      <button
+        nz-button
+        nzType="link"
+        nzSize="small"
+        class="add-setting"
+        (click)="addSetting()">
+        <i
+          nz-icon
+          nzType="plus"></i>
+        Add setting
+      </button>
+
+      <div class="field">
+        <label class="field-label">Description</label>
+        <input
+          nz-input
+          nzSize="small"
+          class="field-control field-doc"
+          placeholder="What this operator does, in one line"
+          [(ngModel)]="doc" />
+        <div
+          *ngIf="staleDoc"
+          class="field-hint field-warning">
+          This still describes the earlier definition. Update it, or the agent will.
+        </div>
+      </div>
+
+      <div
+        *ngIf="form.definition"
+        class="field">
+        <label class="field-label">
+          Python
+          <code class="field-key">{{ form.definition.name }}{{ form.definition.signature }}</code>
+        </label>
+        <textarea
+          nz-input
+          class="field-control code"
+          spellcheck="false"
+          [nzAutosize]="{ minRows: 3, maxRows: 14 }"
+          [(ngModel)]="definition"></textarea>
+        <div class="field-hint">Every operator that calls {{ form.definition.name }} uses this definition.</div>
+      </div>
+    </div>
+
+    <!-- Code view: the statement itself. -->
+    <div
+      *ngIf="codeMode"
+      class="editor-fields">
+      <div class="field">
+        <label class="field-label">Statement</label>
+        <textarea
+          nz-input
+          class="field-control code field-statement"
+          spellcheck="false"
+          [nzAutosize]="{ minRows: 2, maxRows: 10 }"
+          [(ngModel)]="statementText"></textarea>
+      </div>
+      <div
+        *ngIf="form.definition"
+        class="field">
+        <label class="field-label">
+          Python
+          <code class="field-key">{{ form.definition.name }}{{ form.definition.signature }}</code>
+        </label>
+        <textarea
+          nz-input
+          class="field-control code"
+          spellcheck="false"
+          [nzAutosize]="{ minRows: 3, maxRows: 14 }"
+          [(ngModel)]="definition"></textarea>
+      </div>
+    </div>
+
+    <div
+      *ngIf="!codeMode"
+      class="statement-preview">
+      <span class="preview-label">Statement</span>
+      <pre class="preview-code">{{ statement }}</pre>
+    </div>
+
+    <details
+      *ngIf="about"
+      class="about">
+      <summary>About {{ about.name }}</summary>
+      <pre class="about-signature">{{ about.signature }}</pre>
+      <p class="about-doc">{{ about.doc }}</p>
+    </details>
+
+    <div
+      *ngIf="error"
+      class="editor-error">
+      <i
+        nz-icon
+        nzType="close-circle"
+        nzTheme="fill"></i>
+      <span>{{ error }}</span>
+    </div>
+
+    <div class="editor-actions">
+      <button
+        nz-button
+        nzType="link"
+        nzSize="small"
+        class="code-toggle"
+        nz-tooltip
+        [nzTooltipTitle]="codeEdited ? 'Save or cancel the code edits to use the form again' : ''"
+        [disabled]="codeEdited"
+        (click)="toggleCode()">
+        <i
+          nz-icon
+          [nzType]="codeMode ? 'form' : 'code'"></i>
+        {{ codeMode ? "Form" : "Edit as code" }}
+      </button>
+      <span class="spacer"></span>
+      <button
+        nz-button
+        nzSize="small"
+        class="cancel-edit"
+        (click)="cancelled.emit()">
+        Cancel
+      </button>
+      <button
+        nz-button
+        nzSize="small"
+        class="save-edit"
+        [nzLoading]="saving === 'save'"
+        [disabled]="disabled || !changed || saving === 'run'"
+        (click)="save(false)">
+        Save
+      </button>
+      <button
+        nz-button
+        nzType="primary"
+        nzSize="small"
+        class="save-run-edit"
+        [nzLoading]="saving === 'run'"
+        [disabled]="disabled || saving === 'save'"
+        (click)="save(true)">
+        Save &amp; run
+      </button>
+    </div>
+    <div class="editor-note">The agent reads your change at its next turn.</div>
+  </ng-container>
+</div>

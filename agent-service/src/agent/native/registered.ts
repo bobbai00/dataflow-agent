@@ -53,6 +53,8 @@ export interface RegisteredStageResult {
   operators: Record<string, NativeOpView>;
   changedIds: string[];
   deletedIds: string[];
+  /** The edit's set and delete statements, in the order written. */
+  order: Array<{ kind: "set" | "delete"; id: string }>;
   registrations: Array<{ name: string; kind: "registered" | "updated" }>;
   pythonChanged: boolean;
 }
@@ -344,7 +346,8 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
           .filter(d => d.kind === "function" && d.cell === cells.length && !d.name.startsWith("_"))
           .map(d => d.name)
       : [];
-    if (!names.length || message.startsWith("NATIVE_ERROR_V2:")) return error instanceof Error ? error : new Error(message);
+    if (!names.length || message.startsWith("NATIVE_ERROR_V2:"))
+      return error instanceof Error ? error : new Error(message);
     return new Error(
       `${message} Nothing from this edit was registered, including ${names.join(", ")}; resend the definitions with the corrected changes.`
     );
@@ -479,7 +482,15 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
       name: fn.name,
       kind: options.namespace && Object.hasOwn(options.namespace.functions, fn.name) ? "updated" : "registered",
     }));
-  return { namespace, operators, changedIds: [...changedIds], deletedIds, registrations, pythonChanged };
+  return {
+    namespace,
+    operators,
+    changedIds: [...changedIds],
+    deletedIds,
+    order: parsed.statements.map(statement => ({ kind: statement.kind, id: statement.id })),
+    registrations,
+    pythonChanged,
+  };
 }
 
 const signatures: Record<string, string> = {

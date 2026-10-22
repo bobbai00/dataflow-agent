@@ -44,6 +44,7 @@ import { GuiConfigService } from "../../../common/service/gui-config.service";
 import { line, curveCatmullRomClosed } from "d3-shape";
 import concaveman from "concaveman";
 import { OperatorResultSummary, AgentService } from "../../service/agent/agent.service";
+import { isNativeOperator } from "../../service/agent/native-operator";
 import { NzNoAnimationDirective } from "ng-zorro-antd/core/animation";
 import { ContextMenuComponent } from "./context-menu/context-menu/context-menu.component";
 import { NgIf } from "@angular/common";
@@ -113,11 +114,15 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     operatorIds: { viewedOperatorIds: string[]; addedOperatorIds: string[]; modifiedOperatorIds: string[] };
   } | null = null;
 
-  // Chat popover state (operator chat button)
+  // Chat popover state (operator chat button). For a native operator it is the
+  // operator's panel (Run / Edit / Feedback), opened by selecting the operator.
   public chatPopoverOperator: {
     operatorId: string;
     displayName: string;
     position: { x: number; y: number };
+    native?: boolean;
+    /** "feedback": opened from the operator's chat button. */
+    mode?: "actions" | "feedback";
   } | null = null;
 
   // Cached agent result summaries for port label display
@@ -310,6 +315,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.invokeResize();
     this.handleCenterEvent();
     this.handleOperatorChatButton();
+    this.handleNativeOperatorPanel();
   }
 
   ngOnDestroy(): void {
@@ -544,7 +550,17 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       }
     );
 
-    let regionMap: { regionElement: joint.dia.Element; operators: joint.dia.Cell[] }[] = [];
+    // A region plan names operators by id, and they need not be on the canvas when it arrives:
+    // an agent's run reports its plan before the agent's new operators are synced to the canvas,
+    // and an agent checkout can replace the DAG. Each region keeps its ids and is redrawn from
+    // whichever of them are on the canvas, as operators come and go.
+    let regionMap: { regionElement: joint.dia.Element; operatorIds: string[]; operators: joint.dia.Cell[] }[] = [];
+    const drawRegion = (region: (typeof regionMap)[number]) => {
+      region.operators = region.operatorIds
+        .map(id => this.paper.getModelById(id))
+        .filter((cell): cell is joint.dia.Cell => !!cell);
+      this.updateRegionElement(region.regionElement, region.operators);
+    };
     // update region elements on execution
     this.executeWorkflowService
       .getRegionUpdateStream()
@@ -555,15 +571,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           .filter(element => element instanceof Region)
           .forEach(element => element.remove());
 
-        regionMap = event.regions.map(([id, region]) => {
-          const element = new Region({ id: "region-" + id });
-          // An operator id from the region plan may no longer be on the canvas
-          // (e.g. an agent checkout replaced the DAG) — skip it instead of
-          // crashing on `undefined.getBBox()` in updateRegionElement.
-          const ops = region.map(id => this.paper.getModelById(id)).filter((cell): cell is joint.dia.Cell => !!cell);
-          this.paper.model.addCell(element);
-          this.updateRegionElement(element, ops);
-          return { regionElement: element, operators: ops };
+        regionMap = event.regions.map(([id, operatorIds]) => {
+          const region = { regionElement: new Region({ id: "region-" + id }), operatorIds, operators: [] };
+          this.paper.model.addCell(region.regionElement);
+          drawRegion(region);
+          return region;
         });
         // regions are recreated on every update, so reapply the current toggle state to the new elements
         this.setRegionsVisibility(this.wrapper.getRegionsDisplayed());
@@ -574,6 +586,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .getRegionsDisplayedStream()
       .pipe(untilDestroyed(this))
       .subscribe(displayed => this.setRegionsVisibility(displayed));
+
+    this.paper.model.on("add remove", (cell: joint.dia.Cell) => {
+      if (cell instanceof Region) return;
+      regionMap.filter(region => region.operatorIds.includes(String(cell.id))).forEach(drawRegion);
+    });
 
     this.paper.model.on("change:position", operator => {
       regionMap
@@ -591,7 +608,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           ExecutingNonDependeePortsPhase: "rgba(255,213,79,0.2)",
           Completed: "rgba(76,175,80,0.2)",
         };
-        this.paper.getModelById("region-" + region.id).attr("body/fill", colorMap[region.state]);
+        // a state can trail its region, which a newer plan may already have replaced
+        this.paper.getModelById("region-" + region.id)?.attr("body/fill", colorMap[region.state]);
       });
   }
 
@@ -603,6 +621,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   private updateRegionElement(regionElement: joint.dia.Element, operators: joint.dia.Cell[]) {
+    // None of the region's operators is on the canvas (yet): draw nothing. concaveman throws
+    // on an empty point set.
+    if (operators.length === 0) {
+      regionElement.attr("body/d", "");
+      return;
+    }
     const points = operators.flatMap(op => {
       const { x, y, width, height } = op.getBBox(),
         padding = 15;
@@ -1716,9 +1740,15 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         }
 
         // Toggle chat popover for this operator
-        if (this.chatPopoverOperator?.operatorId === operatorId) {
-          // Close if clicking the same operator
-          this.chatPopoverOperator = null;
+        const open = this.chatPopoverOperator;
+        if (open && open.operatorId === operatorId) {
+          // Selecting a native operator already opened its panel: the button turns it to feedback.
+          if (open.native && open.mode !== "feedback") {
+            this.chatPopoverOperator = { ...open, mode: "feedback" };
+          } else {
+            // Close if clicking the same operator
+            this.chatPopoverOperator = null;
+          }
         } else {
           // Open chat popover for this operator
           const operator = this.workflowActionService.getTexeraGraph().getOperator(operatorId);
@@ -1732,6 +1762,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
               operatorId,
               displayName,
               position,
+              native: isNativeOperator(operator),
+              mode: "feedback",
             };
             // Results are pulled on demand (not pushed over the socket); refresh
             // the active agent's summaries so the popover shows current data.
@@ -1782,6 +1814,73 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
         this.changeDetectorRef.detectChanges();
       });
+  }
+
+  /**
+   * Selecting one native operator opens its panel: Run, Edit and Feedback, in
+   * place of the property editor. The panel outlives the canvas reload that
+   * follows an edit (every operator is removed and added again), keeping the
+   * operator selected, and closes when the operator is gone or another
+   * selection replaces it.
+   */
+  private handleNativeOperatorPanel(): void {
+    this.wrapper
+      .getJointOperatorHighlightStream()
+      .pipe(untilDestroyed(this))
+      .subscribe(() => {
+        const highlighted = this.wrapper.getCurrentHighlightedOperatorIDs();
+        const graph = this.workflowActionService.getTexeraGraph();
+        if (highlighted.length !== 1) {
+          if (this.chatPopoverOperator?.native) this.closeChatPopover();
+          return;
+        }
+        const operatorId = highlighted[0];
+        if (this.chatPopoverOperator?.operatorId === operatorId) return;
+        const operator = graph.hasOperator(operatorId) ? graph.getOperator(operatorId) : undefined;
+        if (!isNativeOperator(operator)) {
+          if (this.chatPopoverOperator?.native) this.closeChatPopover();
+          return;
+        }
+        const position = this.getOperatorChatPopoverPosition(operatorId);
+        if (!position) return;
+        this.chatPopoverOperator = { operatorId, displayName: operatorId, position, native: true, mode: "actions" };
+        const activeAgentId = this.agentService.getActivelyConnectedAgentIds()[0];
+        if (activeAgentId) this.agentService.fetchOperatorResults(activeAgentId);
+        this.changeDetectorRef.detectChanges();
+      });
+
+    const graph = this.workflowActionService.getTexeraGraph();
+    graph
+      .getOperatorAddStream()
+      .pipe(untilDestroyed(this))
+      .subscribe(operator => {
+        if (operator.operatorID !== this.chatPopoverOperator?.operatorId) return;
+        // Re-added by a reload: follow its new box once the paper has drawn it.
+        setTimeout(() => {
+          const panel = this.chatPopoverOperator;
+          if (!panel || panel.operatorId !== operator.operatorID || !graph.hasOperator(panel.operatorId)) return;
+          const position = this.getOperatorChatPopoverPosition(panel.operatorId);
+          if (position) this.chatPopoverOperator = { ...panel, position };
+          if (panel.native && !this.wrapper.getCurrentHighlightedOperatorIDs().includes(panel.operatorId))
+            this.wrapper.highlightOperators(panel.operatorId);
+          this.changeDetectorRef.detectChanges();
+        });
+      });
+    graph
+      .getOperatorDeleteStream()
+      .pipe(untilDestroyed(this))
+      .subscribe(({ deletedOperatorID }) => {
+        if (deletedOperatorID !== this.chatPopoverOperator?.operatorId) return;
+        // A reload deletes and re-adds every operator in one pass.
+        setTimeout(() => {
+          if (this.chatPopoverOperator && !graph.hasOperator(this.chatPopoverOperator.operatorId))
+            this.closeChatPopover();
+        });
+      });
+  }
+
+  getOperatorResultSummary(operatorId: string): OperatorResultSummary | undefined {
+    return this.operatorSummaries.get(operatorId);
   }
 
   /**

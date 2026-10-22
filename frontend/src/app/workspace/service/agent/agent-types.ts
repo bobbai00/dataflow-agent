@@ -76,8 +76,30 @@ export interface ReActStep {
   id: string;
   /** Parent step ID — forms the version tree */
   parentId?: string;
-  /** Source of the user message: "chat" or "feedback" */
+  /** Source of the user message: "chat", "feedback", or "action" (a canvas edit or run) */
   messageSource?: string;
+  /** Set on a user step recording a canvas action. */
+  userAction?: UserActionInfo;
+}
+
+/** What the user did on the canvas (agent-service `UserActionInfo`): edited or
+ * ran one operator, or restored an earlier version of the dataflow. */
+export interface UserActionInfo {
+  kind: "edit" | "run" | "restore";
+  /** The operator edited or run; for a restore, the one the restored version's edit changed. */
+  operatorId?: string;
+  /** The statement the user saved (edit). */
+  statement?: string;
+  /** The operator's statement before the edit. */
+  previous?: string;
+  /** An edit that also ran the operator. */
+  run?: boolean;
+  status: "running" | "ok" | "error";
+  /** Rows of the operator's result, when it ran. */
+  rows?: number;
+  /** The dataflow version the edit made, or the version a restore brought back. */
+  version?: number;
+  error?: string;
 }
 
 // Workflow content is no longer embedded on each step. The agent service

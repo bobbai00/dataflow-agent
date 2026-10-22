@@ -218,6 +218,52 @@ describe("JointUIService", () => {
     });
   });
 
+  describe("native operators", () => {
+    const nativeOperator = {
+      operatorID: "agg",
+      operatorType: "DataProcessing",
+      nativeOp: {
+        type: "Aggregate",
+        inputs: ["joined"],
+        properties: {},
+        source: "set agg: aggregate(joined, by=['station'], outputs={'n': count()})",
+        doc: "Counts rides per station.",
+      },
+    } as unknown as OperatorPredicate;
+
+    it("draw their native type's icon and name it above the box", () => {
+      const attrs = JointUIService.getCustomOperatorStyleAttrs(
+        nativeOperator,
+        "ignored",
+        "DataProcessing",
+        "UDF"
+      ) as any;
+      expect(attrs[".texera-operator-icon"]["xlink:href"]).toBe("assets/operator_images/Aggregate.png");
+      expect(attrs[".texera-operator-friendly-name"].text).toBe("agg: Aggregate");
+    });
+
+    it("keep the engine operator's icon and type for every other operator", () => {
+      const scan = { operatorID: "op5", operatorType: "CSVFileScan" } as OperatorPredicate;
+      const attrs = JointUIService.getCustomOperatorStyleAttrs(scan, "name", "CSVFileScan", "CSV File Scan") as any;
+      expect(attrs[".texera-operator-icon"]["xlink:href"]).toBe("assets/operator_images/CSVFileScan.png");
+      expect(attrs[".texera-operator-friendly-name"].text).toBe("op5: CSVFileScan");
+    });
+
+    it("keep saying what they compute when their display name changes", () => {
+      const attrSpy = vi.fn();
+      const jointPaper = { getModelById: () => ({ attr: attrSpy }) } as unknown as joint.dia.Paper;
+      new JointUIService(emptyMetadataStub as never).changeOperatorJointDisplayName(
+        nativeOperator,
+        jointPaper,
+        "agg: set agg: aggregate(...)"
+      );
+      const [selector, rendered] = attrSpy.mock.calls[0];
+      expect(selector).toBe(`.${operatorNameClass}/text`);
+      // The box wraps its caption into lines; the words are the doc's.
+      expect(String(rendered).replace(/\s+/g, " ")).toBe("Counts rides per station.");
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Static helpers — pure functions, easiest to test directly.
   // ---------------------------------------------------------------------------

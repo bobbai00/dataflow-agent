@@ -45,6 +45,8 @@ export interface ToolContext {
     dataHygiene?: boolean;
     /** Native operators round floats in user code as pandas does (`pandasRound`). */
     pandasRound?: boolean;
+    /** Edits that set an operator without a `doc` say so in the tool result. */
+    operatorDoc?: boolean;
   };
 }
 

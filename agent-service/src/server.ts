@@ -24,8 +24,11 @@ import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
-import { TexeraAgent } from "./agent/texera-agent";
+import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import { NATIVE_OPERATORS } from "./agent/native/catalog";
+import { describeNativeStatement } from "./agent/native/statement-form";
+import { UserActionError, type UserActionRequest } from "./agent/user-actions";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -107,8 +110,10 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
-function latestTaskText(visibleSteps: { role: string; content?: string }[]): string {
+function latestTaskText(visibleSteps: { role: string; content?: string; messageSource?: string }[]): string {
   for (let i = visibleSteps.length - 1; i >= 0; i--) {
+    // A canvas action reports what the user did; the task is the request before it.
+    if (visibleSteps[i].messageSource === "action") continue;
     if (visibleSteps[i].role === "user" && visibleSteps[i].content) return visibleSteps[i].content as string;
   }
   return "";
@@ -456,6 +461,8 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
     flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
+    operatorDoc: agentSettings.operatorDoc,
+    respondToCanvasRuns: agentSettings.respondToCanvasRuns,
     answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     resultSelection: agentSettings.resultSelection,
@@ -643,6 +650,20 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     const agentList = Array.from(agentStore.entries()).map(([id, agent]) => getAgentInfo(id, agent));
     return { agents: agentList };
   })
+  // The built-in native operators, for clients that render native operators
+  // (the workspace's property panel): each type's contract and the JSON schema
+  // of the `properties` its operators carry. Declared before `/:id`.
+  .get("/native-catalog", () => ({
+    operators: NATIVE_OPERATORS.map(({ name, type, inputs, rowEffect, signature, doc, schema }) => ({
+      name,
+      type,
+      inputs,
+      rowEffect,
+      signature,
+      doc,
+      schema,
+    })),
+  }))
 
   .post(
     "/",
@@ -707,6 +728,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
             flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
             flowEvidence: settings.flowEvidence,
+            operatorDoc: settings.operatorDoc,
+            respondToCanvasRuns: settings.respondToCanvasRuns,
             answerStatement: settings.answerStatement,
             nativeChecks: settings.nativeChecks,
             resultSelection: (settings as any).resultSelection,
@@ -792,6 +815,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidence: t.Optional(t.Boolean()),
+            operatorDoc: t.Optional(t.Boolean()),
+            respondToCanvasRuns: t.Optional(t.Boolean()),
             answerStatement: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -885,6 +910,81 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   })
 
   /**
+   * Canvas actions on one native operator. `form` splits its statement into
+   * fields for the editor; `edit` and `run` apply the user's change or run it
+   * as a user step the agent reads on its next turn (TexeraAgent.applyUserAction).
+   */
+  .get("/:id/operators/:operatorId/form", async ({ params: { id, operatorId }, set }) => {
+    const workflow = getAgent(id).getWorkflowState().getWorkflowContent();
+    const view = workflow.operators.find(op => op.operatorID === operatorId)?.nativeOp;
+    if (!view) {
+      set.status = 404;
+      return { error: `There is no native operator \`${operatorId}\`.` };
+    }
+    try {
+      return await describeNativeStatement(operatorId, view, workflow);
+    } catch (error) {
+      set.status = 422;
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  })
+  .post(
+    "/:id/operators/:operatorId/edit",
+    ({ params: { id, operatorId }, body, set }) => runUserAction(id, { kind: "edit", operatorId, ...body }, set),
+    {
+      body: t.Object({
+        statement: t.String({ minLength: 1 }),
+        python: t.Optional(t.String()),
+        run: t.Optional(t.Boolean()),
+      }),
+    }
+  )
+  .post("/:id/operators/:operatorId/run", ({ params: { id, operatorId }, set }) =>
+    runUserAction(id, { kind: "run", operatorId }, set)
+  )
+
+  /**
+   * Check out a dataflow version from the version tree. A step's last version
+   * moves HEAD there; one in the middle of a step's edits is restored as a
+   * user step the agent reads (TexeraAgent.checkoutVersion).
+   */
+  .post(
+    "/:id/checkout-version",
+    ({ params: { id }, body, set }) => {
+      const agent = getAgent(id);
+      if (agent.getState() !== AgentState.AVAILABLE) {
+        set.status = 409;
+        return { error: "The agent is working; try again when it finishes." };
+      }
+      const headId = agent.checkoutVersion(body.snapshotId);
+      if (!headId) {
+        set.status = 404;
+        return { error: `There is no version ${body.snapshotId}.` };
+      }
+      broadcastToAgent(id, {
+        type: "headChange",
+        headId,
+        steps: agent.getRenderableReActSteps(),
+        workflowContent: agent.getWorkflowState().getWorkflowContent(),
+        operatorResults: getOperatorResultSummaries(agent),
+      });
+      broadcastNextContext(id, agent);
+      return { status: "checked out", headId };
+    },
+    { body: t.Object({ snapshotId: t.String() }) }
+  )
+
+  /** One version's dataflow, to preview it (version playback) without moving HEAD. */
+  .get("/:id/versions/:snapshotId", ({ params: { id, snapshotId }, set }) => {
+    const snapshot = getAgent(id).getSnapshotStorage().getSnapshotById(snapshotId);
+    if (!snapshot || snapshot.version === undefined) {
+      set.status = 404;
+      return { error: `There is no version ${snapshotId}.` };
+    }
+    return { id: snapshot.id, version: snapshot.version, edit: snapshot.edit, workflow: snapshot.workflow };
+  })
+
+  /**
    * Snapshot tree shape — every node in the agent's
    * `WorkflowSnapshotStorage`, parent links, owning ReAct step, and a few
    * size hints. Powers the dashboard's "Snapshot tree" view. Full workflow
@@ -904,6 +1004,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     // so clients can resolve the "no active snapshot" fallback.
     return {
       rootId,
+      // The snapshot HEAD shows; the version tree marks its nearest version.
+      headSnapshotId: storage.getAssociatedSnapshot(agent.getHead()).id,
       nodes: storage
         .getSnapshotTreeNodes()
         .filter(n => n.id !== rootId)
@@ -1167,6 +1269,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
+        operatorDoc: settings.operatorDoc,
+        respondToCanvasRuns: settings.respondToCanvasRuns,
         answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         resultSelection: (settings as any).resultSelection,
@@ -1237,6 +1341,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
+        operatorDoc: t.Optional(t.Boolean()),
+        respondToCanvasRuns: t.Optional(t.Boolean()),
         answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -1332,6 +1438,109 @@ function broadcastToAgent(agentId: string, message: WsOutgoingMessage): void {
 }
 
 /**
+ * Run one agent turn and stream it to the agent's WebSocket clients: the
+ * state, each step as it lands, snapshot writes (so clients refresh their
+ * view of the workflow without it riding on every step), and the completion
+ * frame. A failed turn sends an error frame.
+ */
+async function streamTurn(agentId: string, agent: TexeraAgent, run: () => Promise<AgentMessageResult>): Promise<void> {
+  agent.setStepCallback((step: ReActStep) => {
+    // Never stream the synthetic init step to clients.
+    if (TexeraAgent.isInitializationStep(step)) return;
+    const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
+    broadcastToAgent(agentId, {
+      type: "step",
+      step,
+      ...(hasToolCalls ? { operatorResults: getOperatorResultSummaries(agent) } : {}),
+    });
+    broadcastNextContext(agentId, agent);
+  });
+  agent.setSnapshotCallback((stepId, workflow) => {
+    broadcastToAgent(agentId, { type: "snapshot", stepId, workflow });
+  });
+  broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
+  try {
+    const result = await run();
+    agent.setStepCallback(null);
+    agent.setSnapshotCallback(null);
+    const allSteps = agent.getReActSteps();
+    const lastStep = allSteps[allSteps.length - 1];
+    if (lastStep && lastStep.isEnd && !TexeraAgent.isInitializationStep(lastStep)) {
+      broadcastToAgent(agentId, { type: "step", step: lastStep });
+    }
+    broadcastToAgent(agentId, {
+      type: "complete",
+      state: agent.getState(),
+      operatorResults: getOperatorResultSummaries(agent),
+    });
+    broadcastNextContext(agentId, agent);
+    wsLog.info({ agentId, steps: result.messages.length }, "agent run complete");
+  } catch (error: any) {
+    agent.setStepCallback(null);
+    agent.setSnapshotCallback(null);
+    broadcastToAgent(agentId, { type: "error", error: error.message });
+    broadcastToAgent(agentId, { type: "state", state: agent.getState() });
+  }
+}
+
+/**
+ * Apply a canvas action (TexeraAgent.applyUserAction) and stream it to the
+ * agent's WebSocket clients as a turn is streamed: state, step, snapshot and
+ * completion frames. A rejected action, or one that changes nothing, streams
+ * nothing.
+ */
+async function runUserAction(agentId: string, action: UserActionRequest, set: { status?: number | string }) {
+  const agent = getAgent(agentId);
+  // Checked before the callbacks are taken over: they belong to a running turn.
+  if (agent.getState() !== AgentState.AVAILABLE) {
+    set.status = 409;
+    return { error: "The agent is working; try again when it finishes." };
+  }
+  let recorded = false;
+  // A run the agent answers: its turn starts once the action is streamed.
+  let respondTo: ReActStep | undefined;
+  agent.setStepCallback(step => {
+    broadcastToAgent(agentId, { type: "step", step, operatorResults: getOperatorResultSummaries(agent) });
+    broadcastNextContext(agentId, agent);
+  });
+  agent.setSnapshotCallback((stepId, workflow) => broadcastToAgent(agentId, { type: "snapshot", stepId, workflow }));
+  try {
+    const outcome = await agent.applyUserAction(action, () => {
+      recorded = true;
+      broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
+    });
+    if (outcome.respond && outcome.step) respondTo = outcome.step;
+    return {
+      status: outcome.status,
+      ...(outcome.step
+        ? { stepId: outcome.step.id, userAction: outcome.step.userAction, content: outcome.step.content }
+        : {}),
+      operatorResults: getOperatorResultSummaries(agent),
+      responding: respondTo !== undefined,
+    };
+  } catch (error) {
+    if (error instanceof UserActionError) {
+      set.status = error.status;
+      return { error: error.message };
+    }
+    throw error;
+  } finally {
+    agent.setStepCallback(null);
+    agent.setSnapshotCallback(null);
+    if (recorded) {
+      broadcastToAgent(agentId, {
+        type: "complete",
+        state: agent.getState(),
+        operatorResults: getOperatorResultSummaries(agent),
+      });
+      broadcastNextContext(agentId, agent);
+    }
+    const step = respondTo;
+    if (step) void streamTurn(agentId, agent, () => agent.respondToUserAction(step));
+  }
+}
+
+/**
  * Broadcast the assembled next-step context to all WebSocket clients of an
  * agent. Re-uses TexeraAgent.getNextStepContext() so the preview matches what
  * the model would actually receive on the next prepareStep. Safe to call from
@@ -1413,6 +1622,12 @@ export function buildApp() {
           return;
         }
 
+        // One turn or canvas action at a time, as on the REST route.
+        if ((msg.type === "message" || msg.type === "debug") && agent.getState() !== AgentState.AVAILABLE) {
+          ws.send(JSON.stringify({ type: "error", error: "The agent is busy; wait until it finishes." }));
+          return;
+        }
+
         if (msg.type === "message") {
           if (!msg.content || typeof msg.content !== "string") {
             ws.send(JSON.stringify({ type: "error", error: "Message content is required" }));
@@ -1420,52 +1635,7 @@ export function buildApp() {
           }
 
           wsLog.info({ agentId, preview: msg.content.substring(0, 50) }, "received message");
-
-          agent.setStepCallback((step: ReActStep) => {
-            // Never stream the synthetic init step to clients.
-            if (TexeraAgent.isInitializationStep(step)) return;
-            const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
-            broadcastToAgent(agentId, {
-              type: "step",
-              step,
-              ...(hasToolCalls ? { operatorResults: getOperatorResultSummaries(agent) } : {}),
-            });
-            broadcastNextContext(agentId, agent);
-          });
-          // Snapshot writes ride alongside step events. The frontend listens
-          // to this stream to refresh its view of the workflow without
-          // embedding workflow content in every step payload.
-          agent.setSnapshotCallback((stepId, workflow) => {
-            broadcastToAgent(agentId, { type: "snapshot", stepId, workflow });
-          });
-
-          broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
-
-          try {
-            const result = await agent.sendMessage(msg.content, msg.messageSource);
-
-            agent.setStepCallback(null);
-            agent.setSnapshotCallback(null);
-
-            const allSteps = agent.getReActSteps();
-            const lastStep = allSteps[allSteps.length - 1];
-            if (lastStep && lastStep.isEnd && !TexeraAgent.isInitializationStep(lastStep)) {
-              broadcastToAgent(agentId, { type: "step", step: lastStep });
-            }
-
-            broadcastToAgent(agentId, {
-              type: "complete",
-              state: agent.getState(),
-              operatorResults: getOperatorResultSummaries(agent),
-            });
-            broadcastNextContext(agentId, agent);
-
-            wsLog.info({ agentId, steps: result.messages.length }, "agent run complete");
-          } catch (error: any) {
-            agent.setStepCallback(null);
-            agent.setSnapshotCallback(null);
-            broadcastToAgent(agentId, { type: "error", error: error.message });
-          }
+          await streamTurn(agentId, agent, () => agent.sendMessage(msg.content!, msg.messageSource));
         }
 
         // Debug input — bypasses the LLM. Mirrors the "message" branch: same

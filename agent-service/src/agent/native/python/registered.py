@@ -265,11 +265,66 @@ def parse_registered_changes(source):
     return statements
 
 
+def describe_set_statement(source):
+    """One `set id: op(...)` statement split the way it was written, for an
+    editor: the input tables, any other positional argument (a filter's or a
+    map's lambda), and each keyword argument's source text, in call order. A
+    literal also carries its kind and value, so a form can offer a matching
+    control; everything else is edited as source."""
+    import ast
+    import math
+    import re
+
+    match = re.match(r"\s*set\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*", source)
+    if not match:
+        raise ValueError("Expected one statement: set id: type(inputs, settings).")
+    expression = source[match.end():].strip()
+    node = ast.parse(expression, mode="eval").body
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        raise ValueError("The definition must call an operator type by name.")
+
+    def number(value):
+        # JSON carries the value only when it round-trips exactly.
+        return (type(value) is int and abs(value) <= 2 ** 53 - 1) or (type(value) is float and math.isfinite(value))
+
+    def field(value):
+        text = ast.get_source_segment(expression, value)
+        if isinstance(value, ast.Constant):
+            literal = value.value
+            if isinstance(literal, bool):
+                return {"source": text, "kind": "boolean", "value": literal}
+            if isinstance(literal, str):
+                return {"source": text, "kind": "string", "value": literal}
+            if number(literal):
+                return {"source": text, "kind": "number", "value": literal}
+        if (isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub)
+                and isinstance(value.operand, ast.Constant) and number(value.operand.value)
+                and not isinstance(value.operand.value, bool)):
+            return {"source": text, "kind": "number", "value": -value.operand.value}
+        if isinstance(value, ast.List) and all(
+                isinstance(item, ast.Constant) and isinstance(item.value, str) for item in value.elts):
+            return {"source": text, "kind": "strings", "value": [item.value for item in value.elts]}
+        return {"source": text, "kind": "lambda" if isinstance(value, ast.Lambda) else "code"}
+
+    inputs = []
+    while len(inputs) < len(node.args) and isinstance(node.args[len(inputs)], ast.Name):
+        inputs.append(node.args[len(inputs)].id)
+    return {
+        "id": match[1],
+        "op": node.func.id,
+        "inputs": inputs,
+        "positional": [field(arg) for arg in node.args[len(inputs):]],
+        "keywords": [{"name": keyword.arg, **field(keyword.value)} for keyword in node.keywords if keyword.arg],
+    }
+
+
 def registered_request(request):
     import inspect
 
     try:
         cells = request.get("cells", [])
+        if request["phase"] == "describe":
+            return {"ok": True, "statement": describe_set_statement(request.get("changes", ""))}
         if request["phase"] == "parse":
             declarations = _registered_declarations(cells)
             try:
@@ -331,7 +386,9 @@ def registered_callable(spec):
         scope["round"] = _pandas_round
     if "lambda" in registration:
         return _condition(registration, scope, spec.get("id", "filter"))
-    return functools.partial(scope[registration["entry"]], **copy.deepcopy(registration["settings"]))
+    # A setting naming a Texera dataset file reaches the function as its local copy.
+    settings = localize_settings(spec.get("datasetFiles"), copy.deepcopy(registration["settings"]))
+    return functools.partial(scope[registration["entry"]], **settings)
 
 
 def _condition(registration, scope, operator_id=None):

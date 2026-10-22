@@ -210,14 +210,15 @@
             [class.on-path]="node.isOnActivePath"
             [class.off-path]="!node.isOnActivePath"
             [class.is-root]="node.isRoot"
+            [class.by-user]="node.byUser"
             [style.left.px]="node.x - node.width / 2"
             [style.top.px]="node.y - node.height / 2"
             [style.width.px]="node.width"
             [style.height.px]="node.height"
             (click)="onSnapshotNodeClick(node)"
             nz-tooltip
-            [nzTooltipTitle]="node.timeLabel ? node.id + ' · ' + node.timeLabel : node.id">
-            <span class="snapshot-node-label">{{ node.id }}</span>
+            [nzTooltipTitle]="node.timeLabel ? node.title + ' · ' + node.timeLabel : node.title">
+            <span class="snapshot-node-label">{{ node.label }}</span>
           </div>
         </div>
       </div>
@@ -268,27 +269,39 @@
                       class="react-card-check"></i>
                   </ng-template>
                 </span>
-                <!-- Thinking text, truncated with an ellipsis that follows the
-                     panel width (CSS overflow). Models that emit tool calls with
-                     no visible preamble and no reasoning summary leave this
-                     empty; the placeholder is then only worth showing on the
-                     running row, since the action chips already say what the
-                     finished ones did. -->
-                <span
-                  class="react-card-thinking"
-                  [title]="row.thinking">
-                  {{ row.thinking || (isRowRunning(row) ? 'Working…' : '') }}
-                </span>
-                <!-- Actions the agent called this step (one chip each). -->
-                <span class="react-card-actions">
+                <div class="react-card-body">
+                  <!-- Thinking text, truncated with an ellipsis that follows the
+                       panel width (CSS overflow). Models that emit tool calls with
+                       no visible preamble and no reasoning summary leave this
+                       empty; the placeholder is then only worth showing on the
+                       running row, since the action chips already say what the
+                       finished ones did. -->
                   <span
-                    *ngFor="let action of row.actions"
-                    class="react-card-action"
-                    nz-tooltip
-                    [nzTooltipTitle]="action">
-                    {{ action }}
+                    *ngIf="row.thinking || isRowRunning(row)"
+                    class="react-card-thinking"
+                    [title]="row.thinking">
+                    {{ row.thinking || 'Working…' }}
                   </span>
-                </span>
+                  <!-- What the step did: each edit with the version it made
+                       (add records v1, add kept v2), then what it ran and read. -->
+                  <span
+                    *ngIf="row.actions.length"
+                    class="react-card-actions">
+                    <span
+                      *ngFor="let action of row.actions"
+                      class="react-card-action"
+                      [ngClass]="'chip-' + action.kind"
+                      nz-tooltip
+                      [nzTooltipTitle]="action.title ?? action.label">
+                      <span class="chip-label">{{ action.label }}</span>
+                      <span
+                        *ngIf="action.version !== undefined"
+                        class="chip-version"
+                        >v{{ action.version }}</span
+                      >
+                    </span>
+                  </span>
+                </div>
                 <button
                   *ngIf="hoveredMessageIndex === row.index"
                   nz-button
@@ -305,6 +318,51 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <!-- A canvas action: the user edited or ran an operator; the agent reads it next turn. -->
+          <div
+            *ngIf="asAction(item) as action"
+            class="message user-message user-action-message"
+            [attr.data-step-id]="action.step.id">
+            <div
+              class="user-action"
+              [class.user-action-error]="action.step.userAction?.status === 'error'">
+              <span class="user-action-icon">
+                <nz-spin
+                  *ngIf="action.step.userAction?.status === 'running'; else actionIcon"
+                  nzSimple
+                  nzSize="small"></nz-spin>
+                <ng-template #actionIcon>
+                  <i
+                    nz-icon
+                    [nzType]="action.step.userAction?.kind === 'edit' ? 'edit' : 'caret-right'"></i>
+                </ng-template>
+              </span>
+              <span class="user-action-text">{{ userActionText(action.step) }}</span>
+              <span
+                *ngIf="userActionVersion(action.step) !== undefined"
+                class="chip-version"
+                >v{{ userActionVersion(action.step) }}</span
+              >
+              <button
+                nz-button
+                nzType="text"
+                nzSize="small"
+                class="user-action-toggle"
+                nz-tooltip
+                [nzTooltipTitle]="'What ' + agentInfo.name + ' reads'"
+                (click)="toggleActionDetails(action.step.id)">
+                <i
+                  nz-icon
+                  [nzType]="expandedActions.has(action.step.id) ? 'up' : 'down'"></i>
+              </button>
+            </div>
+            <pre
+              *ngIf="expandedActions.has(action.step.id)"
+              class="user-action-details">
+{{ action.step.content }}</pre
+            >
           </div>
 
           <!-- Regular message: user messages and action-less agent replies. -->
@@ -353,9 +411,9 @@
           </div>
         </ng-container>
 
-        <!-- Loading indicator -->
+        <!-- Loading indicator (a canvas action shows its progress on its own row) -->
         <div
-          *ngIf="isGenerating()"
+          *ngIf="isGenerating() && !isUserActionRunning()"
           class="message ai-message loading-message">
           <div class="message-header">
             <i
@@ -663,10 +721,10 @@
           </div>
 
           <div class="settings-param-item">
-            <label class="settings-param-label">Column Stats Block</label>
+            <label class="settings-param-label">Data Evidence</label>
             <div class="settings-param-input">
               <nz-select
-                [(ngModel)]="settingsStatsEnabled"
+                [(ngModel)]="settingsDataEvidence"
                 nzSize="small"
                 style="width: 180px">
                 <nz-option
@@ -680,16 +738,100 @@
                 nz-button
                 nzType="primary"
                 nzSize="small"
-                (click)="saveStatsEnabled()">
+                (click)="saveDataEvidence()">
                 Save
               </button>
             </div>
             <div class="settings-param-hint-block">
-              When <strong>enabled</strong>, every non-error operator result is followed by a
-              <code>Column stats:</code> block — one line per column showing the type and type-specific summary
-              (null/distinct/top_10 for strings, null/mean/min/max for numerics, null/true/false for bools, etc.). Helps
-              the model reason about column semantics without re-issuing inspection operators. When
-              <strong>disabled</strong>, only the data preview + shape metadata is rendered.
+              When <strong>enabled</strong>, results the agent observes carry bounded column and table facts — null and
+              distinct counts, ranges, top values — so the model can reason about column semantics without issuing
+              inspection operators. In native mode, the statistics shown with a result also follow the result view the
+              agent requests.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Flow Evidence</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsFlowEvidence"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="enabled"
+                  nzLabel="Enabled"></nz-option>
+                <nz-option
+                  nzValue="disabled"
+                  nzLabel="Disabled"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveFlowEvidence()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When <strong>enabled</strong>, results the agent observes also carry version-matched input/output facts —
+              rows kept, keys matched — that tie each output to its inputs.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Operator Doc</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsOperatorDoc"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="enabled"
+                  nzLabel="Enabled"></nz-option>
+                <nz-option
+                  nzValue="disabled"
+                  nzLabel="Disabled"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveOperatorDoc()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When <strong>enabled</strong> (native mode), the agent gives every operator a one-line doc saying what it
+              does and why, and its prompt examples show one. The canvas and the operator's panel show the doc.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Canvas Runs</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsRespondToRuns"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="respond"
+                  nzLabel="Agent responds"></nz-option>
+                <nz-option
+                  nzValue="wait"
+                  nzLabel="Agent waits"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveRespondToRuns()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When you run an operator from its panel on the canvas (Run, Save &amp; run), the agent
+              <strong>responds</strong> to the result in a turn of its own, or <strong>waits</strong> and reads the run
+              with your next message.
             </div>
           </div>
 

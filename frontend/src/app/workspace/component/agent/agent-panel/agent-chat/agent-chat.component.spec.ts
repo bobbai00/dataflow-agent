@@ -52,6 +52,11 @@ class MockAgentService {
 
   public ensureWorkflowPolling = vi.fn();
   public checkoutStep = vi.fn((): Observable<unknown> => of({ status: "checked out" }));
+  public checkoutVersion = vi.fn((): Observable<{ headId: string }> => of({ headId: "h" }));
+  public getVersion = vi.fn((_agentId: string, snapshotId: string) =>
+    of({ version: 1, workflow: { operators: [], links: [], commentBoxes: [], operatorPositions: {}, snapshotId } })
+  );
+  public getCurrentWorkflow = vi.fn(() => this.workflowSubject.getValue());
   public nextContextSubject = new BehaviorSubject<string>("");
   public getNextContextObservable = vi.fn((): Observable<string> => this.nextContextSubject.asObservable());
   public getSnapshotTree = vi.fn((): Observable<{ rootId: string; nodes: unknown[] }> => of({ rootId: "", nodes: [] }));
@@ -314,6 +319,60 @@ describe("AgentChatComponent", () => {
     });
   });
 
+  describe("canvas actions in the chat", () => {
+    const action = (userAction: Partial<NonNullable<ReActStep["userAction"]>>, id = "act") =>
+      makeStep({
+        messageId: id,
+        stepId: 0,
+        id,
+        role: "user",
+        isBegin: true,
+        isEnd: true,
+        messageSource: "action",
+        content: "I edited `kept` on the canvas. Its definition is now:\nset kept: filter(records, lambda row: True)",
+        toolCalls: [{ toolName: "dataflow", toolCallId: "t", input: {} }],
+        userAction: { kind: "edit", operatorId: "kept", status: "ok", ...userAction },
+      });
+
+    it("shows a user's edit or run as one row on the user's side, not as an agent action", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({ stepId: 0, role: "user", content: "hi", isBegin: true }),
+        action({ run: true, rows: 1 }),
+        action({ kind: "run", rows: 2 }, "act2"),
+      ]);
+      fixture.detectChanges();
+      expect(component.chatItems.map(item => item.kind)).toEqual(["message", "action", "action"]);
+      const rows = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".user-action-text")).map(row =>
+        row.textContent?.trim()
+      );
+      expect(rows).toEqual(["You edited `kept` and ran it · 1 row", "You ran `kept` · 2 rows"]);
+    });
+
+    it("shows a running action on its row instead of the agent thinking, and opens what the agent reads", () => {
+      createComponent();
+      agentService.stepsSubject.next([action({ kind: "run", status: "running" })]);
+      agentService.stateSubject.next(AgentState.GENERATING);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector(".user-action-text")?.textContent?.trim()).toBe("Running `kept`…");
+      expect(element.querySelector(".loading-message")).toBeNull();
+
+      (element.querySelector(".user-action-toggle") as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(element.querySelector(".user-action-details")?.textContent).toContain("I edited `kept` on the canvas.");
+    });
+
+    it("marks a failed action", () => {
+      createComponent();
+      agentService.stepsSubject.next([action({ status: "error", error: "boom" })]);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector(".user-action-text")?.textContent?.trim()).toBe("You edited `kept`; it failed");
+      expect(element.querySelector(".user-action.user-action-error")).not.toBeNull();
+    });
+  });
+
   describe("HEAD-path filtering of visible steps", () => {
     it("shows only the root-to-HEAD ancestor chain when a HEAD is set", () => {
       createComponent();
@@ -525,6 +584,10 @@ describe("AgentChatComponent", () => {
       expect(component.settingsExecutionTimeoutMinutes).toBe(10);
       expect(component.settingsMaxSteps).toBe(10);
       expect(component.settingsAgentMode).toBe("native");
+      // agent-service defaults: dataEvidence on, flowEvidence and operatorDoc off
+      expect(component.settingsDataEvidence).toBe("enabled");
+      expect(component.settingsFlowEvidence).toBe("disabled");
+      expect(component.settingsOperatorDoc).toBe("disabled");
     });
 
     it("applies explicit settings values from the server", () => {
@@ -537,6 +600,9 @@ describe("AgentChatComponent", () => {
           executionTimeoutMinutes: 4,
           maxSteps: 5,
           agentMode: "code",
+          dataEvidence: false,
+          flowEvidence: true,
+          operatorDoc: true,
         })
       );
 
@@ -548,6 +614,9 @@ describe("AgentChatComponent", () => {
       expect(component.settingsExecutionTimeoutMinutes).toBe(4);
       expect(component.settingsMaxSteps).toBe(5);
       expect(component.settingsAgentMode).toBe("code");
+      expect(component.settingsDataEvidence).toBe("disabled");
+      expect(component.settingsFlowEvidence).toBe("enabled");
+      expect(component.settingsOperatorDoc).toBe("enabled");
     });
 
     it("closeSystemInfoModal hides the modal", () => {
@@ -605,6 +674,29 @@ describe("AgentChatComponent", () => {
         expect(agentService.updateAgentSettings).toHaveBeenCalledTimes(1);
         expect(agentService.updateAgentSettings).toHaveBeenCalledWith(AGENT_ID, { [key]: value });
         expect(notification.success).toHaveBeenCalledWith(toast);
+      });
+    });
+
+    // The evidence selects replace the retired Column Stats control, whose
+    // `columnStats` PATCH the agent-service rejects with a 400.
+    const evidenceCases = [
+      { method: "saveDataEvidence", prop: "settingsDataEvidence", key: "dataEvidence", toast: "Data evidence" },
+      { method: "saveFlowEvidence", prop: "settingsFlowEvidence", key: "flowEvidence", toast: "Flow evidence" },
+      { method: "saveOperatorDoc", prop: "settingsOperatorDoc", key: "operatorDoc", toast: "Operator doc" },
+    ] as const;
+
+    evidenceCases.forEach(({ method, prop, key, toast }) => {
+      it(`${method} sends only { ${key} } as a boolean and toasts the new state`, () => {
+        createComponent();
+        (component as any)[prop] = "disabled";
+        (component as any)[method]();
+        expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { [key]: false });
+        expect(notification.success).toHaveBeenLastCalledWith(`${toast} disabled`);
+
+        (component as any)[prop] = "enabled";
+        (component as any)[method]();
+        expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { [key]: true });
+        expect(notification.success).toHaveBeenLastCalledWith(`${toast} enabled`);
       });
     });
 
@@ -1142,6 +1234,194 @@ describe("AgentChatComponent", () => {
       component.buildSnapshotTree();
       expect(component.snapshotTimeRows[0].label).not.toBe("");
       expect(component.snapshotTimeRows[1].label).toBe("");
+    });
+  });
+
+  describe("dataflow versions", () => {
+    const versionsOutput = {
+      kind: "dataflow-actions",
+      actions: [
+        {
+          action: { type: "edit" },
+          status: "ok",
+          output: {
+            versions: [
+              { version: 1, snapshotId: "S3", kind: "add", operatorId: "records", author: "agent" },
+              { version: 2, snapshotId: "S2", kind: "add", operatorId: "kept", author: "agent" },
+            ],
+          },
+        },
+        { action: { type: "execute", operator_ids: ["kept"] }, status: "ok" },
+        { action: { type: "retrieve", operator_ids: ["kept"] }, status: "ok" },
+      ],
+    };
+    // v0 (start) → v1 → v2; S4 only ran the dataflow; v3 is the user's edit.
+    const tree = {
+      rootId: "S0",
+      headSnapshotId: "S4",
+      nodes: [
+        {
+          id: "S1",
+          parentId: "S0",
+          reactStepId: "i",
+          operatorCount: 0,
+          resultCount: 0,
+          timestamp: 1,
+          version: 0,
+          owned: true,
+          edit: { kind: "start", author: "agent" },
+        },
+        {
+          id: "S2",
+          parentId: "S3",
+          reactStepId: "a1",
+          operatorCount: 2,
+          resultCount: 2,
+          timestamp: 2,
+          version: 2,
+          owned: true,
+          edit: { kind: "add", operatorId: "kept", author: "agent" },
+        },
+        {
+          id: "S3",
+          parentId: "S1",
+          reactStepId: "a1",
+          operatorCount: 1,
+          resultCount: 0,
+          timestamp: 2,
+          version: 1,
+          owned: false,
+          edit: { kind: "add", operatorId: "records", author: "agent" },
+        },
+        { id: "S4", parentId: "S2", reactStepId: "a2", operatorCount: 2, resultCount: 2, timestamp: 3, owned: true },
+        {
+          id: "S5",
+          parentId: "S4",
+          reactStepId: "u1",
+          operatorCount: 2,
+          resultCount: 1,
+          timestamp: 4,
+          version: 3,
+          owned: true,
+          edit: { kind: "update", operatorId: "kept", author: "user" },
+        },
+      ],
+    } as any;
+
+    it("shows a step's edits with the versions they made, then what it ran and read", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({
+          id: "a1",
+          stepId: 1,
+          toolCalls: [{ toolName: "dataflow", toolCallId: "c1" }],
+          toolResults: [{ toolCallId: "c1", output: versionsOutput }],
+        }),
+      ]);
+      fixture.detectChanges();
+      const chips = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".react-card-action")).map(
+        chip => [
+          chip.querySelector(".chip-label")?.textContent?.trim(),
+          chip.querySelector(".chip-version")?.textContent?.trim(),
+        ]
+      );
+      expect(chips).toEqual([
+        ["add records", "v1"],
+        ["add kept", "v2"],
+        ["run kept", undefined],
+        ["show kept", undefined],
+      ]);
+    });
+
+    it("draws versions only, labeled by what changed, with HEAD on the version it shows", () => {
+      createComponent();
+      component.snapshotTree = tree;
+      component.buildSnapshotTree();
+      expect(component.snapshotNodes.map(n => [n.label, n.byUser])).toEqual([
+        ["v0 · start", false],
+        ["v1 · records", false],
+        ["v2 · kept", false],
+        ["v3 · kept", true],
+      ]);
+      // HEAD's snapshot only ran v2, so v2 is highlighted.
+      expect(component.snapshotNodes.find(n => n.isActive)?.label).toBe("v2 · kept");
+      expect(component.snapshotEdges.map(e => [e.sourceId, e.targetId])).toEqual([
+        ["S1", "S3"],
+        ["S3", "S2"],
+        ["S2", "S5"],
+      ]);
+    });
+
+    it("checks out a version by its snapshot", () => {
+      createComponent();
+      component.snapshotTree = tree;
+      component.buildSnapshotTree();
+      component.onSnapshotNodeClick(component.snapshotNodes[1]);
+      expect(agentService.checkoutVersion).toHaveBeenCalledWith(AGENT_ID, "S3");
+      expect(agentService.checkoutStep).not.toHaveBeenCalled();
+    });
+
+    it("plays the versions on the canvas without moving HEAD, then shows HEAD again", () => {
+      vi.useFakeTimers();
+      try {
+        createComponent();
+        const head = { wid: 1, name: "w", content: { operators: [] } } as any;
+        agentService.workflowSubject.next(head);
+        reloadWorkflow.mockClear();
+        component.snapshotTree = tree;
+        component.playSnapshots();
+        expect(agentService.getVersion).toHaveBeenLastCalledWith(AGENT_ID, "S1");
+        expect(reloadWorkflow).toHaveBeenLastCalledWith(
+          expect.objectContaining({ wid: 1, content: expect.objectContaining({ snapshotId: "S1" }) }),
+          false,
+          false
+        );
+        expect(component.snapshotNodes.find(n => n.isActive)?.id).toBe("S1");
+        vi.advanceTimersByTime(900 * 3);
+        expect(agentService.getVersion.mock.calls.map(call => call[1])).toEqual(["S1", "S3", "S2"]);
+        expect(agentService.checkoutVersion).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(900);
+        expect(component.isPlayingSnapshots).toBe(false);
+        expect(reloadWorkflow).toHaveBeenLastCalledWith(head, false, false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("tells a restore by the version it brought back, and tags a canvas edit with its version", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({
+          id: "e",
+          messageId: "e",
+          role: "user",
+          messageSource: "action",
+          userAction: { kind: "edit", operatorId: "kept", status: "ok", version: 3 },
+        }),
+        makeStep({
+          id: "r",
+          messageId: "r",
+          role: "user",
+          messageSource: "action",
+          userAction: { kind: "restore", operatorId: "records", status: "ok", version: 1 },
+        }),
+      ]);
+      fixture.detectChanges();
+      const rows = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".user-action")).map(row => [
+        row.querySelector(".user-action-text")?.textContent?.trim(),
+        row.querySelector(".chip-version")?.textContent?.trim(),
+      ]);
+      expect(rows).toEqual([
+        ["You edited `kept`", "v3"],
+        ["You restored v1", undefined],
+      ]);
+    });
+
+    it("saves whether the agent responds to canvas runs", () => {
+      createComponent();
+      component.settingsRespondToRuns = "wait";
+      component.saveRespondToRuns();
+      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { respondToCanvasRuns: false });
     });
   });
 });
