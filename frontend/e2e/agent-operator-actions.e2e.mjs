@@ -12,10 +12,10 @@
  *   5. an invalid edit is refused with the reason and records nothing
  *   6. Feedback on the filter: the agent answers in light of the user's edit,
  *      and its model input carried the edit and the run
- *   7. versions: each edit of the agent's calls and each canvas edit is a
- *      version (v1, v2, …) the chat lists and the version tree shows; a run
- *      is answered by the agent; clicking a version in the middle of a call
- *      restores it, as a step the agent reads
+ *   7. versions: each action of the agent's calls and of the canvas is a
+ *      version (v1, v2, …): the chat lists the edits, the version tree every
+ *      action under its verb; a run is answered by the agent; clicking a
+ *      version in the middle of a call restores it, as a step the agent reads
  *   8. docs: the agent writes a one-line doc for every operator and the
  *      canvas boxes show it
  *
@@ -224,12 +224,15 @@ async function treeLabels(page) {
 async function canvasCaptions(page) {
   return page.evaluate(() =>
     Object.fromEntries(
-      Array.from(document.querySelectorAll("texera-workflow-editor g.joint-element[model-id]")).map(el => {
-        const node = el.querySelector(".texera-operator-name");
-        const lines = node ? Array.from(node.querySelectorAll("tspan")).map(line => line.textContent) : [];
-        const text = lines.length ? lines.join(" ") : node?.textContent ?? "";
-        return [el.getAttribute("model-id"), text.replace(/\s+/g, " ").trim()];
-      })
+      Array.from(document.querySelectorAll("texera-workflow-editor #workflow-editor g.joint-element[model-id]"))
+        // Operators only: region overlays are elements of the paper too.
+        .filter(el => el.querySelector(".texera-operator-icon"))
+        .map(el => {
+          const node = el.querySelector(".texera-operator-name");
+          const lines = node ? Array.from(node.querySelectorAll("tspan")).map(line => line.textContent) : [];
+          const text = lines.length ? lines.join(" ") : node?.textContent ?? "";
+          return [el.getAttribute("model-id"), text.replace(/\s+/g, " ").trim()];
+        })
     )
   );
 }
@@ -320,7 +323,8 @@ async function main() {
     const tree = await treeLabels(page);
     check(
       "the version tree starts at v0 and has a version per edit",
-      tree[0] === "v0 · start" && ops.every(o => tree.some(label => label.endsWith(` · ${o.operatorID}`))),
+      tree[0] === "v0 start" &&
+        ops.every(o => tree.some(label => new RegExp(`^v\\d+ add ${o.operatorID}$`).test(label))),
       tree.join(" | ")
     );
     await shot("01-built");
@@ -355,7 +359,7 @@ async function main() {
     const stepsBefore = (await stepsOf(agent.id)).length;
     await domClick(panel(page).locator(".save-run-edit"));
     const shape = await until(async () => {
-      const text = await panel(page).locator(".result-shape").innerText();
+      const text = await panel(page).locator(".data-output .data-shape").innerText();
       return /^1 row\b/.test(text.trim()) && text.trim();
     }, 90000);
     check("Save & run shows the new result in the panel: 1 row", !!shape, shape ?? "(no result shape)");
@@ -379,12 +383,20 @@ async function main() {
       JSON.stringify(editStep?.userAction)
     );
     const userVersion = editStep?.userAction?.version;
-    check(
-      "the edit is a version of its own, by the user, in the tree",
-      typeof userVersion === "number" &&
+    // The tree shows each version once the canvas has played it.
+    const userVersions = await until(
+      async () =>
         (await chat(page)
-          .locator(".snapshot-node.by-user", { hasText: `v${userVersion} · ${filter.operatorID}` })
+          .locator(".snapshot-node.by-user", { hasText: `modify ${filter.operatorID}` })
+          .count()) === 1 &&
+        (await chat(page)
+          .locator(".snapshot-node.by-user", { hasText: `v${userVersion} show ${filter.operatorID}` })
           .count()) === 1,
+      10000
+    );
+    check(
+      "the edit and its run are versions of their own, by the user, in the tree",
+      typeof userVersion === "number" && !!userVersions,
       `v${userVersion}: ${(await treeLabels(page)).join(" | ")}`
     );
     // The agent answers the run in a turn of its own.
@@ -424,7 +436,7 @@ async function main() {
     check("the chat records the run", !!ran, rows.join(" | "));
     const sourceShape = (
       await panel(page)
-        .locator(".result-shape")
+        .locator(".data-output .data-shape")
         .innerText()
         .catch(() => "")
     ).trim();
@@ -495,11 +507,11 @@ async function main() {
 
     // ===== 8. restore a version from the middle of the agent's first call =====
     const versions = (await api(AGENT, "GET", `/api/agents/${agent.id}/snapshot-tree`)).json.nodes.filter(
-      node => node.version !== undefined && node.edit?.kind === "add" && node.edit?.operatorId === source.operatorID
+      node => node.version !== undefined && node.action?.kind === "add" && node.action?.operatorId === source.operatorID
     );
     const sourceVersion = versions[0];
     await domClick(
-      chat(page).locator(".snapshot-node", { hasText: `v${sourceVersion.version} · ${source.operatorID}` })
+      chat(page).locator(".snapshot-node", { hasText: `v${sourceVersion.version} add ${source.operatorID}` })
     );
     await until(async () => (await operatorsOf(agent.id)).length === 1, 20000);
     ops = await operatorsOf(agent.id);

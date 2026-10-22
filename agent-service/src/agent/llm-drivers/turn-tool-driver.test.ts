@@ -178,6 +178,41 @@ test("a reply without a tool call before any shown result is corrected, at most 
   expect(failed.error).toBeDefined();
 });
 
+test("a follow-up after the task was solved is answered in words, without a correction", async () => {
+  const f = fixture([
+    { call: SCAN },
+    { text: "Final Answer: 42" },
+    { text: "42 is the value in the only row of a.csv." },
+  ]);
+  await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
+  const followUp = await f.agent.sendMessage("Where does that number come from?");
+  expect(followUp.error).toBeUndefined();
+  expect(followUp.response).toBe("42 is the value in the only row of a.csv.");
+  expect(f.calls()).toBe(3);
+  expect(f.agent.getVisibleReActSteps().some(step => step.messageSource === "correction")).toBe(false);
+});
+
+test("a correction is the service's note, not the user's words; separate requests each show their own result", async () => {
+  const f = fixture([
+    { call: SCAN },
+    { text: "Final Answer: 42" },
+    { text: "As before, 42." },
+    { call: SCAN },
+    { text: "Final Answer: 42" },
+  ]);
+  f.agent.updateSettings({ multiRequest: "transcript" });
+  await f.agent.sendMessage("Read data/x/input/a.csv and report the value.");
+  const second = await f.agent.sendMessage("Read data/x/input/a.csv again and report the value.");
+  expect(second.response).toBe("Final Answer: 42");
+  const correction = f.agent.getVisibleReActSteps().find(step => step.content.startsWith("That reply was text"));
+  expect(correction).toMatchObject({
+    role: "user",
+    messageSource: "correction",
+    correction: "missing-action",
+    isBegin: false,
+  });
+});
+
 test("a reply cut off at the output limit is not the answer; the model gets a correction", async () => {
   const f = fixture([
     { call: SCAN },

@@ -107,6 +107,16 @@ const EXAMPLE_CODE_LATEST: string = rd("example.latest.code.md");
 const PROVENANCE_FRAGMENT =
   "\n- **Multi-file loads must carry provenance**: when one loader reads MULTIPLE files (glob/listdir), add a `__source_file` column recording each row's file before concatenating (`df['__source_file'] = path`). Grouping identity often lives ONLY in the file name (one file per state/station/year) — a row's content cannot recover which file it came from after concat, and deriving that identity from a name-suffix regex instead of the file is a known failure mode. Downstream, group by `__source_file` (or a column derived from it) whenever the question asks per-<unit> and <unit> matches the file layout.";
 
+/**
+ * The system prompt with the session's instructions appended
+ * (AgentSettings.instructions): what this agent should and should not do
+ * beyond its mode's prompt, e.g. a study's rules of engagement.
+ */
+export function withSessionInstructions(prompt: string, instructions: string | undefined): string {
+  const text = instructions?.trim();
+  return text ? `${prompt.trimEnd()}\n\n## Instructions for this session\n\n${text}\n` : prompt;
+}
+
 export function buildCodeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   compactionEnabled = false,

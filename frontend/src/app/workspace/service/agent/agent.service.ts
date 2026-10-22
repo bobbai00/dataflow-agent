@@ -41,6 +41,7 @@ import { WorkflowPersistService } from "../../../common/service/workflow-persist
 import { AppSettings } from "../../../common/app-setting";
 import { AgentState, ReActStep, ModelMessage, UserActionInfo } from "./agent-types";
 import { Workflow, WorkflowContent } from "../../../common/type/workflow";
+import { applyDataflowChange, DataflowProgress, ProgressPlayer } from "./dataflow-progress";
 import { ComputingUnitStatusService } from "../../../common/service/computing-unit/computing-unit-status/computing-unit-status.service";
 
 /**
@@ -86,6 +87,8 @@ export interface AgentSettingsApi {
   operatorDoc?: boolean;
   /** The agent responds when the user runs an operator from the canvas. */
   respondToCanvasRuns?: boolean;
+  /** Instructions for this session, appended to the system prompt. */
+  instructions?: string;
 }
 
 /** LLM driver picked at agent construction. `vercel-tool-use` is the
@@ -145,6 +148,10 @@ export interface OperatorResultSummary {
   /** Per-column stats JSON strings keyed by column name — the agent service's
    *  `OperatorResultSummaryWs.columnStats`. */
   columnStats?: Record<string, string>;
+  /** The result's columns and their types, when the engine reported them. */
+  resultSchema?: Array<{ name: string; type: string }>;
+  /** The engine reused the result from cache; its counts are the cached table's. */
+  cached?: true;
 }
 
 /**
@@ -160,24 +167,44 @@ export interface SnapshotTreeNode {
   reactStepId: string | undefined;
   operatorCount: number;
   resultCount: number;
-  /** Epoch ms of the owning ReAct step (null for the root / unknown). */
+  /** Epoch ms when the snapshot was made: for a version, when its action happened. */
   timestamp?: number | null;
-  /** The dataflow version (v0, v1, …) when an edit made this snapshot;
-   *  absent when its step only ran or read the dataflow. */
+  /** The dataflow version (v0, v1, …) when an action made this snapshot. */
   version?: number;
-  edit?: SnapshotEdit;
-  /** The step's own snapshot (its final state), not one of its earlier versions. */
+  action?: VersionAction;
+  /** A run version in which an operator it computed failed. */
+  failed?: true;
+  /** The step's own snapshot (its newest version), not one of its earlier versions. */
   owned?: boolean;
 }
 
-/** What one edit did to the dataflow (agent-service `SnapshotEdit`). */
-export interface SnapshotEdit {
-  kind: "add" | "update" | "delete" | "define" | "start" | "edit";
+/** One action a version records (agent-service `VersionAction`): an edit of
+ * one operator (add, update, delete), Python definitions (define), the
+ * dataflow the agent started from (start), several operators at once (edit),
+ * a run, or results shown. */
+export interface VersionAction {
+  kind: "add" | "update" | "delete" | "define" | "start" | "edit" | "run" | "show";
   operatorId?: string;
   op?: string;
+  /** The operators an "edit" changed, a "run" computed (absent: the whole dataflow) or a "show" read. */
   operatorIds?: string[];
   functions?: string[];
   author: "agent" | "user";
+}
+
+/** A version as a step's tool result and a progress event report it. */
+export interface VersionInfo extends VersionAction {
+  version: number;
+  snapshotId: string;
+  /** When its action happened (epoch ms); absent from steps recorded before it was kept. */
+  timestamp?: number;
+}
+
+/** One version's dataflow and every operator's result at it (`GET /api/agents/:id/versions/:snapshotId`). */
+export interface VersionPreview {
+  version: number;
+  workflow: WorkflowContent;
+  operatorResults?: Record<string, OperatorResultSummary>;
 }
 
 /** What the agent-service answers for a canvas edit or run of a native operator. */
@@ -264,6 +291,10 @@ interface AgentStateTracking {
    *  backend reports the first nextContext frame. */
   nextContextSubject: BehaviorSubject<string>;
   workflowSubject: BehaviorSubject<Workflow | null>;
+  /** Plays the agent's progress on the canvas one version at a time. */
+  player: ProgressPlayer;
+  /** The version the canvas shows while progress plays; null once it caught up. */
+  liveVersionSubject: BehaviorSubject<number | null>;
   workflowId?: number;
   stopPolling$: Subject<void>;
   /** When true, workflow updates come from WS — polling is suppressed */
@@ -286,6 +317,8 @@ interface AgentStateTracking {
 export class AgentService {
   /** Base URL for agent service API */
   private readonly AGENT_API_BASE = "/api";
+  /** How long the canvas shows each version of a running call before the next. */
+  public static readonly PROGRESS_FRAME_MS = 400;
 
   /** Local cache of agent info */
   private agents = new Map<string, AgentInfo>();
@@ -434,6 +467,7 @@ export class AgentService {
       id: apiStep.id || `${apiStep.messageId}-${apiStep.stepId || 0}`,
       parentId: apiStep.parentId,
       messageSource: apiStep.messageSource,
+      correction: apiStep.correction,
       userAction: apiStep.userAction,
     };
   }
@@ -446,6 +480,7 @@ export class AgentService {
   private getOrCreateStateTracking(agentId: string, workflowId?: number): AgentStateTracking {
     let tracking = this.agentStateTracking.get(agentId);
     if (!tracking) {
+      const liveVersionSubject = new BehaviorSubject<number | null>(null);
       tracking = {
         stateSubject: new BehaviorSubject<AgentState>(AgentState.UNAVAILABLE),
         reActStepsSubject: new BehaviorSubject<ReActStep[]>([]),
@@ -457,6 +492,8 @@ export class AgentService {
         headIdSubject: new BehaviorSubject<string | null>(null),
         nextContextSubject: new BehaviorSubject<string>(""),
         workflowSubject: new BehaviorSubject<Workflow | null>(null),
+        player: new ProgressPlayer(AgentService.PROGRESS_FRAME_MS, () => liveVersionSubject.next(null)),
+        liveVersionSubject,
         workflowId,
         stopPolling$: new Subject<void>(),
         wsWorkflowActive: false,
@@ -542,7 +579,9 @@ export class AgentService {
   private handleWebSocketMessage(agentId: string, tracking: AgentStateTracking, message: any): void {
     switch (message.type) {
       case "init":
-        // Initial state and steps
+        // A (re)connection shows the agent as it is now.
+        tracking.player.flush();
+        this.runningOperatorsSubject.next(new Set());
         if (message.state) {
           tracking.stateSubject.next(this.mapStateToAgentState(message.state));
         }
@@ -601,18 +640,25 @@ export class AgentService {
         }
         break;
 
+      case "progress":
+        // One version of a running call; the canvas plays them in order.
+        tracking.player.push(() => this.applyProgress(tracking, message as DataflowProgress), true);
+        break;
+
       case "snapshot":
         // The agent's snapshot storage recorded a new workflow at the given
         // step id. Refresh the local workflow view so the panel renders the
-        // post-step DAG.
+        // post-step DAG, after the versions before it have played.
         if (message.workflow) {
-          tracking.wsWorkflowActive = true;
-          const existingWorkflow = tracking.workflowSubject.getValue();
-          const workflow = {
-            ...(existingWorkflow || {}),
-            content: message.workflow,
-          } as Workflow;
-          tracking.workflowSubject.next(workflow);
+          tracking.player.push(() => {
+            tracking.wsWorkflowActive = true;
+            const existingWorkflow = tracking.workflowSubject.getValue();
+            const workflow = {
+              ...(existingWorkflow || {}),
+              content: message.workflow,
+            } as Workflow;
+            tracking.workflowSubject.next(workflow);
+          }, false);
         }
         break;
 
@@ -628,14 +674,19 @@ export class AgentService {
         if (message.state) {
           tracking.stateSubject.next(this.mapStateToAgentState(message.state));
         }
-        // Update operator results on completion
-        if (message.operatorResults) {
-          this.updateOperatorResultSummaries(message.operatorResults);
-        }
+        // The final results, once the versions before them have played.
+        tracking.player.push(() => {
+          this.runningOperatorsSubject.next(new Set());
+          if (message.operatorResults) {
+            this.updateOperatorResultSummaries(message.operatorResults);
+          }
+        }, false);
         break;
 
       case "headChange":
         // HEAD moved (checkout) — update HEAD, visible steps, and workflow
+        tracking.player.flush();
+        this.runningOperatorsSubject.next(new Set());
         if (message.headId !== undefined) {
           tracking.headIdSubject.next(message.headId);
         }
@@ -670,6 +721,7 @@ export class AgentService {
       case "error":
         // Error occurred
         console.error(`Agent ${agentId} error:`, message.error);
+        tracking.player.push(() => this.runningOperatorsSubject.next(new Set()), false);
 
         // If agent not found on backend (e.g., backend restarted), clean up local state
         if (message.error === "Agent not found") {
@@ -686,6 +738,19 @@ export class AgentService {
       default:
         console.warn("Unknown agent WebSocket message type:", message.type);
     }
+  }
+
+  /** Show one version of a running call: the dataflow after an edit, the
+   * operators a run computes, the results a finished run or a show left. */
+  private applyProgress(tracking: AgentStateTracking, progress: DataflowProgress): void {
+    const workflow = tracking.workflowSubject.getValue();
+    if (progress.dataflow && workflow) {
+      tracking.wsWorkflowActive = true;
+      tracking.workflowSubject.next({ ...workflow, content: applyDataflowChange(workflow.content, progress.dataflow) });
+    }
+    if (progress.running) this.runningOperatorsSubject.next(new Set(progress.running));
+    if (progress.operatorResults) this.updateOperatorResultSummaries(progress.operatorResults);
+    tracking.liveVersionSubject.next(progress.version.version);
   }
 
   /**
@@ -1255,12 +1320,21 @@ export class AgentService {
     );
   }
 
-  /** One version's dataflow, to preview it without moving HEAD. */
-  public getVersion(agentId: string, snapshotId: string): Observable<{ version: number; workflow: WorkflowContent }> {
-    return this.http.get<{ version: number; workflow: WorkflowContent }>(
+  /** One version's dataflow and results, to preview it without moving HEAD. */
+  public getVersion(agentId: string, snapshotId: string): Observable<VersionPreview> {
+    return this.http.get<VersionPreview>(
       `${this.AGENT_API_BASE}/agents/${agentId}/versions/${encodeURIComponent(snapshotId)}`,
       this.agentHeaders(agentId)
     );
+  }
+
+  /**
+   * The version the canvas shows while an agent's progress plays (the chat
+   * and the version tree hold back what it has not shown yet); null once the
+   * canvas has caught up.
+   */
+  public getLiveVersionObservable(agentId: string): Observable<number | null> {
+    return this.agentStateTracking.get(agentId)?.liveVersionSubject.asObservable() ?? of(null);
   }
 
   /** The workflow the agent shows at HEAD, as last received. */
@@ -1567,6 +1641,10 @@ export class AgentService {
   private operatorResultSummariesSubject = new BehaviorSubject<Map<string, OperatorResultSummary>>(new Map());
   public operatorResultSummaries$ = this.operatorResultSummariesSubject.asObservable();
 
+  /** Operators an agent's run is computing right now. */
+  private runningOperatorsSubject = new BehaviorSubject<ReadonlySet<string>>(new Set());
+  public runningOperators$ = this.runningOperatorsSubject.asObservable();
+
   /**
    * Toggle operator result annotations on/off.
    * When toggling on, fetches the latest results from the active agent.
@@ -1588,6 +1666,11 @@ export class AgentService {
   /** The current operator result summaries (operatorId → summary). */
   public getOperatorResultSummaries(): Map<string, OperatorResultSummary> {
     return this.operatorResultSummariesSubject.getValue();
+  }
+
+  /** Show these results on the canvas, e.g. a version's while version playback previews it. */
+  public showOperatorResults(results: Record<string, OperatorResultSummary>): void {
+    this.updateOperatorResultSummaries(results);
   }
 
   /**

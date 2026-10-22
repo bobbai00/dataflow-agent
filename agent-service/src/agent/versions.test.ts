@@ -17,7 +17,7 @@
  * under the License.
  */
 
-/** Dataflow versions: one snapshot per edit (see SnapshotEdit). */
+/** Dataflow versions: one snapshot per action (see VersionAction). */
 import { describe, expect, test } from "bun:test";
 import type { OperatorInfo } from "../types/execution";
 import type { WorkflowContent } from "../types/workflow";
@@ -48,19 +48,19 @@ const edit = (kind: "add" | "update" | "delete", operatorId: string) => ({
   author: "agent" as const,
 });
 
-describe("the snapshot storage keeps one version per edit", () => {
-  test("a step's edits chain as versions before its own snapshot, which stays its final state", () => {
+describe("the snapshot storage keeps one version per action", () => {
+  test("a step's actions chain as versions that keep their snapshots; the step resolves to its newest", () => {
     const store = new WorkflowSnapshotStorage(path);
-    const start = store.createSnapshot("A", workflow(["a"]), { edit: { kind: "start", author: "agent" } });
+    const start = store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } });
     store.setOperatorResult("A", "a", info(3));
     const pending = store.createSnapshot("B", workflow(["a"]));
-    // A step that leaves the dataflow as it was is no version.
+    // A step that leaves the dataflow as it was is no version until it records one.
     expect(pending.version).toBeUndefined();
 
-    const recorded = store.recordEdits("B", [
-      { edit: edit("add", "b"), workflow: workflow(["a", "b"], [["a", "b"]]) },
+    const edits = store.recordVersions("B", [
+      { action: edit("add", "b"), workflow: workflow(["a", "b"], [["a", "b"]]), createdAt: 1000 },
       {
-        edit: edit("add", "c"),
+        action: edit("add", "c"),
         workflow: workflow(
           ["a", "b", "c"],
           [
@@ -68,48 +68,77 @@ describe("the snapshot storage keeps one version per edit", () => {
             ["b", "c"],
           ]
         ),
+        createdAt: 1001,
       },
     ]);
-
-    expect(recorded.map(s => [s.version, s.edit?.operatorId, ops(s.workflow)])).toEqual([
-      [1, "b", ["a", "b"]],
-      [2, "c", ["a", "b", "c"]],
+    expect(edits.map(s => [s.version, s.action?.operatorId, ops(s.workflow), s.createdAt])).toEqual([
+      [1, "b", ["a", "b"], 1000],
+      [2, "c", ["a", "b", "c"], 1001],
     ]);
-    expect(start.version).toBe(0);
-    expect(recorded[0].parentId).toBe(start.id);
-    expect(recorded[1]).toBe(pending);
-    expect(pending.parentId).toBe(recorded[0].id);
-    expect(store.getOwnedSnapshot("B")).toBe(pending);
-    expect(store.getWorkflow("B")).toBe(pending.workflow);
+    // The step's pending snapshot became its first version.
+    expect(edits[0]).toBe(pending);
+    expect(pending.parentId).toBe(start.id);
+    expect(edits[1].parentId).toBe(pending.id);
     // Each version carries the results still current for it.
-    expect(recorded[0].results.has("a")).toBe(true);
+    expect(pending.results.has("a")).toBe(true);
+
+    // A run and a show are versions too, of the dataflow as it stands; the run's results land on it.
+    const [run] = store.recordVersions("B", [{ action: { kind: "run", author: "agent" } }]);
+    store.setOperatorResult("B", "c", info(2));
+    const [show] = store.recordVersions("B", [{ action: { kind: "show", operatorIds: ["c"], author: "agent" } }]);
+    expect([run.version, show.version]).toEqual([3, 4]);
+    expect(ops(run.workflow)).toEqual(["a", "b", "c"]);
+    expect(run.results.get("c")?.info.outputTuples).toBe(2);
+    expect(edits[1].results.has("c")).toBe(false);
+    expect(show.results.get("c")?.info).toBe(run.results.get("c")?.info);
+    expect(show.createdAt).toBeGreaterThanOrEqual(run.createdAt);
+
+    // Every version keeps its id; the step resolves to the newest.
+    expect(store.getOwnedSnapshot("B")).toBe(show);
+    expect(store.getStepVersions("B").map(v => v.id)).toEqual([pending.id, edits[1].id, run.id, show.id]);
+    expect(store.getWorkflow("B")).toBe(show.workflow);
     expect(store.getOperatorResult("B", "a")).toEqual(info(3));
     expect(
-      store.getSnapshotTreeNodes().map(node => [node.version, node.edit?.kind, node.owned, node.reactStepId])
+      store.getSnapshotTreeNodes().map(node => [node.version, node.action?.kind, node.owned, node.reactStepId])
     ).toEqual([
       [undefined, undefined, false, undefined],
       [0, "start", true, "A"],
-      [2, "add", true, "B"],
       [1, "add", false, "B"],
+      [2, "add", false, "B"],
+      [3, "run", false, "B"],
+      [4, "show", true, "B"],
     ]);
+    expect(store.getSnapshotTreeNodes().find(node => node.id === pending.id)?.timestamp).toBe(1000);
   });
 
-  test("a completed step's snapshot cannot take more edits; pruning and clearing drop versions", () => {
+  test("a run version in which an operator failed says so", () => {
     const store = new WorkflowSnapshotStorage(path);
-    store.createSnapshot("A", workflow(["a"]), { edit: { kind: "start", author: "agent" } });
+    store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } });
+    const [run] = store.recordVersions("A", [{ action: { kind: "run", operatorIds: ["a"], author: "user" } }]);
+    expect(store.getSnapshotTreeNodes().find(node => node.id === run.id)?.failed).toBeUndefined();
+    store.setOperatorResult("A", "a", { ...info(0), state: "Failed", error: "boom" } as OperatorInfo);
+    expect(store.getSnapshotTreeNodes().find(node => node.id === run.id)).toMatchObject({
+      action: { kind: "run", operatorIds: ["a"], author: "user" },
+      failed: true,
+    });
+  });
+
+  test("a completed step takes no more versions; pruning and clearing drop them", () => {
+    const store = new WorkflowSnapshotStorage(path);
+    store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } });
     store.createSnapshot("B", workflow(["a"]));
-    store.recordEdits("B", [
-      { edit: edit("add", "b"), workflow: workflow(["a", "b"]) },
-      { edit: edit("add", "c"), workflow: workflow(["a", "b", "c"]) },
+    store.recordVersions("B", [
+      { action: edit("add", "b"), workflow: workflow(["a", "b"]) },
+      { action: edit("add", "c"), workflow: workflow(["a", "b", "c"]) },
     ]);
     store.createSnapshot("C", workflow(["a", "b", "c"]));
-    expect(() => store.recordEdits("B", [{ edit: edit("delete", "c"), workflow: workflow(["a", "b"]) }])).toThrow(
+    expect(() => store.recordVersions("B", [{ action: edit("delete", "c"), workflow: workflow(["a", "b"]) }])).toThrow(
       "Cannot change a completed snapshot"
     );
     store.pruneOrphans(new Set(["A"]));
     expect(store.getSnapshotTreeNodes().map(node => node.reactStepId)).toEqual([undefined, "A"]);
     store.clear();
-    expect(store.createSnapshot("A", workflow(["a"]), { edit: { kind: "start", author: "agent" } }).version).toBe(0);
+    expect(store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } }).version).toBe(0);
   });
 
   test("a snapshot whose dataflow changed without recorded edits describes the change", () => {
@@ -135,7 +164,7 @@ describe("the snapshot storage keeps one version per edit", () => {
     expect(describeChange(workflow(["a"]), moved)).toBeUndefined();
 
     const store = new WorkflowSnapshotStorage(path);
-    const restored = store.createSnapshot("A", workflow(["a"]), { edit: { kind: "start", author: "agent" } });
+    const restored = store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } });
     store.createSnapshot("B", workflow(["a", "b"]));
     // A restore continues from the version it restores, without being one.
     const restore = store.createSnapshot("C", workflow(["a"]), { parentSnapshotId: restored.id });
@@ -161,7 +190,7 @@ describe("a call's edits, one version each", () => {
       "set top: limit(rows, n=1)\nset rows: scan(files='a.csv')\nset kept: filter(rows, lambda row: True)"
     );
     const versions = editVersions(original, planned);
-    expect(versions.map(v => [v.edit.kind, v.edit.operatorId, ops(v.workflow).sort()])).toEqual([
+    expect(versions.map(v => [v.action.kind, v.action.operatorId, ops(v.workflow).sort()])).toEqual([
       ["add", "rows", ["rows"]],
       ["add", "top", ["rows", "top"]],
       ["add", "kept", ["kept", "rows", "top"]],
@@ -180,18 +209,18 @@ describe("a call's edits, one version each", () => {
     ).workflow;
     const planned = await plan(original, "delete two\nset top: limit(rows, n=3)");
     const versions = editVersions(original, planned, "user");
-    expect(versions.map(v => [v.edit.kind, v.edit.operatorId, v.edit.author, ops(v.workflow).sort()])).toEqual([
+    expect(versions.map(v => [v.action.kind, v.action.operatorId, v.action.author, ops(v.workflow).sort()])).toEqual([
       ["delete", "two", "user", ["rows", "top"]],
       ["update", "top", "user", ["rows", "top"]],
     ]);
     expect(versions[0].workflow.links.map(link => link.target.operatorID)).toEqual(["top"]);
 
     const defined = await plan(original, "", "def double(table):\n    return table");
-    expect(editVersions(original, defined).map(v => v.edit)).toEqual([
+    expect(editVersions(original, defined).map(v => v.action)).toEqual([
       { kind: "define", functions: ["double"], author: "agent" },
     ]);
     const used = await plan(original, "set wide: double(rows)", "def double(table):\n    return table");
-    expect(editVersions(original, used).map(v => v.edit)).toEqual([
+    expect(editVersions(original, used).map(v => v.action)).toEqual([
       { kind: "add", operatorId: "wide", op: "double", functions: ["double"], author: "agent" },
     ]);
     expect(editVersions(original, await plan(original, "set top: limit(rows, n=1)"))).toEqual([]);

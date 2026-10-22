@@ -76,8 +76,11 @@ export interface ReActStep {
   id: string;
   /** Parent step ID — forms the version tree */
   parentId?: string;
-  /** Source of the user message: "chat", "feedback", or "action" (a canvas edit or run) */
+  /** Source of the user message: "chat", "feedback", "action" (a canvas edit or run), or "correction"
+   *  (the agent service's note to the model in a turn, not the user's words). */
   messageSource?: string;
+  /** On a "correction" step: what the service noted (agent-service `ReActStep.correction`). */
+  correction?: "step-budget" | "repeated-failure" | "missing-action" | "cut-off" | "answer-statement";
   /** Set on a user step recording a canvas action. */
   userAction?: UserActionInfo;
 }

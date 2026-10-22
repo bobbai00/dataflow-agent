@@ -84,38 +84,15 @@
 
 .chat-popover {
   position: relative;
-  width: 400px;
-  max-height: 400px;
   background: white;
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-
-  &.chat-popover-visualization {
-    width: 620px;
-    max-height: 480px;
-  }
-
-  // A native operator's panel sizes to its mode: actions only, or a body below them.
-  &.chat-popover-native {
-    width: auto;
-    max-height: 600px;
-  }
 }
 
 .chat-popover-content {
-  padding: 12px;
   overflow-y: auto;
-  max-height: 400px;
-
-  .chat-popover-visualization & {
-    max-height: 480px;
-  }
-
-  .chat-popover-native & {
-    max-height: 600px;
-    padding: 0;
-  }
+  max-height: min(600px, 70vh);
 }

@@ -792,6 +792,7 @@ function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
     if (
       n.step.role === "user" &&
       n.step.messageSource !== "feedback" &&
+      n.step.messageSource !== "correction" &&
       n.step.messageSource !== "action" &&
       n.step.content
     )

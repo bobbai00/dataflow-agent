@@ -56,7 +56,6 @@ import { ExecuteWorkflowService } from "../service/execute-workflow/execute-work
 import { WorkflowResultService } from "../service/workflow-result/workflow-result.service";
 import { checkIfWorkflowBroken } from "../../common/util/workflow-check";
 import { NzSpinComponent } from "ng-zorro-antd/spin";
-import { ResultPanelComponent } from "./result-panel/result-panel.component";
 import { WorkflowEditorComponent } from "./workflow-editor/workflow-editor.component";
 import { MenuComponent } from "./menu/menu.component";
 import { MiniMapComponent } from "./workflow-editor/mini-map/mini-map.component";
@@ -78,7 +77,6 @@ export const SAVE_DEBOUNCE_TIME_IN_MS = 5000;
   ],
   imports: [
     NzSpinComponent,
-    ResultPanelComponent,
     WorkflowEditorComponent,
     MenuComponent,
     MiniMapComponent,

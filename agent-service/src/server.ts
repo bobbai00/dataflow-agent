@@ -30,9 +30,12 @@ import { NATIVE_OPERATORS } from "./agent/native/catalog";
 import { describeNativeStatement } from "./agent/native/statement-form";
 import { UserActionError, type UserActionRequest } from "./agent/user-actions";
 import {
-  operatorInfoToSummary,
+  operatorResultSummaries,
   type OperatorResultSummary as OperatorResultSummaryWs,
 } from "./api/operator-result-summary";
+import { isDeepStrictEqual } from "node:util";
+import { changesDataflow, type SnapshotData, type VersionInfo } from "./agent/workflow-snapshot-storage";
+import type { DataflowProgress } from "./agent/tools/dataflow-action-runtime";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
 import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
@@ -463,6 +466,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     flowEvidence: agentSettings.flowEvidence,
     operatorDoc: agentSettings.operatorDoc,
     respondToCanvasRuns: agentSettings.respondToCanvasRuns,
+    instructions: agentSettings.instructions,
     answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     resultSelection: agentSettings.resultSelection,
@@ -730,6 +734,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: settings.flowEvidence,
             operatorDoc: settings.operatorDoc,
             respondToCanvasRuns: settings.respondToCanvasRuns,
+            instructions: settings.instructions,
             answerStatement: settings.answerStatement,
             nativeChecks: settings.nativeChecks,
             resultSelection: (settings as any).resultSelection,
@@ -817,6 +822,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             flowEvidence: t.Optional(t.Boolean()),
             operatorDoc: t.Optional(t.Boolean()),
             respondToCanvasRuns: t.Optional(t.Boolean()),
+            instructions: t.Optional(t.String({ maxLength: 20000 })),
             answerStatement: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -974,14 +980,21 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     { body: t.Object({ snapshotId: t.String() }) }
   )
 
-  /** One version's dataflow, to preview it (version playback) without moving HEAD. */
+  /** One version's dataflow and results, to preview it (version playback) without moving HEAD. */
   .get("/:id/versions/:snapshotId", ({ params: { id, snapshotId }, set }) => {
     const snapshot = getAgent(id).getSnapshotStorage().getSnapshotById(snapshotId);
     if (!snapshot || snapshot.version === undefined) {
       set.status = 404;
       return { error: `There is no version ${snapshotId}.` };
     }
-    return { id: snapshot.id, version: snapshot.version, edit: snapshot.edit, workflow: snapshot.workflow };
+    return {
+      id: snapshot.id,
+      version: snapshot.version,
+      action: snapshot.action,
+      timestamp: snapshot.createdAt,
+      workflow: snapshot.workflow,
+      operatorResults: versionResults(snapshot),
+    };
   })
 
   /**
@@ -994,25 +1007,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     const agent = getAgent(id);
     const storage = agent.getSnapshotStorage();
     const rootId = storage.getRootSnapshotId();
-    // Each snapshot's timestamp is the time of its owning ReAct step. Use
-    // getAllSteps (includes the hidden init step) so the first snapshot also
-    // gets one.
-    const stepTimes = new Map(agent.getAllSteps().map(s => [s.id, s.timestamp]));
     // Exclude the synthetic empty-root snapshot ("S0"). It is a structural
     // placeholder with no workflow of its own; its children (the first real
     // snapshots) become the visible top-level nodes. `rootId` is still returned
-    // so clients can resolve the "no active snapshot" fallback.
+    // so clients can resolve the "no active snapshot" fallback. Each node's
+    // timestamp is when its action happened.
     return {
       rootId,
       // The snapshot HEAD shows; the version tree marks its nearest version.
       headSnapshotId: storage.getAssociatedSnapshot(agent.getHead()).id,
-      nodes: storage
-        .getSnapshotTreeNodes()
-        .filter(n => n.id !== rootId)
-        .map(n => ({
-          ...n,
-          timestamp: n.reactStepId !== undefined ? (stepTimes.get(n.reactStepId) ?? null) : null,
-        })),
+      nodes: storage.getSnapshotTreeNodes().filter(n => n.id !== rootId),
     };
   })
 
@@ -1044,11 +1048,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       return { stepId: null, workflow: null, workflowSourceStepId: null, results: {} };
     }
     const workflowEntry = storage.getResolvedWorkflow(resolvedStepId);
-    const visibleResults = storage.getAllVisibleResults(resolvedStepId);
-    const results: Record<string, OperatorResultSummaryWs> = {};
-    for (const [opId, info] of visibleResults) {
-      results[opId] = operatorInfoToSummary(info);
-    }
+    const results = operatorResultSummaries(storage.getAllVisibleResults(resolvedStepId), workflowEntry.value);
     return {
       stepId: resolvedStepId,
       workflow: workflowEntry?.value ?? null,
@@ -1271,6 +1271,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: settings.flowEvidence,
         operatorDoc: settings.operatorDoc,
         respondToCanvasRuns: settings.respondToCanvasRuns,
+        instructions: settings.instructions,
         answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         resultSelection: (settings as any).resultSelection,
@@ -1343,6 +1344,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: t.Optional(t.Boolean()),
         operatorDoc: t.Optional(t.Boolean()),
         respondToCanvasRuns: t.Optional(t.Boolean()),
+        instructions: t.Optional(t.String({ maxLength: 20000 })),
         answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -1393,7 +1395,7 @@ interface WsMessage {
 }
 
 interface WsOutgoingMessage {
-  type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext" | "snapshot";
+  type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext" | "snapshot" | "progress";
   step?: ReActStep;
   state?: string;
   error?: string;
@@ -1409,17 +1411,83 @@ interface WsOutgoingMessage {
   stepId?: string;
   /** For "snapshot" events: the freshly recorded workflow content. */
   workflow?: any;
+  /** For "progress" events: the version an action of a running call recorded. */
+  version?: VersionInfo;
+  /** For "progress" events of an edit: what it changed, on top of the dataflow
+   * the client has (DataflowChange). */
+  dataflow?: DataflowChange;
+  /** For "progress" events of a run: the operators it computes; [] once it finished. */
+  running?: string[];
+}
+
+/** An edit's change to the dataflow: the operators it added or changed, in
+ * full; the ones it removed; and the links and positions after it. Sending
+ * only these keeps each event small, as a native operator carries its runtime. */
+interface DataflowChange {
+  operators: unknown[];
+  removed: string[];
+  links: unknown[];
+  operatorPositions: Record<string, unknown>;
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
   const head = agent.getHead();
   if (!head) return {};
-  const visible = agent.getSnapshotStorage().getAllVisibleResults(head);
-  const results: Record<string, OperatorResultSummaryWs> = {};
-  for (const [opId, info] of visible) {
-    results[opId] = operatorInfoToSummary(info);
+  const storage = agent.getSnapshotStorage();
+  return operatorResultSummaries(storage.getAllVisibleResults(head), storage.getWorkflow(head));
+}
+
+/** Every operator's result at one version. */
+function versionResults(snapshot: SnapshotData): Record<string, OperatorResultSummaryWs> {
+  return operatorResultSummaries(
+    new Map([...snapshot.results].map(([operatorId, entry]) => [operatorId, entry.info])),
+    snapshot.workflow
+  );
+}
+
+/** A "progress" event for a version a running call recorded: an edit carries
+ * its change to the dataflow; a run, the operators it computes, then, like a
+ * show, every operator's result at that version. */
+function progressMessage(agent: TexeraAgent, stepId: string, progress: DataflowProgress): WsOutgoingMessage {
+  const storage = agent.getSnapshotStorage();
+  const snapshot = storage.getSnapshotById(progress.version.snapshotId);
+  const message: WsOutgoingMessage = { type: "progress", stepId, version: progress.version };
+  if (!snapshot) return message;
+  if (changesDataflow(progress.version)) {
+    const previous = snapshot.parentId ? storage.getSnapshotById(snapshot.parentId)?.workflow : undefined;
+    const before = new Map((previous?.operators ?? []).map(op => [op.operatorID, op]));
+    const after = new Set(snapshot.workflow.operators.map(op => op.operatorID));
+    message.dataflow = {
+      operators: snapshot.workflow.operators.filter(op => !isDeepStrictEqual(before.get(op.operatorID), op)),
+      removed: [...before.keys()].filter(operatorId => !after.has(operatorId)),
+      links: snapshot.workflow.links,
+      operatorPositions: snapshot.workflow.operatorPositions,
+    };
   }
-  return results;
+  if (progress.running) message.running = progress.running;
+  if (progress.version.kind === "show" || progress.running?.length === 0)
+    message.operatorResults = versionResults(snapshot);
+  return message;
+}
+
+/** Stream what a running turn or canvas action records to the agent's
+ * WebSocket clients: each step as it lands or changes, each version a
+ * dataflow call records, and each snapshot write. */
+function streamAgentEvents(agentId: string, agent: TexeraAgent): void {
+  agent.setStepCallback(step => {
+    // Never stream the synthetic init step to clients.
+    if (TexeraAgent.isInitializationStep(step)) return;
+    broadcastToAgent(agentId, { type: "step", step });
+    broadcastNextContext(agentId, agent);
+  });
+  agent.setSnapshotCallback((stepId, workflow) => broadcastToAgent(agentId, { type: "snapshot", stepId, workflow }));
+  agent.setProgressCallback((stepId, progress) => broadcastToAgent(agentId, progressMessage(agent, stepId, progress)));
+}
+
+function stopAgentEvents(agent: TexeraAgent): void {
+  agent.setStepCallback(null);
+  agent.setSnapshotCallback(null);
+  agent.setProgressCallback(null);
 }
 
 function broadcastToAgent(agentId: string, message: WsOutgoingMessage): void {
@@ -1444,25 +1512,11 @@ function broadcastToAgent(agentId: string, message: WsOutgoingMessage): void {
  * frame. A failed turn sends an error frame.
  */
 async function streamTurn(agentId: string, agent: TexeraAgent, run: () => Promise<AgentMessageResult>): Promise<void> {
-  agent.setStepCallback((step: ReActStep) => {
-    // Never stream the synthetic init step to clients.
-    if (TexeraAgent.isInitializationStep(step)) return;
-    const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
-    broadcastToAgent(agentId, {
-      type: "step",
-      step,
-      ...(hasToolCalls ? { operatorResults: getOperatorResultSummaries(agent) } : {}),
-    });
-    broadcastNextContext(agentId, agent);
-  });
-  agent.setSnapshotCallback((stepId, workflow) => {
-    broadcastToAgent(agentId, { type: "snapshot", stepId, workflow });
-  });
+  streamAgentEvents(agentId, agent);
   broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
   try {
     const result = await run();
-    agent.setStepCallback(null);
-    agent.setSnapshotCallback(null);
+    stopAgentEvents(agent);
     const allSteps = agent.getReActSteps();
     const lastStep = allSteps[allSteps.length - 1];
     if (lastStep && lastStep.isEnd && !TexeraAgent.isInitializationStep(lastStep)) {
@@ -1476,8 +1530,7 @@ async function streamTurn(agentId: string, agent: TexeraAgent, run: () => Promis
     broadcastNextContext(agentId, agent);
     wsLog.info({ agentId, steps: result.messages.length }, "agent run complete");
   } catch (error: any) {
-    agent.setStepCallback(null);
-    agent.setSnapshotCallback(null);
+    stopAgentEvents(agent);
     broadcastToAgent(agentId, { type: "error", error: error.message });
     broadcastToAgent(agentId, { type: "state", state: agent.getState() });
   }
@@ -1499,11 +1552,7 @@ async function runUserAction(agentId: string, action: UserActionRequest, set: { 
   let recorded = false;
   // A run the agent answers: its turn starts once the action is streamed.
   let respondTo: ReActStep | undefined;
-  agent.setStepCallback(step => {
-    broadcastToAgent(agentId, { type: "step", step, operatorResults: getOperatorResultSummaries(agent) });
-    broadcastNextContext(agentId, agent);
-  });
-  agent.setSnapshotCallback((stepId, workflow) => broadcastToAgent(agentId, { type: "snapshot", stepId, workflow }));
+  streamAgentEvents(agentId, agent);
   try {
     const outcome = await agent.applyUserAction(action, () => {
       recorded = true;
@@ -1525,8 +1574,7 @@ async function runUserAction(agentId: string, action: UserActionRequest, set: { 
     }
     throw error;
   } finally {
-    agent.setStepCallback(null);
-    agent.setSnapshotCallback(null);
+    stopAgentEvents(agent);
     if (recorded) {
       broadcastToAgent(agentId, {
         type: "complete",
@@ -1648,27 +1696,12 @@ export function buildApp() {
 
           wsLog.info({ agentId, preview: msg.content.substring(0, 50) }, "received debug input");
 
-          agent.setStepCallback((step: ReActStep) => {
-            // Never stream the synthetic init step to clients.
-            if (TexeraAgent.isInitializationStep(step)) return;
-            const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
-            broadcastToAgent(agentId, {
-              type: "step",
-              step,
-              ...(hasToolCalls ? { operatorResults: getOperatorResultSummaries(agent) } : {}),
-            });
-            broadcastNextContext(agentId, agent);
-          });
-          agent.setSnapshotCallback((stepId, workflow) => {
-            broadcastToAgent(agentId, { type: "snapshot", stepId, workflow });
-          });
-
+          streamAgentEvents(agentId, agent);
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
           try {
             await agent.handleDebugInput(msg.content, msg.messageSource);
-            agent.setStepCallback(null);
-            agent.setSnapshotCallback(null);
+            stopAgentEvents(agent);
             broadcastToAgent(agentId, {
               type: "complete",
               state: agent.getState(),
@@ -1677,8 +1710,7 @@ export function buildApp() {
             broadcastNextContext(agentId, agent);
             wsLog.info({ agentId }, "debug input complete");
           } catch (error: any) {
-            agent.setStepCallback(null);
-            agent.setSnapshotCallback(null);
+            stopAgentEvents(agent);
             broadcastToAgent(agentId, { type: "error", error: error.message || String(error) });
             broadcastToAgent(agentId, { type: "state", state: agent.getState() });
           }

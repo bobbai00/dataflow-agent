@@ -331,6 +331,17 @@
     font-size: 12px;
     line-height: 1.5;
   }
+
+  // The session's instructions: a text box wide enough to read a few sentences, the Save button under it.
+  .settings-param-instructions {
+    align-items: flex-start;
+
+    .settings-instructions-input {
+      width: 100%;
+      max-width: 560px;
+      font-size: 12px;
+    }
+  }
 }
 
 // ============================================================================
@@ -503,6 +514,21 @@
     }
   }
 
+  // A run or a show leaves the dataflow as it was: a dashed, quieter pill.
+  &.is-request {
+    border-style: dashed;
+    background: #fafafa;
+  }
+
+  // A run in which an operator failed.
+  &.is-failed {
+    border-color: #ff7875;
+
+    .snapshot-node-label {
+      color: #cf1322;
+    }
+  }
+
   // The active snapshot — solid fill, white label.
   &.is-active {
     background: #1677ff;
@@ -579,6 +605,11 @@
 
 .react-card-check {
   color: #52c41a;
+  font-size: 16px;
+}
+
+.react-card-failed {
+  color: #ff4d4f;
   font-size: 16px;
 }
 
@@ -916,6 +947,37 @@
   }
 }
 
+// A correction the service gave the model: one muted line inside the agent's
+// work, its text one click away.
+.correction-note {
+  align-self: stretch;
+  margin: -4px 0 2px;
+}
+
+.correction-note-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: #8c8c8c;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+
+  &:hover {
+    color: #595959;
+  }
+
+  .correction-note-text {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.correction-note-details,
 .user-action-details {
   max-height: 220px;
   margin: 2px 0 0;

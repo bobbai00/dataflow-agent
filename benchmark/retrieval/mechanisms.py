@@ -44,7 +44,8 @@ def audit(directory):
         actual = [s for s in steps if s.get("role") == "agent" and s.get("inputMessages")]
         group = groups[row["model"], row["arm"]]
         group["tasks"] += 1
-        corrections = sum(s.get("messageSource") == "feedback" and
+        # Traces before 2026-10-22 recorded corrections as "feedback".
+        corrections = sum(s.get("messageSource") in ("feedback", "correction") and
                           (s.get("content") or "").startswith("That reply was text") for s in steps)
         completed_answer = final_reply(steps)
         group["missing_action_corrections"] += corrections

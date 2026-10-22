@@ -17,295 +17,18 @@
  * under the License.
  */
 
-// Main container - always compact
-.agent-interaction {
+// The operator's panel: what it is, its settings, then its data — kept to a
+// fixed width and short tables, so a wide or long result never blows it up.
+.operator-panel {
   display: flex;
   flex-direction: column;
-  background: #fafafa;
-  padding: 8px 12px;
-
-  &.compact {
-    padding: 6px 8px;
-  }
-}
-
-// Visualization rendering
-.visualization-section {
-  margin-bottom: 10px;
-}
-
-// Kept short on purpose: this panel lives in a popover capped at 480px, and a
-// 450px-tall chart pushed the agent picker and the feedback box below the fold —
-// they were only reachable by scrolling inside the popover, so the panel looked
-// like it had no feedback input at all.
-.visualization-iframe {
-  width: 100%;
-  height: 260px;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  background: #fff;
-}
-
-// Sample Records Table
-.sample-records-section {
-  margin-bottom: 10px;
-}
-
-.sample-records-table-wrapper {
-  max-height: 200px;
-  overflow: auto;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-
-  // Custom scrollbar
-  &::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  &::-webkit-scrollbar-track {
-    background: #f0f0f0;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: #ccc;
-    border-radius: 3px;
-    &:hover {
-      background: #999;
-    }
-  }
-}
-
-.sample-records-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-
-  th,
-  td {
-    padding: 4px 8px;
-    text-align: left;
-    white-space: nowrap;
-    border-bottom: 1px solid #f0f0f0;
-  }
-
-  th {
-    background: #fafafa;
-    font-weight: 600;
-    color: #555;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    border-bottom: 1px solid #e8e8e8;
-  }
-
-  td {
-    color: #333;
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  tbody tr:hover {
-    background: #f5f5f5;
-  }
-
-  .ellipsis-row td {
-    text-align: center;
-    color: #999;
-    font-weight: 500;
-    padding: 2px 8px;
-    background: #fafafa;
-  }
-}
-
-// Column Statistics
-.column-stats-section {
-  margin-bottom: 10px;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  background: #fff;
-}
-
-.column-stats-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: #fafafa;
-  border-bottom: 1px solid #f0f0f0;
-  font-size: 11px;
-  font-weight: 600;
-  color: #555;
-
-  i {
-    font-size: 12px;
-    color: #1890ff;
-  }
-}
-
-.column-stats-list {
-  max-height: 180px;
-  overflow: auto;
-  scrollbar-width: thin;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-  }
-  &::-webkit-scrollbar-track {
-    background: #f0f0f0;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: #ccc;
-    border-radius: 2px;
-  }
-}
-
-.column-stat-item {
-  padding: 4px 10px;
-  border-bottom: 1px solid #f5f5f5;
-
-  &:last-child {
-    border-bottom: none;
-  }
-}
-
-.column-stat-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-
-  .col-name {
-    font-size: 11px;
-    font-weight: 600;
-    color: #333;
-    font-family: "SFMono-Regular", Consolas, monospace;
-  }
-
-  .col-type {
-    font-size: 10px;
-    color: #8c8c8c;
-    background: #f0f0f0;
-    padding: 0 4px;
-    border-radius: 2px;
-  }
-}
-
-.column-stat-details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-
-  .stat-entry {
-    font-size: 10px;
-    color: #595959;
-  }
-
-  .stat-key {
-    color: #8c8c8c;
-  }
-}
-
-.header-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.agent-select {
-  flex: 1;
-  min-width: 100px;
-  max-width: 180px;
-}
-
-.agent-status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #d9d9d9;
-  margin-right: 6px;
-  vertical-align: middle;
-
-  &.connected {
-    background-color: #52c41a;
-  }
-}
-
-// Pinned to the bottom of the scrolling popover so the feedback box is always
-// on screen, no matter how tall the result preview above it is.
-.input-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: 1px solid #f0f0f0;
-  padding-top: 12px;
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  background: #fafafa;
-  padding-bottom: 4px;
-}
-
-.feedback-input {
-  width: 100%;
-  font-size: 13px;
-  resize: none;
-}
-
-.controls-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.hint-text {
-  font-size: 11px;
-  color: #999;
-  margin-right: auto;
-}
-
-.send-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-
-  i {
-    font-size: 12px;
-  }
-}
-
-// Same reason as `.input-section`: this is the other bottom-of-panel state.
-.not-connected-message {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 20px;
-  color: #999;
-  font-size: 13px;
-  background: #f5f5f5;
-  border-radius: 6px;
-  margin-top: 8px;
-
-  i {
-    font-size: 18px;
-  }
-}
-
-// A native operator's panel: what the operator is, then Run / Edit / Feedback.
-.agent-interaction.native {
-  width: 340px;
   gap: 10px;
+  width: 420px;
   padding: 10px 12px 12px;
   background: #fff;
 
-  &.expanded {
-    width: 480px;
+  &.with-chart {
+    width: 520px;
   }
 }
 
@@ -427,44 +150,9 @@
   color: #8c8c8c;
 }
 
-.op-body {
-  padding-top: 10px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.op-result-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 8px;
-
-  .result-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: #262626;
-  }
-
-  .result-shape {
-    font-size: 12px;
-    color: #595959;
-  }
-
-  .spacer {
-    flex: 1;
-  }
-
-  .result-shared {
-    font-size: 11px;
-    color: #389e0d;
-  }
-}
-
-.op-error {
-  max-height: 160px;
-  margin-bottom: 8px;
-  padding: 6px 8px;
+.op-error,
+.data-error {
   overflow: auto;
-  font-size: 12px;
   color: #cf1322;
   white-space: pre-wrap;
   word-break: break-word;
@@ -473,21 +161,279 @@
   border-radius: 6px;
 }
 
-.result-empty {
+.op-error {
+  max-height: 120px;
+  padding: 6px 8px;
   font-size: 12px;
+}
+
+// Properties and Data: titled sections under a hairline.
+.op-section {
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
   color: #8c8c8c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.op-result-head .result-running {
+.section-toggle {
+  width: 100%;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+
+  &:hover {
+    color: #595959;
+  }
+
+  i {
+    font-size: 10px;
+  }
+
+  .section-meta {
+    margin-left: auto;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+}
+
+.property-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
   font-size: 12px;
-  color: #1677ff;
+
+  dt {
+    color: #8c8c8c;
+  }
+
+  dd {
+    display: -webkit-box;
+    margin: 0;
+    overflow: hidden;
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    font-size: 11.5px;
+    color: #262626;
+    word-break: break-word;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
 }
 
-// The previous result stays visible, faded, while the new one is computed.
-.result-stale {
-  .sample-records-section,
-  .column-stats-section,
-  .visualization-section {
-    opacity: 0.45;
+// One table the operator reads or produces.
+.data-block + .data-block {
+  margin-top: 10px;
+}
+
+.data-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+
+  .data-role {
+    font-weight: 600;
+    color: #262626;
+  }
+
+  .data-source {
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    color: #0958d9;
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  .data-shape {
+    color: #8c8c8c;
+  }
+}
+
+.data-badge.cached {
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+  color: #0958d9;
+  background: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 8px;
+}
+
+// A few records at most; wide tables scroll sideways inside the box.
+.data-table-wrapper {
+  max-height: 150px;
+  overflow: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  scrollbar-width: thin;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+
+  th,
+  td {
+    max-width: 140px;
+    padding: 3px 8px;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-bottom: 1px solid #f5f5f5;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    font-weight: 600;
+    color: #434343;
+    background: #fafafa;
+    border-bottom-color: #f0f0f0;
+  }
+
+  .column-type {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    color: #8c8c8c;
+  }
+
+  td {
+    color: #262626;
+  }
+
+  td.null {
+    font-style: italic;
+    color: #bfbfbf;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.data-note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8c8c8c;
+
+  &.running {
+    color: #1677ff;
+  }
+}
+
+.data-error {
+  max-height: 72px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+// Kept short on purpose: a tall chart would push the rest of the panel out of view.
+.data-chart {
+  width: 100%;
+  height: 240px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+// Feedback to an agent.
+.op-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-select {
+  flex: 1;
+  min-width: 100px;
+  max-width: 180px;
+}
+
+.agent-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  vertical-align: middle;
+  background-color: #d9d9d9;
+  border-radius: 50%;
+
+  &.connected {
+    background-color: #52c41a;
+  }
+}
+
+.input-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feedback-input {
+  width: 100%;
+  font-size: 13px;
+  resize: none;
+}
+
+.controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.hint-text {
+  margin-right: auto;
+  font-size: 11px;
+  color: #999;
+}
+
+.send-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  i {
+    font-size: 12px;
+  }
+}
+
+.not-connected-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  font-size: 13px;
+  color: #999;
+  background: #f5f5f5;
+  border-radius: 6px;
+
+  i {
+    font-size: 18px;
   }
 }

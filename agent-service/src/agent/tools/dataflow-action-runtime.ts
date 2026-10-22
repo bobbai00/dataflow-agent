@@ -22,7 +22,12 @@ import { registeredReferenceText } from "../prompts";
 import type { ExecutionRunMetrics, OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { WorkflowState } from "../workflow-state";
-import { editVersionInfo, type SnapshotEdit, type WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
+import {
+  versionInfo,
+  type VersionAction,
+  type VersionInfo,
+  type WorkflowSnapshotStorage,
+} from "../workflow-snapshot-storage";
 import { FLOW_OMITTED_NOTICE, selectNativeObservation, type NativeObservation } from "../native/evidence";
 import { resultScope } from "../native/result-scope";
 import { nativeAssignmentText } from "../native/catalog";
@@ -44,8 +49,20 @@ export interface DataflowActionRuntime {
   execute: (operatorIds?: readonly string[], onExecution?: (run: ExecutionRunMetrics) => void) => Promise<void>;
   isCurrent: () => boolean;
   signal?: AbortSignal;
-  /** Who made the call's edits: the agent, or the user from the canvas. */
-  author?: SnapshotEdit["author"];
+  /** Who made the call's actions: the agent, or the user from the canvas. */
+  author?: VersionAction["author"];
+  /** Each version as its action records it, so a client can follow the call
+   * action by action instead of seeing its outcome all at once. */
+  onProgress?: (progress: DataflowProgress) => void;
+  /** An action of the call finished: its status and output are in the result. */
+  onActionDone?: () => void;
+}
+
+/** One version of a running call: an edit's, a show's, or a run's, whose
+ * `running` names the operators it computes until it finishes (then `[]`). */
+export interface DataflowProgress {
+  version: VersionInfo;
+  running?: string[];
 }
 
 /** Every operator upstream of `id` in this workflow. */
@@ -78,6 +95,12 @@ export async function executeDataflowActionBatch(
   runtime: DataflowActionRuntime
 ): Promise<void> {
   const { state, storage, stepId, context, signal } = runtime;
+  const author = runtime.author ?? "agent";
+  /** Record a run or a show as the step's next version. */
+  const recordRequest = (action: VersionAction): VersionInfo => {
+    const [version] = storage.recordVersions(stepId, [{ action }]).map(versionInfo);
+    return version;
+  };
   const settings = { ...runtime.settings };
   // Sessions with several requests reuse functions and build on earlier
   // results: receipts name each function's signature and note degenerate columns.
@@ -124,7 +147,7 @@ export async function executeDataflowActionBatch(
       nativeEvidence: { ...options, workflow: state.getWorkflowContent(), resolveInput: current },
     });
 
-  await runDataflowActions(result, async (action, index) => {
+  await runDataflowActions(result, runtime.onActionDone, async (action, index) => {
     assertCurrent();
     if (action.type === "inspect") {
       if (action.target === "reference") return { status: "ok", output: { text: registeredReferenceText(action) } };
@@ -184,8 +207,9 @@ export async function executeDataflowActionBatch(
       const plan = await planRegisteredGraphEdit(before, action.python, action.changes, context);
       assertCurrent();
       state.setWorkflowContent(plan.workflow);
-      // One version per edit; the step's snapshot is the last of them.
-      const versions = storage.recordEdits(stepId, editVersions(before, plan, runtime.author)).map(editVersionInfo);
+      // One version per set or delete; the step resolves to the last of them.
+      const versions = storage.recordVersions(stepId, editVersions(before, plan, author)).map(versionInfo);
+      for (const version of versions) runtime.onProgress?.({ version });
       result.operators.push(...plan.operators);
       const { workflow: _workflow, edits: _edits, ...planned } = plan;
       const output = { ...planned, versions };
@@ -213,10 +237,32 @@ export async function executeDataflowActionBatch(
         );
       let failure: string | undefined;
       const executionRuns: ExecutionRunMetrics[] = [];
+      // The run is a version of its own; its results land on it as they come.
+      const version = recordRequest({
+        kind: "run",
+        ...(action.operator_ids ? { operatorIds: [...action.operator_ids] } : {}),
+        author,
+      });
+      // It computes what it was asked for, and above that only what has no current result.
+      const computing = topologicalOperators(operators)
+        .filter(op => {
+          const info = current(op.operatorID);
+          return (
+            !action.operator_ids ||
+            action.operator_ids.includes(op.operatorID) ||
+            !info ||
+            !!info.error ||
+            !["Completed", "CompletedFromCache"].includes(info.state)
+          );
+        })
+        .map(op => op.operatorID);
+      runtime.onProgress?.({ version, running: computing });
       try {
         await runtime.execute(action.operator_ids, run => executionRuns.push(run));
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
+      } finally {
+        if (runtime.isCurrent()) runtime.onProgress?.({ version, running: [] });
       }
       assertCurrent();
       const outcomes = operators.map(op => {
@@ -271,6 +317,7 @@ export async function executeDataflowActionBatch(
         status: failure || outcomes.some(o => o.status === "error") ? "error" : "ok",
         output: {
           operators: outcomes,
+          version,
           // Retain real per-request telemetry in saved traces, including
           // failed groups. The receipt intentionally omits it.
           execution_runs: executionRuns,
@@ -403,7 +450,14 @@ export async function executeDataflowActionBatch(
         });
       }
     }
-    return { status: results.some(entry => entry.status === "error") ? "error" : "ok", output: { results } };
+    // What was shown is a version of its own; a read that showed nothing is not.
+    const shown = results.filter(entry => entry.status === "ok").map(entry => String(entry.operator_id));
+    const version = shown.length ? recordRequest({ kind: "show", operatorIds: shown, author }) : undefined;
+    if (version) runtime.onProgress?.({ version });
+    return {
+      status: results.some(entry => entry.status === "error") ? "error" : "ok",
+      output: { results, ...(version ? { version } : {}) },
+    };
   });
   assertCurrent();
   // A later edit or execute in this call may supersede a retrieved version.

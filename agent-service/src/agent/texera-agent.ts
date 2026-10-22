@@ -28,7 +28,7 @@ import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
+import { changesDataflow, WorkflowSnapshotStorage, type VersionAction } from "./workflow-snapshot-storage";
 import type {
   AgentDelegateConfig,
   AgentSettings,
@@ -56,7 +56,7 @@ import {
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
 } from "../types/agent";
-import { buildCodeModeSystemPrompt } from "./prompts";
+import { buildCodeModeSystemPrompt, withSessionInstructions } from "./prompts";
 
 /**
  * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
@@ -127,7 +127,7 @@ import {
 } from "./user-actions";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
-import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
+import { executeDataflowActionBatch, type DataflowProgress } from "./tools/dataflow-action-runtime";
 import { editVersions, planRegisteredGraphEdit } from "./tools/graph-edits";
 import {
   executeWorkflowAndPersist,
@@ -137,7 +137,7 @@ import {
 import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
 import { createLogger } from "../logger";
 import type { Logger } from "pino";
-import { looksLikeFunctionCall, parseFunctionCall } from "./debug-parser";
+import { looksLikeAgentInput, parseDebugInput, type DebugAgentInput } from "./debug-parser";
 import {
   MissingAnswerActionError,
   type LLMDriver,
@@ -160,6 +160,21 @@ function createEmptyWorkflowContent(): WorkflowContent {
     commentBoxes: [],
     settings: { dataTransferBatchSize: 400 },
   };
+}
+
+/** The version a saved run or read made: an execution that ran (its output
+ * lists outcomes; a rejected one is only an error message), or a read that
+ * showed at least one result. */
+function importedRequest(
+  item: DataflowActionsResult["actions"][number],
+  author: VersionAction["author"]
+): VersionAction | undefined {
+  const output = item.output as { operators?: unknown; results?: Array<{ status?: string; operator_id?: string }> };
+  if (item.action.type === "execute" && Array.isArray(output?.operators))
+    return { kind: "run", ...(item.action.operator_ids ? { operatorIds: [...item.action.operator_ids] } : {}), author };
+  if (item.action.type !== "retrieve") return undefined;
+  const shown = (output?.results ?? []).filter(entry => entry.status === "ok").map(entry => String(entry.operator_id));
+  return shown.length ? { kind: "show", operatorIds: shown, author } : undefined;
 }
 
 export interface TexeraAgentConfig {
@@ -193,6 +208,7 @@ export interface AgentMessageResult {
 
 type ReActStepCallback = (step: ReActStep) => void;
 type SnapshotCallback = (stepId: string, workflow: WorkflowContent) => void;
+type ProgressCallback = (stepId: string, progress: DataflowProgress) => void;
 
 /**
  * A single Texera agent instance.
@@ -376,6 +392,7 @@ export class TexeraAgent {
 
   private stepCallback: ReActStepCallback | null = null;
   private snapshotCallback: SnapshotCallback | null = null;
+  private progressCallback: ProgressCallback | null = null;
 
   private messageCounter = 0;
 
@@ -560,7 +577,7 @@ export class TexeraAgent {
     // The init step is action-bearing — create its snapshot as the first
     // child of the storage's empty root. It is v0, the dataflow the agent
     // starts from, even when that is empty.
-    this.snapshotStorage.createSnapshot(stepId, workflowContent, { edit: { kind: "start", author: "agent" } });
+    this.snapshotStorage.createSnapshot(stepId, workflowContent, { action: { kind: "start", author: "agent" } });
     this.snapshotCallback?.(stepId, workflowContent);
     for (const [opId, info] of collected) {
       this.snapshotStorage.setOperatorResult(stepId, opId, info);
@@ -627,6 +644,7 @@ export class TexeraAgent {
     if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
+    this.systemPrompt = withSessionInstructions(this.systemPrompt, this.settings.instructions);
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -947,6 +965,15 @@ export class TexeraAgent {
     this.snapshotCallback = callback;
   }
 
+  /**
+   * Subscribe to the versions a running `dataflow` call records, action by
+   * action (DataflowActionRuntime.onProgress): the websocket layer streams
+   * them so clients show each edit, run and show as it happens.
+   */
+  setProgressCallback(callback: ProgressCallback | null): void {
+    this.progressCallback = callback;
+  }
+
   private generateStepId(): string {
     return `step-${this.agentId}-${++this.stepCounter}-${Date.now()}`;
   }
@@ -1037,6 +1064,7 @@ export class TexeraAgent {
       flowEvidence?: boolean;
       operatorDoc?: boolean;
       respondToCanvasRuns?: boolean;
+      instructions?: string;
       answerStatement?: boolean;
       nativeChecks?: boolean;
       resultSelection?: ResultSelection;
@@ -1152,6 +1180,10 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
     if (updates.respondToCanvasRuns !== undefined) this.settings.respondToCanvasRuns = updates.respondToCanvasRuns;
+    if (updates.instructions !== undefined && updates.instructions !== this.settings.instructions) {
+      this.settings.instructions = updates.instructions;
+      promptNeedsRebuild = true;
+    }
     if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
       this.settings.answerStatement = updates.answerStatement;
       promptNeedsRebuild = true;
@@ -1563,7 +1595,7 @@ export class TexeraAgent {
           maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
           requireShownResult: this.settings.agentMode === AgentMode.NATIVE,
-          resultShown: () => this.resultShownInMessage(messageId),
+          resultShown: () => this.resultShownFor(messageId),
           ...(this.settings.answerStatement === true
             ? {
                 answered: () => this.answerByMessage.has(messageId),
@@ -1609,7 +1641,8 @@ export class TexeraAgent {
                 content,
                 isBegin: false,
                 isEnd: true,
-                messageSource: "feedback",
+                messageSource: "correction",
+                correction: "step-budget",
               });
               this.head = feedbackId;
               budgetFeedbackSteps++;
@@ -1777,7 +1810,8 @@ export class TexeraAgent {
                 content: repeatedFailureFeedback(failure, this.workflowState.getWorkflowContent()),
                 isBegin: false,
                 isEnd: true,
-                messageSource: "feedback",
+                messageSource: "correction",
+                correction: "repeated-failure",
               });
               this.head = feedbackId;
               repeatedFailureFeedbackSteps++;
@@ -1836,7 +1870,8 @@ export class TexeraAgent {
                 content: feedback,
                 isBegin: false,
                 isEnd: true,
-                messageSource: "feedback",
+                messageSource: "correction",
+                correction: error.cut ? "cut-off" : error.answerStatement ? "answer-statement" : "missing-action",
               });
               this.head = feedbackId;
               protocolFeedbackSteps++;
@@ -2171,17 +2206,23 @@ export class TexeraAgent {
         ownsSnapshot = true;
       } else if (step.toolCalls && step.toolCalls.length > 0) {
         this.workflowState.setWorkflowContent(parentContent);
-        // One version per replayed edit, as the live run recorded them.
-        const versions: ReturnType<typeof editVersions> = [];
+        // One version per replayed action, as the live run recorded them.
+        const versions: Array<{ action: VersionAction; workflow?: WorkflowContent; createdAt: number }> = [];
+        const author = step.role === "user" ? "user" : "agent";
         for (const tc of step.toolCalls) {
           if (tc.toolName === "initialize" || tc.toolName === TOOL_NAME_EXECUTE_OPERATOR) continue;
           if (tc.toolName === TOOL_NAME_DATAFLOW) {
             const saved = asDataflowActionsResult(step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output);
             // Replay recorded edits only. Never execute a saved workflow or
-            // apply an action that the original run skipped after a failure.
+            // apply an action that the original run skipped after a failure;
+            // a run or a show that happened is a version without a change.
             try {
               for (const item of saved?.actions ?? []) {
-                if (item.status === "pending" || item.status === "skipped") break;
+                if (item.status === "pending") break;
+                if (item.status === "skipped") continue;
+                const output = item.output as
+                  | { versions?: Array<{ timestamp?: number }>; version?: { timestamp?: number } }
+                  | undefined;
                 if (item.action.type === "edit" && item.status === "ok") {
                   const before = this.workflowState.getWorkflowContent();
                   const plan = await planRegisteredGraphEdit(before, item.action.python, item.action.changes, {
@@ -2189,9 +2230,17 @@ export class TexeraAgent {
                     settings: this.settings,
                   });
                   this.workflowState.setWorkflowContent(plan.workflow);
-                  versions.push(...editVersions(before, plan, step.role === "user" ? "user" : "agent"));
+                  const times = output?.versions ?? [];
+                  versions.push(
+                    ...editVersions(before, plan, author).map((version, index) => ({
+                      ...version,
+                      createdAt: times[index]?.timestamp ?? step.timestamp,
+                    }))
+                  );
                 }
-                if (item.status === "error") break;
+                const request = importedRequest(item, author);
+                if (request)
+                  versions.push({ action: request, createdAt: output?.version?.timestamp ?? step.timestamp });
               }
             } catch (err) {
               this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: edit replay threw, continuing");
@@ -2210,16 +2259,15 @@ export class TexeraAgent {
           }
         }
         myContent = this.workflowState.getWorkflowContent();
-        this.snapshotStorage.createSnapshot(
-          id,
-          myContent,
-          TexeraAgent.isInitializationStep(step)
-            ? { edit: { kind: "start", author: "agent" } }
+        this.snapshotStorage.createSnapshot(id, myContent, {
+          createdAt: step.timestamp,
+          ...(TexeraAgent.isInitializationStep(step)
+            ? { action: { kind: "start", author: "agent" } }
             : versions.length
-              ? { edit: false }
-              : {}
-        );
-        this.snapshotStorage.recordEdits(id, versions);
+              ? { action: false }
+              : {}),
+        });
+        this.snapshotStorage.recordVersions(id, versions);
         ownsSnapshot = true;
       }
 
@@ -2361,10 +2409,18 @@ export class TexeraAgent {
    * path) so a Function(...) tool call has identical post-step behaviour to
    * an LLM-emitted one.
    */
-  /** Has a retrieval of this task succeeded? A reply without a tool call ends
-   * the task as its answer only then. */
-  private resultShownInMessage(messageId: string): boolean {
-    return (this.reActStepsByMessageId.get(messageId) ?? []).some(step =>
+  /** Has a result been shown that a reply without a tool call can rest on?
+   * Only then is such a reply the answer; before it, nothing was computed. A
+   * conversation refines one task over its messages, so any result shown on
+   * its branch counts, the user's canvas runs included: a question or
+   * feedback after the task was solved is answered in words. In a session of
+   * separate requests (multiRequest), each request shows its own. */
+  private resultShownFor(messageId: string): boolean {
+    const steps =
+      (this.settings.multiRequest ?? "off") === "off"
+        ? this.getVisibleReActSteps()
+        : (this.reActStepsByMessageId.get(messageId) ?? []);
+    return steps.some(step =>
       (step.toolResults ?? []).some(tr =>
         (asDataflowActionsResult(tr.output)?.actions ?? []).some(
           item => item.action.type === "retrieve" && item.status === "ok"
@@ -2477,6 +2533,11 @@ export class TexeraAgent {
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
           author: overrides?.author,
+          onProgress: progress => this.progressCallback?.(stepId, progress),
+          onActionDone: () => {
+            const step = this.stepsById.get(stepId);
+            if (step) this.stepCallback?.(step);
+          },
         });
         this.renderAnswerStatement(result, stepId);
       }
@@ -2672,7 +2733,10 @@ export class TexeraAgent {
    *   executed as a single tool call. Attaches to the most recent ongoing
    *   user task as the next turn (Turn 1, 2, 3, …) so consecutive debug
    *   actions don't fragment into separate one-step tasks. Post-step
-   *   auto-execution runs identically to the LLM path.
+   *   auto-execution runs identically to the LLM path. Lines before the call
+   *   are the step's visible reasoning.
+   * - `Reply(text='...')` → the agent's reply, recorded as the step that ends
+   *   the ongoing task, as a reply without a tool call would.
    *
    * Tool execution and post-step execution happen exactly as they would after
    * an LLM-produced tool call — only the model call and the ReAct loop are skipped.
@@ -2681,7 +2745,7 @@ export class TexeraAgent {
     content: string,
     messageSource?: "chat" | "feedback"
   ): Promise<{
-    kind: "user_message" | "function_call";
+    kind: "user_message" | "function_call" | "reply";
     stopped: boolean;
     error?: string;
   }> {
@@ -2690,7 +2754,7 @@ export class TexeraAgent {
 
     try {
       // Plain user text → start a new task (fresh messageId, stepId 0).
-      if (!looksLikeFunctionCall(content)) {
+      if (!looksLikeAgentInput(content)) {
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
 
@@ -2735,11 +2799,11 @@ export class TexeraAgent {
       }
       this.currentMessageId = messageId;
 
-      let parsed;
+      let parsed: DebugAgentInput;
       try {
-        parsed = parseFunctionCall(content);
+        parsed = parseDebugInput(content);
       } catch (e: any) {
-        const message = `Failed to parse Function(...): ${e?.message || String(e)}`;
+        const message = `Failed to parse the agent input: ${e?.message || String(e)}`;
         const errorStepId = this.generateStepId();
         const errorStep: ReActStep = {
           id: errorStepId,
@@ -2758,11 +2822,30 @@ export class TexeraAgent {
         return { kind: "function_call", stopped: false, error: message };
       }
 
+      // Reply(...) → the agent's reply ends the task; no tool call, no snapshot.
+      if (parsed.reply !== undefined) {
+        const replyStepId = this.generateStepId();
+        this.addStep({
+          id: replyStepId,
+          parentId: this.head,
+          messageId,
+          stepId,
+          timestamp: Date.now(),
+          role: "agent",
+          content: parsed.reply,
+          isBegin,
+          isEnd: true,
+        });
+        this.head = replyStepId;
+        return { kind: "reply", stopped: false };
+      }
+      const call = parsed.call!;
+
       const toolCallId = `dbg-tc-${this.stepCounter}-${Date.now()}`;
       let output: any;
       let isError = false;
       try {
-        output = await this.executeTool(parsed.name, parsed.arguments);
+        output = await this.executeTool(call.name, call.arguments);
       } catch (e: any) {
         output = `[ERROR] ${e?.message || String(e)}`;
         isError = true;
@@ -2775,7 +2858,7 @@ export class TexeraAgent {
 
       const afterContent = this.workflowState.getWorkflowContent();
 
-      const formattedToolCalls = [{ toolName: parsed.name, toolCallId, input: parsed.arguments }];
+      const formattedToolCalls = [{ toolName: call.name, toolCallId, input: call.arguments }];
       const formattedToolResults = [{ toolCallId, output, isError }];
 
       const agentStepId = this.generateStepId();
@@ -2786,7 +2869,7 @@ export class TexeraAgent {
         stepId,
         timestamp: Date.now(),
         role: "agent",
-        content: "",
+        content: parsed.thought ?? "",
         isBegin,
         isEnd: false,
         toolCalls: formattedToolCalls,
@@ -2933,20 +3016,22 @@ export class TexeraAgent {
   }
 
   /**
-   * Check out a dataflow version (a snapshot an edit made). A step's last
-   * version checks out the last step of that turn still showing it, so the
-   * runs and the reply after the edits come along. A version in the middle of
-   * a step's edits is restored: HEAD moves to that step, and a user step under
-   * it records the restore with that version as its dataflow, so the agent
-   * reads which of the step's edits were undone. Returns the new HEAD, or
-   * undefined when there is no such version.
+   * Check out a dataflow version (a snapshot an action made). A version no
+   * later edit of its step changed shows the step's dataflow, so it checks out
+   * the last step of that turn still showing it: the runs, reads and the reply
+   * after the edits come along. A version in the middle of a step's edits is
+   * restored: HEAD moves to that step, and a user step under it records the
+   * restore with that version as its dataflow, so the agent reads which of the
+   * step's edits were undone. Returns the new HEAD, or undefined when there is
+   * no such version.
    */
   checkoutVersion(snapshotId: string): string | undefined {
     const version = this.snapshotStorage.getSnapshotById(snapshotId);
     if (!version?.reactStepId || version.version === undefined || !this.stepsById.has(version.reactStepId))
       return undefined;
     const owner = version.reactStepId;
-    if (this.snapshotStorage.getOwnedSnapshot(owner)?.id === version.id) {
+    const later = this.snapshotStorage.getStepVersions(owner).filter(other => other.version! > version.version!);
+    if (!later.some(other => changesDataflow(other.action))) {
       const target = this.lastStepShowing(owner);
       this.checkout(target);
       return target;
@@ -2961,13 +3046,13 @@ export class TexeraAgent {
       stepId: 0,
       timestamp: Date.now(),
       role: "user",
-      content: restoreContent(version.version, version.edit?.operatorId, version.workflow, undone),
+      content: restoreContent(version.version, version.action?.operatorId, version.workflow, undone),
       isBegin: true,
       isEnd: true,
       messageSource: "action",
       userAction: {
         kind: "restore",
-        ...(version.edit?.operatorId ? { operatorId: version.edit.operatorId } : {}),
+        ...(version.action?.operatorId ? { operatorId: version.action.operatorId } : {}),
         version: version.version,
         status: "ok",
       },
@@ -2980,8 +3065,8 @@ export class TexeraAgent {
   }
 
   /** The last step of `stepId`'s turn that still shows its dataflow version:
-   * the runs and replies after it, along HEAD's branch where it passes
-   * through, else the newest branch, until a step makes a new version. */
+   * the runs, reads and replies after it, along HEAD's branch where it passes
+   * through, else the newest branch, until a step changes the dataflow. */
   private lastStepShowing(stepId: string): string {
     const children = new Map<string, ReActStep[]>();
     for (const step of this.stepsById.values())
@@ -2991,7 +3076,9 @@ export class TexeraAgent {
     let current = stepId;
     for (;;) {
       const next = (children.get(current) ?? []).filter(
-        child => child.messageId === turn && this.snapshotStorage.getOwnedSnapshot(child.id)?.version === undefined
+        child =>
+          child.messageId === turn &&
+          !this.snapshotStorage.getStepVersions(child.id).some(version => changesDataflow(version.action))
       );
       if (!next.length) return current;
       current = (next.find(child => onHead.has(child.id)) ?? next[next.length - 1]).id;

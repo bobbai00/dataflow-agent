@@ -18,13 +18,15 @@
  */
 
 /**
- * Parser for the debug-mode input format:
+ * Parser for the debug-mode input format, which stands in for the model:
  *
  *   Function(name='toolName', arguments='<python-dict-literal>')
+ *   Reply(text='<the agent's reply>')
  *
- * The arguments value is a Python repr of the tool input dict (single-quoted
- * keys/values, with `\'` and `\n` escapes). We do NOT use eval — we walk the
- * input character-by-character with a small recursive-descent parser that
+ * Either may follow lines of free text, the step's reasoning. The arguments
+ * value is a Python repr of the tool input dict (single-quoted keys/values,
+ * with `\'` and `\n` escapes). We do NOT use eval — we walk the input
+ * character-by-character with a small recursive-descent parser that
  * understands Python literals (dict, list, string, number, True/False/None).
  */
 
@@ -33,9 +35,59 @@ export interface ParsedFunctionCall {
     arguments: any;
 }
 
+/** A debug input that stands for the agent: its reasoning, then one tool call or its reply. */
+export interface DebugAgentInput {
+    /** The lines before the call or reply, as the step's visible text. */
+    thought?: string;
+    call?: ParsedFunctionCall;
+    /** `Reply(text='...')`: the agent's reply, which ends the task. */
+    reply?: string;
+}
+
+const AGENT_INPUT = /^[ \t]*(Function|Reply)\s*\(/m;
+
 /** Returns true when the input looks like a Function(...) call (debug action). */
 export function looksLikeFunctionCall(input: string): boolean {
     return /^\s*Function\s*\(/.test(input);
+}
+
+/** Whether the input stands for the agent (a call or a reply, after any reasoning) rather than the user. */
+export function looksLikeAgentInput(input: string): boolean {
+    return AGENT_INPUT.test(input);
+}
+
+/** Parse an agent input: the reasoning before the first line that opens a
+ * `Function(` or `Reply(`, then that call or reply. Throws on malformed input. */
+export function parseDebugInput(input: string): DebugAgentInput {
+    const match = AGENT_INPUT.exec(input);
+    if (!match) throw new Error("Input is neither a Function(...) call nor a Reply(...)");
+    const thought = input.slice(0, match.index).trim();
+    const rest = input.slice(match.index);
+    const parsed: DebugAgentInput = thought ? { thought } : {};
+    if (match[1] === "Reply") parsed.reply = parseReply(rest);
+    else parsed.call = parseFunctionCall(rest);
+    return parsed;
+}
+
+/** Parse `Reply(text='...')`. Throws on malformed input. */
+export function parseReply(input: string): string {
+    const trimmed = input.trim();
+    if (!/^Reply\s*\(/.test(trimmed)) throw new Error("Input is not a Reply(...)");
+    if (!trimmed.endsWith(")")) throw new Error("Reply(...) is missing closing ')'");
+    const parser = new PyParser(trimmed.substring(trimmed.indexOf("(") + 1, trimmed.length - 1));
+    parser.skipWs();
+    parser.expectIdent("text");
+    parser.skipWs();
+    parser.expectChar("=");
+    parser.skipWs();
+    const text = parser.parseString();
+    parser.skipWs();
+    if (parser.peek() === ",") {
+        parser.advance();
+        parser.skipWs();
+    }
+    if (!parser.eof()) throw new Error(`Unexpected trailing input at offset ${parser.pos()}`);
+    return text;
 }
 
 /**

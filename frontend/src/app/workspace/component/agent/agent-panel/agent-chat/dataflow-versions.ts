@@ -18,41 +18,23 @@
  */
 
 /**
- * The dataflow's versions as the chat shows them. Every edit of a `dataflow`
- * call makes a version (v1, v2, …; v0 is where the agent started): a step's
- * row lists its edits with the versions they made, then what it ran and read,
- * and the version tree shows versions only — a step that just ran or read the
- * dataflow made none.
+ * The dataflow's versions as the chat shows them. Every action of a `dataflow`
+ * call makes a version (v0 is where the agent started): each `set` or
+ * `delete`, each run and each result shown. A step's row lists what it changed
+ * — its adds, modifies and deletes, each with the version it made — and the
+ * version tree lists every version under its verb.
  */
 import type { ReActStep } from "../../../../service/agent/agent-types";
-import type { SnapshotEdit, SnapshotTreeNode } from "../../../../service/agent/agent.service";
+import type { SnapshotTreeNode, VersionAction, VersionInfo } from "../../../../service/agent/agent.service";
 
-/** One action of a step, as a chip in its row. */
+/** One change a step made, as a chip in its row. */
 export interface ActionChip {
-  kind:
-    | "add"
-    | "update"
-    | "delete"
-    | "define"
-    | "edit"
-    | "start"
-    | "run"
-    | "show"
-    | "inspect"
-    | "tool"
-    | "error"
-    | "pending";
+  kind: "add" | "update" | "delete" | "define" | "edit" | "start" | "tool" | "pending";
   label: string;
-  /** The version an edit made. */
+  /** The version the change made. */
   version?: number;
   /** Tooltip text. */
   title?: string;
-}
-
-/** A version an edit made, as the step's tool result reports it. */
-export interface EditVersion extends SnapshotEdit {
-  version: number;
-  snapshotId: string;
 }
 
 interface DataflowItem {
@@ -72,95 +54,116 @@ const isDataflowResult = (output: unknown): output is DataflowResult =>
 
 const text = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value ?? ""));
 
-/** What an edit did, in a few words: "add kept", "define make_table". */
-export function editLabel(edit: SnapshotEdit): string {
-  if (edit.kind === "define") return `define ${(edit.functions ?? []).join(", ")}`.trim();
-  if (edit.kind === "start") return "start";
-  const target = edit.operatorId ?? (edit.operatorIds ?? []).join(", ");
-  return `${edit.kind} ${target}`.trim();
+/** The verb a version's action reads as: an update is a modify. */
+export function actionVerb(action: VersionAction): string {
+  return action.kind === "update" ? "modify" : action.kind;
 }
 
-/** The chip for a version an edit made. */
-export function versionChip(version: EditVersion): ActionChip {
-  const label = editLabel(version);
-  const parts = [
-    `v${version.version}: ${label}${version.op && version.kind !== "define" ? ` (${version.op})` : ""}`,
-    ...(version.functions?.length && version.kind !== "define" ? [`defines ${version.functions.join(", ")}`] : []),
-    ...(version.author === "user" ? ["by you"] : []),
-  ];
-  return { kind: version.kind, label, version: version.version, title: parts.join(" · ") };
+/** What an action did, in a few words: "add kept", "modify kept", "define make_table", "run all". */
+export function actionLabel(action: VersionAction): string {
+  const verb = actionVerb(action);
+  if (action.kind === "define") return `define ${(action.functions ?? []).join(", ")}`.trim();
+  if (action.kind === "start") return "start";
+  if (action.kind === "run" && !action.operatorIds?.length) return "run all";
+  const ids = action.operatorId ? [action.operatorId] : action.operatorIds ?? [];
+  const target = action.kind === "edit" && ids.length > 1 ? `${ids.length} operators` : ids.join(", ");
+  return `${verb} ${target}`.trim();
 }
 
-/** The versions a step's dataflow calls made, earliest first. */
-export function stepVersions(step: Pick<ReActStep, "toolResults">): EditVersion[] {
+/** "v3: modify kept (filter) · by you" — a version's full description. */
+function versionTitle(version: number, action: VersionAction): string {
+  return [
+    `v${version}: ${actionLabel(action)}${action.op && action.kind !== "define" ? ` (${action.op})` : ""}`,
+    ...(action.functions?.length && action.kind !== "define" ? [`defines ${action.functions.join(", ")}`] : []),
+    ...(action.author === "user" ? ["by you"] : []),
+  ].join(" · ");
+}
+
+/** The chip for a version a change made. */
+export function versionChip(version: VersionInfo): ActionChip {
+  return {
+    kind: version.kind === "run" || version.kind === "show" ? "tool" : version.kind,
+    label: actionLabel(version),
+    version: version.version,
+    title: versionTitle(version.version, version),
+  };
+}
+
+/** Every version a step's dataflow calls recorded, earliest first: each edit's, run's and show's. */
+export function stepVersions(step: Pick<ReActStep, "toolResults">): VersionInfo[] {
   return (step.toolResults ?? []).flatMap(result => {
     const output: unknown = result.output;
     if (!isDataflowResult(output)) return [];
-    return output.actions.flatMap(item =>
-      item.action.type === "edit" && item.status === "ok"
-        ? (item.output as { versions?: EditVersion[] } | undefined)?.versions ?? []
-        : []
-    );
+    return output.actions.flatMap(item => {
+      const recorded = item.output as { versions?: VersionInfo[]; version?: VersionInfo } | undefined;
+      return item.status === "pending" || item.status === "skipped" || typeof recorded !== "object"
+        ? []
+        : recorded?.versions ?? (recorded?.version ? [recorded.version] : []);
+    });
   });
 }
 
-/** A step's dataflow calls as chips: each edit with the version it made, then
- * what the call ran, read and inspected. Undefined when the step made no
- * `dataflow` call. */
+/** A step's dataflow calls as chips: what they changed, each edit with the
+ * version it made. Runs and reads are not listed; a failure shows on the row
+ * instead (`dataflowFailure`). Undefined when the step made no `dataflow` call. */
 export function dataflowChips(step: Pick<ReActStep, "toolCalls" | "toolResults">): ActionChip[] | undefined {
   const calls = (step.toolCalls ?? []).filter(call => call?.toolName === "dataflow");
   if (!calls.length) return undefined;
   const chips: ActionChip[] = [];
   for (const call of calls) {
     const result = step.toolResults?.find(item => item.toolCallId === call.toolCallId)?.output;
-    if (!isDataflowResult(result)) {
-      chips.push({ kind: "pending", label: "working…" });
-      continue;
-    }
-    // A later call of a response ran as part of the first one.
-    if (result.mergedInto) continue;
-    if (!result.actions.length && result.error)
-      chips.push({ kind: "error", label: "call rejected", title: result.error });
+    if (!isDataflowResult(result) || result.mergedInto) continue;
     for (const item of result.actions) {
-      const action = item.action;
-      if (item.status === "skipped") continue;
-      if (item.status === "pending") {
-        chips.push({ kind: "pending", label: action.type === "edit" ? "editing…" : `${action.type}…` });
-        continue;
-      }
-      if (action.type === "edit") {
-        if (item.status === "error") {
-          chips.push({ kind: "error", label: "edit failed", title: text(item.output) });
-          continue;
-        }
-        const versions = (item.output as { versions?: EditVersion[] } | undefined)?.versions ?? [];
-        if (!versions.length) chips.push({ kind: "edit", label: "no change" });
-        chips.push(...versions.map(versionChip));
-        continue;
-      }
-      const ids =
-        action.operator_ids ??
-        (action.operator_id ? [action.operator_id] : undefined) ??
-        action.names ??
-        action.operator_names ??
-        [];
-      const kind = action.type === "execute" ? "run" : action.type === "retrieve" ? "show" : "inspect";
-      const label = `${kind} ${ids.length ? ids.join(", ") : kind === "run" ? "all" : ""}`.trim();
-      chips.push(
-        item.status === "error"
-          ? { kind: "error", label: `${label} failed`, title: text(item.output) }
-          : { kind, label }
-      );
+      if (item.action.type !== "edit") continue;
+      if (item.status === "pending") chips.push({ kind: "pending", label: "editing…" });
+      if (item.status !== "ok") continue;
+      const versions = (item.output as { versions?: VersionInfo[] } | undefined)?.versions ?? [];
+      chips.push(...versions.map(versionChip));
     }
   }
   return chips;
 }
 
+/** Why a step's dataflow call failed, when it did: the call was rejected, or
+ * one of its actions failed. Undefined when everything it ran succeeded. */
+export function dataflowFailure(step: Pick<ReActStep, "toolCalls" | "toolResults">): string | undefined {
+  for (const call of step.toolCalls ?? []) {
+    if (call?.toolName !== "dataflow") continue;
+    const result = step.toolResults?.find(item => item.toolCallId === call.toolCallId)?.output;
+    if (!isDataflowResult(result) || result.mergedInto) continue;
+    if (!result.actions.length && result.error) return result.error;
+    const failed = result.actions.find(item => item.status === "error");
+    if (failed) return failedActionText(failed);
+  }
+  return undefined;
+}
+
+function failedActionText(item: DataflowItem): string {
+  const ids =
+    item.action.operator_ids ??
+    (item.action.operator_id ? [item.action.operator_id] : undefined) ??
+    item.action.names ??
+    [];
+  const verb =
+    item.action.type === "execute"
+      ? "run"
+      : item.action.type === "retrieve"
+        ? "show"
+        : item.action.type === "edit"
+          ? "edit"
+          : "inspect";
+  const output = item.output as { results?: Array<{ status?: string; error?: string }>; error?: string } | string;
+  const reason =
+    typeof output === "object" && output
+      ? output.error ?? output.results?.find(entry => entry.status === "error")?.error ?? text(output)
+      : text(output);
+  return `${verb}${ids.length ? ` ${ids.join(", ")}` : ""} failed: ${reason}`;
+}
+
 /**
  * The version tree: the versions only, each under its nearest version
- * ancestor (a step that ran or read the dataflow made no version, so its
- * snapshot folds into the version it ran). A service that reports no
- * versions keeps every snapshot.
+ * ancestor (a snapshot that is no version, as a restore's, folds into the
+ * version it shows). A service that reports no versions keeps every snapshot.
  */
 export function versionNodes(nodes: readonly SnapshotTreeNode[]): SnapshotTreeNode[] {
   if (!nodes.some(node => node.version !== undefined)) return [...nodes];
@@ -181,18 +184,9 @@ export function shownVersion(nodes: readonly SnapshotTreeNode[], snapshotId: str
   return undefined;
 }
 
-/** A version node's pill text ("v3 · kept") and tooltip ("v3: add kept (filter)"). */
+/** A version node's pill text ("v3 add kept", "v5 run kept") and tooltip ("v3: add kept (filter)"). */
 export function versionLabel(node: SnapshotTreeNode): { label: string; title: string } {
-  if (node.version === undefined || !node.edit) return { label: node.id, title: node.id };
-  const edit = node.edit;
-  const subject =
-    edit.kind === "start"
-      ? "start"
-      : edit.kind === "define"
-        ? (edit.functions ?? [])[0]
-        : edit.operatorId ?? `${(edit.operatorIds ?? []).length} operators`;
-  const title = `v${node.version}: ${editLabel(edit)}${edit.op && edit.kind !== "define" ? ` (${edit.op})` : ""}${
-    edit.author === "user" ? " · by you" : ""
-  }`;
-  return { label: subject ? `v${node.version} · ${subject}` : `v${node.version}`, title };
+  if (node.version === undefined || !node.action) return { label: node.id, title: node.id };
+  const title = versionTitle(node.version, node.action);
+  return { label: `v${node.version} ${actionLabel(node.action)}`, title: node.failed ? `${title} · failed` : title };
 }

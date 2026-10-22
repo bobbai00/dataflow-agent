@@ -67,6 +67,10 @@ class MockAgentService {
   public getReActStepsObservable = vi.fn((): Observable<ReActStep[]> => this.stepsSubject.asObservable());
   public getHeadIdObservable = vi.fn((): Observable<string | null> => this.headIdSubject.asObservable());
   public getWorkflowObservable = vi.fn((): Observable<Workflow | null> => this.workflowSubject.asObservable());
+  public liveVersionSubject = new BehaviorSubject<number | null>(null);
+  public getLiveVersionObservable = vi.fn((): Observable<number | null> => this.liveVersionSubject.asObservable());
+  public showOperatorResults = vi.fn();
+  public fetchOperatorResults = vi.fn();
   public setHoveredMessage = vi.fn();
   public sendMessage = vi.fn();
   public stopGeneration = vi.fn();
@@ -117,6 +121,9 @@ describe("AgentChatComponent", () => {
   let component: AgentChatComponent;
   let agentService: MockAgentService;
   let reloadWorkflow: ReturnType<typeof vi.fn>;
+  let updateWorkflowContent: ReturnType<typeof vi.fn>;
+  /** The workflow the canvas shows. */
+  let canvasWorkflow: { wid?: number };
   let notification: Record<"success" | "error" | "warning" | "info", ReturnType<typeof vi.fn>>;
   let persist: { setWorkflowPersistFlag: ReturnType<typeof vi.fn> };
   let fileUpload: { uploadFiles: ReturnType<typeof vi.fn> };
@@ -146,6 +153,8 @@ describe("AgentChatComponent", () => {
 
     agentService = new MockAgentService();
     reloadWorkflow = vi.fn();
+    updateWorkflowContent = vi.fn();
+    canvasWorkflow = {};
     notification = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
     persist = { setWorkflowPersistFlag: vi.fn() };
     uploadSubject = new Subject<AgentFileUpload>();
@@ -160,7 +169,10 @@ describe("AgentChatComponent", () => {
         // so the real service is required to render the system-info modal.
         NzModalService,
         { provide: AgentService, useValue: agentService },
-        { provide: WorkflowActionService, useValue: { reloadWorkflow } },
+        {
+          provide: WorkflowActionService,
+          useValue: { reloadWorkflow, updateWorkflowContent, getWorkflowMetadata: () => canvasWorkflow },
+        },
         { provide: NotificationService, useValue: notification },
         { provide: WorkflowPersistService, useValue: persist },
         { provide: AgentFileUploadService, useValue: fileUpload },
@@ -371,6 +383,33 @@ describe("AgentChatComponent", () => {
       expect(element.querySelector(".user-action-text")?.textContent?.trim()).toBe("You edited `kept`; it failed");
       expect(element.querySelector(".user-action.user-action-error")).not.toBeNull();
     });
+
+    it("shows a correction the service gave the model as a muted note, not as a message of the user's", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({ messageId: "m1", stepId: 0, id: "q", role: "user", content: "How many rows?", isBegin: true }),
+        makeStep({
+          messageId: "m1",
+          stepId: 1,
+          id: "c",
+          role: "user",
+          messageSource: "correction",
+          correction: "missing-action",
+          content: "That reply was text, so nothing was computed and no result has been shown yet.",
+        }),
+      ]);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(component.chatItems.map(item => item.kind)).toEqual(["message", "note"]);
+      expect(element.querySelectorAll(".user-message").length).toBe(1);
+      expect(element.querySelector(".correction-note-text")?.textContent?.trim()).toBe(
+        "Test Agent answered before computing anything and was asked to compute first."
+      );
+      expect(element.querySelector(".correction-note-details")).toBeNull();
+      (element.querySelector(".correction-note-line") as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(element.querySelector(".correction-note-details")?.textContent).toContain("nothing was computed");
+    });
   });
 
   describe("HEAD-path filtering of visible steps", () => {
@@ -428,6 +467,14 @@ describe("AgentChatComponent", () => {
         content: { operators: [{ operatorID: "op-2" }] },
       } as unknown as Workflow);
       expect(reloadWorkflow).toHaveBeenCalledTimes(2);
+    });
+
+    it("updates the canvas in place when it already shows the agent's workflow", () => {
+      canvasWorkflow = { wid: 42 };
+      createComponent(makeAgentInfo(), true);
+      agentService.workflowSubject.next(wfA);
+      expect(updateWorkflowContent).toHaveBeenCalledWith(wfA.content);
+      expect(reloadWorkflow).not.toHaveBeenCalled();
     });
   });
 
@@ -1255,7 +1302,7 @@ describe("AgentChatComponent", () => {
         { action: { type: "retrieve", operator_ids: ["kept"] }, status: "ok" },
       ],
     };
-    // v0 (start) → v1 → v2; S4 only ran the dataflow; v3 is the user's edit.
+    // v0 (start) → v1 → v2 → v3, the run of the agent's call; v4 is the user's edit.
     const tree = {
       rootId: "S0",
       headSnapshotId: "S4",
@@ -1269,7 +1316,7 @@ describe("AgentChatComponent", () => {
           timestamp: 1,
           version: 0,
           owned: true,
-          edit: { kind: "start", author: "agent" },
+          action: { kind: "start", author: "agent" },
         },
         {
           id: "S2",
@@ -1279,8 +1326,8 @@ describe("AgentChatComponent", () => {
           resultCount: 2,
           timestamp: 2,
           version: 2,
-          owned: true,
-          edit: { kind: "add", operatorId: "kept", author: "agent" },
+          owned: false,
+          action: { kind: "add", operatorId: "kept", author: "agent" },
         },
         {
           id: "S3",
@@ -1291,9 +1338,19 @@ describe("AgentChatComponent", () => {
           timestamp: 2,
           version: 1,
           owned: false,
-          edit: { kind: "add", operatorId: "records", author: "agent" },
+          action: { kind: "add", operatorId: "records", author: "agent" },
         },
-        { id: "S4", parentId: "S2", reactStepId: "a2", operatorCount: 2, resultCount: 2, timestamp: 3, owned: true },
+        {
+          id: "S4",
+          parentId: "S2",
+          reactStepId: "a1",
+          operatorCount: 2,
+          resultCount: 2,
+          timestamp: 3,
+          version: 3,
+          owned: true,
+          action: { kind: "run", operatorIds: ["kept"], author: "agent" },
+        },
         {
           id: "S5",
           parentId: "S4",
@@ -1301,14 +1358,14 @@ describe("AgentChatComponent", () => {
           operatorCount: 2,
           resultCount: 1,
           timestamp: 4,
-          version: 3,
+          version: 4,
           owned: true,
-          edit: { kind: "update", operatorId: "kept", author: "user" },
+          action: { kind: "update", operatorId: "kept", author: "user" },
         },
       ],
     } as any;
 
-    it("shows a step's edits with the versions they made, then what it ran and read", () => {
+    it("shows only what a step changed, each edit with the version it made", () => {
       createComponent();
       agentService.stepsSubject.next([
         makeStep({
@@ -1328,27 +1385,80 @@ describe("AgentChatComponent", () => {
       expect(chips).toEqual([
         ["add records", "v1"],
         ["add kept", "v2"],
-        ["run kept", undefined],
-        ["show kept", undefined],
       ]);
     });
 
-    it("draws versions only, labeled by what changed, with HEAD on the version it shows", () => {
+    it("holds back the versions the canvas has not shown yet, in the step's row and in the tree", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({
+          id: "a1",
+          stepId: 1,
+          toolCalls: [{ toolName: "dataflow", toolCallId: "c1" }],
+          toolResults: [{ toolCallId: "c1", output: versionsOutput }],
+        }),
+      ]);
+      agentService.getSnapshotTree.mockReturnValue(of(tree));
+      agentService.liveVersionSubject.next(1);
+      fixture.detectChanges();
+      const chips = () =>
+        Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".react-card-action .chip-label")).map(
+          chip => chip.textContent?.trim()
+        );
+      expect(chips()).toEqual(["add records"]);
+      expect(component.snapshotNodes.map(n => n.label)).toEqual(["v0 start", "v1 add records"]);
+      expect(component.snapshotNodes.find(n => n.isActive)?.label).toBe("v1 add records");
+
+      agentService.liveVersionSubject.next(null);
+      fixture.detectChanges();
+      expect(chips()).toEqual(["add records", "add kept"]);
+      expect(component.snapshotNodes.length).toBe(5);
+    });
+
+    it("marks a step whose call failed, with why", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({
+          id: "a1",
+          stepId: 1,
+          toolCalls: [{ toolName: "dataflow", toolCallId: "c1" }],
+          toolResults: [
+            {
+              toolCallId: "c1",
+              output: {
+                kind: "dataflow-actions",
+                actions: [
+                  { action: { type: "execute", operator_ids: ["kept"] }, status: "error", output: "engine down" },
+                ],
+              },
+            },
+          ],
+        }),
+      ]);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector(".react-card-failed")).not.toBeNull();
+      expect(element.querySelector(".react-card-check")).toBeNull();
+      expect((component.chatItems[0] as any).rows[0].failure).toBe("run kept failed: engine down");
+    });
+
+    it("draws every version under its verb, a run or a show as a request, with HEAD on the version it shows", () => {
       createComponent();
       component.snapshotTree = tree;
       component.buildSnapshotTree();
-      expect(component.snapshotNodes.map(n => [n.label, n.byUser])).toEqual([
-        ["v0 · start", false],
-        ["v1 · records", false],
-        ["v2 · kept", false],
-        ["v3 · kept", true],
+      expect(component.snapshotNodes.map(n => [n.label, n.byUser, n.request])).toEqual([
+        ["v0 start", false, false],
+        ["v1 add records", false, false],
+        ["v2 add kept", false, false],
+        ["v3 run kept", false, true],
+        ["v4 modify kept", true, false],
       ]);
-      // HEAD's snapshot only ran v2, so v2 is highlighted.
-      expect(component.snapshotNodes.find(n => n.isActive)?.label).toBe("v2 · kept");
+      expect(component.snapshotNodes.find(n => n.isActive)?.label).toBe("v3 run kept");
       expect(component.snapshotEdges.map(e => [e.sourceId, e.targetId])).toEqual([
         ["S1", "S3"],
         ["S3", "S2"],
-        ["S2", "S5"],
+        ["S2", "S4"],
+        ["S4", "S5"],
       ]);
     });
 
@@ -1378,11 +1488,13 @@ describe("AgentChatComponent", () => {
         );
         expect(component.snapshotNodes.find(n => n.isActive)?.id).toBe("S1");
         vi.advanceTimersByTime(900 * 3);
-        expect(agentService.getVersion.mock.calls.map(call => call[1])).toEqual(["S1", "S3", "S2"]);
+        expect(agentService.getVersion.mock.calls.map(call => call[1])).toEqual(["S1", "S3", "S2", "S4"]);
+        expect(agentService.showOperatorResults).toHaveBeenCalled();
         expect(agentService.checkoutVersion).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(900);
+        vi.advanceTimersByTime(900 * 2);
         expect(component.isPlayingSnapshots).toBe(false);
         expect(reloadWorkflow).toHaveBeenLastCalledWith(head, false, false);
+        expect(agentService.fetchOperatorResults).toHaveBeenCalledWith(AGENT_ID);
       } finally {
         vi.useRealTimers();
       }
@@ -1422,6 +1534,21 @@ describe("AgentChatComponent", () => {
       component.settingsRespondToRuns = "wait";
       component.saveRespondToRuns();
       expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { respondToCanvasRuns: false });
+    });
+
+    it("saves the session's instructions trimmed, and says when they were cleared", () => {
+      createComponent();
+      component.settingsInstructions = "  Answer questions; change nothing until told.  ";
+      component.saveInstructions();
+      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, {
+        instructions: "Answer questions; change nothing until told.",
+      });
+      expect(notification.success).toHaveBeenLastCalledWith("Instructions saved");
+
+      component.settingsInstructions = "   ";
+      component.saveInstructions();
+      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { instructions: "" });
+      expect(notification.success).toHaveBeenLastCalledWith("Instructions cleared");
     });
   });
 });

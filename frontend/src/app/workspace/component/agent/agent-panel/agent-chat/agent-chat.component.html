@@ -211,6 +211,8 @@
             [class.off-path]="!node.isOnActivePath"
             [class.is-root]="node.isRoot"
             [class.by-user]="node.byUser"
+            [class.is-request]="node.request"
+            [class.is-failed]="node.failed"
             [style.left.px]="node.x - node.width / 2"
             [style.top.px]="node.y - node.height / 2"
             [style.width.px]="node.width"
@@ -255,7 +257,8 @@
                 [attr.data-step-id]="row.step.id"
                 (mouseenter)="setHoveredMessage(row.index)"
                 (mouseleave)="setHoveredMessage(null)">
-                <!-- Status: spinner for the latest running step, else a green check -->
+                <!-- Status: spinner for the latest running step, a red mark for a
+                     step whose call failed, else a green check -->
                 <span class="react-card-status">
                   <nz-spin
                     *ngIf="isRowRunning(row); else doneIcon"
@@ -263,10 +266,20 @@
                     nzSize="small"></nz-spin>
                   <ng-template #doneIcon>
                     <i
+                      *ngIf="!row.failure; else failedIcon"
                       nz-icon
                       nzType="check-circle"
                       nzTheme="fill"
                       class="react-card-check"></i>
+                  </ng-template>
+                  <ng-template #failedIcon>
+                    <i
+                      nz-icon
+                      nzType="close-circle"
+                      nzTheme="fill"
+                      class="react-card-failed"
+                      nz-tooltip
+                      [nzTooltipTitle]="row.failure"></i>
                   </ng-template>
                 </span>
                 <div class="react-card-body">
@@ -282,8 +295,8 @@
                     [title]="row.thinking">
                     {{ row.thinking || 'Working…' }}
                   </span>
-                  <!-- What the step did: each edit with the version it made
-                       (add records v1, add kept v2), then what it ran and read. -->
+                  <!-- What the step changed: each add, modify or delete with the
+                       version it made (add records v1, add kept v2). -->
                   <span
                     *ngIf="row.actions.length"
                     class="react-card-actions">
@@ -362,6 +375,31 @@
               *ngIf="expandedActions.has(action.step.id)"
               class="user-action-details">
 {{ action.step.content }}</pre
+            >
+          </div>
+
+          <!-- A correction the service gave the model mid-turn: its note, not the user's words. -->
+          <div
+            *ngIf="asNote(item) as note"
+            class="correction-note"
+            [attr.data-step-id]="note.step.id">
+            <button
+              type="button"
+              class="correction-note-line"
+              (click)="toggleNote(note.step.id)">
+              <i
+                nz-icon
+                nzType="info-circle"
+                nzTheme="outline"></i>
+              <span class="correction-note-text">{{ noteSummary(note.step) }}</span>
+              <i
+                nz-icon
+                [nzType]="expandedNotes.has(note.step.id) ? 'up' : 'down'"></i>
+            </button>
+            <pre
+              *ngIf="expandedNotes.has(note.step.id)"
+              class="correction-note-details">
+{{ note.step.content }}</pre
             >
           </div>
 
@@ -508,7 +546,7 @@
           [(ngModel)]="debugMode"
           nzSize="small"
           nz-tooltip
-          nzTooltipTitle="Debug mode bypasses the LLM. Plain text is recorded as a user step; Function(name='...', arguments='...') is parsed and executed as a single tool call."></nz-switch>
+          nzTooltipTitle="Debug mode bypasses the LLM. Plain text is recorded as a user step; Function(name='...', arguments='...') runs one tool call, and Reply(text='...') records the agent's reply; lines before either are the step's reasoning."></nz-switch>
         <span
           class="input-mode-label"
           [class.debug]="debugMode">
@@ -832,6 +870,29 @@
               When you run an operator from its panel on the canvas (Run, Save &amp; run), the agent
               <strong>responds</strong> to the result in a turn of its own, or <strong>waits</strong> and reads the run
               with your next message.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Instructions</label>
+            <div class="settings-param-input settings-param-instructions">
+              <textarea
+                nz-input
+                class="settings-instructions-input"
+                [(ngModel)]="settingsInstructions"
+                [nzAutosize]="{ minRows: 2, maxRows: 8 }"
+                placeholder="What this agent should and should not do in this session"></textarea>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveInstructions()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              Appended to the system prompt as the session's instructions. The agent follows them from its next request;
+              clear the box and save to remove them.
             </div>
           </div>
 

@@ -1331,44 +1331,102 @@ describe("WorkflowEditorComponent", () => {
         expect(translateSpy).toHaveBeenCalledWith(-(center.x - offsetX), -(center.y - offsetY));
       });
 
-      it("exposes seeded agent operator result summaries and falls back to undefined", () => {
-        const agentService = TestBed.inject(AgentService);
-        const summaries = new Map<string, OperatorResultSummary>();
-        summaries.set("op-a", {
+      describe("an agent's run on the canvas", () => {
+        const native = {
+          ...mockScanPredicate,
+          nativeOp: {
+            type: "Filter",
+            inputs: [],
+            properties: {},
+            source: "set kept: filter(records, lambda row: True)",
+          },
+        } as OperatorPredicate;
+        const status = (operatorId: string) => {
+          const element = component.paper.getModelById(operatorId);
+          return element.attr(".texera-operator-status/display") === "none"
+            ? ""
+            : element.attr(".texera-operator-status-text/text");
+        };
+        const summary = (extra: Partial<OperatorResultSummary>): OperatorResultSummary => ({
           state: "Completed",
-          inputTuples: 1,
-          outputTuples: 2,
-          sampleRecords: [{ colA: "x" }],
-          columnStats: { rowCount: "2" },
+          inputTuples: 0,
+          outputTuples: 6,
+          totalRowCount: 6,
+          ...extra,
         });
-        (agentService as any).operatorResultSummariesSubject.next(summaries);
 
-        expect(component.getOperatorSampleRecords("op-a")).toEqual([{ colA: "x" }]);
-        expect(component.getOperatorResultStatistics("op-a")).toEqual({ rowCount: "2" });
-        expect(component.getOperatorSampleRecords("missing")).toBeUndefined();
-        expect(component.getOperatorResultStatistics("missing")).toBeUndefined();
+        it("shows the operators a run computes Running, then each one's outcome: done, cached or failed", () => {
+          const agentService = TestBed.inject(AgentService) as any;
+          workflowActionService.addOperator(native, mockPoint);
+          agentService.runningOperatorsSubject.next(new Set([native.operatorID]));
+          expect(status(native.operatorID)).toBe("Running");
+
+          agentService.runningOperatorsSubject.next(new Set());
+          agentService.operatorResultSummariesSubject.next(new Map([[native.operatorID, summary({})]]));
+          expect(status(native.operatorID)).toBe("✓");
+
+          agentService.operatorResultSummariesSubject.next(
+            new Map([[native.operatorID, summary({ state: "CompletedFromCache", cached: true })]])
+          );
+          const element = component.paper.getModelById(native.operatorID) as joint.shapes.devs.Model;
+          expect(status(native.operatorID)).toBe("cached");
+          expect(element.attr("rect.body/stroke")).toBe("#1677ff");
+          // A cached result keeps its row count on its port.
+          const out = element.getPorts().find(port => port.group === "out")!;
+          expect(element.portProp(out.id!, "attrs/.port-label/text")).toBe("6");
+
+          agentService.operatorResultSummariesSubject.next(
+            new Map([[native.operatorID, summary({ state: "Failed", error: "boom" })]])
+          );
+          expect(status(native.operatorID)).toBe("failed");
+        });
+
+        it("keeps the engine's live status off an agent's native operators, which show the agent's runs", () => {
+          workflowActionService.addOperator(native, mockPoint);
+          workflowActionService.addOperator(mockResultPredicate, mockPoint);
+          const statistics = {
+            operatorState: OperatorState.Running,
+            aggregatedInputRowCount: 0,
+            aggregatedOutputRowCount: 0,
+            inputPortMetrics: {},
+            outputPortMetrics: {},
+          };
+          (TestBed.inject(WorkflowStatusService) as any).statusSubject.next({
+            [native.operatorID]: statistics,
+            [mockResultPredicate.operatorID]: statistics,
+          });
+          expect(status(native.operatorID)).toBe("");
+          expect(status(mockResultPredicate.operatorID)).toBe("Running");
+        });
+
+        it("keeps an operator's outcome when the canvas replaces it in place", () => {
+          const agentService = TestBed.inject(AgentService) as any;
+          workflowActionService.addOperator(native, mockPoint);
+          agentService.operatorResultSummariesSubject.next(new Map([[native.operatorID, summary({})]]));
+          const edited = { ...native, nativeOp: { ...native.nativeOp!, doc: "Every record" } };
+          workflowActionService.updateWorkflowContent({
+            operators: [edited],
+            operatorPositions: { [native.operatorID]: mockPoint },
+            links: [],
+            commentBoxes: [],
+            settings: undefined as any,
+          });
+          expect(workflowActionService.getTexeraGraph().getOperator(native.operatorID).nativeOp?.doc).toBe(
+            "Every record"
+          );
+          expect(status(native.operatorID)).toBe("✓");
+        });
       });
 
-      it("detects visualization operators from the __is_visualization__ marker", () => {
-        const agentService = TestBed.inject(AgentService);
-        const summaries = new Map<string, OperatorResultSummary>();
-        summaries.set("viz-op", {
-          state: "Completed",
-          inputTuples: 0,
-          outputTuples: 1,
-          sampleRecords: [{ __is_visualization__: true }],
+      it("opens an engine operator's panel on a double click", () => {
+        workflowActionService.addOperator(mockScanPredicate, mockPoint);
+        const view = component.paper.findViewByModel(mockScanPredicate.operatorID);
+        (component.paper as any).trigger("cell:pointerdblclick", view, new Event("dblclick"), 0, 0);
+        expect(component.chatPopoverOperator).toMatchObject({
+          operatorId: mockScanPredicate.operatorID,
+          native: false,
+          mode: "actions",
         });
-        summaries.set("plain-op", {
-          state: "Completed",
-          inputTuples: 0,
-          outputTuples: 1,
-          sampleRecords: [{ colA: "x" }],
-        });
-        (agentService as any).operatorResultSummariesSubject.next(summaries);
-
-        expect(component.isOperatorVisualization("viz-op")).toBe(true);
-        expect(component.isOperatorVisualization("plain-op")).toBe(false);
-        expect(component.isOperatorVisualization("missing")).toBe(false);
       });
 
       it("closes the chat popover", () => {

@@ -132,9 +132,10 @@ export function asDataflowActionsResult(output: unknown): DataflowActionsResult 
 
 /** Run the pending actions in order. After a failure the rest are skipped,
  * except that reads and executions still run after a failed execution, so the
- * results that did complete can be read. */
+ * results that did complete can be read. `settled` follows each action that ran. */
 export async function runDataflowActions(
   result: DataflowActionsResult,
+  settled: (() => void) | undefined,
   run: (action: DataflowAction, index: number) => Promise<ActionOutcome>
 ): Promise<void> {
   if (result.status !== "pending") return;
@@ -161,6 +162,7 @@ export async function runDataflowActions(
       result.error ??= `Action ${item.index} (${item.action.type}) failed: ${item.output}`;
     }
     if (item.action.type === "execute" && item.status === "error") afterFailedExecution = true;
+    settled?.();
   }
   result.status = result.error ? "error" : "completed";
 }
