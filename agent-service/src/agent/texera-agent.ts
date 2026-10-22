@@ -49,6 +49,7 @@ import type { FoldResolvedRevisionsConfig } from "./context/select/revision-fold
 import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
+import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
 import {
   AgentMode,
   AgentState as AgentStateEnum,
@@ -196,6 +197,8 @@ export interface TexeraAgentConfig {
    *  prompt can match the dialect the parser expects, and the contextMode so
    *  the described context format matches what the assembler renders. */
   systemPromptBuilder?: (dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string;
+  /** Where the agent's turns, steps, versions, executions and results are recorded as they happen. */
+  trace?: TraceStore;
 }
 
 export interface AgentMessageResult {
@@ -404,7 +407,10 @@ export class TexeraAgent {
 
   private log: Logger;
 
+  private trace?: TraceStore;
+
   constructor(config: TexeraAgentConfig) {
+    this.trace = config.trace;
     this.agentId = config.agentId;
     this.agentName = config.agentName || `Agent-${config.agentId}`;
     this.modelType = config.modelType;
@@ -422,6 +428,18 @@ export class TexeraAgent {
       () => this.delegateConfig?.workflowId,
       () => (this.delegateConfig?.userToken ? [this.delegateConfig.userToken] : [])
     );
+    this.snapshotStorage.listener = {
+      onSnapshot: snapshot => this.trace?.snapshot(this.agentId, snapshot),
+      onResult: (snapshot, operatorId, info) =>
+        this.trace?.operatorResult({
+          agentId: this.agentId,
+          snapshotId: snapshot.id,
+          stepId: snapshot.reactStepId,
+          operatorId,
+          info,
+          at: Date.now(),
+        }),
+    };
 
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
@@ -527,6 +545,7 @@ export class TexeraAgent {
           onResult: (opId, info) => {
             collected.set(opId, info);
           },
+          onExecution: run => this.trace?.execution({ agentId: this.agentId, run }),
           opsToViewResult: opIds,
         });
       } catch (error) {
@@ -1007,9 +1026,16 @@ export class TexeraAgent {
     }
     steps.push(step);
     this.stepsById.set(step.id, step);
+    this.trace?.step(this.agentId, step);
     if (this.stepCallback) {
       this.stepCallback(step);
     }
+  }
+
+  /** The reply a turn ended with: its last agent step's text, if any. */
+  private replyOf(messageId: string): string | undefined {
+    const steps = this.reActStepsByMessageId.get(messageId) ?? [];
+    return [...steps].reverse().find(step => step.role === "agent" && step.content.trim())?.content;
   }
 
   getSystemInfo(): {
@@ -1497,6 +1523,16 @@ export class TexeraAgent {
     } = {}
   ): Promise<AgentMessageResult> {
     const messageId = options.respondTo?.messageId ?? `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+    // A turn answering a recorded canvas action keeps that action's turn.
+    this.trace?.turnStarted({
+      agentId: this.agentId,
+      messageId,
+      channel: options.respondTo ? "action" : "message",
+      source: messageSource ?? "chat",
+      text: userMessage,
+      startedAt: Date.now(),
+    });
+    let turnEnd: Pick<TraceTurnEnd, "status" | "error"> = { status: "ok" };
     if (options.contextRequests) this.contextRequestsByMessage.set(messageId, new Set(options.contextRequests));
     let stepIndex = 0;
     // Failed/stopped turns still consumed model responses. Preserve their
@@ -1578,6 +1614,8 @@ export class TexeraAgent {
       // stall: preparing / requesting model / model step finished / post-step done,
       // each with its duration.
       let requestedAt = 0;
+      let preparedAt = 0;
+      let compiledAt = 0;
       const turnStartStepIndex = stepIndex;
       let protocolFeedbackSteps = 0;
       let budgetFeedbackSteps = 0;
@@ -1610,6 +1648,7 @@ export class TexeraAgent {
             if (lastFailure && failureStreak >= REPEATED_FAILURE_LIMIT)
               throw new Error(repeatedFailureError(lastFailure));
             const preparing = Date.now();
+            preparedAt = preparing;
             this.log.info({ messageId, stepNumber }, "preparing step");
             const remaining =
               this.settings.maxSteps -
@@ -1660,6 +1699,7 @@ export class TexeraAgent {
               }
             }
             const compiled = Date.now();
+            compiledAt = compiled;
 
             const visibleSteps = this.contextSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
@@ -1776,16 +1816,37 @@ export class TexeraAgent {
                   }
                 : undefined,
               inputMessages: lastPreparedMessages,
+              timing: {
+                preparedAt,
+                requestedAt,
+                compileMs: compiledAt - preparedAt,
+                contextMs: requestedAt - compiledAt,
+                modelMs: finishing - requestedAt,
+              },
             };
             lastPreparedMessages = undefined;
             this.addStep(agentStep);
             this.head = agentStepId;
+            this.trace?.llmCall({
+              agentId: this.agentId,
+              messageId,
+              stepId: agentStepId,
+              model: this.modelType,
+              startedAt: requestedAt,
+              endedAt: finishing,
+              inputMessages: agentStep.inputMessages?.length,
+              inputChars: this.lastRenderedContext?.length,
+              outputChars: (text?.length ?? 0) + (formattedToolCalls ? JSON.stringify(formattedToolCalls).length : 0),
+              usage: agentStep.usage,
+            });
             // Snapshot iff the model emitted tool calls this step; thinking
             // turns and final summaries don't own a snapshot.
             this.maybeCreateSnapshotForHead(afterStepContent);
 
             await this.runPostStepExecution(formattedToolCalls, formattedToolResults);
-            this.log.info({ messageId, stepIndex, postStepMs: Date.now() - finishing }, "post-step done");
+            agentStep.timing!.postStepMs = Date.now() - finishing;
+            this.trace?.step(this.agentId, agentStep);
+            this.log.info({ messageId, stepIndex, postStepMs: agentStep.timing!.postStepMs }, "post-step done");
 
             // Identical failures in a row spend the turn's budget on nothing:
             // one correction after two, and the turn ends after four. Counted
@@ -1926,6 +1987,7 @@ export class TexeraAgent {
         const lastStep = msgSteps[msgSteps.length - 1];
         if (lastStep.role === "agent") {
           lastStep.isEnd = true;
+          this.trace?.step(this.agentId, lastStep);
         }
       }
 
@@ -1937,6 +1999,7 @@ export class TexeraAgent {
       };
     } catch (error: any) {
       const isAborted = error.name === "AbortError" || this.abortController?.signal.aborted;
+      turnEnd = isAborted ? { status: "stopped" } : { status: "error", error: error.message || String(error) };
 
       if (isAborted) {
         stepIndex++;
@@ -1989,6 +2052,13 @@ export class TexeraAgent {
         error: error.message || String(error),
       };
     } finally {
+      this.trace?.turnEnded({
+        agentId: this.agentId,
+        messageId,
+        endedAt: Date.now(),
+        ...turnEnd,
+        reply: this.replyOf(messageId),
+      });
       this.abortController = null;
       this.currentMessageId = undefined;
       this.state = AgentStateEnum.AVAILABLE;
@@ -2038,6 +2108,28 @@ export class TexeraAgent {
     this.currentMessageId = undefined;
     this.head = undefined;
     this.snapshotStorage.clear();
+  }
+
+  /** Trace from here on: an agent restored from the store is rebuilt untraced, then attached. */
+  attachTrace(trace: TraceStore | undefined): void {
+    this.trace = trace;
+  }
+
+  /**
+   * Put stored operator results back on the snapshots their steps own (after
+   * `importReActSteps`), then let descendants inherit them, as a live run
+   * leaves them. A result whose step owns no snapshot is skipped.
+   */
+  restoreOperatorResults(results: ReadonlyArray<{ stepId: string; operatorId: string; info: OperatorInfo }>): void {
+    for (const { stepId, operatorId, info } of results) {
+      if (!this.snapshotStorage.hasSnapshotFor(stepId)) continue;
+      try {
+        this.snapshotStorage.setOperatorResult(stepId, operatorId, info);
+      } catch (err) {
+        this.log.warn({ err, stepId, operatorId }, "restore: failed to set operator result, skipping");
+      }
+    }
+    this.snapshotStorage.propagateInheritedResults();
   }
 
   /**
@@ -2497,7 +2589,9 @@ export class TexeraAgent {
     const failed = result.actions.find(item => item.status === "error");
     const rendering = failed
       ? { ok: false as const, error: "a statement of this call failed; fix it, then answer." }
-      : renderAnswer({ ids: statement.ids, ...statement.answer }, id => this.snapshotStorage.getOperatorResult(stepId, id));
+      : renderAnswer({ ids: statement.ids, ...statement.answer }, id =>
+          this.snapshotStorage.getOperatorResult(stepId, id)
+        );
     if (rendering.ok) {
       result.answer = rendering.text;
       if (this.currentMessageId) this.answerByMessage.set(this.currentMessageId, rendering.text);
@@ -2647,6 +2741,7 @@ export class TexeraAgent {
         abortSignal: owningSignal,
         opsToViewResult: [...targets],
         onExecution: run => {
+          this.trace?.execution({ agentId: this.agentId, messageId: this.currentMessageId, stepId: owningStepId, run });
           if (stillOwned()) onExecution?.(run);
         },
         onResult: (opId, operatorInfo) => {
@@ -2757,6 +2852,14 @@ export class TexeraAgent {
       if (!looksLikeAgentInput(content)) {
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
+        this.trace?.turnStarted({
+          agentId: this.agentId,
+          messageId,
+          channel: "debug",
+          source: messageSource ?? "chat",
+          text: content,
+          startedAt: Date.now(),
+        });
 
         const userStepId = this.generateStepId();
         const userStep: ReActStep = {
@@ -2796,6 +2899,13 @@ export class TexeraAgent {
         messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         stepId = 0;
         isBegin = true;
+        this.trace?.turnStarted({
+          agentId: this.agentId,
+          messageId,
+          channel: "debug",
+          text: content,
+          startedAt: Date.now(),
+        });
       }
       this.currentMessageId = messageId;
 
@@ -2837,6 +2947,13 @@ export class TexeraAgent {
           isEnd: true,
         });
         this.head = replyStepId;
+        this.trace?.turnEnded({
+          agentId: this.agentId,
+          messageId,
+          endedAt: Date.now(),
+          status: "ok",
+          reply: parsed.reply,
+        });
         return { kind: "reply", stopped: false };
       }
       const call = parsed.call!;
@@ -2965,6 +3082,14 @@ export class TexeraAgent {
         toolResults,
         userAction: info,
       };
+      this.trace?.turnStarted({
+        agentId: this.agentId,
+        messageId,
+        channel: "action",
+        source: "action",
+        text: step.content,
+        startedAt: step.timestamp,
+      });
       this.addStep(step);
       this.head = step.id;
       this.maybeCreateSnapshotForHead(this.workflowState.getWorkflowContent());
@@ -2992,6 +3117,15 @@ export class TexeraAgent {
       const version = userActionVersion(result);
       if (version !== undefined) info.version = version;
       if (result.error) info.error = result.error;
+      this.trace?.step(this.agentId, step);
+      // Answered by the agent, the turn ends again with its reply.
+      this.trace?.turnEnded({
+        agentId: this.agentId,
+        messageId,
+        endedAt: Date.now(),
+        status: info.status === "error" ? "error" : "ok",
+        error: info.error,
+      });
       this.stepCallback?.(step);
       return { status: info.status, step, respond };
     } finally {

@@ -43,6 +43,7 @@ import { inspectErrorSchema } from "./agent/native/inspect-error-query";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
+import { openTraceStore, type TraceStore } from "./trace/trace-store";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
@@ -326,6 +327,8 @@ const agentStore = new Map<string, TexeraAgent>();
 /** Tracks which driver each agent was constructed with so `getAgentInfo`
  *  can echo it back to the UI. Populated by `createAgentInstance`. */
 const agentDrivers = new Map<string, AgentDriverKind>();
+/** Every agent's turns, steps, versions, executions and results, as they happen (see trace-store.ts). */
+let traceStore: TraceStore | undefined = openTraceStore(env.AGENT_TRACE_DB);
 let agentCounter = 0;
 /**
  * Per-process salt for agent ids.
@@ -343,13 +346,92 @@ let agentCounter = 0;
  */
 const AGENT_ID_SALT = Math.random().toString(36).slice(2, 8);
 
+/** Apply an agent's initial settings: the create request's, or the stored ones of an agent being restored. */
+function applyInitialSettings(
+  agentId: string,
+  agent: TexeraAgent,
+  settings: NonNullable<CreateAgentRequest["settings"]>
+): void {
+  log.info(
+    {
+      agentId,
+      maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
+      maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+    },
+    "applying initial agent settings"
+  );
+  agent.updateSettings({
+    ...observationFormatPatch(settings),
+    maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
+    maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+    operatorResultSerializationMode: settings.operatorResultSerializationMode
+      ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
+      : undefined,
+    toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
+    executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
+    disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
+    maxSteps: settings.maxSteps,
+    maxOperatorEdits: settings.maxOperatorEdits,
+    agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+    nativeProfileCollection: settings.nativeProfileCollection,
+    nativeProfileScope: settings.nativeProfileScope,
+    dataEvidence: settings.dataEvidence,
+    retrievalViews: settings.retrievalViews,
+    fullResultCharLimit: settings.fullResultCharLimit,
+    dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
+    flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
+    flowEvidence: settings.flowEvidence,
+    operatorDoc: settings.operatorDoc,
+    respondToCanvasRuns: settings.respondToCanvasRuns,
+    instructions: settings.instructions,
+    answerStatement: settings.answerStatement,
+    nativeChecks: settings.nativeChecks,
+    resultSelection: (settings as any).resultSelection,
+    contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
+    parallelToolCalls: settings.parallelToolCalls,
+    includeOperatorProperties: settings.includeOperatorProperties,
+    thoughtReplay: settings.thoughtReplay,
+    agentTurns: settings.agentTurns,
+    contextWindowTokens: settings.contextWindowTokens,
+    compactionStrategy: settings.compactionStrategy,
+    deckSampleRatio: settings.deckSampleRatio,
+    errorReflection: settings.errorReflection,
+    errorReflectionThreshold: settings.errorReflectionThreshold,
+    thoughtReplayK: settings.thoughtReplayK,
+    fewShotPrompt: settings.fewShotPrompt,
+    maxResultRows: settings.maxResultRows,
+    attemptReflection: settings.attemptReflection,
+    toolDialect: settings.toolDialect,
+    summarizeParams: parseSummarizePatch(settings.summarizeParams),
+    selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+    frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
+    foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput((settings as any).foldResolvedRevisionsConfig),
+    probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
+    rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
+    learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
+    enableInspectTool: (settings as any).enableInspectTool,
+    enableRenderPrefs: (settings as any).enableRenderPrefs,
+    enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
+    sourceProvenanceHint: (settings as any).sourceProvenanceHint,
+    staticCompaction: (settings as any).staticCompaction,
+    userTaskPlacement: (settings as any).userTaskPlacement,
+    messageLayout: (settings as any).messageLayout,
+    multiRequest: (settings as any).multiRequest,
+    catalogSource: (settings as any).catalogSource,
+    catalogRecent: (settings as any).catalogRecent,
+    tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
+  });
+}
+
 async function createAgentInstance(
   modelType: string,
   delegateConfig: AgentDelegateConfig,
   customName?: string,
-  explicitDriver?: AgentDriverKind
+  explicitDriver?: AgentDriverKind,
+  /** The id of an agent being restored from the trace store; it is traced again once rebuilt (see /:id/restore). */
+  restoreId?: string
 ): Promise<{ agentId: string; agent: TexeraAgent }> {
-  const agentId = `agent-${AGENT_ID_SALT}-${++agentCounter}`;
+  const agentId = restoreId ?? `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
 
   const inputBudget = readInputBudget(process.env);
@@ -405,7 +487,22 @@ async function createAgentInstance(
     // local-react needs the training-time system prompt verbatim on every
     // wire call; other drivers fall back to the mode-based builders.
     systemPromptBuilder: driverKind === "local-react" ? buildLocalReactSystemPrompt : undefined,
+    trace: restoreId ? undefined : traceStore,
   });
+  if (!restoreId)
+    traceStore?.agentCreated({
+      id: agentId,
+      name: agent.agentName,
+      model: modelType,
+      driver: driverKind,
+      workflowId: delegateConfig.workflowId,
+      computingUnitId: delegateConfig.computingUnitId,
+      user: delegateConfig.userInfo
+        ? { uid: delegateConfig.userInfo.uid, name: delegateConfig.userInfo.name }
+        : undefined,
+      settings: settingsToApi(agent),
+      createdAt: Date.now(),
+    });
 
   // Single bootstrap: metadata + (in delegate mode) workflow load and a
   // synthetic `initialize` step that anchors both the workflow snapshot and
@@ -702,79 +799,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name, driver);
 
       try {
-        if (settings) {
-          log.info(
-            {
-              agentId,
-              maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-              maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-            },
-            "applying initial agent settings"
-          );
-          agent.updateSettings({
-            ...observationFormatPatch(settings),
-            maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-            maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-            operatorResultSerializationMode: settings.operatorResultSerializationMode
-              ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
-              : undefined,
-            toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
-            executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
-            disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
-            maxSteps: settings.maxSteps,
-            maxOperatorEdits: settings.maxOperatorEdits,
-            agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
-            nativeProfileCollection: settings.nativeProfileCollection,
-            nativeProfileScope: settings.nativeProfileScope,
-            dataEvidence: settings.dataEvidence,
-            retrievalViews: settings.retrievalViews,
-            fullResultCharLimit: settings.fullResultCharLimit,
-            dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
-            flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
-            flowEvidence: settings.flowEvidence,
-            operatorDoc: settings.operatorDoc,
-            respondToCanvasRuns: settings.respondToCanvasRuns,
-            instructions: settings.instructions,
-            answerStatement: settings.answerStatement,
-            nativeChecks: settings.nativeChecks,
-            resultSelection: (settings as any).resultSelection,
-            contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
-            parallelToolCalls: settings.parallelToolCalls,
-            includeOperatorProperties: settings.includeOperatorProperties,
-            thoughtReplay: settings.thoughtReplay,
-            agentTurns: settings.agentTurns,
-            contextWindowTokens: settings.contextWindowTokens,
-            compactionStrategy: settings.compactionStrategy,
-            deckSampleRatio: settings.deckSampleRatio,
-            errorReflection: settings.errorReflection,
-            errorReflectionThreshold: settings.errorReflectionThreshold,
-            thoughtReplayK: settings.thoughtReplayK,
-            fewShotPrompt: settings.fewShotPrompt,
-            maxResultRows: settings.maxResultRows,
-            attemptReflection: settings.attemptReflection,
-            toolDialect: settings.toolDialect,
-            summarizeParams: parseSummarizePatch(settings.summarizeParams),
-            selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
-            frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
-            foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
-              (settings as any).foldResolvedRevisionsConfig
-            ),
-            probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
-            rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
-            learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
-            enableInspectTool: (settings as any).enableInspectTool,
-            enableRenderPrefs: (settings as any).enableRenderPrefs,
-            enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
-            sourceProvenanceHint: (settings as any).sourceProvenanceHint,
-            staticCompaction: (settings as any).staticCompaction,
-            userTaskPlacement: (settings as any).userTaskPlacement,
-            messageLayout: (settings as any).messageLayout,
-            multiRequest: (settings as any).multiRequest,
-            catalogSource: (settings as any).catalogSource,
-            catalogRecent: (settings as any).catalogRecent,
-            tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
-          });
-        }
+        if (settings) applyInitialSettings(agentId, agent, settings);
       } catch (error) {
         // Graph-dependent validation happens after bootstrap. A rejected
         // initial configuration must not leave a registered, unusable agent.
@@ -784,6 +809,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         throw error;
       }
 
+      if (settings) traceStore?.agentSettings(agentId, settingsToApi(agent), settings);
       return getAgentInfo(agentId, agent);
     },
     {
@@ -886,6 +912,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     agent.destroy();
     agentStore.delete(id);
     agentDrivers.delete(id);
+    traceStore?.agentEnded(id, "deleted");
     return { deleted: true };
   })
 
@@ -963,6 +990,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         return { error: "The agent is working; try again when it finishes." };
       }
       const headId = agent.checkoutVersion(body.snapshotId);
+      traceStore?.event({ agentId: id, kind: "checkout-version", detail: { snapshotId: body.snapshotId, headId } });
       if (!headId) {
         set.status = 404;
         return { error: `There is no version ${body.snapshotId}.` };
@@ -1089,6 +1117,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   .post("/:id/stop", ({ params: { id } }) => {
     const agent = getAgent(id);
     agent.stop();
+    traceStore?.event({ agentId: id, kind: "stop" });
     return { status: "stopping" };
   })
 
@@ -1149,9 +1178,59 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     }
   )
 
+  // An agent the trace store holds but memory does not (the service restarted):
+  // rebuilt as it was created, with its stored settings, steps, dataflow versions
+  // and operator results, and traced from here on. The caller's token stands in
+  // for the one the agent had, as for a new agent.
+  .post("/:id/restore", async ({ params: { id }, headers, set }) => {
+    if (agentStore.has(id)) {
+      set.status = 409;
+      return { error: `Agent ${id} is live` };
+    }
+    const stored = traceStore?.agent(id);
+    if (!stored) {
+      set.status = 404;
+      return { error: `No trace for agent ${id}` };
+    }
+    const userToken = extractBearerToken(headers.authorization);
+    if (!userToken) throw new Error("Authorization header with a Bearer token is required");
+    if (!validateToken(userToken)) throw new Error("Invalid or expired token");
+    const delegateConfig: AgentDelegateConfig = {
+      userToken,
+      userInfo: extractUserFromToken(userToken),
+      workflowId: (stored.workflow_id as number | null) ?? undefined,
+      computingUnitId: (stored.computing_unit_id as number | null) ?? undefined,
+    };
+    const { agent } = await createAgentInstance(
+      String(stored.model),
+      delegateConfig,
+      typeof stored.name === "string" ? stored.name : undefined,
+      (stored.driver as AgentDriverKind | null) ?? undefined,
+      id
+    );
+    try {
+      if (stored.settings)
+        applyInitialSettings(id, agent, stored.settings as NonNullable<CreateAgentRequest["settings"]>);
+      const { headId, importedCount } = await agent.importReActSteps(
+        traceStore!.stepsOf(id),
+        traceStore!.snapshotWorkflows(id)
+      );
+      agent.restoreOperatorResults(traceStore!.operatorResultsOf(id));
+      agent.attachTrace(traceStore);
+      traceStore!.event({ agentId: id, kind: "restore", detail: { importedCount, headId } });
+    } catch (error) {
+      agent.destroy();
+      agentStore.delete(id);
+      agentDrivers.delete(id);
+      throw error;
+    }
+    return getAgentInfo(id, agent);
+  })
+
   .post("/:id/clear", ({ params: { id } }) => {
     const agent = getAgent(id);
     agent.clearHistory();
+    traceStore?.event({ agentId: id, kind: "clear" });
     broadcastNextContext(id, agent);
     return { status: "cleared" };
   })
@@ -1171,6 +1250,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           : undefined;
 
       const { headId, importedCount } = await agent.importReActSteps(archive.steps as any, snapshots);
+      traceStore?.event({ agentId: id, kind: "import", detail: { importedCount, headId } });
 
       const allSteps = agent.getRenderableReActSteps();
       const workflowContent = agent.getWorkflowState().getWorkflowContent();
@@ -1202,6 +1282,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     if (!stepId) throw new Error("stepId is required");
 
     const success = agent.checkout(stepId);
+    traceStore?.event({ agentId: id, kind: "checkout", detail: { stepId, success } });
     if (!success) throw new Error(`Step ${stepId} not found or checkout failed`);
 
     const allSteps = agent.getRenderableReActSteps();
@@ -1314,6 +1395,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       // contextMode flips the selection policy) — re-broadcast the preview
       // so clients stay in sync.
       broadcastNextContext(id, agent);
+      traceStore?.agentSettings(id, settingsToApi(agent), settings);
 
       return settingsToApi(agent);
     },
@@ -1613,6 +1695,25 @@ export function buildApp() {
           status: "ok",
           timestamp: new Date().toISOString(),
         }))
+        // The trace store: every agent it holds, and one agent's whole trace as JSON.
+        .get("/traces", ({ query }) => ({
+          database: traceStore?.path ?? null,
+          // `?user=<name or uid>` keeps one participant's agents.
+          agents: (traceStore?.listAgents(typeof query.user === "string" ? query.user : undefined) ?? []).map(
+            agent => ({
+              ...agent,
+              live: agentStore.has(String(agent.id)),
+            })
+          ),
+        }))
+        .get("/traces/:id", ({ params: { id }, set }) => {
+          const trace = traceStore?.exportAgent(id);
+          if (!trace) {
+            set.status = 404;
+            return { error: `No trace for agent ${id}` };
+          }
+          return trace;
+        })
         .use(agentsRouter)
     )
     .ws(`${env.API_PREFIX}/agents/:id/react`, {
@@ -1666,6 +1767,7 @@ export function buildApp() {
 
         if (msg.type === "stop") {
           agent.stop();
+          traceStore?.event({ agentId, kind: "stop" });
           broadcastToAgent(agentId, { type: "state", state: "STOPPING" });
           return;
         }
@@ -1747,6 +1849,15 @@ export function _resetAgentStoreForTests(): void {
   agentStore.clear();
   agentDrivers.clear();
   agentCounter = 0;
+  // Agent ids start over, so the trace store starts over too: rows of an earlier test's agent must
+  // not come back as a later agent's past.
+  traceStore = openTraceStore(env.AGENT_TRACE_DB);
+}
+
+/** Forget a live agent, as a restart does, leaving its trace in the store. */
+export function _dropLiveAgentForTests(agentId: string): void {
+  agentStore.delete(agentId);
+  agentDrivers.delete(agentId);
 }
 
 function printStartupMessage(app: ReturnType<typeof buildApp>) {

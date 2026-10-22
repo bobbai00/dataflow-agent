@@ -62,6 +62,8 @@ export class WorkflowState {
   private operatorIdCounter: number = 0;
   private linkIdCounter: number = 0;
 
+  /** The whole content was replaced (a dataflow edit, a checkout, an import): one change, like the others. */
+  private readonly contentReplacedSubject = new Subject<void>();
   private readonly operatorAddSubject = new Subject<OperatorPredicate>();
   private readonly operatorDeleteSubject = new Subject<{ deletedOperatorID: string }>();
   private readonly operatorPropertyChangeSubject = new Subject<{ operator: OperatorPredicate }>();
@@ -90,7 +92,8 @@ export class WorkflowState {
       this.operatorPropertyChangeSubject,
       this.linkAddSubject,
       this.linkDeleteSubject,
-      this.disabledOperatorChangedSubject
+      this.disabledOperatorChangedSubject,
+      this.contentReplacedSubject
     );
   }
 
@@ -565,6 +568,7 @@ export class WorkflowState {
 
     this.settings = content.settings ? { ...content.settings } : { ...DEFAULT_WORKFLOW_SETTINGS };
     this.nativeNamespace = content.nativeNamespace ? structuredClone(content.nativeNamespace) : undefined;
+    this.contentReplacedSubject.next();
   }
 
   toLogicalPlan(targetOperatorId?: string): LogicalPlan {

@@ -71,11 +71,28 @@ export interface ToolOperatorAccess {
   modifiedOperatorIds: string[];
 }
 
+/** When an agent step was prepared and requested, and what each part of it took. */
+export interface StepTiming {
+  /** When the step's context began to be built. */
+  preparedAt?: number;
+  /** When the model request went out, once the context was built. */
+  requestedAt?: number;
+  /** Compiling the dataflow for schemas, before the context. */
+  compileMs?: number;
+  /** Building the model's input. */
+  contextMs?: number;
+  /** The model request, to its full response. */
+  modelMs?: number;
+  /** Executing the step's actions and recording their results. */
+  postStepMs?: number;
+}
+
 export interface ReActStep {
   id: string;
   parentId?: string;
   messageId: string;
   stepId: number;
+  /** When the step was recorded (an agent step: when its model response arrived). */
   timestamp: number;
   role: "user" | "agent";
   content: string;
@@ -100,6 +117,8 @@ export interface ReActStep {
     isError?: boolean;
   }>;
   usage?: TokenUsage;
+  /** An agent step's timings; the trace store keeps them with the step. */
+  timing?: StepTiming;
   inputMessages?: any[];
   /** "action": the user edited or ran an operator on the canvas
    *  (`TexeraAgent.applyUserAction`); the step's `content` tells the model.

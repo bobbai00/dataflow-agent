@@ -33,12 +33,12 @@ const SCENARIOS: Array<{ dataset: string; folder: string; description: string }>
   {
     dataset: STUDY.datasets[1],
     folder: "scenario-1",
-    description: "User study, scenario 1: restaurant ratings (Mexico)",
+    description: "User study, scenario 1: Olympic golds and geography, 2006-2016",
   },
   {
     dataset: STUDY.datasets[2],
     folder: "scenario-2/data",
-    description: "User study, scenario 2: SF restaurant inspections",
+    description: "User study, scenario 2: SF Airbnb listings, September 2026",
   },
 ];
 

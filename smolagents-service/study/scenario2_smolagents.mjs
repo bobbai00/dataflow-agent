@@ -12,11 +12,11 @@
 // limitations under the License.
 
 // Scenario 2 of the user study on the script agent, as a participant would do it:
-// a fresh account, the three inspection files, the notebook with the planted bug
+// a fresh account, the three Airbnb files, the notebook with the planted bug
 // imported into the chat, then a question about the analysis (which must change
 // nothing) and the feedback naming the fix (after which the agent must rerun and
-// report 1,057 floors and 630 businesses without violations). The server must run
-// with --notebook-instructions @scenario-2/agent-instructions.md.
+// report Pacific Heights at $858). The server must run with
+// --notebook-instructions @scenario-2/agent-instructions.md.
 //
 //   node study/scenario2_smolagents.mjs BASE_URL STUDY_DIR OUT_DIR
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -25,14 +25,13 @@ import { ask, chromium, lastAnswer, lastMessages, register, upload } from "../te
 
 const [base, studyDir, out] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
-const files = ["businesses.csv", "inspections.csv", "violations.csv"];
+const files = ["listings.csv", "reviews_last_12_months.csv", "neighbourhoods.csv"];
 const NOTEBOOK = "scenario2_notebook.ipynb";
-const QUESTION =
-  "Business 2862 shows 5 violations in per_business. Which inspection dates do those violations come from, " +
-  "and what was its latest 2016 inspection date?";
+// The two messages the doc's rehearsal section names.
+const QUESTION = "Why does the analysis contain no listing above $999?";
 const FEEDBACK =
-  "The merge in `merged` joins on business_id only, so it attaches violations from every inspection a business ever had, " +
-  "not just its latest 2016 one. Join on business_id and date instead, rerun what depends on it, and give me the new answers.";
+  "The price parse strips the $ but not the comma, so prices of $1,000 or more fail to convert and get dropped. " +
+  "Strip both, rerun what depends on it, and give me the new answer.";
 
 const turns = [];
 const browser = await chromium.launch();
@@ -50,9 +49,9 @@ try {
   await page.screenshot({ path: `${out}/imported.png`, fullPage: true });
   console.log(`imported in ${importSeconds.toFixed(0)} s: ${imported.at(-1)?.replace(/\s+/g, " ")}`);
   const checks = [
-    ["the notebook's question opens the chat", chat.includes("what inspectors found")],
-    ["every cell ran", imported.some(text => /imported 31 cells/.test(text) && !/failed/.test(text))],
-    ["the planted answer is shown", imported.some(text => /1,920/.test(text) && /410/.test(text))],
+    ["the notebook's question opens the chat", chat.includes("most expensive")],
+    ["every cell ran", imported.some(text => /imported 28 cells/.test(text) && !/failed/.test(text))],
+    ["the planted answer is shown", imported.some(text => /Marina/.test(text) && /\$407/.test(text))],
   ];
   turns.push(await ask(page, QUESTION));
   const question = await lastAnswer(page); // the whole answer; a turn keeps its first 400 characters
@@ -67,9 +66,9 @@ try {
   for (const [i, turn] of turns.entries()) console.log(`turn ${i + 1} (${turn.seconds.toFixed(0)} s): ${turn.final.replace(/\s+/g, " ")}`);
   console.log("runs:", details.map(run => `${run.kind}: ${run.steps?.length ?? "?"} steps, ${run.python_execs?.length ?? "?"} code runs`).join(" | "));
   checks.push(
-    ["the question was answered with dates", /2016|\d\d\/\d\d\/20\d\d|201\d-\d\d-\d\d/.test(question)],
-    ["the question changed nothing", !/1,?057|\b630\b/.test(question)],
-    ["the feedback led to the corrected answers", /1,?057/.test(feedback) && /\b630\b/.test(feedback)],
+    ["the question was answered", question.trim().length > 0],
+    ["the question changed nothing", !/Pacific Heights/.test(question) || !/\b858\b/.test(question)],
+    ["the feedback led to the corrected answer", /Pacific Heights/.test(feedback) && /\b858\b/.test(feedback)],
   );
   for (const [name, ok] of checks) console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
   process.exit(checks.every(([, ok]) => ok) ? 0 : 1);

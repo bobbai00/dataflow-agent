@@ -106,6 +106,13 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   `src/agent/util/context-utils.ts`; the ReAct loop in
   `src/agent/texera-agent.ts`. **Never import frontend or amber code from
   agent-service** — it is a process boundary.
+- **Traces**: `agent-service/src/trace/trace-store.ts` writes every agent's
+  turns, steps (with timings), model requests (by size and token count, never
+  content), dataflow versions, executions, operator results and control events
+  to one SQLite database as they happen; `AGENT_TRACE_DB` names it (§7),
+  `GET /api/traces` / `GET /api/traces/:id` read it back, and
+  `POST /api/agents/:id/restore` rebuilds an agent from it after a restart
+  (steps, dataflow versions, results and settings).
 - **LLM path**: the agent never holds a provider key. It sends the user's JWT
   to the access-control-service, which injects the LiteLLM master key and
   forwards to the proxy. Model list: `bin/single-node/litellm-config.yaml`
@@ -276,9 +283,20 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` | optional: swap the local proxy for an external OpenAI-compatible gateway |
 | `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-5-mini directly — a dummy key silently zeroes paraphrase metrics |
 | `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
+| `AGENT_TRACE_DB` | optional: the agent-service trace database — every agent's turns, steps, model requests, dataflow versions, executions and results, written as they happen (`agent-service/src/trace/trace-store.ts`); default `logs/agent-service/traces.db`, `off` disables it. `GET /api/traces` lists agents, `GET /api/traces/:id` exports one |
 
 **Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build
 output, logs are all gitignored — keep it that way.
+
+**Native dataflows and the workflow search index**: every native operator
+carries its ~200 KB runtime, so a dataflow of a dozen operators is several MB
+of workflow content, and `sql/texera_ddl.sql`'s `idx_workflow_pgroonga`
+(MeCab tokenizer) then refuses the save (`mecab_parse_lattice() failed …
+too long sentence`, a 500 from `/api/workflow/persist`). On a local database,
+recreate the index with the bigram tokenizer, which has no length limit and
+keeps the dashboard's full-text search working:
+`docker exec <postgres> psql -U texera -d texera_db -c "DROP INDEX texera_db.idx_workflow_pgroonga;" -c "CREATE INDEX idx_workflow_pgroonga ON texera_db.workflow USING pgroonga ((COALESCE(name, '') || ' ' || COALESCE(description, '') || ' ' || COALESCE(content, ''))) WITH (tokenizer = 'TokenBigram', plugins = 'token_filters/stem', token_filters = 'TokenFilterStem');"`
+(`benchmark/campaign/README.md` drops the index instead).
 
 ## 8. Conventions for working in this repo
 
