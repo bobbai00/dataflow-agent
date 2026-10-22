@@ -189,3 +189,21 @@ describe("WorkflowState - getSubDAG", () => {
     expect(subDag.operators.map(o => o.operatorID)).toEqual(["op2"]);
   });
 });
+
+describe("WorkflowState change stream", () => {
+  test("replacing the whole content counts as a change, so native edits, checkouts and imports auto-persist", () => {
+    const state = new WorkflowState();
+    let changes = 0;
+    const subscription = state.getWorkflowChangedStream().subscribe(() => changes++);
+    state.setWorkflowContent({
+      operators: [{ operatorID: "scan", operatorType: "Scan", operatorProperties: {} } as any],
+      operatorPositions: { scan: { x: 0, y: 0 } },
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    expect(changes).toBe(1);
+    expect(state.getAllOperators().map(op => op.operatorID)).toEqual(["scan"]);
+    subscription.unsubscribe();
+  });
+});

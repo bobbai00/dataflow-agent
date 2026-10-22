@@ -288,6 +288,16 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 **Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build
 output, logs are all gitignored — keep it that way.
 
+**Native dataflows and the workflow search index**: every native operator
+carries its ~200 KB runtime, so a dataflow of a dozen operators is several MB
+of workflow content, and `sql/texera_ddl.sql`'s `idx_workflow_pgroonga`
+(MeCab tokenizer) then refuses the save (`mecab_parse_lattice() failed …
+too long sentence`, a 500 from `/api/workflow/persist`). On a local database,
+recreate the index with the bigram tokenizer, which has no length limit and
+keeps the dashboard's full-text search working:
+`docker exec <postgres> psql -U texera -d texera_db -c "DROP INDEX texera_db.idx_workflow_pgroonga;" -c "CREATE INDEX idx_workflow_pgroonga ON texera_db.workflow USING pgroonga ((COALESCE(name, '') || ' ' || COALESCE(description, '') || ' ' || COALESCE(content, ''))) WITH (tokenizer = 'TokenBigram', plugins = 'token_filters/stem', token_filters = 'TokenFilterStem');"`
+(`benchmark/campaign/README.md` drops the index instead).
+
 ## 8. Conventions for working in this repo
 
 - **Environment**: JDK 17, Scala 2.13, Python 3.12 (uv-managed `.venv`, pinned
