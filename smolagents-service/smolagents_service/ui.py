@@ -15,8 +15,10 @@
 
 The chat shows each part of a run once (see render.py). Below it, the user can run
 their own code, typed in or loaded from their files, in the chat's Python session;
-the agent then sees that run. Every handler resolves the signed-in user from the
-request and reads or writes only that user's records and files.
+the agent then sees that run. An uploaded notebook is imported into the chat: its
+cells run in that session and the agent takes them as its own steps. Every handler
+resolves the signed-in user from the request and reads or writes only that user's
+records and files.
 """
 
 import html
@@ -32,13 +34,17 @@ from smolagents.models import ChatMessageStreamDelta
 from smolagents.utils import AgentMaxStepsError
 
 from .config import Config
-from .render import answer_messages, escape_tags, script_messages, step_messages, streaming_message
+from .notebook import read_notebook
+from .render import (answer_messages, escape_tags, import_footnote, script_messages, step_messages,
+                     streaming_message)
 from .sessions import SessionLimit, Sessions, user_files
 from .store import Store
 
 STREAM_SECONDS = 0.15  # a streaming step is redrawn at most this often, not on every token
 DATA_SUFFIXES = [".csv", ".tsv", ".json", ".jsonl", ".parquet", ".xlsx", ".xls", ".txt"]
 SCRIPT_SUFFIX = ".py"
+NOTEBOOK_SUFFIX = ".ipynb"
+UPLOAD_SUFFIXES = DATA_SUFFIXES + [SCRIPT_SUFFIX, NOTEBOOK_SUFFIX]
 LATEX_DELIMITERS = [
     {"left": "$$", "right": "$$", "display": True},
     {"left": r"\[", "right": r"\]", "display": True},
@@ -208,18 +214,59 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         code = path.read_text(errors="replace")
         return code, choice, code
 
-    def upload(file, request: gr.Request):
+    def import_notebook(path: Path, name: str, history: list, request: gr.Request, user: dict):
+        """Run the notebook's cells in the chat's Python session and show them as the agent's
+        steps, one by one; yields the upload's outputs after each."""
+        def outputs(status: str):
+            return (status, files_markdown(user), gr.Dropdown(choices=scripts_of(user))) + (gr.update(),) * 4 + (
+                None, history)
+
+        try:
+            notebook = read_notebook(path)
+        except ValueError as bad:
+            yield outputs(f"Added `{name}`, but it was not imported: {bad}.")
+            return
+        session = open_session(request, user, history)
+        if session is None:
+            yield outputs(f"Added `{name}`; it was not imported.")
+            return
+        try:
+            cells = len(notebook.cells)
+            history.append(gr.ChatMessage(role="user", content=f"📓 `{name}`" + (f"\n\n{notebook.task}"
+                                                                                 if notebook.task else "")))
+            yield outputs(f"Importing `{name}`: its {cells} cells run in this chat's Python, as the agent's own steps.")
+            started, failed = time.monotonic(), 0
+            for step in session.import_notebook(notebook, name):
+                if step.is_final_answer:
+                    history.append(gr.ChatMessage(role="assistant", content=str(step.action_output)))
+                else:
+                    history.extend(step_messages(step))
+                    failed += step.error is not None
+                yield outputs(f"Importing `{name}`: cell {min(step.step_number, cells)} of {cells} ran.")
+            history.append(import_footnote(name, cells, time.monotonic() - started, session.trace.totals()["python"],
+                                           failed))
+            yield outputs(f"Imported `{name}`" + (f"; {failed} of its {cells} cells failed." if failed else "."))
+        finally:
+            session.last_active = time.monotonic()
+            session.busy.release()
+
+    def upload(file, history: list, request: gr.Request):
         """Add a file to the user's files. A script is loaded into the code box; data is
-        mentioned to the agent. The upload box empties again, ready for the next file."""
+        mentioned to the agent; a notebook is imported into the chat. The upload box empties
+        again, ready for the next file."""
         user = user_of(request)
+        history = list(history or [])
         unchanged = (gr.update(),) * 5  # the script picker, code, its name, its loaded text, the panel
         if not file:
-            return (gr.update(), files_markdown(user)) + unchanged + (None,)
+            yield (gr.update(), files_markdown(user)) + unchanged + (None, history)
+            return
         name = re.sub(r"[^\w\-.]", "_", Path(file).name)
         suffix = Path(name).suffix.lower()
-        if suffix not in DATA_SUFFIXES + [SCRIPT_SUFFIX]:
-            allowed = ", ".join(DATA_SUFFIXES + [SCRIPT_SUFFIX])
-            return (f"`{name}` was not added: allowed types are {allowed}.", files_markdown(user)) + unchanged + (None,)
+        if suffix not in UPLOAD_SUFFIXES:
+            allowed = ", ".join(UPLOAD_SUFFIXES)
+            yield (f"`{name}` was not added: allowed types are {allowed}.", files_markdown(user)) + unchanged + (
+                None, history)
+            return
         folder = config.user_dir(user["id"]) / "files"
         folder.mkdir(parents=True, exist_ok=True)
         destination = folder / name
@@ -228,11 +275,15 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         store.record_event(user["id"], "upload", None, file=name, bytes=destination.stat().st_size)
         if suffix == SCRIPT_SUFFIX:
             code = destination.read_text(errors="replace")
-            return (f"Added `{name}`. It is loaded below the chat: press Run to run it.", files_markdown(user),
-                    gr.Dropdown(choices=scripts_of(user), value=name), code, name, code, gr.Accordion(open=True), None)
-        sessions.add_pending(request.session_hash, str(destination))
-        return (f"Added `{name}`; the agent hears about it with your next message.", files_markdown(user),
-                gr.Dropdown(choices=scripts_of(user)), gr.update(), gr.update(), gr.update(), gr.update(), None)
+            yield (f"Added `{name}`. It is loaded below the chat: press Run to run it.", files_markdown(user),
+                   gr.Dropdown(choices=scripts_of(user), value=name), code, name, code, gr.Accordion(open=True), None,
+                   history)
+        elif suffix == NOTEBOOK_SUFFIX:
+            yield from import_notebook(destination, name, history, request, user)
+        else:
+            sessions.add_pending(request.session_hash, str(destination))
+            yield (f"Added `{name}`; the agent hears about it with your next message.", files_markdown(user),
+                   gr.Dropdown(choices=scripts_of(user))) + unchanged[1:] + (None, history)
 
     def show_run(table, event: gr.SelectData, request: gr.Request):
         user = user_of(request)
@@ -273,8 +324,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
             with gr.Group():
                 prompt = gr.Textbox(lines=3, label="Your request", placeholder="Ask about your data, then Submit")
                 submit = gr.Button("Submit", variant="primary")
-            upload_file = gr.File(label="Add a data file or a Python script",
-                                  file_types=DATA_SUFFIXES + [SCRIPT_SUFFIX])
+            upload_file = gr.File(label="Add a data file, a Python script or a notebook", file_types=UPLOAD_SUFFIXES)
             upload_status = gr.Markdown()
             files = gr.Markdown()
         with gr.Tab("Chat"):
@@ -311,8 +361,9 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
             concurrency_limit=config.concurrency, concurrency_id="agent").then(
             lambda: gr.Button(interactive=True), None, [run_button])
         script_picker.input(load_script, [script_picker], [code_box, script_name, script_text])
-        upload_file.upload(upload, [upload_file], [upload_status, files, script_picker, code_box, script_name,
-                                                   script_text, python_panel, upload_file])
+        upload_file.upload(upload, [upload_file, chatbot], [upload_status, files, script_picker, code_box, script_name,
+                                                            script_text, python_panel, upload_file, chatbot],
+                           concurrency_limit=config.concurrency, concurrency_id="agent")
         refresh_runs.click(refresh, None, [runs])
         runs.select(show_run, [runs], [steps, spans, selected_run, context])
         steps.select(show_context, [steps, selected_run], [context])
