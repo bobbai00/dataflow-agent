@@ -39,7 +39,7 @@ import {
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
-import { registeredExamples } from "./prompts/registered-examples";
+import { exampleStatement, registeredExamples } from "./prompts/registered-examples";
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
 // context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
@@ -172,6 +172,15 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   catalogRecent?: number;
   /** The final answer is an `answer` statement (AgentSettings.answerStatement). */
   answerStatement?: boolean;
+  /** Every operator carries a one-line doc; the examples show one (AgentSettings.operatorDoc). */
+  operatorDoc?: boolean;
+}
+
+/** When an operator gets a `doc`: every operator, or only where the declaration leaves its meaning unclear. */
+function operatorDocText(operatorDoc: boolean | undefined): string {
+  return operatorDoc
+    ? "Give every operator, built-in or Python, a one-line `doc='...'` that says what it does and why the Dataflow needs it, in the task's terms: its population, units, or formula when they matter. `set` replaces the whole operator, so restate its doc; a changed doc alone re-runs nothing. A tool result names operators set without one."
+    : "Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate.";
 }
 
 /** How the final answer is given: a reply without the tool, or an answer statement. */
@@ -236,6 +245,13 @@ export function buildRegisteredNativeSystemPrompt(
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
+    GRAPH_EXAMPLE: (["records", "totals", "report"] as const)
+      .map(name => exampleStatement(name, options.operatorDoc))
+      .join("\n"),
+    FILTER_EXAMPLE: exampleStatement("kept", options.operatorDoc),
+    MAP_EXAMPLE: exampleStatement("priced", options.operatorDoc),
+    LOADER_EXAMPLE: exampleStatement("loaded", options.operatorDoc),
+    OPERATOR_DOC: operatorDocText(options.operatorDoc),
     EXAMPLES: registeredExamples(options),
     RETRIEVAL: nativeRetrievalText(options),
     RECORD_LAYOUT:

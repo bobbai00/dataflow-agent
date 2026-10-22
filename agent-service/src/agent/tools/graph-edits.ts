@@ -70,6 +70,8 @@ export interface GraphEditPlan {
   invalidated_results: string[];
   /** `signature` is set in sessions with several requests (AgentSettings.multiRequest). */
   registrations?: Array<{ name: string; kind: "registered" | "updated"; signature?: string }>;
+  /** Operators this edit created or replaced without a `doc` (AgentSettings.operatorDoc). */
+  missing_docs?: string[];
 }
 
 const edgeKey = (e: Edge) => `${e.source}.${e.sourcePort} -> ${e.target}.${e.targetPort}`;
@@ -247,6 +249,15 @@ export async function planRegisteredGraphEdit(
         edge: edgeLabel(edge, ports(nodes.get(edge.target)!).length),
         action: "created",
       });
+  // `set` replaces the whole operator, doc included: an edit that sets one
+  // without a doc is reminded, never refused.
+  const missingDocs = context.settings?.operatorDoc
+    ? receipts.flatMap(change =>
+        change.change === "operator" && change.action !== "deleted" && !nodes.get(change.operator_id)?.doc?.trim()
+          ? [change.operator_id]
+          : []
+      )
+    : [];
   return {
     workflow,
     operators: outcomes,
@@ -254,6 +265,7 @@ export async function planRegisteredGraphEdit(
     registrations: staged.registrations,
     unconnected_inputs: [],
     invalidated_results: [...computeStaleResultOps(original, workflow)].filter(id => id in originalViews),
+    ...(missingDocs.length ? { missing_docs: missingDocs } : {}),
   };
 }
 export function missingGraphInputs(workflow: WorkflowContent): string[] {

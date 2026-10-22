@@ -26,6 +26,7 @@ import { createDataflowTool, prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
 import { compileNativeOp, nativePython } from "./codegen";
 import { stageRegisteredEdit, type RegisteredStageInput } from "./registered";
+import { EXAMPLE_STATEMENTS, exampleStatement } from "../prompts/registered-examples";
 
 /** The example calls a prompt shows, as the model would send them. */
 const exampleCalls = (prompt: string) =>
@@ -234,6 +235,30 @@ test("every context mode, evidence setting and table format keeps the section or
           expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
           for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, views).status).toBe("pending");
         }
+});
+
+test("with operator docs on, every example operator carries its doc, as a setting the parser stores; off, none does", async () => {
+  const on = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { operatorDoc: true });
+  const off = buildRegisteredNativeSystemPrompt(ContextMode.DELTA);
+  expect(on).toContain("Give every operator, built-in or Python, a one-line `doc='...'`");
+  expect(off).toContain("Routine operators need no boilerplate.");
+  expect(on).not.toContain("Routine operators need no boilerplate.");
+  for (const name of Object.keys(EXAMPLE_STATEMENTS) as Array<keyof typeof EXAMPLE_STATEMENTS>) {
+    const { statement, doc } = EXAMPLE_STATEMENTS[name];
+    expect(on).toContain(exampleStatement(name, true));
+    expect(on).not.toContain(statement);
+    expect(off).toContain(statement);
+    expect(off).not.toContain(doc);
+  }
+  for (const call of exampleCalls(on)) expect(prepareDataflowCall(call).status).toBe("pending");
+  // The documented edits apply, and each operator keeps its doc.
+  let stage: RegisteredStageInput = { operators: {}, python: "", changes: "" };
+  for (const call of exampleCalls(on))
+    for (const { action } of prepareDataflowCall(call).actions)
+      if (action.type === "edit")
+        stage = { ...(await stageRegisteredEdit({ ...stage, ...action })), python: "", changes: "" };
+  for (const id of ["records", "totals", "report"] as const)
+    expect(stage.operators[id]?.doc).toBe(EXAMPLE_STATEMENTS[id].doc);
 });
 
 test("synthetic teaching edits compile and their calculations run in isolated Python operators", async () => {

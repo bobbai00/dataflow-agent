@@ -111,10 +111,14 @@ export interface ChatCardRow {
 
 /**
  * A rendered item in the chat stream. Consecutive action-bearing agent steps
- * collapse into a single `card`; everything else (user messages, action-less
- * agent replies) renders as a regular `message`.
+ * collapse into a single `card`; a user's edit or run of an operator on the
+ * canvas is a compact `action` row; everything else (user messages,
+ * action-less agent replies) renders as a regular `message`.
  */
-export type ChatItem = { kind: "message"; step: ReActStep; index: number } | { kind: "card"; rows: ChatCardRow[] };
+export type ChatItem =
+  | { kind: "message"; step: ReActStep; index: number }
+  | { kind: "card"; rows: ChatCardRow[] }
+  | { kind: "action"; step: ReActStep; index: number };
 
 @UntilDestroy()
 @Component({
@@ -285,6 +289,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
   public settingsDataEvidence: "enabled" | "disabled" = "enabled"; // Column/table facts on observed results
   public settingsFlowEvidence: "enabled" | "disabled" = "disabled"; // Input/output facts on observed results
+  public settingsOperatorDoc: "enabled" | "disabled" = "disabled"; // A one-line doc on every operator
 
   // Track if we disabled auto-persist so we can re-enable it on destroy
   private disabledAutoPersist = false;
@@ -676,9 +681,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
         this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
-        // Backend defaults (DEFAULT_AGENT_SETTINGS): dataEvidence true, flowEvidence false.
+        // Backend defaults (DEFAULT_AGENT_SETTINGS): dataEvidence true, flowEvidence and operatorDoc false.
         this.settingsDataEvidence = settings.dataEvidence === false ? "disabled" : "enabled";
         this.settingsFlowEvidence = settings.flowEvidence === true ? "enabled" : "disabled";
+        this.settingsOperatorDoc = settings.operatorDoc === true ? "enabled" : "disabled";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -688,6 +694,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
           this.agentInfo.settings.dataEvidence = settings.dataEvidence;
           this.agentInfo.settings.flowEvidence = settings.flowEvidence;
+          this.agentInfo.settings.operatorDoc = settings.operatorDoc;
         }
       });
   }
@@ -1031,7 +1038,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     let currentCard: ChatCardRow[] | null = null;
 
     this.visibleSteps.forEach((step, index) => {
-      if (this.isActionStep(step)) {
+      if (step.messageSource === "action" && step.userAction) {
+        currentCard = null;
+        items.push({ kind: "action", step, index });
+      } else if (this.isActionStep(step)) {
         const row: ChatCardRow = {
           step,
           index,
@@ -1084,6 +1094,37 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   /** Template type-guard — returns the message variant of a ChatItem, else null. */
   public asMessage(item: ChatItem): { step: ReActStep; index: number } | null {
     return item.kind === "message" ? item : null;
+  }
+
+  /** Template type-guard — returns the canvas-action variant of a ChatItem, else null. */
+  public asAction(item: ChatItem): { step: ReActStep; index: number } | null {
+    return item.kind === "action" ? item : null;
+  }
+
+  /** Canvas actions whose details (what the agent reads) are open. */
+  public expandedActions = new Set<string>();
+
+  public toggleActionDetails(stepId: string): void {
+    if (!this.expandedActions.delete(stepId)) this.expandedActions.add(stepId);
+  }
+
+  /** One line for a canvas action: "You edited `kept` and ran it · 1 row". */
+  public userActionText(step: ReActStep): string {
+    const action = step.userAction;
+    if (!action) return step.content;
+    const id = `\`${action.operatorId}\``;
+    if (action.status === "running") return action.kind === "edit" ? `Saving your edit of ${id}…` : `Running ${id}…`;
+    const verb =
+      action.kind === "run" ? `You ran ${id}` : action.run ? `You edited ${id} and ran it` : `You edited ${id}`;
+    if (action.status === "error") return `${verb}; it failed`;
+    const rows =
+      action.rows === undefined ? "" : ` · ${action.rows.toLocaleString()} row${action.rows === 1 ? "" : "s"}`;
+    return `${verb}${rows}`;
+  }
+
+  /** A canvas action is running: the chat shows it on the action's row, not as the agent thinking. */
+  public isUserActionRunning(): boolean {
+    return this.visibleSteps.some(step => step.userAction?.status === "running");
   }
 
   /**
@@ -1748,6 +1789,27 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .subscribe({
         next: () => {
           this.notificationService.success(`Flow evidence ${enabled ? "enabled" : "disabled"}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the operator-doc setting. When enabled (native mode), the agent gives
+   * every operator a one-line doc saying what it does and why, which the
+   * canvas and the operator's panel show. The system prompt changes with it.
+   */
+  public saveOperatorDoc(): void {
+    const enabled = this.settingsOperatorDoc === "enabled";
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        operatorDoc: enabled,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Operator doc ${enabled ? "enabled" : "disabled"}`);
           this.refreshSystemInfo();
         },
         error: () => {}, // Error already handled by service

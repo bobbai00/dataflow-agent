@@ -307,6 +307,46 @@
             </div>
           </div>
 
+          <!-- A canvas action: the user edited or ran an operator; the agent reads it next turn. -->
+          <div
+            *ngIf="asAction(item) as action"
+            class="message user-message user-action-message"
+            [attr.data-step-id]="action.step.id">
+            <div
+              class="user-action"
+              [class.user-action-error]="action.step.userAction?.status === 'error'">
+              <span class="user-action-icon">
+                <nz-spin
+                  *ngIf="action.step.userAction?.status === 'running'; else actionIcon"
+                  nzSimple
+                  nzSize="small"></nz-spin>
+                <ng-template #actionIcon>
+                  <i
+                    nz-icon
+                    [nzType]="action.step.userAction?.kind === 'edit' ? 'edit' : 'caret-right'"></i>
+                </ng-template>
+              </span>
+              <span class="user-action-text">{{ userActionText(action.step) }}</span>
+              <button
+                nz-button
+                nzType="text"
+                nzSize="small"
+                class="user-action-toggle"
+                nz-tooltip
+                [nzTooltipTitle]="'What ' + agentInfo.name + ' reads'"
+                (click)="toggleActionDetails(action.step.id)">
+                <i
+                  nz-icon
+                  [nzType]="expandedActions.has(action.step.id) ? 'up' : 'down'"></i>
+              </button>
+            </div>
+            <pre
+              *ngIf="expandedActions.has(action.step.id)"
+              class="user-action-details">
+{{ action.step.content }}</pre
+            >
+          </div>
+
           <!-- Regular message: user messages and action-less agent replies. -->
           <div
             *ngIf="asMessage(item) as msg"
@@ -353,9 +393,9 @@
           </div>
         </ng-container>
 
-        <!-- Loading indicator -->
+        <!-- Loading indicator (a canvas action shows its progress on its own row) -->
         <div
-          *ngIf="isGenerating()"
+          *ngIf="isGenerating() && !isUserActionRunning()"
           class="message ai-message loading-message">
           <div class="message-header">
             <i
@@ -717,6 +757,34 @@
             <div class="settings-param-hint-block">
               When <strong>enabled</strong>, results the agent observes also carry version-matched input/output facts —
               rows kept, keys matched — that tie each output to its inputs.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Operator Doc</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsOperatorDoc"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="enabled"
+                  nzLabel="Enabled"></nz-option>
+                <nz-option
+                  nzValue="disabled"
+                  nzLabel="Disabled"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveOperatorDoc()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When <strong>enabled</strong> (native mode), the agent gives every operator a one-line doc saying what it
+              does and why, and its prompt examples show one. The canvas and the operator's panel show the doc.
             </div>
           </div>
 

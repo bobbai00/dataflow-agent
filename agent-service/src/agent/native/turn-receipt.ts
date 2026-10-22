@@ -216,6 +216,10 @@ function editLines(item: ActionItem): string[] {
   if (output?.invalidated_results?.length) lines.push(`stale until executed: ${output.invalidated_results.join(", ")}`);
   for (const input of (output?.unconnected_inputs ?? []) as string[]) lines.push(`unconnected input: ${input}`);
   if (output?.version_notes?.length) lines.push(...output.version_notes.map((note: string) => `note: ${note}`));
+  if (output?.missing_docs?.length)
+    lines.push(
+      `doc missing: ${output.missing_docs.join(", ")}; set each again with doc='<one line: what it does and why>' (a doc alone re-runs nothing)`
+    );
   return lines;
 }
 

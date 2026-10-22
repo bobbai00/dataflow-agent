@@ -130,6 +130,17 @@ short-lived download links that travel with that request only; the worker
 copies each file into a local cache once. See
 `agent-service/src/agent/tools/dataset-files.ts`.
 
+### Running and editing operators from the canvas
+
+Selecting an operator a native-mode agent built opens its panel on the canvas,
+with Run, Edit and Feedback; the property editor stays closed for it. Run and
+Edit go through the agent, which applies each as one of its own `dataflow`
+calls. It then records the action as a user step (`messageSource: "action"`):
+the chat shows it as "You edited `kept` and ran it · 1 row", and the agent
+reads what the user did, with the receipt, at its next turn. Feedback is a
+message to the agent and starts a turn. See `agent-service/src/agent/user-actions.ts`
+and `TexeraAgent.applyUserAction`.
+
 ### Verifying end-to-end
 
 ```bash
@@ -141,6 +152,10 @@ bun run e2e:agent    # REAL agent driving the LLM gateway (haiku by default)
 bun run benchmark/e2e/context-tuning-run.ts
 # multi-turn context FORMAT check (LATEST + DELTA assembled-context markers):
 bun run benchmark/e2e/context-format-check.ts
+
+# real-browser checks, from frontend/ (Playwright; each brings its own computing unit):
+node e2e/agent-panel.e2e.mjs                                         # chat, settings, versioning, code mode
+PROBE_MODEL=claude-haiku-5.5 node e2e/agent-operator-actions.e2e.mjs # Run / Edit / Feedback on an operator
 ```
 
 Verified on this branch (2026-08-08, model `claude-haiku-4.5` via the DKNet
@@ -180,6 +195,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `agentMode` | `native` (default) \| `code` | native: the model edits, runs and reads the dataflow through the `dataflow(python, statements)` tool; code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
 | `dataEvidence` | bool (default `true`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
+| `operatorDoc` | bool (default `false`) | native mode: the prompt asks for a one-line `doc='...'` on every operator and shows it in its examples; a tool result names operators set without one. The canvas captions each operator with its doc, else its statement; the panel's "Operator Doc" setting |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `maxOperatorResultCellCharLimit` | int (default 2000) | clip long cells |

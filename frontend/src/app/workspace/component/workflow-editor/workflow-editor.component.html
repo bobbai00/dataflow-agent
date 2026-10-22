@@ -35,13 +35,17 @@
     [style.top.px]="chatPopoverOperator.position.y">
     <div
       class="chat-popover"
+      [class.chat-popover-native]="chatPopoverOperator.native"
       [class.chat-popover-visualization]="isOperatorVisualization(chatPopoverOperator.operatorId)">
       <div class="chat-popover-content">
         <texera-agent-interaction
           [operatorId]="chatPopoverOperator.operatorId"
           [operatorDisplayName]="chatPopoverOperator.displayName"
           [sampleRecords]="getOperatorSampleRecords(chatPopoverOperator.operatorId)"
-          [resultStatistics]="getOperatorResultStatistics(chatPopoverOperator.operatorId)">
+          [resultStatistics]="getOperatorResultStatistics(chatPopoverOperator.operatorId)"
+          [resultSummary]="getOperatorResultSummary(chatPopoverOperator.operatorId)"
+          [initialMode]="chatPopoverOperator.mode ?? 'actions'"
+          (closed)="closeChatPopover()">
         </texera-agent-interaction>
       </div>
     </div>

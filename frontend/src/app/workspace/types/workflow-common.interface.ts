@@ -61,6 +61,27 @@ export interface PortDescription
     dependencies?: { id: number; internal: boolean }[];
   }> {}
 
+/**
+ * The dataflow agent's definition of an operator it set with a statement such as
+ * `set agg: aggregate(joined, by=['station'], ...)` (agent-service `NativeOpView`).
+ * The engine runs it as a Python UDF; this is what the operator computes.
+ */
+export interface NativeOperatorDefinition
+  extends Readonly<{
+    /** Native type: `Scan`, `Filter`, `Aggregate`, …, or `Process` for a registered Python function. */
+    type: string;
+    /** Input operator IDs, in port order. */
+    inputs: readonly string[];
+    /** The normalized settings, as the agent-service catalog's JSON schema describes them. */
+    properties: Readonly<{ [key: string]: any }>;
+    /** The statement that set the operator. */
+    source?: string;
+    /** One line saying what the operator does and why. */
+    doc?: string;
+    /** The registered Python function the operator calls. */
+    registeredName?: string;
+  }> {}
+
 export interface OperatorPredicate
   extends Readonly<{
     operatorID: string;
@@ -76,6 +97,8 @@ export interface OperatorPredicate
     viewResult?: boolean;
     markedForReuse?: boolean;
     customDisplayName?: string;
+    /** Set when the dataflow agent defined the operator in native mode. */
+    nativeOp?: NativeOperatorDefinition;
   }> {}
 
 export interface Comment

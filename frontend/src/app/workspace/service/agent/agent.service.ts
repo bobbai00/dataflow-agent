@@ -33,11 +33,13 @@ import {
   interval,
   switchMap,
   takeUntil,
+  tap,
 } from "rxjs";
 import { NotificationService } from "../../../common/service/notification/notification.service";
+import { NativeCatalogEntry, NativeStatementForm } from "./native-operator";
 import { WorkflowPersistService } from "../../../common/service/workflow-persist/workflow-persist.service";
 import { AppSettings } from "../../../common/app-setting";
-import { AgentState, ReActStep, ModelMessage } from "./agent-types";
+import { AgentState, ReActStep, ModelMessage, UserActionInfo } from "./agent-types";
 import { Workflow, WorkflowContent } from "../../../common/type/workflow";
 import { ComputingUnitStatusService } from "../../../common/service/computing-unit/computing-unit-status/computing-unit-status.service";
 
@@ -78,6 +80,10 @@ export interface AgentSettingsApi {
    *  facts (rows kept, keys matched). Wire name matches the agent-service knob
    *  (`AgentSettings.flowEvidence`). */
   flowEvidence?: boolean;
+  /** When true (native mode), every operator the agent sets carries a one-line
+   *  doc saying what it does and why. Wire name matches the agent-service knob
+   *  (`AgentSettings.operatorDoc`). */
+  operatorDoc?: boolean;
 }
 
 /** LLM driver picked at agent construction. `vercel-tool-use` is the
@@ -154,6 +160,17 @@ export interface SnapshotTreeNode {
   resultCount: number;
   /** Epoch ms of the owning ReAct step (null for the root / unknown). */
   timestamp?: number | null;
+}
+
+/** What the agent-service answers for a canvas edit or run of a native operator. */
+export interface UserActionResponse {
+  /** "unchanged": the edit changed nothing, and nothing was recorded. */
+  status: "ok" | "error" | "unchanged";
+  stepId?: string;
+  userAction?: UserActionInfo;
+  /** What the agent reads for the action. */
+  content?: string;
+  operatorResults?: Record<string, OperatorResultSummary>;
 }
 
 export interface SnapshotTreeResponse {
@@ -395,6 +412,7 @@ export class AgentService {
       id: apiStep.id || `${apiStep.messageId}-${apiStep.stepId || 0}`,
       parentId: apiStep.parentId,
       messageSource: apiStep.messageSource,
+      userAction: apiStep.userAction,
     };
   }
 
@@ -1325,6 +1343,69 @@ export class AgentService {
     this.getOrCreateStateTracking(agentId, workflowId);
   }
 
+  private nativeCatalog$?: Observable<NativeCatalogEntry[]>;
+
+  /**
+   * The built-in native operator types — each one's contract and the JSON schema
+   * of its settings — fetched once and shared. A failed fetch is not cached.
+   */
+  public getNativeCatalog(): Observable<NativeCatalogEntry[]> {
+    this.nativeCatalog$ ??= this.http
+      .get<{ operators: NativeCatalogEntry[] }>(`${this.AGENT_API_BASE}/agents/native-catalog`)
+      .pipe(
+        map(response => response.operators),
+        catchError(() => {
+          this.nativeCatalog$ = undefined;
+          return of([]);
+        }),
+        shareReplay(1)
+      );
+    return this.nativeCatalog$;
+  }
+
+  /** A native operator's statement split into fields, for the canvas editor. */
+  public getNativeStatementForm(agentId: string, operatorId: string): Observable<NativeStatementForm> {
+    return this.http.get<NativeStatementForm>(
+      `${this.AGENT_API_BASE}/agents/${agentId}/operators/${encodeURIComponent(operatorId)}/form`,
+      this.agentHeaders(agentId)
+    );
+  }
+
+  /**
+   * Apply the user's edit of a native operator, and with `run` compute its
+   * result too. The agent records it as a user step it reads on its next turn;
+   * a rejected edit fails with the reason and records nothing.
+   */
+  public editNativeOperator(
+    agentId: string,
+    operatorId: string,
+    edit: { statement: string; python?: string; run?: boolean }
+  ): Observable<UserActionResponse> {
+    return this.http
+      .post<UserActionResponse>(
+        `${this.AGENT_API_BASE}/agents/${agentId}/operators/${encodeURIComponent(operatorId)}/edit`,
+        edit,
+        this.agentHeaders(agentId)
+      )
+      .pipe(tap(response => this.applyActionResults(response)));
+  }
+
+  /** Compute a native operator's result for the user; the agent reads it on its next turn. */
+  public runNativeOperator(agentId: string, operatorId: string): Observable<UserActionResponse> {
+    return this.http
+      .post<UserActionResponse>(
+        `${this.AGENT_API_BASE}/agents/${agentId}/operators/${encodeURIComponent(operatorId)}/run`,
+        {},
+        this.agentHeaders(agentId)
+      )
+      .pipe(tap(response => this.applyActionResults(response)));
+  }
+
+  /** The canvas shows an action's results without waiting for the socket's completion frame. */
+  private applyActionResults(response: UserActionResponse): void {
+    if (response.operatorResults) this.updateOperatorResultSummaries(response.operatorResults);
+  }
+
   /**
    * Get agent settings.
    */
@@ -1453,6 +1534,11 @@ export class AgentService {
     } else {
       this.resultAnnotationsVisibleSubject.next(false);
     }
+  }
+
+  /** The current operator result summaries (operatorId → summary). */
+  public getOperatorResultSummaries(): Map<string, OperatorResultSummary> {
+    return this.operatorResultSummariesSubject.getValue();
   }
 
   /**

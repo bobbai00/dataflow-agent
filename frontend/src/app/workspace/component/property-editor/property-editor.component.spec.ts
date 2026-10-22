@@ -108,6 +108,18 @@ describe("PropertyEditorComponent", () => {
     expect(component.currentComponent).toBeNull();
   });
 
+  it("should leave an operator the dataflow agent defined to its panel on the canvas", () => {
+    const native = {
+      ...mockScanPredicate,
+      nativeOp: { type: "Limit", inputs: ["ranked"], properties: { n: 5 }, source: "set top5: limit(ranked, n=5)" },
+    };
+    workflowActionService.addOperator(native, mockPoint);
+    workflowActionService.getJointGraphWrapper().highlightOperators(native.operatorID);
+    fixture.detectChanges();
+
+    expect(component.currentComponent).toBeNull();
+  });
+
   it("should clear and hide the property editor panel correctly when multiple operators are highlighted", () => {
     const jointGraphWrapper = workflowActionService.getJointGraphWrapper();
 

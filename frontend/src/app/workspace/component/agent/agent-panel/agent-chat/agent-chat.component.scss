@@ -803,3 +803,59 @@
   color: #8c8c8c;
   flex-shrink: 0;
 }
+
+// A canvas action on the user's side: a quiet pill rather than a chat bubble,
+// since it reports what the user did instead of asking anything.
+.user-action-message {
+  max-width: 92%;
+}
+
+.user-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  font-size: 12px;
+  color: #1d39c4;
+  background: #f0f5ff;
+  border: 1px solid #adc6ff;
+  border-radius: 14px;
+
+  &.user-action-error {
+    color: #cf1322;
+    background: #fff1f0;
+    border-color: #ffccc7;
+  }
+
+  .user-action-icon {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .user-action-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .user-action-toggle {
+    height: 20px;
+    padding: 0 4px;
+    color: inherit;
+  }
+}
+
+.user-action-details {
+  max-height: 220px;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #434343;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}

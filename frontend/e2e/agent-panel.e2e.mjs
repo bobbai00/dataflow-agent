@@ -193,6 +193,45 @@ async function canvasOperatorNames(page) {
     .map(s => s.trim())
     .filter(Boolean);
 }
+// What the main editor draws for each operator: the label above the box, the
+// caption inside it and its icon. A wrapped caption is one <tspan> per line.
+async function canvasOperatorBoxes(page) {
+  return page.evaluate(() =>
+    Object.fromEntries(
+      Array.from(document.querySelectorAll("g.joint-element[model-id]"))
+        .filter(el => !el.closest("texera-mini-map"))
+        .map(el => {
+          const text = selector => {
+            const node = el.querySelector(selector);
+            const lines = node ? Array.from(node.querySelectorAll("tspan")) : [];
+            const raw = lines.length ? lines.map(line => line.textContent).join(" ") : node?.textContent ?? "";
+            return raw.replace(/\s+/g, " ").trim();
+          };
+          const icon = el.querySelector(".texera-operator-icon");
+          return [
+            el.getAttribute("model-id"),
+            {
+              label: text(".texera-operator-friendly-name"),
+              caption: text(".texera-operator-name"),
+              icon: icon?.getAttribute("xlink:href") ?? icon?.getAttribute("href") ?? "",
+            },
+          ];
+        })
+    )
+  );
+}
+// Highlight one operator the way a click on its box does (JointJS listens for
+// mousedown on the cell); the agent panel can cover the box, so dispatch it.
+async function highlightOperator(page, operatorId) {
+  const box = page.locator(`texera-workflow-editor g.joint-element[model-id="${operatorId}"]`).first();
+  await box.waitFor({ timeout: 10000 });
+  await box.locator(".texera-operator-icon").evaluate(el => {
+    const { x, y, width, height } = el.getBoundingClientRect();
+    const at = { bubbles: true, clientX: x + width / 2, clientY: y + height / 2, button: 0 };
+    el.dispatchEvent(new MouseEvent("mousedown", at));
+    el.dispatchEvent(new MouseEvent("mouseup", at));
+  });
+}
 async function openSettingsModal(page) {
   await domClick(chat(page).locator('button[nztooltiptitle="View system prompt"]'));
   const modal = page.locator(".ant-modal", { hasText: "Agent System Information" });
@@ -324,6 +363,81 @@ async function main() {
     );
     let answer = await lastStepText(page);
     check("turn 1: final answer contains 60", /\b60\b/.test(answer), answer.slice(0, 120));
+
+    // ----- native operators look like Texera operators, not the UDF that runs them -----
+    const nativeOps = opsT1.filter(o => o.nativeOp);
+    check("turn 1: every operator carries its native definition", nativeOps.length === opsT1.length);
+    const nativeTypeName = o => o.nativeOp.registeredName ?? o.nativeOp.type;
+    let boxes = await canvasOperatorBoxes(page);
+    // A label too wide for the box is cut to fit, but keeps the start of the type.
+    const labelsType = (label, o) => {
+      const full = `${o.operatorID}: ${nativeTypeName(o)}`;
+      const kept = label.endsWith("…") ? label.slice(0, -1) : null;
+      return label === full || (kept !== null && full.startsWith(kept) && kept.length > `${o.operatorID}: `.length);
+    };
+    const misdrawn = nativeOps.filter(o => {
+      const box = boxes[o.operatorID];
+      return !box || !labelsType(box.label, o) || /\/(DataProcessing|DataLoading)\.png$/.test(box.icon);
+    });
+    check(
+      "canvas labels each native operator with its native type and icon",
+      nativeOps.length > 0 && misdrawn.length === 0,
+      nativeOps.map(o => `${boxes[o.operatorID]?.label} [${boxes[o.operatorID]?.icon}]`).join(" | ")
+    );
+    const icons = [...new Set(nativeOps.map(o => boxes[o.operatorID]?.icon).filter(Boolean))];
+    const iconsLoad = await page.evaluate(
+      hrefs =>
+        Promise.all(
+          hrefs.map(href => fetch(href).then(r => r.ok && (r.headers.get("content-type") ?? "").startsWith("image/")))
+        ),
+      icons
+    );
+    check("native operator icons load as images", icons.length > 0 && iconsLoad.every(Boolean), icons.join(", "));
+
+    const shown = nativeOps[nativeOps.length - 1];
+    await highlightOperator(page, shown.operatorID);
+    const opPanel = page.locator("texera-workflow-editor texera-agent-interaction");
+    const panelShown = await opPanel
+      .locator(".op-id", { hasText: shown.operatorID })
+      .waitFor({ timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+    const actionNames = panelShown ? (await opPanel.locator(".op-action").allTextContents()).map(t => t.trim()) : [];
+    check(
+      "selecting a native operator opens its panel: Run, Edit, Feedback",
+      actionNames.join(",") === "Run,Edit,Feedback",
+      `${shown.operatorID}: ${actionNames.join(",")}`
+    );
+    if (panelShown) {
+      check(
+        "the panel names the operator's native type",
+        (await opPanel.locator(".op-type").innerText()).trim() === nativeTypeName(shown)
+      );
+      check(
+        "the property editor stays closed for a native operator",
+        !(await page.locator("#right-container").isVisible())
+      );
+      await domClick(opPanel.locator(".edit-action"));
+      const about = await opPanel
+        .locator(".about summary")
+        .waitFor({ timeout: 15000 })
+        .then(() => true)
+        .catch(() => false);
+      const preview = (
+        await opPanel
+          .locator(".preview-code")
+          .innerText()
+          .catch(() => "")
+      ).trim();
+      check(
+        "Edit shows the statement it saves and the catalog entry from agent-service",
+        about && preview.startsWith(`set ${shown.operatorID}:`),
+        preview.slice(0, 120)
+      );
+      await shot("03b-native-panel");
+      await domClick(opPanel.locator(".cancel-edit"));
+      await domClick(opPanel.locator(".op-close"));
+    }
     const steps1 = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/react-steps`)).json.steps;
     const withAccess = steps1.filter(s => s.operatorAccess && Object.keys(s.operatorAccess).length > 0);
     check(
@@ -418,7 +532,16 @@ async function main() {
     await sleep(500);
     await setSelectParam(page, modal, "Context Mode", "Delta");
     await sleep(500);
+    await setSelectParam(page, modal, "Operator Doc", "Enabled");
+    await sleep(500);
     await closeModal(page);
+    s = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/settings`)).json;
+    check("settings saved from UI: operatorDoc=true", s.operatorDoc === true, `operatorDoc=${s.operatorDoc}`);
+    const prompt = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/system-info`)).json?.systemPrompt ?? "";
+    check(
+      "operator doc rebuilds the prompt: instruction plus documented examples",
+      prompt.includes("one-line `doc='...'`") && /, doc='[^']+'\)/.test(prompt)
+    );
     check(
       "every settings save from the UI succeeded",
       settingsSaves.length >= 6 && settingsSaves.every(save => /→2\d\d$/.test(save)),
@@ -436,6 +559,23 @@ async function main() {
     check("turn 2: DAG grew", opsT2.length > opsT1.length, `${opsT1.length}→${opsT2.length}`);
     answer = await lastStepText(page);
     check("turn 2: answer contains 2", /\b2\b|\btwo\b/i.test(answer), answer.slice(0, 120));
+    const addedT2 = opsT2.filter(o => o.nativeOp && !opsT1.some(p => p.operatorID === o.operatorID));
+    const documented = addedT2.filter(o => o.nativeOp.doc?.trim());
+    check(
+      "turn 2 (operator doc on): every new operator carries a doc",
+      addedT2.length > 0 && documented.length === addedT2.length,
+      addedT2.map(o => `${o.operatorID}: ${o.nativeOp.doc ?? "(none)"}`).join(" | ")
+    );
+    boxes = await canvasOperatorBoxes(page);
+    // A long doc is ellipsized to fit the box; its opening words show.
+    const captioned = documented.filter(o =>
+      boxes[o.operatorID]?.caption.startsWith(o.nativeOp.doc.replace(/\s+/g, " ").trim().slice(0, 20))
+    );
+    check(
+      "canvas captions a documented operator with its doc",
+      documented.length > 0 && captioned.length === documented.length,
+      documented.map(o => boxes[o.operatorID]?.caption).join(" | ")
+    );
     let tree = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/snapshot-tree`)).json;
     const nodesBefore = tree.nodes.length;
     check("tree has ≥2 snapshots after two turns", nodesBefore >= 2, `nodes=${nodesBefore}`);

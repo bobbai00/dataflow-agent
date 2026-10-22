@@ -296,3 +296,198 @@
     font-size: 18px;
   }
 }
+
+// A native operator's panel: what the operator is, then Run / Edit / Feedback.
+.agent-interaction.native {
+  width: 340px;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  background: #fff;
+
+  &.expanded {
+    width: 480px;
+  }
+}
+
+.op-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.op-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 5px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f4f6fa;
+}
+
+.op-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.op-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.op-id {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: #262626;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-type {
+  flex: none;
+  padding: 0 7px;
+  font-size: 11px;
+  line-height: 18px;
+  color: #0958d9;
+  background: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 10px;
+}
+
+.op-summary {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 12px;
+  color: #8c8c8c;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.op-close {
+  flex: none;
+  margin: -2px -6px 0 0;
+  color: #8c8c8c;
+}
+
+.op-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.op-action {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  font-size: 13px;
+  color: #262626;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
+
+  i {
+    font-size: 12px;
+  }
+
+  &:hover:not(:disabled) {
+    color: #1677ff;
+    border-color: #4096ff;
+  }
+
+  &.active {
+    color: #1677ff;
+    background: #e6f4ff;
+    border-color: #1677ff;
+  }
+
+  &:disabled {
+    color: #bfbfbf;
+    cursor: not-allowed;
+    background: #fafafa;
+  }
+}
+
+.run-action:not(:disabled) i {
+  color: #389e0d;
+}
+
+.op-status {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.op-body {
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.op-result-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+
+  .result-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #262626;
+  }
+
+  .result-shape {
+    font-size: 12px;
+    color: #595959;
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  .result-shared {
+    font-size: 11px;
+    color: #389e0d;
+  }
+}
+
+.op-error {
+  max-height: 160px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  overflow: auto;
+  font-size: 12px;
+  color: #cf1322;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  border-radius: 6px;
+}
+
+.result-empty {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.op-result-head .result-running {
+  font-size: 12px;
+  color: #1677ff;
+}
+
+// The previous result stays visible, faded, while the new one is computed.
+.result-stale {
+  .sample-records-section,
+  .column-stats-section,
+  .visualization-section {
+    opacity: 0.45;
+  }
+}

@@ -36,6 +36,7 @@ import type {
   LocalToolDialect,
   ReActStep,
   TokenUsage,
+  UserActionInfo,
   UserInfo,
   ToolOperatorAccess,
 } from "../types/agent";
@@ -113,7 +114,15 @@ import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR }
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import { asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 import { renderAnswer } from "./native/answer";
-import { createDataflowTool, mergeDataflowCalls } from "./tools/turn-tool";
+import { createDataflowTool, mergeDataflowCalls, prepareDataflowCall } from "./tools/turn-tool";
+import { nativeAssignmentText } from "./native/catalog";
+import {
+  UserActionError,
+  userActionCall,
+  userActionContent,
+  userActionRows,
+  type UserActionRequest,
+} from "./user-actions";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
@@ -588,6 +597,7 @@ export class TexeraAgent {
         ...observationFormatPatch(this.settings),
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
+        operatorDoc: this.settings.operatorDoc === true,
         answerStatement: this.settings.answerStatement === true,
         retrievalViews: availableRetrievalViews(this.settings),
         fullResultCharLimit: this.settings.fullResultCharLimit,
@@ -672,6 +682,7 @@ export class TexeraAgent {
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
         flowEvidence: this.settings.flowEvidence === true,
+        operatorDoc: this.settings.operatorDoc === true,
       },
     };
 
@@ -734,6 +745,7 @@ export class TexeraAgent {
         nativeProfileScope: this.settings.nativeProfileScope,
         nativeChecks: this.settings.nativeChecks === true,
         flowEvidence: this.settings.flowEvidence === true,
+        operatorDoc: this.settings.operatorDoc === true,
       },
     };
 
@@ -1015,6 +1027,7 @@ export class TexeraAgent {
       nativeProfileScope?: "prefix" | "full";
       dataEvidence?: boolean;
       flowEvidence?: boolean;
+      operatorDoc?: boolean;
       answerStatement?: boolean;
       nativeChecks?: boolean;
       resultSelection?: ResultSelection;
@@ -1112,6 +1125,11 @@ export class TexeraAgent {
     }
     if (updates.flowEvidence !== undefined && updates.flowEvidence !== this.settings.flowEvidence) {
       this.settings.flowEvidence = updates.flowEvidence;
+      promptNeedsRebuild = true;
+    }
+    // The native prompt asks for operator docs and shows them in its examples.
+    if (updates.operatorDoc !== undefined && updates.operatorDoc !== this.settings.operatorDoc) {
+      this.settings.operatorDoc = updates.operatorDoc;
       promptNeedsRebuild = true;
     }
     if (updates.nativeChecks !== undefined && updates.nativeChecks !== this.settings.nativeChecks) {
@@ -2605,6 +2623,8 @@ export class TexeraAgent {
       const group = stepsByMessage.get(msgId)!;
       const hasAgentEnd = group.some(s => s.role === "agent" && s.isEnd);
       if (hasAgentEnd) return undefined;
+      // A canvas action is a finished report, not a task to continue.
+      if (group.some(s => s.messageSource === "action")) return undefined;
       const hasUser = group.some(s => s.role === "user");
       if (hasUser) return msgId;
     }
@@ -2758,6 +2778,131 @@ export class TexeraAgent {
       this.currentMessageId = undefined;
       this.state = AgentStateEnum.AVAILABLE;
     }
+  }
+
+  /**
+   * Apply a canvas action: the user edited or ran one native operator. It is
+   * recorded as a user step carrying the equivalent `dataflow` call, which runs
+   * exactly as the agent's own calls do (snapshot, edit, execution, receipt).
+   * The step's content tells the model what the user did and what came of it,
+   * where it happened in the conversation; the agent is not asked to respond.
+   *
+   * An edit is checked first: one `set` statement for this operator that the
+   * planner accepts. A rejected edit throws a UserActionError and records
+   * nothing, and an edit that changes nothing records nothing (with `run`, it
+   * records a run). `onRecord` runs just before the step is recorded.
+   */
+  async applyUserAction(
+    action: UserActionRequest,
+    onRecord?: () => void
+  ): Promise<{ status: "ok" | "error" | "unchanged"; step?: ReActStep }> {
+    if (this.settings.agentMode !== AgentMode.NATIVE)
+      throw new UserActionError(400, "Canvas actions apply to dataflows the agent builds in native mode.");
+    if (this.state !== AgentStateEnum.AVAILABLE)
+      throw new UserActionError(409, "The agent is working; try again when it finishes.");
+    const operator = this.workflowState.getOperator(action.operatorId);
+    if (!operator?.nativeOp) throw new UserActionError(404, `There is no native operator \`${action.operatorId}\`.`);
+    const previous = nativeAssignmentText(action.operatorId, operator.nativeOp);
+    // Reserved until the action is done: no turn starts while it is checked or runs.
+    this.state = AgentStateEnum.GENERATING;
+    try {
+      let request = action;
+      if (action.kind === "edit" && (await this.checkUserEdit(action))) {
+        if (!action.run) return { status: "unchanged" };
+        request = { kind: "run", operatorId: action.operatorId };
+      }
+      const call = userActionCall(request);
+      const result = prepareDataflowCall(call, availableRetrievalViews(this.settings));
+      if (result.status === "error") throw new UserActionError(400, result.error ?? "The action was rejected.");
+      onRecord?.();
+
+      const messageId = `act-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+      const toolCallId = `act-tc-${this.stepCounter}-${Date.now()}`;
+      const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input: call }];
+      const toolResults = [{ toolCallId, output: result as unknown, isError: false }];
+      const info: UserActionInfo =
+        request.kind === "edit"
+          ? {
+              kind: "edit",
+              operatorId: request.operatorId,
+              statement: request.statement.trim(),
+              ...(previous ? { previous } : {}),
+              ...(request.run ? { run: true } : {}),
+              status: "running",
+            }
+          : { kind: "run", operatorId: request.operatorId, status: "running" };
+      this.abortController = new AbortController();
+      this.currentMessageId = messageId;
+      const step: ReActStep = {
+        id: this.generateStepId(),
+        parentId: this.head,
+        messageId,
+        stepId: 0,
+        timestamp: Date.now(),
+        role: "user",
+        content: userActionContent(request, previous),
+        isBegin: true,
+        isEnd: true,
+        messageSource: "action",
+        toolCalls,
+        toolResults,
+        userAction: info,
+      };
+      this.addStep(step);
+      this.head = step.id;
+      this.maybeCreateSnapshotForHead(this.workflowState.getWorkflowContent());
+      try {
+        await this.runPostStepExecution(toolCalls, toolResults);
+      } catch (error) {
+        result.status = "error";
+        result.error ??= error instanceof Error ? error.message : String(error);
+      }
+      // A reminder to write docs is for the agent's own statements, not the user's.
+      for (const item of result.actions)
+        if (item.action.type === "edit" && item.output && typeof item.output === "object")
+          delete (item.output as { missing_docs?: unknown }).missing_docs;
+      step.content = userActionContent(request, previous, result);
+      info.status = result.status === "error" ? "error" : "ok";
+      const rows = userActionRows(result, request.operatorId);
+      if (rows !== undefined) info.rows = rows;
+      if (result.error) info.error = result.error;
+      this.stepCallback?.(step);
+      return { status: info.status, step };
+    } finally {
+      this.abortController = null;
+      this.currentMessageId = undefined;
+      this.state = AgentStateEnum.AVAILABLE;
+    }
+  }
+
+  /** Check a canvas edit without changing anything. True when it would change nothing. */
+  private async checkUserEdit(action: Extract<UserActionRequest, { kind: "edit" }>): Promise<boolean> {
+    const statement = action.statement.trim();
+    const defined = /^set\s+([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(statement)?.[1];
+    if (defined !== action.operatorId)
+      throw new UserActionError(
+        400,
+        `Write one statement that defines \`${action.operatorId}\`: set ${action.operatorId}: type(inputs, settings).`
+      );
+    let plan;
+    try {
+      plan = await planRegisteredGraphEdit(this.workflowState.getWorkflowContent(), action.python ?? "", statement, {
+        metadataStore: this.metadataStore,
+        settings: this.settings,
+      });
+    } catch (error) {
+      // The reason without the Python exception's class name ("ValueError: ").
+      const reason = (error instanceof Error ? error.message : String(error)).replace(/^[A-Za-z]*Error: /, "");
+      throw new UserActionError(400, reason);
+    }
+    const changed = plan.changes.filter(change => change.change === "operator" && change.action !== "unchanged");
+    const other = changed.find(change => change.change === "operator" && change.operator_id !== action.operatorId);
+    if (other?.change === "operator")
+      throw new UserActionError(
+        400,
+        `Only \`${action.operatorId}\` can change here; the statement also changes \`${other.operator_id}\`.`
+      );
+    return !changed.length && !plan.registrations?.length && !plan.changes.some(change => change.change === "edge");
   }
 
   private getOperatorIdsFromStep(step: ReActStep): {

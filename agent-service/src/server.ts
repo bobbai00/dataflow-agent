@@ -26,6 +26,9 @@ import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import { NATIVE_OPERATORS } from "./agent/native/catalog";
+import { describeNativeStatement } from "./agent/native/statement-form";
+import { UserActionError, type UserActionRequest } from "./agent/user-actions";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -107,8 +110,10 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
-function latestTaskText(visibleSteps: { role: string; content?: string }[]): string {
+function latestTaskText(visibleSteps: { role: string; content?: string; messageSource?: string }[]): string {
   for (let i = visibleSteps.length - 1; i >= 0; i--) {
+    // A canvas action reports what the user did; the task is the request before it.
+    if (visibleSteps[i].messageSource === "action") continue;
     if (visibleSteps[i].role === "user" && visibleSteps[i].content) return visibleSteps[i].content as string;
   }
   return "";
@@ -447,6 +452,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
     flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
+    operatorDoc: agentSettings.operatorDoc,
     answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     resultSelection: agentSettings.resultSelection,
@@ -634,6 +640,20 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     const agentList = Array.from(agentStore.entries()).map(([id, agent]) => getAgentInfo(id, agent));
     return { agents: agentList };
   })
+  // The built-in native operators, for clients that render native operators
+  // (the workspace's property panel): each type's contract and the JSON schema
+  // of the `properties` its operators carry. Declared before `/:id`.
+  .get("/native-catalog", () => ({
+    operators: NATIVE_OPERATORS.map(({ name, type, inputs, rowEffect, signature, doc, schema }) => ({
+      name,
+      type,
+      inputs,
+      rowEffect,
+      signature,
+      doc,
+      schema,
+    })),
+  }))
 
   .post(
     "/",
@@ -698,6 +718,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
             flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
             flowEvidence: settings.flowEvidence,
+            operatorDoc: settings.operatorDoc,
             answerStatement: settings.answerStatement,
             nativeChecks: settings.nativeChecks,
             resultSelection: (settings as any).resultSelection,
@@ -783,6 +804,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
             flowEvidence: t.Optional(t.Boolean()),
+            operatorDoc: t.Optional(t.Boolean()),
             answerStatement: t.Optional(t.Boolean()),
             nativeChecks: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -874,6 +896,40 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
   })
+
+  /**
+   * Canvas actions on one native operator. `form` splits its statement into
+   * fields for the editor; `edit` and `run` apply the user's change or run it
+   * as a user step the agent reads on its next turn (TexeraAgent.applyUserAction).
+   */
+  .get("/:id/operators/:operatorId/form", async ({ params: { id, operatorId }, set }) => {
+    const workflow = getAgent(id).getWorkflowState().getWorkflowContent();
+    const view = workflow.operators.find(op => op.operatorID === operatorId)?.nativeOp;
+    if (!view) {
+      set.status = 404;
+      return { error: `There is no native operator \`${operatorId}\`.` };
+    }
+    try {
+      return await describeNativeStatement(operatorId, view, workflow);
+    } catch (error) {
+      set.status = 422;
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  })
+  .post(
+    "/:id/operators/:operatorId/edit",
+    ({ params: { id, operatorId }, body, set }) => runUserAction(id, { kind: "edit", operatorId, ...body }, set),
+    {
+      body: t.Object({
+        statement: t.String({ minLength: 1 }),
+        python: t.Optional(t.String()),
+        run: t.Optional(t.Boolean()),
+      }),
+    }
+  )
+  .post("/:id/operators/:operatorId/run", ({ params: { id, operatorId }, set }) =>
+    runUserAction(id, { kind: "run", operatorId }, set)
+  )
 
   /**
    * Snapshot tree shape — every node in the agent's
@@ -1158,6 +1214,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
         flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
+        operatorDoc: settings.operatorDoc,
         answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         resultSelection: (settings as any).resultSelection,
@@ -1228,6 +1285,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
+        operatorDoc: t.Optional(t.Boolean()),
         answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -1323,6 +1381,57 @@ function broadcastToAgent(agentId: string, message: WsOutgoingMessage): void {
 }
 
 /**
+ * Apply a canvas action (TexeraAgent.applyUserAction) and stream it to the
+ * agent's WebSocket clients as a turn is streamed: state, step, snapshot and
+ * completion frames. A rejected action, or one that changes nothing, streams
+ * nothing.
+ */
+async function runUserAction(agentId: string, action: UserActionRequest, set: { status?: number | string }) {
+  const agent = getAgent(agentId);
+  // Checked before the callbacks are taken over: they belong to a running turn.
+  if (agent.getState() !== AgentState.AVAILABLE) {
+    set.status = 409;
+    return { error: "The agent is working; try again when it finishes." };
+  }
+  let recorded = false;
+  agent.setStepCallback(step => {
+    broadcastToAgent(agentId, { type: "step", step, operatorResults: getOperatorResultSummaries(agent) });
+    broadcastNextContext(agentId, agent);
+  });
+  agent.setSnapshotCallback((stepId, workflow) => broadcastToAgent(agentId, { type: "snapshot", stepId, workflow }));
+  try {
+    const outcome = await agent.applyUserAction(action, () => {
+      recorded = true;
+      broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
+    });
+    return {
+      status: outcome.status,
+      ...(outcome.step
+        ? { stepId: outcome.step.id, userAction: outcome.step.userAction, content: outcome.step.content }
+        : {}),
+      operatorResults: getOperatorResultSummaries(agent),
+    };
+  } catch (error) {
+    if (error instanceof UserActionError) {
+      set.status = error.status;
+      return { error: error.message };
+    }
+    throw error;
+  } finally {
+    agent.setStepCallback(null);
+    agent.setSnapshotCallback(null);
+    if (recorded) {
+      broadcastToAgent(agentId, {
+        type: "complete",
+        state: agent.getState(),
+        operatorResults: getOperatorResultSummaries(agent),
+      });
+      broadcastNextContext(agentId, agent);
+    }
+  }
+}
+
+/**
  * Broadcast the assembled next-step context to all WebSocket clients of an
  * agent. Re-uses TexeraAgent.getNextStepContext() so the preview matches what
  * the model would actually receive on the next prepareStep. Safe to call from
@@ -1401,6 +1510,12 @@ export function buildApp() {
         if (msg.type === "stop") {
           agent.stop();
           broadcastToAgent(agentId, { type: "state", state: "STOPPING" });
+          return;
+        }
+
+        // One turn or canvas action at a time, as on the REST route.
+        if ((msg.type === "message" || msg.type === "debug") && agent.getState() !== AgentState.AVAILABLE) {
+          ws.send(JSON.stringify({ type: "error", error: "The agent is busy; wait until it finishes." }));
           return;
         }
 

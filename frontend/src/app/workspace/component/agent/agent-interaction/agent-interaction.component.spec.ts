@@ -22,16 +22,41 @@ import { ComponentFixture, TestBed } from "@angular/core/testing";
 import { HttpClientTestingModule } from "@angular/common/http/testing";
 import { NoopAnimationsModule } from "@angular/platform-browser/animations";
 import { DomSanitizer } from "@angular/platform-browser";
-import { Subject, of } from "rxjs";
+import { EMPTY, Subject, of, throwError } from "rxjs";
+import { HttpErrorResponse } from "@angular/common/http";
 import { AgentInteractionComponent } from "./agent-interaction.component";
 import { AgentInfo, AgentService } from "../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../common/service/notification/notification.service";
 import { commonTestProviders } from "../../../../common/testing/test-utils";
+import { AgentState } from "../../../service/agent/agent-types";
+import { NativeOperatorEditorComponent } from "../native-operator-editor/native-operator-editor.component";
 
 function makeAgent(id: string, name: string = id): AgentInfo {
   return { id, name, modelType: "gpt-test", isBaselineMode: false, createdAt: new Date("2026-01-01T00:00:00Z") };
 }
+
+/** The texera graph the component reads: one operator, and no change events. */
+function graphWith(operator?: object) {
+  return {
+    getOperator: vi.fn().mockReturnValue(operator),
+    getOperatorAddStream: () => EMPTY,
+    getOperatorPropertyChangeStream: () => EMPTY,
+  };
+}
+
+// A filter the dataflow agent defined natively.
+const kept = {
+  operatorID: "kept",
+  operatorType: "DataProcessing",
+  nativeOp: {
+    type: "Filter",
+    inputs: ["records"],
+    properties: {},
+    source: "set kept: filter(records, lambda row: row['value'] > 15)",
+    doc: "Keep the records over 15.",
+  },
+};
 
 describe("AgentInteractionComponent", () => {
   let fixture: ComponentFixture<AgentInteractionComponent>;
@@ -43,6 +68,12 @@ describe("AgentInteractionComponent", () => {
     getActivelyConnectedAgentIds: ReturnType<typeof vi.fn>;
     isAgentActivelyConnected: ReturnType<typeof vi.fn>;
     sendMessage: ReturnType<typeof vi.fn>;
+    getAgentStateObservable: ReturnType<typeof vi.fn>;
+    runNativeOperator: ReturnType<typeof vi.fn>;
+    editNativeOperator: ReturnType<typeof vi.fn>;
+    getNativeStatementForm: ReturnType<typeof vi.fn>;
+    getNativeCatalog: ReturnType<typeof vi.fn>;
+    getOperatorResultSummaries: ReturnType<typeof vi.fn>;
   };
   let workflowActionService: { getTexeraGraph: ReturnType<typeof vi.fn> };
   let notification: Record<"success" | "error" | "info" | "warning", ReturnType<typeof vi.fn>>;
@@ -55,9 +86,15 @@ describe("AgentInteractionComponent", () => {
       getActivelyConnectedAgentIds: vi.fn().mockReturnValue([]),
       isAgentActivelyConnected: vi.fn().mockReturnValue(false),
       sendMessage: vi.fn(),
+      getAgentStateObservable: vi.fn().mockReturnValue(of(AgentState.AVAILABLE)),
+      runNativeOperator: vi.fn(),
+      editNativeOperator: vi.fn(),
+      getNativeStatementForm: vi.fn().mockReturnValue(EMPTY),
+      getNativeCatalog: vi.fn().mockReturnValue(of([])),
+      getOperatorResultSummaries: vi.fn().mockReturnValue(new Map()),
     };
     workflowActionService = {
-      getTexeraGraph: vi.fn().mockReturnValue({ getOperator: vi.fn().mockReturnValue(undefined) }),
+      getTexeraGraph: vi.fn().mockReturnValue(graphWith(undefined)),
     };
     notification = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() };
 
@@ -348,6 +385,123 @@ describe("AgentInteractionComponent", () => {
       const spy = vi.spyOn(sanitizer, "bypassSecurityTrustHtml");
       component.getVisualizationHtml();
       expect(spy).toHaveBeenCalledWith("");
+    });
+  });
+
+  describe("a native operator's panel", () => {
+    /** The panel for `kept`, with one connected agent, as the canvas opens it. */
+    function createNative(state = AgentState.AVAILABLE, initialMode: "actions" | "feedback" = "actions"): HTMLElement {
+      workflowActionService.getTexeraGraph.mockReturnValue(graphWith(kept));
+      agentService.getAllAgents.mockReturnValue(of([makeAgent("a1", "Bob")]));
+      agentService.getActivelyConnectedAgentIds.mockReturnValue(["a1"]);
+      agentService.isAgentActivelyConnected.mockReturnValue(true);
+      agentService.getAgentStateObservable.mockReturnValue(of(state));
+      fixture = TestBed.createComponent(AgentInteractionComponent);
+      component = fixture.componentInstance;
+      fixture.componentRef.setInput("operatorId", "kept");
+      fixture.componentRef.setInput("initialMode", initialMode);
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+    const button = (element: HTMLElement, name: string) =>
+      Array.from(element.querySelectorAll<HTMLButtonElement>(".op-action")).find(b => b.textContent?.trim() === name)!;
+
+    it("names the operator and offers Run, Edit and Feedback in place of the classic panel", () => {
+      const element = createNative();
+      expect(element.querySelector(".op-id")?.textContent?.trim()).toBe("kept");
+      expect(element.querySelector(".op-type")?.textContent?.trim()).toBe("Filter");
+      expect(element.querySelector(".op-summary")?.textContent?.trim()).toBe("Keep the records over 15.");
+      expect(element.querySelector(".op-icon")?.getAttribute("src")).toBe("assets/operator_images/Filter.png");
+      expect(Array.from(element.querySelectorAll(".op-action")).map(b => b.textContent?.trim())).toEqual([
+        "Run",
+        "Edit",
+        "Feedback",
+      ]);
+      // Nothing opens until an action is chosen; one agent needs no picker.
+      expect(element.querySelector(".op-body")).toBeNull();
+      expect(element.querySelector(".header-row")).toBeNull();
+    });
+
+    it("runs the operator through its agent and shows the result the agent now sees", () => {
+      agentService.runNativeOperator.mockReturnValue(
+        of({ status: "ok", userAction: { kind: "run", operatorId: "kept", status: "ok", rows: 2 } })
+      );
+      const element = createNative();
+      fixture.componentRef.setInput("sampleRecords", [
+        { id: 2, value: 20 },
+        { id: 3, value: 30 },
+      ]);
+      fixture.componentRef.setInput("resultSummary", {
+        state: "Completed",
+        inputTuples: 3,
+        outputTuples: 2,
+        totalRowCount: 2,
+        outputColumns: 2,
+      });
+      button(element, "Run").click();
+      fixture.detectChanges();
+
+      expect(agentService.runNativeOperator).toHaveBeenCalledWith("a1", "kept");
+      expect(element.querySelector(".result-shape")?.textContent?.trim()).toBe("2 rows · 2 columns");
+      expect(element.querySelector(".result-shared")?.textContent?.trim()).toBe("Bob sees this");
+      expect(element.querySelectorAll(".sample-records-table tbody tr").length).toBe(2);
+    });
+
+    it("says why a run failed", () => {
+      agentService.runNativeOperator.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 409, error: { error: "The agent is working." } }))
+      );
+      const element = createNative();
+      button(element, "Run").click();
+      fixture.detectChanges();
+      expect(element.querySelector(".op-error")?.textContent?.trim()).toBe("The agent is working.");
+    });
+
+    it("waits while the agent works", () => {
+      const element = createNative(AgentState.GENERATING);
+      expect(button(element, "Run").disabled).toBe(true);
+      expect(button(element, "Edit").disabled).toBe(true);
+      expect(button(element, "Feedback").disabled).toBe(false);
+      expect(element.querySelector(".op-status")?.textContent).toContain("Bob is working");
+    });
+
+    it("opens the editor for Edit, and after a save says the agent reads the change", () => {
+      const element = createNative();
+      button(element, "Edit").click();
+      fixture.detectChanges();
+      const editor = fixture.debugElement.query(
+        debug => debug.componentInstance instanceof NativeOperatorEditorComponent
+      );
+      expect(editor.componentInstance.agentId).toBe("a1");
+      expect(editor.componentInstance.operatorId).toBe("kept");
+
+      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", status: "ok" } });
+      fixture.detectChanges();
+      expect(element.querySelector(".op-body")).toBeNull();
+      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe(
+        "Saved. Bob reads your change at its next turn."
+      );
+
+      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", run: true, status: "ok" } });
+      expect(component.mode).toBe("result");
+    });
+
+    it("sends feedback that names the operator by its id; the chat button opens the feedback box", () => {
+      const element = createNative(AgentState.AVAILABLE, "feedback");
+      expect(component.mode).toBe("feedback");
+      component.feedbackMessage = "Use 20 instead.";
+      component.sendFeedbackToAgent();
+      expect(agentService.sendMessage).toHaveBeenCalledWith("a1", "Feedback on `kept`: Use 20 instead.", "feedback");
+      fixture.detectChanges();
+      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe("Sent to Bob; the reply is in the chat.");
+    });
+
+    it("closes from its close button", () => {
+      const element = createNative();
+      const closed = vi.fn();
+      component.closed.subscribe(closed);
+      (element.querySelector(".op-close") as HTMLButtonElement).click();
+      expect(closed).toHaveBeenCalled();
     });
   });
 });

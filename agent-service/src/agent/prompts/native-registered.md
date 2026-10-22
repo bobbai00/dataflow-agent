@@ -32,9 +32,7 @@ You have the task files, a persistent Dataflow, built-in table operators, and Py
 A Dataflow is a directed acyclic graph of table-producing operators. Each call carries `python` when it needs definitions, then `statements`, one per line.
 
 ```text
-set records: scan(files='data/example.csv')
-set totals: aggregate(records, by=['group'], outputs={'total': sum('value')})
-set report: sort(totals, by=['group'])
+{{GRAPH_EXAMPLE}}
 ```
 
 `records`, `totals`, and `report` are operator IDs. Positional arguments are input IDs, except the lambda of a filter or map; keyword arguments are literal settings. `set` creates or fully replaces an operator, so restate the settings you keep; `delete id` removes one. Write each ID once per edit; no nested operator calls.
@@ -63,7 +61,7 @@ Prefer built-ins for supported selection, conversion, joins, grouping, ordering,
 
 {{OPERATOR_CATALOG}}
 
-`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `set kept: filter(records, lambda row: row['value'] is not None and row['value'] >= 10)`. A map turns each row into the dict its lambda returns: `set priced: map(orders, lambda row: {**row, 'unit_price': row['amount'] / row['quantity']})`. Both lambdas can call registered functions.
+`scan` formats are `auto`, `csv` (`delim='\t'` for TSV), `lines`, `fwf`, `whitespace`, `excel`, `html`, `json`, and `parquet`. Reducers are `count()` (rows), `count('column')` (non-null values), `count_distinct`, `sum`, `mean`, `min`, `max`, `median`, `stddev`, and `first`. A filter keeps the rows for which its condition is True and counts kept and rejected rows: `{{FILTER_EXAMPLE}}`. A map turns each row into the dict its lambda returns: `{{MAP_EXAMPLE}}`. Both lambdas can call registered functions.
 
 ### Python functions
 
@@ -80,10 +78,10 @@ def load_records(*, path, field='records'):
 ```
 
 ```text
-set records: load_records(path='data/example.json')
+{{LOADER_EXAMPLE}}
 ```
 
-Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Keep data loading and computation inside functions, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate. An explicit operator doc overrides the current function docstring, then the built-in summary.
+Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Keep data loading and computation inside functions, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. {{OPERATOR_DOC}} An explicit operator doc overrides the current function docstring, then the built-in summary.
 
 ### Reading results
 

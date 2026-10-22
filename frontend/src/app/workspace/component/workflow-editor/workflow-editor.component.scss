@@ -97,6 +97,12 @@
     width: 620px;
     max-height: 480px;
   }
+
+  // A native operator's panel sizes to its mode: actions only, or a body below them.
+  &.chat-popover-native {
+    width: auto;
+    max-height: 600px;
+  }
 }
 
 .chat-popover-content {
@@ -106,5 +112,10 @@
 
   .chat-popover-visualization & {
     max-height: 480px;
+  }
+
+  .chat-popover-native & {
+    max-height: 600px;
+    padding: 0;
   }
 }

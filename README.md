@@ -132,6 +132,27 @@ automatically after operator edits.
 Native mode forces provider parallel tool calls off and never forces a tool
 call, so models can think before calling and answer with a plain reply. After
 an execution error, later `show` lines still read the results that completed.
+
+Each native operator runs as a Python UDF, but the canvas draws it as its
+native type: the label reads `id: Aggregate` (or the registered function's
+name), the icon is Texera's equivalent operator, and the box shows the
+operator's doc, else its statement. Selecting it opens its panel on the
+canvas with three actions:
+
+- **Run** computes the operator and shows its result.
+- **Edit** shows one field per argument of its statement (plus its
+  description, and the Python of a registered function it calls); "Edit as
+  code" edits the statement itself. Save, or Save & run.
+- **Feedback** sends the agent a message about the operator, which starts a
+  turn.
+
+A run or an edit goes through the agent (`POST /api/agents/:id/operators/:operatorId/run`
+and `/edit`; `GET …/form` splits the statement into fields). The agent applies
+it as one of its own `dataflow` calls and records it as a user step
+(`messageSource: "action"`) whose content says what the user did, with the
+call's receipt, at that point in the conversation. The agent reads it on its
+next turn without being asked to respond. An edit the planner rejects returns
+400 with the reason and records nothing.
 Decisions based on returned results belong in the next call. See
 [Registered Python Dataflows](docs/native-registered-python-design.md) for
 declarations, namespace isolation, statements, and inspection, and
@@ -158,6 +179,7 @@ An agent created with no `settings` uses
 | `dataEvidence` | `true` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
+| `operatorDoc` | `false` | native mode: asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |

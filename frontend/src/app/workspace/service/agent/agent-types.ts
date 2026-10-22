@@ -76,8 +76,26 @@ export interface ReActStep {
   id: string;
   /** Parent step ID — forms the version tree */
   parentId?: string;
-  /** Source of the user message: "chat" or "feedback" */
+  /** Source of the user message: "chat", "feedback", or "action" (a canvas edit or run) */
   messageSource?: string;
+  /** Set on a user step recording a canvas action. */
+  userAction?: UserActionInfo;
+}
+
+/** What the user did to one operator on the canvas (agent-service `UserActionInfo`). */
+export interface UserActionInfo {
+  kind: "edit" | "run";
+  operatorId: string;
+  /** The statement the user saved (edit). */
+  statement?: string;
+  /** The operator's statement before the edit. */
+  previous?: string;
+  /** An edit that also ran the operator. */
+  run?: boolean;
+  status: "running" | "ok" | "error";
+  /** Rows of the operator's result, when it ran. */
+  rows?: number;
+  error?: string;
 }
 
 // Workflow content is no longer embedded on each step. The agent service

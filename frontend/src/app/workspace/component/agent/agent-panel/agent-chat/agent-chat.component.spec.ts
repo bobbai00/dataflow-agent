@@ -314,6 +314,60 @@ describe("AgentChatComponent", () => {
     });
   });
 
+  describe("canvas actions in the chat", () => {
+    const action = (userAction: Partial<NonNullable<ReActStep["userAction"]>>, id = "act") =>
+      makeStep({
+        messageId: id,
+        stepId: 0,
+        id,
+        role: "user",
+        isBegin: true,
+        isEnd: true,
+        messageSource: "action",
+        content: "I edited `kept` on the canvas. Its definition is now:\nset kept: filter(records, lambda row: True)",
+        toolCalls: [{ toolName: "dataflow", toolCallId: "t", input: {} }],
+        userAction: { kind: "edit", operatorId: "kept", status: "ok", ...userAction },
+      });
+
+    it("shows a user's edit or run as one row on the user's side, not as an agent action", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({ stepId: 0, role: "user", content: "hi", isBegin: true }),
+        action({ run: true, rows: 1 }),
+        action({ kind: "run", rows: 2 }, "act2"),
+      ]);
+      fixture.detectChanges();
+      expect(component.chatItems.map(item => item.kind)).toEqual(["message", "action", "action"]);
+      const rows = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".user-action-text")).map(row =>
+        row.textContent?.trim()
+      );
+      expect(rows).toEqual(["You edited `kept` and ran it · 1 row", "You ran `kept` · 2 rows"]);
+    });
+
+    it("shows a running action on its row instead of the agent thinking, and opens what the agent reads", () => {
+      createComponent();
+      agentService.stepsSubject.next([action({ kind: "run", status: "running" })]);
+      agentService.stateSubject.next(AgentState.GENERATING);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector(".user-action-text")?.textContent?.trim()).toBe("Running `kept`…");
+      expect(element.querySelector(".loading-message")).toBeNull();
+
+      (element.querySelector(".user-action-toggle") as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(element.querySelector(".user-action-details")?.textContent).toContain("I edited `kept` on the canvas.");
+    });
+
+    it("marks a failed action", () => {
+      createComponent();
+      agentService.stepsSubject.next([action({ status: "error", error: "boom" })]);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector(".user-action-text")?.textContent?.trim()).toBe("You edited `kept`; it failed");
+      expect(element.querySelector(".user-action.user-action-error")).not.toBeNull();
+    });
+  });
+
   describe("HEAD-path filtering of visible steps", () => {
     it("shows only the root-to-HEAD ancestor chain when a HEAD is set", () => {
       createComponent();
@@ -525,9 +579,10 @@ describe("AgentChatComponent", () => {
       expect(component.settingsExecutionTimeoutMinutes).toBe(10);
       expect(component.settingsMaxSteps).toBe(10);
       expect(component.settingsAgentMode).toBe("native");
-      // agent-service defaults: dataEvidence on, flowEvidence off
+      // agent-service defaults: dataEvidence on, flowEvidence and operatorDoc off
       expect(component.settingsDataEvidence).toBe("enabled");
       expect(component.settingsFlowEvidence).toBe("disabled");
+      expect(component.settingsOperatorDoc).toBe("disabled");
     });
 
     it("applies explicit settings values from the server", () => {
@@ -542,6 +597,7 @@ describe("AgentChatComponent", () => {
           agentMode: "code",
           dataEvidence: false,
           flowEvidence: true,
+          operatorDoc: true,
         })
       );
 
@@ -555,6 +611,7 @@ describe("AgentChatComponent", () => {
       expect(component.settingsAgentMode).toBe("code");
       expect(component.settingsDataEvidence).toBe("disabled");
       expect(component.settingsFlowEvidence).toBe("enabled");
+      expect(component.settingsOperatorDoc).toBe("enabled");
     });
 
     it("closeSystemInfoModal hides the modal", () => {
@@ -620,6 +677,7 @@ describe("AgentChatComponent", () => {
     const evidenceCases = [
       { method: "saveDataEvidence", prop: "settingsDataEvidence", key: "dataEvidence", toast: "Data evidence" },
       { method: "saveFlowEvidence", prop: "settingsFlowEvidence", key: "flowEvidence", toast: "Flow evidence" },
+      { method: "saveOperatorDoc", prop: "settingsOperatorDoc", key: "operatorDoc", toast: "Operator doc" },
     ] as const;
 
     evidenceCases.forEach(({ method, prop, key, toast }) => {

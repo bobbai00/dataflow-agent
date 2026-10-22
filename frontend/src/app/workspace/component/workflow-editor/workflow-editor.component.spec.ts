@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { WorkflowActionService } from "../../service/workflow-graph/model/workflow-action.service";
+import { DEFAULT_WORKFLOW, WorkflowActionService } from "../../service/workflow-graph/model/workflow-action.service";
 import { UndoRedoService } from "../../service/undo-redo/undo-redo.service";
 import { DragDropService } from "../../service/drag-drop/drag-drop.service";
 import { WorkflowUtilService } from "../../service/workflow-graph/util/workflow-util.service";
@@ -190,7 +190,14 @@ describe("WorkflowEditorComponent", () => {
 
       it("should create every region and draw nothing for one whose operators are all missing", async () => {
         addOperator("present_op");
-        expect(await unhandledErrors(() => emitRegions([[1, ["agent_new_op"]], [2, ["present_op"]]]))).toEqual([]);
+        expect(
+          await unhandledErrors(() =>
+            emitRegions([
+              [1, ["agent_new_op"]],
+              [2, ["present_op"]],
+            ])
+          )
+        ).toEqual([]);
 
         expect(jointGraph.getCell("region-1").attr("body/d")).toBe("");
         expect(jointGraph.getCell("region-2").attr("body/d")).toMatch(/^M/);
@@ -383,6 +390,78 @@ describe("WorkflowEditorComponent", () => {
       (component.paper as any).trigger("element:chat", jointCellView, new Event("click"), 0, 0);
 
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    describe("a native operator's panel", () => {
+      // An operator the dataflow agent defined natively, riding on a scan for the stub metadata.
+      const native = {
+        ...mockScanPredicate,
+        nativeOp: { type: "Filter", inputs: [], properties: {}, source: "set kept: filter(records, lambda row: True)" },
+      } as OperatorPredicate;
+      const settle = () => new Promise(resolve => setTimeout(resolve));
+
+      it("opens when the operator is selected, with its actions", () => {
+        workflowActionService.addOperator(native, mockPoint);
+        workflowActionService.getJointGraphWrapper().highlightOperators(native.operatorID);
+        expect(component.chatPopoverOperator).toMatchObject({
+          operatorId: native.operatorID,
+          native: true,
+          mode: "actions",
+        });
+      });
+
+      it("does not open for an engine operator, and closes when the selection moves to one", () => {
+        const wrapper = workflowActionService.getJointGraphWrapper();
+        workflowActionService.addOperator(mockResultPredicate, mockPoint);
+        wrapper.highlightOperators(mockResultPredicate.operatorID);
+        expect(component.chatPopoverOperator).toBeNull();
+
+        workflowActionService.addOperator(native, mockPoint);
+        wrapper.unhighlightOperators(mockResultPredicate.operatorID);
+        wrapper.highlightOperators(native.operatorID);
+        expect(component.chatPopoverOperator?.operatorId).toBe(native.operatorID);
+        wrapper.unhighlightOperators(native.operatorID);
+        wrapper.highlightOperators(mockResultPredicate.operatorID);
+        expect(component.chatPopoverOperator).toBeNull();
+      });
+
+      it("turns to feedback from the operator's chat button, and closes on a second press", () => {
+        workflowActionService.addOperator(native, mockPoint);
+        workflowActionService.getJointGraphWrapper().highlightOperators(native.operatorID);
+        const view = component.paper.findViewByModel(native.operatorID);
+        (component.paper as any).trigger("element:chat", view, new Event("click"), 0, 0);
+        expect(component.chatPopoverOperator?.mode).toBe("feedback");
+        (component.paper as any).trigger("element:chat", view, new Event("click"), 0, 0);
+        expect(component.chatPopoverOperator).toBeNull();
+      });
+
+      it("stays open, and the operator selected, across the reload after an edit; closes once it is gone", async () => {
+        const wrapper = workflowActionService.getJointGraphWrapper();
+        workflowActionService.addOperator(native, mockPoint);
+        wrapper.highlightOperators(native.operatorID);
+        const edited = { ...native, nativeOp: { ...native.nativeOp!, doc: "Every record" } };
+        workflowActionService.reloadWorkflow(
+          {
+            ...DEFAULT_WORKFLOW,
+            content: {
+              operators: [edited],
+              operatorPositions: { [native.operatorID]: mockPoint },
+              links: [],
+              commentBoxes: [],
+              settings: undefined as any,
+            },
+          },
+          false,
+          false
+        );
+        await settle();
+        expect(component.chatPopoverOperator?.operatorId).toBe(native.operatorID);
+        expect(wrapper.getCurrentHighlightedOperatorIDs()).toEqual([native.operatorID]);
+
+        workflowActionService.deleteOperator(native.operatorID);
+        await settle();
+        expect(component.chatPopoverOperator).toBeNull();
+      });
     });
 
     it("should react to operator validation and change the color of operator box if the operator is valid ", () => {

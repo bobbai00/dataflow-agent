@@ -200,6 +200,30 @@ functions:
 operators: units created (eligible_units)`);
 });
 
+test("with operator docs on, an edit that sets operators without a doc names them and still applies", () => {
+  const turn = turnOf(
+    "set records: scan(files='data/a.csv', doc='Reads the orders file.')\nset totals: aggregate(records, outputs={'n': count()})"
+  );
+  const result = resultOf(turn, [
+    {
+      status: "ok",
+      output: {
+        operators: [],
+        changes: [
+          { change: "operator", operator_id: "records", operator: "scan", action: "created" },
+          { change: "operator", operator_id: "totals", operator: "aggregate", action: "created" },
+        ],
+        unconnected_inputs: [],
+        invalidated_results: [],
+        missing_docs: ["totals"],
+      },
+    },
+  ]);
+  expect(renderTurnReceipt(result, turn)).toBe(`## edits applied
+operators: records created (scan), totals created (aggregate)
+doc missing: totals; set each again with doc='<one line: what it does and why>' (a doc alone re-runs nothing)`);
+});
+
 test("a rejected edit names the line and nothing else runs", () => {
   const turn = turnOf(`set records: scan(files='data/a.csv')
 set totals: aggregate(records, outputs={'n': avg('value')})
