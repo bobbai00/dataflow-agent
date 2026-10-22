@@ -18,7 +18,7 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { buildApp, buildContextAssembler, _resetAgentStoreForTests } from "./server";
+import { buildApp, buildContextAssembler, _dropLiveAgentForTests, _resetAgentStoreForTests } from "./server";
 import { env } from "./config/env";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
@@ -561,5 +561,87 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const created = await readJson<{ id: string }>(await createAgent());
     const res = await patchJson(`${API}/agents/${created.id}/settings`, { contextMode: "full" });
     expect(res.status).toBe(400);
+  });
+});
+
+describe(`GET ${API}/traces`, () => {
+  test("lists the agents the trace store holds and exports one agent's trace", async () => {
+    const created = (await (await createAgent({ modelType: "test-model", name: "Traced" })).json()) as { id: string };
+    const listed = (await (await app.handle(new Request(url(`${API}/traces`)))).json()) as {
+      database: string;
+      agents: Array<{ id: string; steps: number }>;
+    };
+    expect(listed.database).toBe(":memory:");
+    expect(listed.agents.map(agent => agent.id)).toContain(created.id);
+
+    const trace = (await (await app.handle(new Request(url(`${API}/traces/${created.id}`)))).json()) as any;
+    expect(trace.agent).toMatchObject({ id: created.id, name: "Traced", model: "test-model" });
+    expect(trace.steps.length).toBeGreaterThanOrEqual(1); // the initialize step
+    expect(trace.snapshots.length).toBeGreaterThanOrEqual(1); // its snapshot
+    expect((await app.handle(new Request(url(`${API}/traces/nobody`)))).status).toBe(404);
+  });
+});
+
+describe(`POST ${API}/agents/:id/restore`, () => {
+  test("rebuilds an agent the store holds once memory lost it, with its steps, and traces it again", async () => {
+    const created = (await (await createAgent({ modelType: "test-model", name: "Restored" })).json()) as { id: string };
+    const stepsOf = async () =>
+      (
+        (await (await app.handle(new Request(url(`${API}/agents/${created.id}/react-steps`)))).json()) as {
+          steps: any[];
+        }
+      ).steps;
+    // A conversation to lose: the initialize step is not shown, so import two steps.
+    await postJson(`${API}/agents/${created.id}/import-react-steps`, {
+      steps: [
+        {
+          id: "u1",
+          messageId: "m1",
+          stepId: 0,
+          timestamp: 1000,
+          role: "user",
+          content: "hello",
+          isBegin: true,
+          isEnd: true,
+        },
+        {
+          id: "a1",
+          parentId: "u1",
+          messageId: "m1",
+          stepId: 1,
+          timestamp: 1001,
+          role: "agent",
+          content: "hi there",
+          isBegin: true,
+          isEnd: true,
+        },
+      ],
+    });
+    const before = await stepsOf();
+    expect(before.map(step => step.id)).toEqual(["u1", "a1"]);
+    const restore = (id: string) =>
+      app.handle(
+        new Request(url(`${API}/agents/${id}/restore`), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      );
+    expect((await restore(created.id)).status).toBe(409); // still live
+
+    _dropLiveAgentForTests(created.id); // the service restarted: memory is gone, the store is not
+    expect((await app.handle(new Request(url(`${API}/agents/${created.id}/react-steps`)))).status).toBe(404);
+    const restored = await restore(created.id);
+    expect(restored.status).toBe(200);
+    expect(((await restored.json()) as { name: string }).name).toBe("Restored");
+    const after = await stepsOf();
+    expect(after.map(step => step.id)).toEqual(before.map(step => step.id));
+
+    const listed = (await (await app.handle(new Request(url(`${API}/traces`)))).json()) as {
+      agents: Array<{ id: string; live: boolean }>;
+    };
+    expect(listed.agents.find(agent => agent.id === created.id)?.live).toBe(true);
+    const trace = (await (await app.handle(new Request(url(`${API}/traces/${created.id}`)))).json()) as any;
+    expect(trace.events.map((event: any) => event.kind)).toContain("restore");
+    expect((await restore("nobody")).status).toBe(404);
   });
 });

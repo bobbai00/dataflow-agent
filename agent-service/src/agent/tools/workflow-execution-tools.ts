@@ -814,11 +814,12 @@ export async function executeWorkflowAndPersist(
       return { success: false, state: "Empty", opCount: 0, errorCount: 0, errorText: "Workflow has no operators." };
     }
 
+    const started = Date.now();
     const result = await executeWorkflowHttp(config, logicalPlan, { abortSignal: options.abortSignal });
     const storeStarted = performance.now();
     persistOperatorResults(result.operators, options.onResult);
     if (result.clientTiming) result.clientTiming.snapshotStoreMs = performance.now() - storeStarted;
-    const executionRuns = [executionRunMetrics(result, opsToView)];
+    const executionRuns = [executionRunMetrics(result, opsToView, started)];
     options.onExecution?.(executionRuns[0]);
 
     const opCount = Object.keys(result.operators).length;
@@ -846,8 +847,10 @@ export async function executeWorkflowAndPersist(
   }
 }
 
-function executionRunMetrics(result: SyncExecutionResult, targets: string[]): ExecutionRunMetrics {
+function executionRunMetrics(result: SyncExecutionResult, targets: string[], startedAt: number): ExecutionRunMetrics {
   return {
+    startedAt,
+    endedAt: Date.now(),
     targets: [...targets],
     executionId: result.executionId ?? null,
     success: result.success,
@@ -911,11 +914,12 @@ async function executeGroupsSequentially(
     log.info({ groupIndex: gi, totalGroups: groups.length, opsToView: group.opsToView }, "Executing partition group");
 
     try {
+      const started = Date.now();
       const result = await executeWorkflowHttp(config, plan, { abortSignal: options.abortSignal });
       const storeStarted = performance.now();
       persistOperatorResults(result.operators, options.onResult);
       if (result.clientTiming) result.clientTiming.snapshotStoreMs = performance.now() - storeStarted;
-      const run = executionRunMetrics(result, group.opsToView);
+      const run = executionRunMetrics(result, group.opsToView, started);
       executionRuns.push(run);
       options.onExecution?.(run);
 

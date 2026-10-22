@@ -120,6 +120,9 @@ export interface SyncExecutionResult {
  * Null measurements mean the backend did not report them, not zero work. */
 export interface ExecutionRunMetrics {
   clientTiming?: ExecutionClientTiming;
+  /** When the request went out and when its result was in hand (epoch ms). */
+  startedAt?: number;
+  endedAt?: number;
   targets: string[];
   executionId: string | null;
   success: boolean;

@@ -19,6 +19,7 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { TexeraAgent } from "./texera-agent";
+import { TraceStore } from "../trace/trace-store";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { type ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
@@ -153,9 +154,7 @@ describe("TexeraAgent — handleDebugInput agent inputs", () => {
   test("a Reply(...) ends the ongoing task as the agent's reply, after a call whose lines carry its thought", async () => {
     const agent = makeAgent();
     await agent.handleDebugInput("How many rows?");
-    const call = await agent.handleDebugInput(
-      "Nothing to compute.\nFunction(name='unknownTool', arguments='{}')"
-    );
+    const call = await agent.handleDebugInput("Nothing to compute.\nFunction(name='unknownTool', arguments='{}')");
     expect(call.kind).toBe("function_call");
     const callStep = agent.getAllSteps().at(-1)!;
     expect(callStep.role).toBe("agent");
@@ -182,6 +181,37 @@ describe("TexeraAgent — handleDebugInput agent inputs", () => {
     expect(result.kind).toBe("function_call");
     expect(result.error).toContain("Failed to parse the agent input");
     expect(agent.getAllSteps().at(-1)!.content).toStartWith("[ERROR]");
+  });
+});
+
+describe("TexeraAgent — trace store", () => {
+  test("a turn's steps, snapshots and end reach the store as they happen, in the order a restore replays", async () => {
+    const trace = new TraceStore(":memory:");
+    trace.agentCreated({ id: "traced", name: "Bob", model: "test-model", createdAt: Date.now() });
+    const agent = new TexeraAgent({
+      driver: stubDriver,
+      contextAssembler: stubAssembler,
+      modelType: "test-model",
+      agentId: "traced",
+      trace,
+    });
+    await agent.handleDebugInput("How many rows?");
+    await agent.handleDebugInput("Look.\nFunction(name='unknownTool', arguments='{}')");
+    await agent.handleDebugInput("Reply(text='There are 3 rows.')");
+
+    const exported = trace.exportAgent("traced")!;
+    expect(exported.turns).toEqual([
+      expect.objectContaining({ channel: "debug", text: "How many rows?", status: "ok", reply: "There are 3 rows." }),
+    ]);
+    expect((exported.steps as any[]).map(s => [s.role, s.content, s.is_end, s.tool_calls])).toEqual([
+      ["user", "How many rows?", 1, 0],
+      ["agent", "Look.", 0, 1],
+      ["agent", "There are 3 rows.", 1, 0],
+    ]);
+    expect((exported.snapshots as any[]).length).toBeGreaterThanOrEqual(1); // the call owns a snapshot
+    expect(exported.llm_calls).toEqual([]); // debug inputs call no model
+    expect(trace.stepsOf("traced").map(s => s.id)).toEqual(agent.getAllSteps().map(s => s.id));
+    trace.close();
   });
 });
 
@@ -804,8 +834,22 @@ describe("TexeraAgent.initialize(delegateConfig) — delegate bootstrap", () => 
               // backend-side stub for an unmaterialized op and skips it. So
               // the mock has to mirror the real backend's shape for a
               // Completed operator.
-              op1: { state: "Completed", inputTuples: 0, outputTuples: 5, resultMode: "table", totalRowCount: 5, result: [] },
-              op2: { state: "Completed", inputTuples: 5, outputTuples: 5, resultMode: "table", totalRowCount: 5, result: [] },
+              op1: {
+                state: "Completed",
+                inputTuples: 0,
+                outputTuples: 5,
+                resultMode: "table",
+                totalRowCount: 5,
+                result: [],
+              },
+              op2: {
+                state: "Completed",
+                inputTuples: 5,
+                outputTuples: 5,
+                resultMode: "table",
+                totalRowCount: 5,
+                result: [],
+              },
             },
           }),
       },

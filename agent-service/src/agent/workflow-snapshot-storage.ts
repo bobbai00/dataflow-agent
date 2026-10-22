@@ -42,6 +42,12 @@ export interface ResolvedSnapshotEntry<T> {
   sourceStepId: string | undefined;
 }
 
+/** Told of every snapshot made or changed, and every operator result stored (the trace store listens). */
+export interface SnapshotListener {
+  onSnapshot(snapshot: SnapshotData): void;
+  onResult(snapshot: SnapshotData, operatorId: string, info: OperatorInfo): void;
+}
+
 /**
  * One per-operator result inside a snapshot. `sourceStepId` is the ReAct
  * step whose action originally produced this value — preserved as the
@@ -166,6 +172,8 @@ export class WorkflowSnapshotStorage {
   private snapshotCounter = 0;
   /** Next version number; the dataflow the agent starts from is v0. */
   private versionCounter = 0;
+  /** Told of every snapshot made or changed and every result stored; the trace store listens. */
+  listener?: SnapshotListener;
   private rootSnapshotId: string;
 
   /**
@@ -286,6 +294,7 @@ export class WorkflowSnapshotStorage {
     if (action) Object.assign(snapshot, { version: this.versionCounter++, action });
     this.snapshots.set(snapshot.id, snapshot);
     this.snapshotByReactStepId.set(reactStepId, snapshot.id);
+    this.listener?.onSnapshot(snapshot);
     return snapshot;
   }
 
@@ -346,6 +355,7 @@ export class WorkflowSnapshotStorage {
         latest = snapshot;
       }
       recorded.push(latest);
+      this.listener?.onSnapshot(latest);
     }
     this.snapshotByReactStepId.set(reactStepId, latest.id);
     return recorded;
@@ -366,6 +376,7 @@ export class WorkflowSnapshotStorage {
       if (stale.has(operatorId) || !present.has(operatorId)) snapshot.results.delete(operatorId);
     const owned = copyWorkflow(workflow, snapshot.workflow);
     snapshot.workflow = freezeSnapshotValue(owned);
+    this.listener?.onSnapshot(snapshot);
   }
 
   /**
@@ -454,6 +465,7 @@ export class WorkflowSnapshotStorage {
     }
     // Descendants share immutable entries, never a caller's mutable response.
     snapshot.results.set(operatorId, { info: bound, sourceStepId: reactStepId });
+    this.listener?.onResult(snapshot, operatorId, bound);
   }
 
   private recordNativeFailure(

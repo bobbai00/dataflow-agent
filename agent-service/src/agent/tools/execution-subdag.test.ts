@@ -238,6 +238,8 @@ describe("execution phase metrics survive persistence summaries", () => {
       );
       expect(outcome.executionRuns).toEqual([
         {
+          startedAt: expect.any(Number),
+          endedAt: expect.any(Number),
           targets: ["c"],
           executionId: "e1",
           success,
@@ -310,7 +312,16 @@ describe("execution phase metrics survive persistence summaries", () => {
         { opsToViewResult: ["c"] }
       );
       expect(outcome.executionRuns).toEqual([
-        { targets: ["c"], executionId: null, success: false, state: "Error", phaseMetrics: null, clientTiming },
+        {
+          startedAt: expect.any(Number),
+          endedAt: expect.any(Number),
+          targets: ["c"],
+          executionId: null,
+          success: false,
+          state: "Error",
+          phaseMetrics: null,
+          clientTiming,
+        },
       ]);
     } finally {
       fetch.mockRestore();

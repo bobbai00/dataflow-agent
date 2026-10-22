@@ -106,6 +106,13 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   `src/agent/util/context-utils.ts`; the ReAct loop in
   `src/agent/texera-agent.ts`. **Never import frontend or amber code from
   agent-service** — it is a process boundary.
+- **Traces**: `agent-service/src/trace/trace-store.ts` writes every agent's
+  turns, steps (with timings), model requests (by size and token count, never
+  content), dataflow versions, executions, operator results and control events
+  to one SQLite database as they happen; `AGENT_TRACE_DB` names it (§7),
+  `GET /api/traces` / `GET /api/traces/:id` read it back, and
+  `POST /api/agents/:id/restore` rebuilds an agent from it after a restart
+  (steps, dataflow versions, results and settings).
 - **LLM path**: the agent never holds a provider key. It sends the user's JWT
   to the access-control-service, which injects the LiteLLM master key and
   forwards to the proxy. Model list: `bin/single-node/litellm-config.yaml`
@@ -276,6 +283,7 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` | optional: swap the local proxy for an external OpenAI-compatible gateway |
 | `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-5-mini directly — a dummy key silently zeroes paraphrase metrics |
 | `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
+| `AGENT_TRACE_DB` | optional: the agent-service trace database — every agent's turns, steps, model requests, dataflow versions, executions and results, written as they happen (`agent-service/src/trace/trace-store.ts`); default `logs/agent-service/traces.db`, `off` disables it. `GET /api/traces` lists agents, `GET /api/traces/:id` exports one |
 
 **Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build
 output, logs are all gitignored — keep it that way.
